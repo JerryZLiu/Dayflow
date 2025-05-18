@@ -44,8 +44,6 @@ final class GeminiAnalysisManager: AnalysisManaging, @unchecked Sendable {
     private var isProcessing = false
     private let queue = DispatchQueue(label: "com.dayflow.geminianalysis.queue", qos: .utility)
 
-    // MARK: – Public API -----------------------------------------------------
-
     func startAnalysisJob() {
         stopAnalysisJob()               // ensure single timer
         DispatchQueue.main.async { [weak self] in
