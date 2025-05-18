@@ -22,8 +22,6 @@ protocol GeminiServicing {
     func setApiKey(_ key: String)
 }
 
-// MARK: – DTOs & Errors ------------------------------------------------------
-
 struct ActivityCard: Codable {
     let startTime: String
     let endTime: String
