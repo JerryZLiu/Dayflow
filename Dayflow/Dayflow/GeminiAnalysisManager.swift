@@ -9,7 +9,7 @@
 //
 import Foundation
 import AVFoundation
-import GRD
+import GRDB
 
 protocol AnalysisManaging {
     func startAnalysisJob()
