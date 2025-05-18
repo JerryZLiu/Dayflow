@@ -11,8 +11,6 @@ import Foundation
 import AVFoundation
 import GRDB
 
-// MARK: – Public protocol ---------------------------------------------------
-
 protocol AnalysisManaging {
     func startAnalysisJob()
     func stopAnalysisJob()
