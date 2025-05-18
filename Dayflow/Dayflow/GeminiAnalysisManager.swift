@@ -17,8 +17,6 @@ protocol AnalysisManaging {
     func triggerAnalysisNow()
 }
 
-// MARK: – Manager -----------------------------------------------------------
-
 final class GeminiAnalysisManager: AnalysisManaging, @unchecked Sendable {
     static let shared = GeminiAnalysisManager()
     private let videoProcessingService: VideoProcessingService
