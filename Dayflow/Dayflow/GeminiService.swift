@@ -505,8 +505,6 @@ final class GeminiService: GeminiServicing {
         return out
     }
 
-    // MARK: – Misc -----------------------------------------------------------
-
     private func mimeType(for url: URL) -> String? {
         UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
     }
