@@ -49,7 +49,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             .dropFirst()
             .removeDuplicates()
             .sink { [weak self] rec in
-                self?.q.async {
+                self?.q.async { [weak self] in
                     rec ? self?.start() : self?.stop()
                 }
             }
@@ -134,7 +134,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         catch {
             dbg("makeStream failed [attempt \(attempt)] – \(error.localizedDescription)")
 
-            q.async { self.isStarting = false }
+            q.async { [weak self] in self?.isStarting = false }
 
             // Treat `noDisplay` like other transient issues
             let retryable = shouldRetry(error) || (error as? RecorderError) == .noDisplay

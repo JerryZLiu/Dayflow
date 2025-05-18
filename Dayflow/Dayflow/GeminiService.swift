@@ -109,15 +109,17 @@ final class GeminiService: GeminiServicing {
             completion(.failure(GeminiServiceError.missingApiKey)); return
         }
 
-        queue.async {
-            var callLogs: [LLMCall] = []
-            do {
-                // 1. gather & stitch -------------------------------------------------
-                let chunks = StorageManager.shared.chunksForBatch(batchId)
-                guard !chunks.isEmpty else { throw GeminiServiceError.noChunks }
-                let urls = chunks.map { URL(fileURLWithPath: $0.fileUrl) }
-                let stitched = try self.stitch(urls: urls)
-                defer { try? FileManager.default.removeItem(at: stitched) }
+        queue.async { [weak self] in
+            guard let self else { return }
+            Task {
+                var callLogs: [LLMCall] = []
+                do {
+                    // 1. gather & stitch -------------------------------------------------
+                    let chunks = StorageManager.shared.chunksForBatch(batchId)
+                    guard !chunks.isEmpty else { throw GeminiServiceError.noChunks }
+                    let urls = chunks.map { URL(fileURLWithPath: $0.fileUrl) }
+                    let stitched = try await self.stitch(urls: urls)
+                    defer { try? FileManager.default.removeItem(at: stitched) }
 
                 // 2. upload via Files API -------------------------------------------
                 let mime = self.mimeType(for: stitched) ?? "video/mp4"
@@ -481,7 +483,7 @@ final class GeminiService: GeminiServicing {
 
     // MARK: – Stitch helper ---------------------------------------------------
 
-    private func stitch(urls: [URL]) throws -> URL {
+    private func stitch(urls: [URL]) async throws -> URL {
         let comp = AVMutableComposition()
         guard let trak = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
             throw GeminiServiceError.stitchingFailed
@@ -489,9 +491,11 @@ final class GeminiService: GeminiServicing {
         var cursor = CMTime.zero
         for u in urls {
             let asset = AVURLAsset(url: u)
-            guard let src = asset.tracks(withMediaType: .video).first else { continue }
-            try trak.insertTimeRange(CMTimeRange(start: .zero, duration: asset.duration), of: src, at: cursor)
-            cursor = CMTimeAdd(cursor, asset.duration)
+            let tracks = try await asset.loadTracks(withMediaType: .video)
+            guard let src = tracks.first else { continue }
+            let dur = try await asset.load(.duration)
+            try trak.insertTimeRange(CMTimeRange(start: .zero, duration: dur), of: src, at: cursor)
+            cursor = CMTimeAdd(cursor, dur)
         }
         let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
         guard let exp = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetPassthrough) else { throw GeminiServiceError.stitchingFailed }

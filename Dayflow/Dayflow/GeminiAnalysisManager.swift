@@ -21,7 +21,7 @@ protocol AnalysisManaging {
 
 // MARK: – Manager -----------------------------------------------------------
 
-final class GeminiAnalysisManager: AnalysisManaging {
+final class GeminiAnalysisManager: AnalysisManaging, @unchecked Sendable {
     static let shared = GeminiAnalysisManager()
     private let videoProcessingService: VideoProcessingService
     
