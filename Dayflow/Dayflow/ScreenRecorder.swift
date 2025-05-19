@@ -309,26 +309,26 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         // -------- screen lock (session resign active) ----------
         nc.addObserver(forName: NSWorkspace.sessionDidResignActiveNotification,
                        object: nil, queue: nil) { [weak self] _ in
-            guard let self else { return }
+            guard let strongSelf = self else { return }
             dbg("sessionDidResignActive – pausing (screen locked)")
 
-            Task { @MainActor in
-                self.resumeAfterSleep = AppState.shared.isRecording
+            Task { @MainActor [strongSelf] in
+                strongSelf.resumeAfterSleep = AppState.shared.isRecording
             }
-            self.stop()
+            strongSelf.stop()
         }
         
         // -------- screen unlock (session become active) ------------
         nc.addObserver(forName: NSWorkspace.sessionDidBecomeActiveNotification,
                        object: nil, queue: nil) { [weak self] _ in
-            guard let self else { return }
+            guard let strongSelf = self else { return }
             dbg("sessionDidBecomeActive – checking flag (screen unlocked)")
 
-            guard self.resumeAfterSleep else { return }
-            self.resumeAfterSleep = false      // consume the token
+            guard strongSelf.resumeAfterSleep else { return }
+            strongSelf.resumeAfterSleep = false      // consume the token
 
             // give ScreenCaptureKit a moment to re-enumerate displays
-            self.q.asyncAfter(deadline: .now() + 5) { [weak self] in
+            strongSelf.q.asyncAfter(deadline: .now() + 5) { [weak self] in
                 self?.start()
             }
         }
@@ -336,26 +336,26 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         // -------- screensaver start (screens sleep) ----------
         nc.addObserver(forName: NSWorkspace.screensDidSleepNotification,
                        object: nil, queue: nil) { [weak self] _ in
-            guard let self else { return }
+            guard let strongSelf = self else { return }
             dbg("screensDidSleep – pausing (screensaver started)")
 
-            Task { @MainActor in
-                self.resumeAfterSleep = AppState.shared.isRecording
+            Task { @MainActor [strongSelf] in
+                strongSelf.resumeAfterSleep = AppState.shared.isRecording
             }
-            self.stop()
+            strongSelf.stop()
         }
         
         // -------- screensaver end (screens wake) ------------
         nc.addObserver(forName: NSWorkspace.screensDidWakeNotification,
                        object: nil, queue: nil) { [weak self] _ in
-            guard let self else { return }
+            guard let strongSelf = self else { return }
             dbg("screensDidWake – checking flag (screensaver ended)")
 
-            guard self.resumeAfterSleep else { return }
-            self.resumeAfterSleep = false      // consume the token
+            guard strongSelf.resumeAfterSleep else { return }
+            strongSelf.resumeAfterSleep = false      // consume the token
 
             // give ScreenCaptureKit a moment to re-enumerate displays
-            self.q.asyncAfter(deadline: .now() + 5) { [weak self] in
+            strongSelf.q.asyncAfter(deadline: .now() + 5) { [weak self] in
                 self?.start()
             }
         }
