@@ -328,6 +328,8 @@ final class GeminiAnalysisManager: AnalysisManaging {
                     }
                     print("Temporary video files cleaned up for batch \\\\(batchId).")
 
+                    await self.processDashboardQuestionsAndTodos(batchId: batchId, dayString: currentLogicalDayString)
+
                     // Update batch status to completed if all went well (or with errors if some failed)
                     // This needs to be robust to partial failures.
                     // For now, let's assume if we reached here, we can mark it completed.
@@ -450,5 +452,204 @@ private func createBatches(from chunks: [RecordingChunk]) -> [AnalysisBatch] {
         formatter.dateFormat = "h:mm a" // e.g., "11:37 AM"
         formatter.timeZone = TimeZone.current
         return formatter.string(from: date)
+    }
+    
+    private func processDashboardQuestionsAndTodos(batchId: Int64, dayString: String) async {
+        guard let apiKey = geminiService.apiKey(), !apiKey.isEmpty else {
+            print("Warning: No API key available for dashboard processing in batch \(batchId)")
+            return
+        }
+
+        // Get all transcripts for this day
+        let dayTranscripts = store.fetchAllTranscriptsForDay(dayString)
+        guard !dayTranscripts.isEmpty else {
+            print("No transcripts available for dashboard processing on day \(dayString)")
+            return
+        }
+
+        print("Processing dashboard questions and todos for day \(dayString) with \(dayTranscripts.count) transcript chunks")
+
+        // Process Questions
+        await processQuestionsForDay(dayString: dayString, transcripts: dayTranscripts, batchId: batchId, apiKey: apiKey)
+
+        // Process Todos
+        await processTodosForDay(dayString: dayString, transcripts: dayTranscripts, apiKey: apiKey)
+    }
+
+    private func processQuestionsForDay(dayString: String, transcripts: [ClockTranscriptChunk], batchId: Int64, apiKey: String) async {
+        let questions = store.fetchDashboardQuestions()
+        guard !questions.isEmpty else { return }
+
+        print("Processing \(questions.count) dashboard questions for day \(dayString)")
+
+        // Separate questions that need full reprocess vs incremental update
+        var questionsNeedingReprocess: [(question: DashboardQuestionDB, previousValue: Double)] = []
+        var questionsNeedingIncremental: [(question: DashboardQuestionDB, previousValue: Double)] = []
+
+        for question in questions {
+            guard let questionId = question.id else { continue }
+
+            let existingAnswer = store.fetchDashboardAnswerForDay(questionId: questionId, day: dayString)
+
+            if let answer = existingAnswer {
+                if answer.needsReprocess || answer.lastProcessedBatchId == nil {
+                    // Needs full day reprocess
+                    questionsNeedingReprocess.append((question, answer.currentValue))
+                } else if let lastBatchId = answer.lastProcessedBatchId, lastBatchId < batchId {
+                    // Needs incremental update
+                    questionsNeedingIncremental.append((question, answer.currentValue))
+                }
+                // If lastProcessedBatchId >= batchId, skip (already processed)
+            } else {
+                // New question for this day - needs full reprocess starting from 0
+                questionsNeedingReprocess.append((question, 0.0))
+            }
+        }
+
+        // Process questions needing full reprocess
+        if !questionsNeedingReprocess.isEmpty {
+            await processQuestionsWithFullTranscripts(
+                questions: questionsNeedingReprocess,
+                dayString: dayString,
+                transcripts: transcripts,
+                batchId: batchId,
+                apiKey: apiKey
+            )
+        }
+
+        // Process questions needing incremental update
+        if !questionsNeedingIncremental.isEmpty {
+            // Get only transcripts for this batch
+            let batchTranscripts = store.fetchTranscript(batchId: batchId)
+            if !batchTranscripts.isEmpty {
+                await processQuestionsWithBatchTranscripts(
+                    questions: questionsNeedingIncremental,
+                    dayString: dayString,
+                    transcripts: batchTranscripts,
+                    batchId: batchId,
+                    apiKey: apiKey
+                )
+            }
+        }
+    }
+
+    private func processQuestionsWithFullTranscripts(
+        questions: [(question: DashboardQuestionDB, previousValue: Double)],
+        dayString: String,
+        transcripts: [ClockTranscriptChunk],
+        batchId: Int64,
+        apiKey: String
+    ) async {
+        let questionIds = questions.compactMap { $0.question.id }
+        let questionTexts = questions.map { $0.question.question }
+        let startingValues = Array(repeating: 0.0, count: questions.count) // Start from 0 for full reprocess
+
+        do {
+            let (results, log) = try await geminiService.evaluateQuestionsFromTranscript(
+                questionIds: questionIds,
+                questions: questionTexts,
+                previousValues: startingValues,
+                transcripts: transcripts,
+                apiKey: apiKey
+            )
+
+            // Save results to database
+            for (index, result) in results.enumerated() {
+                guard index < questions.count,
+                      let questionId = questions[index].question.id else { continue }
+
+                // Update dashboard answer with new value and mark as processed
+                store.updateDashboardAnswerWithBatch(
+                    questionId: questionId,
+                    day: dayString,
+                    newValue: result,
+                    batchId: batchId
+                )
+
+                print("Updated question '\(questions[index].question.question)' to value \(result) for day \(dayString)")
+            }
+
+        } catch {
+            print("Error processing questions with full transcripts: \(error.localizedDescription)")
+        }
+    }
+
+    private func processQuestionsWithBatchTranscripts(
+        questions: [(question: DashboardQuestionDB, previousValue: Double)],
+        dayString: String,
+        transcripts: [ClockTranscriptChunk],
+        batchId: Int64,
+        apiKey: String
+    ) async {
+        let questionIds = questions.compactMap { $0.question.id }
+        let questionTexts = questions.map { $0.question.question }
+        let previousValues = questions.map { $0.previousValue }
+
+        do {
+            let (results, log) = try await geminiService.evaluateQuestionsFromTranscript(
+                questionIds: questionIds,
+                questions: questionTexts,
+                previousValues: previousValues,
+                transcripts: transcripts,
+                apiKey: apiKey
+            )
+
+            // Save incremental results
+            for (index, result) in results.enumerated() {
+                guard index < questions.count,
+                      let questionId = questions[index].question.id else { continue }
+
+                // Save batch-specific result
+                store.saveBatchQuestionResult(questionId: questionId, batchId: batchId, value: result - previousValues[index])
+
+                // Update dashboard answer with cumulative value
+                store.updateDashboardAnswerIncremental(
+                    questionId: questionId,
+                    day: dayString,
+                    newValue: result,
+                    batchId: batchId
+                )
+
+                print("Incrementally updated question '\(questions[index].question.question)' from \(previousValues[index]) to \(result) for day \(dayString)")
+            }
+
+        } catch {
+            print("Error processing questions with batch transcripts: \(error.localizedDescription)")
+        }
+    }
+
+    private func processTodosForDay(dayString: String, transcripts: [ClockTranscriptChunk], apiKey: String) async {
+        let todos = store.fetchTodosForDay(day: dayString)
+        let incompleteTodos = todos.filter { !$0.isCompleted }
+        
+        guard !incompleteTodos.isEmpty else {
+            print("No incomplete todos to process for day \(dayString)")
+            return
+        }
+
+        print("Processing \(incompleteTodos.count) incomplete todos for day \(dayString)")
+
+        let todoTexts = incompleteTodos.map { $0.title }
+
+        do {
+            let (completions, log) = try await geminiService.evaluateTodosFromTranscript(
+                todos: todoTexts,
+                transcripts: transcripts,
+                apiKey: apiKey
+            )
+
+            // Update todo completion status
+            for (index, isCompleted) in completions.enumerated() {
+                guard index < incompleteTodos.count,
+                      let todoId = incompleteTodos[index].id,
+                      isCompleted else { continue } // Only update if completed
+
+                store.updateTodoCompletion(todoId: todoId, day: dayString, isCompleted: true)
+                print("Marked todo '\(incompleteTodos[index].title)' as completed for day \(dayString)")
+            }
+
+        } catch {
+            print("Error processing todos: \(error.localizedDescription)")
+        }
     }
 }

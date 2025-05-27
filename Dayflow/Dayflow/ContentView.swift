@@ -11,6 +11,17 @@ import SwiftUI
 import AppKit
 import AVKit // Import AVKit for VideoPlayer
 
+extension View {
+    @ViewBuilder
+    func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
+    }
+}
+
 // MARK: – Data -----------------------------------------------------------------
 
 // Add a struct to hold grouped TimelineCard data for the UI
@@ -624,12 +635,21 @@ struct CategoryLane: View {
 
             ForEach(Array(group.subcategories.enumerated()), id: \.element) { subcategoryIndex, subcategoryName in
                 let cardsInSubcategory = group.cards.filter { $0.subcategory == subcategoryName }
+                    .sorted { card1, card2 in
+                        guard let start1 = parseTimeHMMA(timeString: card1.startTimestamp),
+                              let start2 = parseTimeHMMA(timeString: card2.startTimestamp) else {
+                            return false
+                        }
+                        return start1 < start2
+                    }
                 let cardRowIndex = subcategoryIndex + 1
                 
-                ForEach(cardsInSubcategory) { card in
+                ForEach(Array(cardsInSubcategory.enumerated()), id: \.element.id) { index, card in
+                    let nextCard = index + 1 < cardsInSubcategory.count ? cardsInSubcategory[index + 1] : nil
                     TimelineCardView(card: card,
                                      rowIndex: cardRowIndex,
-                                     pxPerMin: pxPerMin)
+                                     pxPerMin: pxPerMin,
+                                     nextCard: nextCard)
                 }
             }
         }
@@ -643,6 +663,7 @@ struct TimelineCardView: View {
     let card: TimelineCard
     let rowIndex: Int
     let pxPerMin: CGFloat
+    let nextCard: TimelineCard?
     @State private var hover = false
     @State private var avPlayer: AVPlayer? = nil
     @State private var popoverID = UUID() // Forces popover refresh
@@ -670,6 +691,24 @@ struct TimelineCardView: View {
     private var yOffset: CGFloat {
         CGFloat(rowIndex) * rowH + 4
     }
+    
+    private var shouldAllowTextOverflow: Bool {
+        guard let nextCard = nextCard,
+              let nextCardStart = parseTimeHMMA(timeString: nextCard.startTimestamp).map(adjustedMinute) else {
+            return true // No next card, allow overflow
+        }
+        
+        let nextCardXOffset = CGFloat(max(0, nextCardStart - startMin)) * pxPerMin
+        let currentCardEndX = xOffset + width
+        let gapToNextCard = nextCardXOffset - currentCardEndX
+        
+        // Estimate text width (rough approximation)
+        let estimatedTextWidth = CGFloat(card.title.count) * 8 // ~8px per character
+        let textOverflow = max(0, estimatedTextWidth - width)
+        
+        // Allow overflow only if text won't reach the next card
+        return gapToNextCard > textOverflow + 20 // 20px safety margin
+    }
 
     var body: some View {
         if let cardStartMinute = self.startMinute, 
@@ -692,7 +731,12 @@ struct TimelineCardView: View {
                             Text(card.title)
                                 .font(.system(size: 16, weight: .semibold))
                                 .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
+                                .if(shouldAllowTextOverflow) { view in
+                                    view.fixedSize(horizontal: true, vertical: false)
+                                }
+                                .if(!shouldAllowTextOverflow) { view in
+                                    view.truncationMode(.tail)
+                                }
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
                         }

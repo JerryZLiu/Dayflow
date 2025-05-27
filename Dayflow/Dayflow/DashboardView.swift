@@ -69,6 +69,9 @@ struct DashboardView: View {
     @State private var showingAddTodo = false
     @State private var newTodoText = ""
     
+    private let storageManager = StorageManager.shared
+    @State private var currentDayString: String = ""
+    
     private let maxCards = 6
     private let columns = [
         GridItem(.flexible(), spacing: 20),
@@ -91,20 +94,35 @@ struct DashboardView: View {
         .sheet(isPresented: $showingAddCard) {
             AddCardView { newCard in
                 if cards.count < maxCards {
-                    cards.append(newCard)
-                    saveCards()
+                    let dbQuestion = DashboardQuestionDB(
+                        question: newCard.question,
+                        type: newCard.type.rawValue.lowercased()
+                    )
+                    if let questionId = storageManager.saveDashboardQuestion(question: dbQuestion) {
+                        // Mark for reprocess so it gets evaluated against today's data
+                        storageManager.markQuestionForReprocess(questionId: questionId, day: currentDayString)
+                    }
+                    loadData()
                 }
             }
         }
         .sheet(item: $editingCard) { card in
             EditCardView(card: card) { updatedCard in
-                if let index = cards.firstIndex(where: { $0.id == card.id }) {
-                    cards[index] = updatedCard
-                    saveCards()
+                if let dbCard = findDatabaseCardForDashboardCard(updatedCard) {
+                    storageManager.updateDashboardQuestion(
+                        questionId: dbCard.id!,
+                        question: updatedCard.question,
+                        type: updatedCard.type.rawValue.lowercased()
+                    )
+                    // Mark for reprocess after editing
+                    storageManager.markQuestionForReprocess(questionId: dbCard.id!, day: currentDayString)
+                    loadData()
                 }
             } onDelete: {
-                cards.removeAll { $0.id == card.id }
-                saveCards()
+                if let dbCard = findDatabaseCardForDashboardCard(card) {
+                    storageManager.deleteDashboardQuestion(questionId: dbCard.id!)
+                    loadData()
+                }
             }
         }
         .onAppear {
@@ -138,10 +156,10 @@ struct DashboardView: View {
                 VStack(spacing: 8) {
                     ForEach($todos) { $todo in
                         TodoItemView(todo: $todo) {
-                            saveTodos()
+                            // Removed saveTodos call
                         } onDelete: {
                             todos.removeAll { $0.id == todo.id }
-                            saveTodos()
+                            // Removed saveTodos call
                         }
                     }
                 }
@@ -204,52 +222,57 @@ struct DashboardView: View {
         let trimmedText = newTodoText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
         
-        let newTodo = TodoItem(title: trimmedText)
-        todos.append(newTodo)
-        saveTodos()
+        let newTodo = TodoItemDB(title: trimmedText)
+        _ = storageManager.saveTodoForDay(todo: newTodo, day: currentDayString)
         
         newTodoText = ""
         showingAddTodo = false
+        loadData()
     }
     
     private func loadData() {
-        // Load cards
-        if let cardsData = UserDefaults.standard.data(forKey: "dashboardCards"),
-           let decodedCards = try? JSONDecoder().decode([DashboardCard].self, from: cardsData) {
-            cards = decodedCards
-        } else {
-            // Sample data for demo
-            cards = [
-                DashboardCard(
-                    question: "How many times did I check social media?",
-                    type: .count,
-                    todayValue: 12
-                ),
-                DashboardCard(
-                    question: "How long did I spend in deep work?",
-                    type: .time,
-                    todayValue: 180
-                )
-            ]
+        let dayInfo = Date().getDayInfoFor4AMBoundary()
+        currentDayString = dayInfo.dayString
+        
+        let dbQuestions = storageManager.fetchDashboardQuestions()
+        let dbAnswers = storageManager.fetchAllDashboardAnswersForDay(day: currentDayString)
+        
+        // Convert database questions to dashboard cards
+        cards = dbQuestions.compactMap { dbQuestion in
+            guard let questionId = dbQuestion.id else { return nil }
+            
+            // Find current value for this question today
+            let currentAnswer = dbAnswers.first { $0.questionId == questionId }
+            let todayValue = currentAnswer?.currentValue ?? 0.0
+            
+            // Convert type string back to CardType
+            let cardType: CardType
+            switch dbQuestion.type.lowercased() {
+            case "time": cardType = .time
+            case "count": cardType = .count
+            default: cardType = .count
+            }
+            
+            return DashboardCard(
+                question: dbQuestion.question,
+                type: cardType,
+                todayValue: todayValue
+            )
         }
         
-        // Load todos
-        if let todosData = UserDefaults.standard.data(forKey: "dashboardTodos"),
-           let decodedTodos = try? JSONDecoder().decode([TodoItem].self, from: todosData) {
-            todos = decodedTodos
+        let dbTodos = storageManager.fetchTodosForDay(day: currentDayString)
+        todos = dbTodos.map { dbTodo in
+            TodoItem(
+                title: dbTodo.title,
+                isCompleted: dbTodo.isCompleted,
+                createdDate: dbTodo.createdAt
+            )
         }
     }
     
-    private func saveCards() {
-        if let encoded = try? JSONEncoder().encode(cards) {
-            UserDefaults.standard.set(encoded, forKey: "dashboardCards")
-        }
-    }
-    
-    private func saveTodos() {
-        if let encoded = try? JSONEncoder().encode(todos) {
-            UserDefaults.standard.set(encoded, forKey: "dashboardTodos")
-        }
+    private func findDatabaseCardForDashboardCard(_ dashboardCard: DashboardCard) -> DashboardQuestionDB? {
+        let dbQuestions = storageManager.fetchDashboardQuestions()
+        return dbQuestions.first { $0.question == dashboardCard.question }
     }
 }
 
@@ -261,10 +284,23 @@ struct TodoItemView: View {
     var onDelete: () -> Void
     @State private var isHovering = false
     
+    private let storageManager = StorageManager.shared
+    
     var body: some View {
         HStack(spacing: 12) {
             Button(action: {
                 todo.isCompleted.toggle()
+                
+                let dayInfo = Date().getDayInfoFor4AMBoundary()
+                let currentDayString = dayInfo.dayString
+                let dbTodos = storageManager.fetchTodosForDay(day: currentDayString)
+                
+                if let dbTodo = dbTodos.first(where: { $0.title == todo.title }) {
+                    if let todoId = dbTodo.id {
+                        storageManager.updateTodoCompletion(todoId: todoId, day: currentDayString, isCompleted: todo.isCompleted)
+                    }
+                }
+                
                 onToggle()
             }) {
                 Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
@@ -281,7 +317,19 @@ struct TodoItemView: View {
             Spacer()
             
             if isHovering {
-                Button(action: onDelete) {
+                Button(action: {
+                    let dayInfo = Date().getDayInfoFor4AMBoundary()
+                    let currentDayString = dayInfo.dayString
+                    let dbTodos = storageManager.fetchTodosForDay(day: currentDayString)
+                    
+                    if let dbTodo = dbTodos.first(where: { $0.title == todo.title }) {
+                        if let todoId = dbTodo.id {
+                            storageManager.updateTodoCompletion(todoId: todoId, day: currentDayString, isCompleted: true) // Mark as deleted by setting completed
+                        }
+                    }
+                    
+                    onDelete()
+                }) {
                     Image(systemName: "xmark")
                         .foregroundColor(Color.gray)
                         .font(.system(size: 14))
@@ -367,8 +415,6 @@ struct AddCardButton: View {
         .buttonStyle(PlainButtonStyle())
     }
 }
-
-
 
 // MARK: - Add/Edit Card Views
 
@@ -495,4 +541,4 @@ struct DashboardView_Previews: PreviewProvider {
     static var previews: some View {
         DashboardView()
     }
-} 
+}

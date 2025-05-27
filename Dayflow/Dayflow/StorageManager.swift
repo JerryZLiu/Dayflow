@@ -92,6 +92,25 @@ protocol StorageManaging: Sendable {
     // Transcript Storage - Updated for ClockTranscriptChunk
     func saveTranscript(batchId: Int64, chunks: [ClockTranscriptChunk])
     func fetchTranscript(batchId: Int64) -> [ClockTranscriptChunk]
+    func fetchAllTranscriptsForDay(_ dayString: String) -> [ClockTranscriptChunk]
+
+    // Dashboard question tracking
+    func saveDashboardQuestion(question: DashboardQuestionDB) -> Int64?
+    func fetchDashboardQuestions() -> [DashboardQuestionDB]
+    func updateDashboardQuestionValue(questionId: Int64, day: String, newValue: Double)
+    func fetchDashboardAnswerForDay(questionId: Int64, day: String) -> DashboardAnswerDB?
+    func fetchAllDashboardAnswersForDay(day: String) -> [DashboardAnswerDB]
+    func markQuestionForReprocess(questionId: Int64, day: String)
+    func saveBatchQuestionResult(questionId: Int64, batchId: Int64, value: Double)
+    func deleteDashboardQuestion(questionId: Int64)
+    func updateDashboardQuestion(questionId: Int64, question: String, type: String)
+    func updateDashboardAnswerWithBatch(questionId: Int64, day: String, newValue: Double, batchId: Int64)
+    func updateDashboardAnswerIncremental(questionId: Int64, day: String, newValue: Double, batchId: Int64)
+
+    // Todo tracking
+    func fetchTodosForDay(day: String) -> [TodoItemDB]
+    func saveTodoForDay(todo: TodoItemDB, day: String) -> Int64?
+    func updateTodoCompletion(todoId: Int64, day: String, isCompleted: Bool)
 
     // Helper for GeminiService – map file paths → timestamps
     func getTimestampsForVideoFiles(paths: [String]) -> [String: (startTs: Int, endTs: Int)]
@@ -178,6 +197,72 @@ struct TimelineCardShell: Sendable {
     // No batchId here, as it's passed as a separate parameter to the save function
 }
 
+// Dashboard Question Database Structures
+struct DashboardQuestionDB: Codable, Sendable, Identifiable {
+    let id: Int64?
+    let question: String
+    let type: String // "count", "time", "boolean" - user hint, LLM can override
+    let createdAt: Date
+    let isActive: Bool
+    
+    init(id: Int64? = nil, question: String, type: String, createdAt: Date = Date(), isActive: Bool = true) {
+        self.id = id
+        self.question = question
+        self.type = type
+        self.createdAt = createdAt
+        self.isActive = isActive
+    }
+}
+
+struct DashboardAnswerDB: Codable, Sendable {
+    let questionId: Int64
+    let day: String // yyyy-MM-dd format using 4AM boundary
+    let currentValue: Double
+    let lastProcessedBatchId: Int64? // Track which batch was last processed
+    let needsReprocess: Bool // Flag for full day reprocessing
+    let llmDeterminedType: String? // What LLM thinks the type is
+    let updatedAt: Date
+    
+    init(questionId: Int64, day: String, currentValue: Double, lastProcessedBatchId: Int64? = nil, needsReprocess: Bool = false, llmDeterminedType: String? = nil, updatedAt: Date = Date()) {
+        self.questionId = questionId
+        self.day = day
+        self.currentValue = currentValue
+        self.lastProcessedBatchId = lastProcessedBatchId
+        self.needsReprocess = needsReprocess
+        self.llmDeterminedType = llmDeterminedType
+        self.updatedAt = updatedAt
+    }
+}
+
+struct BatchQuestionResult: Codable, Sendable {
+    let questionId: Int64
+    let batchId: Int64
+    let value: Double // Incremental value from this batch only
+    let processedAt: Date
+    
+    init(questionId: Int64, batchId: Int64, value: Double, processedAt: Date = Date()) {
+        self.questionId = questionId
+        self.batchId = batchId
+        self.value = value
+        self.processedAt = processedAt
+    }
+}
+
+// Todo Database Structure
+struct TodoItemDB: Codable, Sendable, Identifiable {
+    let id: Int64?
+    let title: String
+    let isCompleted: Bool
+    let createdAt: Date
+    
+    init(id: Int64? = nil, title: String, isCompleted: Bool = false, createdAt: Date = Date()) {
+        self.id = id
+        self.title = title
+        self.isCompleted = isCompleted
+        self.createdAt = createdAt
+    }
+}
+
 // MARK: - Implementation ------------------------------------------------------
 
 final class StorageManager: StorageManaging, @unchecked Sendable {
@@ -257,6 +342,52 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                  CREATE INDEX IF NOT EXISTS idx_timeline_cards_day ON timeline_cards(day);
+            """)
+
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS dashboard_questions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    question TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    is_active BOOLEAN NOT NULL DEFAULT 1
+                );
+            """)
+
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS dashboard_answers (
+                    question_id INTEGER NOT NULL REFERENCES dashboard_questions(id) ON DELETE CASCADE,
+                    day DATE NOT NULL,
+                    current_value REAL NOT NULL DEFAULT 0,
+                    last_processed_batch_id INTEGER REFERENCES analysis_batches(id),
+                    needs_reprocess BOOLEAN NOT NULL DEFAULT 0,
+                    llm_determined_type TEXT,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (question_id, day)
+                );
+                CREATE INDEX IF NOT EXISTS idx_dashboard_answers_day ON dashboard_answers(day);
+            """)
+
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS batch_question_results (
+                    question_id INTEGER NOT NULL REFERENCES dashboard_questions(id) ON DELETE CASCADE,
+                    batch_id INTEGER NOT NULL REFERENCES analysis_batches(id) ON DELETE CASCADE,
+                    value REAL NOT NULL,
+                    processed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (question_id, batch_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_batch_question_results_batch ON batch_question_results(batch_id);
+            """)
+
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS dashboard_todos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    day DATE NOT NULL,
+                    title TEXT NOT NULL,
+                    is_completed BOOLEAN NOT NULL DEFAULT 0,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_dashboard_todos_day ON dashboard_todos(day);
             """)
         }
     }
@@ -519,6 +650,233 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             }
             return []
         }) ?? []
+    }
+    
+    func fetchAllTranscriptsForDay(_ dayString: String) -> [ClockTranscriptChunk] {
+        // Parse the day string and calculate 4AM boundaries
+        guard let dayDate = DateFormatter.yyyyMMdd.date(from: dayString) else { return [] }
+        
+        let calendar = Calendar.current
+        guard let fourAM = calendar.date(bySettingHour: 4, minute: 0, second: 0, of: dayDate) else { return [] }
+        
+        let startOfDay = fourAM
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        
+        let startTs = Int(startOfDay.timeIntervalSince1970)
+        let endTs = Int(endOfDay.timeIntervalSince1970)
+        
+        var allTranscripts: [ClockTranscriptChunk] = []
+        
+        try? db.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT id, detailed_transcription
+                FROM analysis_batches 
+                WHERE detailed_transcription IS NOT NULL 
+                  AND detailed_transcription != ''
+                  AND status = 'completed'
+                  AND (
+                    (batch_start_ts >= ? AND batch_start_ts < ?) OR
+                    (batch_end_ts > ? AND batch_end_ts <= ?) OR
+                    (batch_start_ts < ? AND batch_end_ts > ?)
+                  )
+                ORDER BY batch_start_ts ASC
+            """, arguments: [startTs, endTs, startTs, endTs, startTs, endTs])
+            
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            
+            for row in rows {
+                if let jsonString: String = row["detailed_transcription"],
+                   let jsonData = jsonString.data(using: .utf8),
+                   let transcripts = try? decoder.decode([ClockTranscriptChunk].self, from: jsonData) {
+                    allTranscripts.append(contentsOf: transcripts)
+                }
+            }
+        }
+        
+        // Sort by actual clock time
+        return allTranscripts.sorted { $0.clockStartTime < $1.clockStartTime }
+    }
+
+    // MARK: - Dashboard question tracking
+
+    func saveDashboardQuestion(question: DashboardQuestionDB) -> Int64? {
+        var questionId: Int64? = nil
+        try? db.write { db in
+            try db.execute(sql: """
+                INSERT INTO dashboard_questions(question, type, created_at, is_active)
+                VALUES (?, ?, ?, ?)
+            """, arguments: [question.question, question.type, question.createdAt.timeIntervalSince1970, question.isActive])
+            questionId = db.lastInsertedRowID
+        }
+        return questionId
+    }
+
+    func fetchDashboardQuestions() -> [DashboardQuestionDB] {
+        return (try? db.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM dashboard_questions 
+                WHERE is_active = 1 
+                ORDER BY created_at ASC
+            """).map { row in
+                DashboardQuestionDB(
+                    id: row["id"],
+                    question: row["question"],
+                    type: row["type"],
+                    createdAt: Date(timeIntervalSince1970: row["created_at"]),
+                    isActive: row["is_active"]
+                )
+            }
+        }) ?? []
+    }
+
+    func updateDashboardQuestionValue(questionId: Int64, day: String, newValue: Double) {
+        try? db.write { db in
+            try db.execute(sql: """
+                INSERT OR REPLACE INTO dashboard_answers(question_id, day, current_value, updated_at)
+                VALUES (?, ?, ?, ?)
+            """, arguments: [questionId, day, newValue, Date().timeIntervalSince1970])
+        }
+    }
+
+    func fetchDashboardAnswerForDay(questionId: Int64, day: String) -> DashboardAnswerDB? {
+        return try? db.read { db in
+            if let row = try Row.fetchOne(db, sql: """
+                SELECT * FROM dashboard_answers 
+                WHERE question_id = ? AND day = ?
+            """, arguments: [questionId, day]) {
+                return DashboardAnswerDB(
+                    questionId: row["question_id"],
+                    day: row["day"],
+                    currentValue: row["current_value"],
+                    lastProcessedBatchId: row["last_processed_batch_id"],
+                    needsReprocess: row["needs_reprocess"],
+                    llmDeterminedType: row["llm_determined_type"],
+                    updatedAt: Date(timeIntervalSince1970: row["updated_at"])
+                )
+            }
+            return nil
+        }
+    }
+
+    func fetchAllDashboardAnswersForDay(day: String) -> [DashboardAnswerDB] {
+        return (try? db.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM dashboard_answers 
+                WHERE day = ?
+            """, arguments: [day]).map { row in
+                DashboardAnswerDB(
+                    questionId: row["question_id"],
+                    day: row["day"],
+                    currentValue: row["current_value"],
+                    lastProcessedBatchId: row["last_processed_batch_id"],
+                    needsReprocess: row["needs_reprocess"],
+                    llmDeterminedType: row["llm_determined_type"],
+                    updatedAt: Date(timeIntervalSince1970: row["updated_at"])
+                )
+            }
+        }) ?? []
+    }
+
+    func markQuestionForReprocess(questionId: Int64, day: String) {
+        try? db.write { db in
+            try db.execute(sql: """
+                UPDATE dashboard_answers 
+                SET needs_reprocess = 1, last_processed_batch_id = NULL, updated_at = ?
+                WHERE question_id = ? AND day = ?
+            """, arguments: [Date().timeIntervalSince1970, questionId, day])
+        }
+    }
+
+    func saveBatchQuestionResult(questionId: Int64, batchId: Int64, value: Double) {
+        try? db.write { db in
+            try db.execute(sql: """
+                INSERT OR REPLACE INTO batch_question_results(question_id, batch_id, value, processed_at)
+                VALUES (?, ?, ?, ?)
+            """, arguments: [questionId, batchId, value, Date().timeIntervalSince1970])
+        }
+    }
+
+    func deleteDashboardQuestion(questionId: Int64) {
+        try? db.write { db in
+            try db.execute(sql: """
+                UPDATE dashboard_questions 
+                SET is_active = 0 
+                WHERE id = ?
+            """, arguments: [questionId])
+        }
+    }
+
+    func updateDashboardQuestion(questionId: Int64, question: String, type: String) {
+        try? db.write { db in
+            try db.execute(sql: """
+                UPDATE dashboard_questions 
+                SET question = ?, type = ? 
+                WHERE id = ?
+            """, arguments: [question, type, questionId])
+        }
+    }
+
+    func updateTodoCompletion(todoId: Int64, day: String, isCompleted: Bool) {
+        try? db.write { db in
+            try db.execute(sql: """
+                UPDATE dashboard_todos 
+                SET is_completed = ? 
+                WHERE id = ? AND day = ?
+            """, arguments: [isCompleted, todoId, day])
+        }
+    }
+
+    func updateDashboardAnswerWithBatch(questionId: Int64, day: String, newValue: Double, batchId: Int64) {
+        try? db.write { db in
+            try db.execute(sql: """
+                INSERT OR REPLACE INTO dashboard_answers(
+                    question_id, day, current_value, last_processed_batch_id, 
+                    needs_reprocess, updated_at
+                ) VALUES (?, ?, ?, ?, 0, ?)
+            """, arguments: [questionId, day, newValue, batchId, Date().timeIntervalSince1970])
+        }
+    }
+
+    func updateDashboardAnswerIncremental(questionId: Int64, day: String, newValue: Double, batchId: Int64) {
+        try? db.write { db in
+            try db.execute(sql: """
+                UPDATE dashboard_answers 
+                SET current_value = ?, last_processed_batch_id = ?, updated_at = ?
+                WHERE question_id = ? AND day = ?
+            """, arguments: [newValue, batchId, Date().timeIntervalSince1970, questionId, day])
+        }
+    }
+
+    // MARK: - Todo tracking
+
+    func fetchTodosForDay(day: String) -> [TodoItemDB] {
+        return (try? db.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM dashboard_todos 
+                WHERE day = ? 
+                ORDER BY created_at ASC
+            """, arguments: [day]).map { row in
+                TodoItemDB(
+                    id: row["id"],
+                    title: row["title"],
+                    isCompleted: row["is_completed"],
+                    createdAt: Date(timeIntervalSince1970: row["created_at"])
+                )
+            }
+        }) ?? []
+    }
+
+    func saveTodoForDay(todo: TodoItemDB, day: String) -> Int64? {
+        var todoId: Int64? = nil
+        try? db.write { db in
+            try db.execute(sql: """
+                INSERT INTO dashboard_todos(day, title, is_completed, created_at)
+                VALUES (?, ?, ?, ?)
+            """, arguments: [day, todo.title, todo.isCompleted, todo.createdAt.timeIntervalSince1970])
+            todoId = db.lastInsertedRowID
+        }
+        return todoId
     }
 
     // MARK: - Helper for GeminiService – map file paths → timestamps

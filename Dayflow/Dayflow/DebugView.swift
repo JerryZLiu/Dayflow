@@ -9,13 +9,18 @@ struct DebugView: View {
     @State private var timelineCards: [TimelineCard] = []
     @State private var llmCalls: [LLMCall] = []
     @State private var composition: AVMutableComposition?
-    @State private var isProcessing = false
+    @State private var processingBatches: Set<Int64> = []
 
     var body: some View {
         HStack(spacing: 0) {
             List(batches, id: \.id, selection: $selected) { b in
                 VStack(alignment: .leading) {
-                    Text("Batch \(b.id)").font(.headline)
+                    HStack {
+                        Text("Batch \(b.id)").font(.headline)
+                        if processingBatches.contains(b.id) {
+                            Text("⏳").foregroundColor(.orange)
+                        }
+                    }
                     Text("\(tsString(b.start)) – \(tsString(b.end))")
                         .font(.caption)
                     Text(b.status).font(.caption2)
@@ -33,10 +38,12 @@ struct DebugView: View {
                             .frame(height: 200)
                             .cornerRadius(8)
                         Button("Export Video…") { exportVideo() }
-                            .disabled(composition == nil || isProcessing)
+                            .disabled(composition == nil)
 
-                        Button("Reprocess Batch") { triggerReprocessBatch() }
-                            .disabled(isProcessing)
+                        Button(selected != nil && processingBatches.contains(selected!) ? "Processing..." : "Reprocess Batch") { 
+                            triggerReprocessBatch() 
+                        }
+                        .disabled(selected == nil || processingBatches.contains(selected!))
                             .padding(.top, 5)
 
                         if !timelineCards.isEmpty {
@@ -104,14 +111,14 @@ struct DebugView: View {
     }
 
     private func triggerReprocessBatch() {
-        guard let batchId = selected, !isProcessing else { return }
+        guard let batchId = selected, !processingBatches.contains(batchId) else { return }
 
-        isProcessing = true
+        processingBatches.insert(batchId)
         print("Starting reprocessing for batch \(batchId)...")
 
         GeminiService.shared.processBatch(batchId) { result in
             DispatchQueue.main.async {
-                self.isProcessing = false
+                self.processingBatches.remove(batchId)
                 switch result {
                 case .success(let cards):
                     print("Successfully reprocessed batch \(batchId). Found \(cards.count) cards.")

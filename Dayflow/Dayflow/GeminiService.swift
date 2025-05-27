@@ -21,6 +21,8 @@ protocol GeminiServicing {
     func transcribeChunk(batchId: Int64, stitchedFileURL: URL, mimeType: String, apiKey: String) async throws -> (transcripts: [TranscriptChunk], log: LLMCall)
     func generateActivityCardsFromTranscript(batchId: Int64, transcripts: [TranscriptChunk], apiKey: String,
                                             previousSegmentsJSON: String, userTaxonomy: String, extractedTaxonomy: String) async throws -> (cards: [ActivityCard], log: LLMCall)
+    func evaluateQuestionsFromTranscript(questionIds: [Int64], questions: [String], previousValues: [Double], transcripts: [ClockTranscriptChunk], apiKey: String) async throws -> (results: [Double], log: LLMCall)
+    func evaluateTodosFromTranscript(todos: [String], transcripts: [ClockTranscriptChunk], apiKey: String) async throws -> (completions: [Bool], log: LLMCall)
     func apiKey() -> String?
     func setApiKey(_ key: String)
 }
@@ -175,7 +177,17 @@ final class GeminiService: GeminiServicing {
                         apiKey: key
                     )
                     accumulatedCallLogs.append(transcriptionLog)
-                    // Note: Transcripts are not saved here, they are passed in memory.
+                    
+                    // 2.5. Convert TranscriptChunks to ClockTranscriptChunks and save to database
+                    currentPhase = "save transcripts"
+                    print("Phase: \(currentPhase) for batch \(batchId)")
+                    let batchStartTime = Date(timeIntervalSince1970: TimeInterval(recordingChunks.first?.startTs ?? 0))
+                    let clockTranscriptChunks = self.convertToClockTranscripts(
+                        transcriptChunks: transcriptChunks,
+                        batchStartTime: batchStartTime
+                    )
+                    StorageManager.shared.saveTranscript(batchId: batchId, chunks: clockTranscriptChunks)
+                    print("Saved \(clockTranscriptChunks.count) transcript chunks to database for batch \(batchId)")
 
                     // 3. Prepare Contextual Information for Activity Card Generation
                     currentPhase = "prepare context for card generation"
@@ -263,6 +275,136 @@ final class GeminiService: GeminiServicing {
         }
     }
 
+    func evaluateQuestionsFromTranscript(questionIds: [Int64], questions: [String], previousValues: [Double], transcripts: [ClockTranscriptChunk], apiKey: String) async throws -> (results: [Double], log: LLMCall) {
+        let callStartTime = Date()
+        
+        // Convert transcripts to readable format
+        let transcriptText = transcripts.map { transcript in
+            let formatter = DateFormatter()
+            formatter.dateFormat = "h:mm a"
+            let startTime = formatter.string(from: transcript.clockStartTime)
+            let endTime = formatter.string(from: transcript.clockEndTime)
+            return "[\(startTime) - \(endTime)]: \(transcript.description)"
+        }.joined(separator: "\n")
+        
+        // Create numbered questions list
+        let numberedQuestions = questions.enumerated().map { index, question in
+            "Q\(index + 1): \(question) (Current value: \(previousValues[index]))"
+        }.joined(separator: "\n")
+        
+        let questionEvaluationPrompt = """
+        You are evaluating dashboard questions based on transcript data. Your job is to analyze the transcript and provide updated cumulative values for each question.
+
+        TRANSCRIPT DATA:
+        \(transcriptText)
+
+        QUESTIONS TO EVALUATE:
+        \(numberedQuestions)
+
+        INSTRUCTIONS:
+        - For each question, determine what type it is (count, time duration, or boolean)
+        - Add the incremental value from this transcript to the current value
+        - For count questions: Count occurrences and add to current value
+        - For time questions: Calculate minutes spent and add to current value  
+        - For boolean questions: Return 1.0 if true/completed, 0.0 if false/not completed
+        - If a question is not relevant to this transcript, return the current value unchanged
+
+        Return a JSON array of numbers corresponding to the updated values for Q1, Q2, Q3, etc.
+        Example: [5.0, 180.0, 1.0] for 3 questions
+        """
+        
+        let responseSchema: [String: Any] = [
+            "type": "ARRAY",
+            "items": ["type": "NUMBER"]
+        ]
+        
+        let generationConfig: [String: Any] = [
+            "temperature": 0.1,
+            "maxOutputTokens": 4096,
+            "responseMimeType": "application/json",
+            "responseSchema": responseSchema
+        ]
+        
+        let requestBody: [String: Any] = [
+            "contents": [["parts": [["text": questionEvaluationPrompt]]]],
+            "generationConfig": generationConfig
+        ]
+        
+        let (results, responseText, _, latency) = try await callGeminiAPI(
+            apiKey: apiKey,
+            requestBody: requestBody,
+            targetType: [Double].self,
+            apiEndpoint: self.genEndpoint
+        )
+        
+        let log = LLMCall(timestamp: callStartTime, latency: latency, input: questionEvaluationPrompt, output: responseText)
+        return (results, log)
+    }
+
+    func evaluateTodosFromTranscript(todos: [String], transcripts: [ClockTranscriptChunk], apiKey: String) async throws -> (completions: [Bool], log: LLMCall) {
+        let callStartTime = Date()
+        
+        // Convert transcripts to readable format
+        let transcriptText = transcripts.map { transcript in
+            let formatter = DateFormatter()
+            formatter.dateFormat = "h:mm a"
+            let startTime = formatter.string(from: transcript.clockStartTime)
+            let endTime = formatter.string(from: transcript.clockEndTime)
+            return "[\(startTime) - \(endTime)]: \(transcript.description)"
+        }.joined(separator: "\n")
+        
+        // Create numbered todos list
+        let numberedTodos = todos.enumerated().map { index, todo in
+            "T\(index + 1): \(todo)"
+        }.joined(separator: "\n")
+        
+        let todoEvaluationPrompt = """
+        You are evaluating todo completion based on transcript data. Your job is to determine if each todo item was completed based on the activities described.
+
+        TRANSCRIPT DATA:
+        \(transcriptText)
+
+        TODOS TO EVALUATE:
+        \(numberedTodos)
+
+        INSTRUCTIONS:
+        - For each todo, determine if there is evidence in the transcript that it was completed
+        - Look for activities that directly relate to completing the todo
+        - Be conservative - only mark as completed if there is clear evidence
+        - Return true only if the todo appears to have been finished/completed
+
+        Return a JSON array of booleans corresponding to T1, T2, T3, etc.
+        Example: [true, false, true] for 3 todos
+        """
+        
+        let responseSchema: [String: Any] = [
+            "type": "ARRAY",
+            "items": ["type": "BOOLEAN"]
+        ]
+        
+        let generationConfig: [String: Any] = [
+            "temperature": 0.1,
+            "maxOutputTokens": 4096,
+            "responseMimeType": "application/json",
+            "responseSchema": responseSchema
+        ]
+        
+        let requestBody: [String: Any] = [
+            "contents": [["parts": [["text": todoEvaluationPrompt]]]],
+            "generationConfig": generationConfig
+        ]
+        
+        let (results, responseText, _, latency) = try await callGeminiAPI(
+            apiKey: apiKey,
+            requestBody: requestBody,
+            targetType: [Bool].self,
+            apiEndpoint: self.genEndpoint
+        )
+        
+        let log = LLMCall(timestamp: callStartTime, latency: latency, input: todoEvaluationPrompt, output: responseText)
+        return (results, log)
+    }
+
     // MARK: – Upload helper ---------------------------------------------------
 
     private func uploadAndAwait(_ file: URL, mimeType: String, key: String) throws -> (String,String) {
@@ -302,7 +444,7 @@ final class GeminiService: GeminiServicing {
             
             if state == "ACTIVE" {
                 fileURI = root["uri"] as? String
-                break                                   // ✅ ready to use
+                break                                   // 
             }
             if state == "FAILED" {
                 throw GeminiServiceError.processingFailed("File‑processing returned FAILED")
@@ -349,14 +491,14 @@ final class GeminiService: GeminiServicing {
         var comps = URLComponents(string: genEndpoint)!; comps.queryItems = [URLQueryItem(name: "key", value: key)]
         let script = """
 #!/usr/bin/env bash
-curl \"\(comps.url!.absoluteString)\" \
+curl "\(comps.url!.absoluteString)" \
   -H 'Content-Type: application/json' \
   -X POST \
   -d '\(js)'
 """
         let path = FileManager.default.temporaryDirectory.appendingPathComponent("gemini_batch_\(batchId).sh")
         try? script.write(to: path, atomically: true, encoding: .utf8)
-        print("📝 curl 👉 \(path.path)")
+        print(" curl \(path.path)")
     }
 
     // MARK: – Helper function to get current day string based on 4 AM boundary
@@ -382,6 +524,38 @@ curl \"\(comps.url!.absoluteString)\" \
         dateFormatter.timeZone = TimeZone.current // Ensure formatter also uses local timezone
         return dateFormatter.string(from: targetDate)
     }
+    
+    // MARK: – Helper function to convert TranscriptChunks to ClockTranscriptChunks
+    private func convertToClockTranscripts(transcriptChunks: [TranscriptChunk], batchStartTime: Date) -> [ClockTranscriptChunk] {
+        return transcriptChunks.compactMap { chunk in
+            guard let startSeconds = parseVideoTimestamp(chunk.startTimestamp),
+                  let endSeconds = parseVideoTimestamp(chunk.endTimestamp) else {
+                print("Warning: Could not parse video timestamps for transcript chunk: \(chunk.startTimestamp) - \(chunk.endTimestamp)")
+                return nil
+            }
+            
+            let clockStartTime = batchStartTime.addingTimeInterval(startSeconds)
+            let clockEndTime = batchStartTime.addingTimeInterval(endSeconds)
+            
+            return ClockTranscriptChunk(
+                clockStartTime: clockStartTime,
+                clockEndTime: clockEndTime,
+                description: chunk.description
+            )
+        }
+    }
+    
+    // MARK: – Helper function to parse video timestamps (MM:SS format)
+    private func parseVideoTimestamp(_ timestamp: String) -> TimeInterval? {
+        let components = timestamp.components(separatedBy: ":")
+        guard components.count == 2,
+              let minutes = Int(components[0]),
+              let seconds = Int(components[1]) else {
+            return nil
+        }
+        
+        return TimeInterval(minutes * 60 + seconds)
+    }
 
     // Helper function to validate Gemini output
     private func validateGeminiOutput(prompt: String, output: String, key: String) throws -> (String, LLMCall) {
@@ -397,7 +571,7 @@ curl \"\(comps.url!.absoluteString)\" \
         Reflect on whether the output satisfies 1. each segment is 5+ minutes long. 2. segments  If it does, return "pass". If it does not, return "fail".
         """
         
-        print("🔍 Validating Gemini output...")
+        print(" Validating Gemini output...")
         
         let body: [String: Any] = [
             "contents": [[
@@ -436,7 +610,7 @@ curl \"\(comps.url!.absoluteString)\" \
         }
         
         let validationResponse = firstPart.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        print("🔍 Validation response: \(validationResponse)")
+        print(" Validation response: \(validationResponse)")
         
         let call = LLMCall(timestamp: startCall, latency: latency, input: requestString, output: validationResponse)
         return (validationResponse, call)
@@ -552,9 +726,7 @@ curl \"\(comps.url!.absoluteString)\" \
             "maxOutputTokens": 65536,
             "responseMimeType": "application/json",
             "responseSchema": transcriptionSchema,
-            "thinkingConfig": [
-                "thinkingBudget": 24576
-            ]
+            "thinkingConfig": ["thinkingBudget": 24576]
         ]
 
         let requestBody: [String: Any] = [
@@ -616,10 +788,10 @@ curl \"\(comps.url!.absoluteString)\" \
         Try not to exceed 4 subcategories.
         Sometimes, users will be idle, in other words nothing will happen on the screen for 5+ minutes. we should create a new segment and label it Idle - Idle in that case.
         –––––  SCATTERED‑ACTIVITY RULE  –––––
-        For any 5 + min window of rapid switching:
+        For any 5 + min window of rapid switching:
         • If one activity recurs most, make it the segment; others → distractions.
         –––––  DISTRACTION DETAILS  –––––
-        Log any distraction ≥ 30 s and < 5 min. do not log distractions that are shorter than 30s
+        Log any distraction ≥ 30 s and < 5 min. do not log distractions that are shorter than 30s
         –––––  CONTINUITY  –––––
         Examine the most recent previous Segment carefully. More likely than not, the first segment of this video analysis is a continuation of the previous segment. In that case, you should do your best to use the same category/subcategory.
         \(transcriptText)
@@ -669,6 +841,7 @@ curl \"\(comps.url!.absoluteString)\" \
         let log = LLMCall(timestamp: callStartTime, latency: latency, input: activityGenerationPrompt, output: responseText)
         return (generatedCards, log)
     }
+
 }
 
 // MARK: – URLSession sync helper -------------------------------------------
