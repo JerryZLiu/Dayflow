@@ -74,10 +74,10 @@ struct DebugView: View {
         composition = nil
 
         guard let id else { return }
-        let chunks = StorageManager.shared.chunksForBatch(id)
-        if !chunks.isEmpty {
+        let recordings = StorageManager.shared.recordingsForBatch(id)
+        if !recordings.isEmpty {
             let comp = AVMutableComposition()
-            for c in chunks {
+            for c in recordings {
                 let asset = AVURLAsset(url: URL(fileURLWithPath: c.fileUrl))
                 do {
                     guard try await asset.load(.isPlayable) else { continue }
@@ -99,6 +99,8 @@ struct DebugView: View {
         } else {
             composition = nil
         }
+        // For v2 API, we need to get timeline entries by day key for this batch
+        // For now, use legacy API as a fallback
         timelineCards = StorageManager.shared.fetchTimelineCards(forBatch: id)
         llmCalls = StorageManager.shared.fetchBatchLLMMetadata(batchId: id)
     }

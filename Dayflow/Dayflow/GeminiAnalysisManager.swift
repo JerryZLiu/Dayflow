@@ -82,9 +82,9 @@ final class GeminiAnalysisManager: AnalysisManaging {
         defer { isProcessing = false }
 
         // 1. Gather unprocessed chunks
-        let chunks = fetchUnprocessedChunks()
+        let recordings = fetchUnprocessedRecordings()
         // 2. Build logical batches (~15‑min)
-        let batches = createBatches(from: chunks)
+        let batches = createBatches(from: recordings)
         // 3. Persist batch rows & join table
         let batchIDs = batches.compactMap(saveBatch)
         // 4. Fire Gemini for each batch
@@ -94,16 +94,16 @@ final class GeminiAnalysisManager: AnalysisManaging {
     // MARK: – Gemini kick‑off ----------------------------------------------
 
     private func queueGeminiRequest(batchId: Int64) {
-        let chunksInBatch = StorageManager.shared.chunksForBatch(batchId)
+        let recordingsInBatch = StorageManager.shared.recordingsForBatch(batchId)
 
-        if chunksInBatch.isEmpty {
+        if recordingsInBatch.isEmpty {
             print("Warning: Batch \\(batchId) has no chunks. Marking as 'failed_empty'.")
             self.updateBatchStatus(batchId: batchId, status: "failed_empty")
             return
         }
 
-        let totalVideoDurationSeconds = chunksInBatch.reduce(0.0) { acc, chunk -> TimeInterval in
-            let duration = TimeInterval(chunk.endTs - chunk.startTs)
+        let totalVideoDurationSeconds = recordingsInBatch.reduce(0.0) { acc, recording -> TimeInterval in
+            let duration = TimeInterval(recording.endTs - recording.startTs)
             return acc + duration
         }
 
@@ -118,11 +118,11 @@ final class GeminiAnalysisManager: AnalysisManaging {
         updateBatchStatus(batchId: batchId, status: "processing")
 
         // Prepare file URLs for video processing
-        let chunkFileURLs: [URL] = chunksInBatch.compactMap { chunk in
-            // Assuming chunk.fileUrl is a String path, convert to URL
+        let recordingFileURLs: [URL] = recordingsInBatch.compactMap { recording in
+            // Assuming recording.fileUrl is a String path, convert to URL
             // Ensure this path is accessible. If it's a relative path, resolve it.
             // For now, assuming it's an absolute file path string.
-            URL(fileURLWithPath: chunk.fileUrl)
+            URL(fileURLWithPath: recording.fileUrl)
         }
 
         geminiService.processBatch(batchId) { [weak self] result in
@@ -137,13 +137,13 @@ final class GeminiAnalysisManager: AnalysisManaging {
             case .success(let activityCards):
                 print("Gemini succeeded for Batch \\\\(batchId). Processing \\\\(activityCards.count) activity cards for day \\\\(currentLogicalDayString).")
                 
-                guard let firstChunk = chunksInBatch.first else {
-                    print("Error: No chunks found for batch \\\\(batchId) during timestamp conversion")
-                    self.markBatchFailed(batchId: batchId, reason: "No chunks found for timestamp conversion")
+                guard let firstRecording = recordingsInBatch.first else {
+                    print("Error: No recordings found for batch \\\\(batchId) during timestamp conversion")
+                    self.markBatchFailed(batchId: batchId, reason: "No recordings found for timestamp conversion")
                     return
                 }
-                let firstChunkStartDate = Date(timeIntervalSince1970: TimeInterval(firstChunk.startTs))
-                print("First chunk starts at real time: \\\\(firstChunkStartDate)")
+                let firstRecordingStartDate = Date(timeIntervalSince1970: TimeInterval(firstRecording.startTs))
+                print("First recording starts at real time: \\\\(firstRecordingStartDate)")
 
                 // --- Asynchronous Video Processing Task ---
                 Task { [weak self] in
@@ -166,9 +166,9 @@ final class GeminiAnalysisManager: AnalysisManaging {
                     var allProcessedCardInfo: [ProcessedCardInfo] = []
 
                     do {
-                        if !chunkFileURLs.isEmpty {
+                        if !recordingFileURLs.isEmpty {
                             print("Starting video preparation for batch \(batchId)...")
-                            let preparedVideoURL = try await self.videoProcessingService.prepareVideoForProcessing(urls: chunkFileURLs)
+                            let preparedVideoURL = try await self.videoProcessingService.prepareVideoForProcessing(urls: recordingFileURLs)
                             temporaryFilesToDelete.append(preparedVideoURL)
                             mainBatchVideoURL = preparedVideoURL
                             print("Main batch video prepared for batch \(batchId) at: \(preparedVideoURL.path)")
@@ -188,25 +188,35 @@ final class GeminiAnalysisManager: AnalysisManaging {
                                 // If we can't determine timestamps, we can't reliably save or process the card.
                                 continue
                             }
-                            let actualStartDate = firstChunkStartDate.addingTimeInterval(videoStartInterval)
-                            let actualEndDate = firstChunkStartDate.addingTimeInterval(videoEndInterval)
+                            let actualStartDate = firstRecordingStartDate.addingTimeInterval(videoStartInterval)
+                            let actualEndDate = firstRecordingStartDate.addingTimeInterval(videoEndInterval)
                             let finalStartTimestamp = self.formatAsClockTime(actualStartDate)
                             let finalEndTimestamp = self.formatAsClockTime(actualEndDate)
 
                             // 1. Create and save TimelineCardShell to get its DB ID
-                            let cardShell = TimelineCardShell(
-                                startTimestamp: finalStartTimestamp, // Use calculated timestamp
-                                endTimestamp: finalEndTimestamp,   // Use calculated timestamp
-                                category: activityCard.category,
-                                subcategory: activityCard.subcategory,
+                            // Convert distractions to JSON metadata
+                            var metadataJson: String? = nil
+                            if let distractions = activityCard.distractions, !distractions.isEmpty {
+                                let encoder = JSONEncoder()
+                                if let jsonData = try? encoder.encode(distractions) {
+                                    metadataJson = String(data: jsonData, encoding: .utf8)
+                                }
+                            }
+                            
+                            let timelineEntry = TimelineEntry(
+                                batchId: batchId,
+                                start: finalStartTimestamp,
+                                end: finalEndTimestamp,
+                                day: currentLogicalDayString,
                                 title: activityCard.title,
                                 summary: activityCard.summary,
+                                category: activityCard.category,
+                                subcategory: activityCard.subcategory,
                                 detailedSummary: activityCard.detailedSummary,
-                                day: currentLogicalDayString,
-                                distractions: activityCard.distractions
+                                metadata: metadataJson
                             )
                             
-                            currentDbCardId = self.store.saveTimelineCardShell(batchId: batchId, card: cardShell)
+                            currentDbCardId = self.store.saveTimelineEntry(batchId: batchId, entry: timelineEntry)
 
                             if let dbId = currentDbCardId {
                                 print("Saved TimelineCard shell for '\(activityCard.title)' with DB ID: \(dbId) (Timestamps: \(finalStartTimestamp) - \(finalEndTimestamp))")
@@ -236,8 +246,8 @@ final class GeminiAnalysisManager: AnalysisManaging {
                                         print("Summary generated for ActivityCard DB ID: \(dbId) at: \(activitySpecificSummaryPath ?? "nil")")
                                         
                                         // 3. Update the TimelineCard record with the video summary URL
-                                        self.store.updateTimelineCardVideoURL(cardId: dbId, videoSummaryURL: activitySpecificSummaryPath!)
-                                        print("Updated TimelineCard DB ID: \(dbId) with video path.")
+                                        self.store.updateTimelineEntryVideoURL(id: dbId, url: activitySpecificSummaryPath!)
+                                        print("Updated TimelineEntry DB ID: \(dbId) with video path.")
                                     } else {
                                         print("Warning: ActivityCard '\(activityCard.title)' (DB ID: \(dbId)) has non-positive duration based on parsed intervals. Skipping summary generation.")
                                         activitySpecificSummaryPath = nil
@@ -312,8 +322,8 @@ final class GeminiAnalysisManager: AnalysisManaging {
                                     for dist in originalDistractions {
                                         let parsedDistStartInterval = self.parseVideoTimestamp(dist.startTime)
                                         let parsedDistEndInterval = self.parseVideoTimestamp(dist.endTime)
-                                        let distClockStart = self.formatAsClockTime(firstChunkStartDate.addingTimeInterval(parsedDistStartInterval ?? 0.0))
-                                        let distClockEnd = self.formatAsClockTime(firstChunkStartDate.addingTimeInterval(parsedDistEndInterval ?? 0.0))
+                                        let distClockStart = self.formatAsClockTime(firstRecordingStartDate.addingTimeInterval(parsedDistStartInterval ?? 0.0))
+                                        let distClockEnd = self.formatAsClockTime(firstRecordingStartDate.addingTimeInterval(parsedDistEndInterval ?? 0.0))
                                         processedDistractionInfos.append(ProcessedDistractionInfo(originalDistraction: dist, clockStartTime: distClockStart, clockEndTime: distClockEnd, videoSummaryPath: nil))
                                     }
                                 }
@@ -333,6 +343,7 @@ final class GeminiAnalysisManager: AnalysisManaging {
                     // For now, let's assume if we reached here, we can mark it completed.
                     DispatchQueue.main.async { [weak self] in
                         self?.updateBatchStatus(batchId: batchId, status: "completed")
+                        self?.store.flagBatch(batchId, timelineDone: true, questionsDone: nil, summaryDone: nil)
                     }
                 } // End of Task for video processing
 
@@ -346,68 +357,72 @@ final class GeminiAnalysisManager: AnalysisManaging {
     // MARK: – DB helpers -----------------------------------------------------
 
     private func markBatchFailed(batchId: Int64, reason: String) {
-        store.markBatchFailed(batchId: batchId, reason: reason)
+        store.updateProcessingBatchStatus(batchId, status: "failed", reason: reason)
     }
 
     private func updateBatchStatus(batchId: Int64, status: String) {
-        store.updateBatchStatus(batchId: batchId, status: status)
+        store.updateProcessingBatchStatus(batchId, status: status, reason: nil)
     }
 
     // MARK: – Batching logic -------------------------------------------------
 
-    private struct AnalysisBatch { let chunks: [RecordingChunk]; let start: Int; let end: Int }
+    private struct AnalysisBatch { let recordings: [Recording]; let start: Int; let end: Int }
 
-    private func fetchUnprocessedChunks() -> [RecordingChunk] {
+    private func fetchUnprocessedRecordings() -> [Recording] {
+        // For now, implement using legacy API until v2 equivalent is available
         let oldest = Int(Date().timeIntervalSince1970) - Int(maxLookback)
-        return store.fetchUnprocessedChunks(olderThan: oldest)
+        let legacyChunks = store.fetchUnprocessedChunks(olderThan: oldest)
+        return legacyChunks.map { chunk in
+            Recording(id: chunk.id, startTs: chunk.startTs, endTs: chunk.endTs, fileUrl: chunk.fileUrl, status: chunk.status)
+        }
     }
 
     // MARK: – Batching logic -----------------------------------------------------
 
-private func createBatches(from chunks: [RecordingChunk]) -> [AnalysisBatch] {
-    guard !chunks.isEmpty else { return [] }
+private func createBatches(from recordings: [Recording]) -> [AnalysisBatch] {
+    guard !recordings.isEmpty else { return [] }
 
-    let ordered = chunks.sorted { $0.startTs < $1.startTs }
+    let ordered = recordings.sorted { $0.startTs < $1.startTs }
     let maxGap: TimeInterval        = 120             // ≤ 2 min between chunks
     let maxBatchDuration: TimeInterval = targetBatchDuration // 900 s (15 min)
 
     var batches: [AnalysisBatch] = []
 
-    var bucket: [RecordingChunk]   = []
+    var bucket: [Recording]   = []
     var bucketDur: TimeInterval    = 0                // sum of 15‑s chunks
 
-    for chunk in ordered {
+    for recording in ordered {
         if bucket.isEmpty {
-            bucket.append(chunk)
-            bucketDur = chunk.duration                // first chunk → 15 s
+            bucket.append(recording)
+            bucketDur = recording.duration                // first chunk → 15 s
             continue
         }
 
         let prev       = bucket.last!
-        let gap        = TimeInterval(chunk.startTs - prev.endTs)
-        let wouldBurst = bucketDur + chunk.duration > maxBatchDuration
+        let gap        = TimeInterval(recording.startTs - prev.endTs)
+        let wouldBurst = bucketDur + recording.duration > maxBatchDuration
 
         if gap > maxGap || wouldBurst {
             // close current batch
             batches.append(
-                AnalysisBatch(chunks: bucket,
+                AnalysisBatch(recordings: bucket,
                               start: bucket.first!.startTs,
                               end:   bucket.last!.endTs)
             )
             // start new bucket with this chunk
-            bucket      = [chunk]
-            bucketDur   = chunk.duration
+            bucket      = [recording]
+            bucketDur   = recording.duration
         } else {
             // still in same batch
-            bucket.append(chunk)
-            bucketDur += chunk.duration
+            bucket.append(recording)
+            bucketDur += recording.duration
         }
     }
 
     // Flush any leftover bucket
     if !bucket.isEmpty {
         batches.append(
-            AnalysisBatch(chunks: bucket,
+            AnalysisBatch(recordings: bucket,
                           start: bucket.first!.startTs,
                           end:   bucket.last!.endTs)
         )
@@ -415,7 +430,7 @@ private func createBatches(from chunks: [RecordingChunk]) -> [AnalysisBatch] {
 
     // ─── Special rule: drop the *most‑recent* batch if < 15 min ───
     if let last = batches.last {
-        let dur = last.chunks.reduce(0) { $0 + $1.duration }   // sum of 15‑s chunks
+        let dur = last.recordings.reduce(0) { $0 + $1.duration }   // sum of 15‑s chunks
         if dur < maxBatchDuration {
             batches.removeLast()
         }
@@ -426,8 +441,8 @@ private func createBatches(from chunks: [RecordingChunk]) -> [AnalysisBatch] {
 
 
     private func saveBatch(_ batch: AnalysisBatch) -> Int64? {
-        let ids = batch.chunks.map { $0.id }
-        return store.saveBatch(startTs: batch.start, endTs: batch.end, chunkIds: ids)
+        let ids = batch.recordings.compactMap { $0.id }
+        return store.createProcessingBatch(startTs: batch.start, endTs: batch.end, recordingIds: ids)
     }
 
     // MARK: - Timestamp conversion helpers

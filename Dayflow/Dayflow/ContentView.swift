@@ -24,6 +24,31 @@ struct CategoryGroup: Identifiable {
     var rows: Int { subcategories.count } // Or adjust based on how you display in sidebar
 }
 
+// Convert TimelineEntry (v2) to TimelineCard (v1) for UI compatibility
+private func convertTimelineEntryToCard(_ entry: TimelineEntry) -> TimelineCard {
+    // Decode distractions from metadata JSON
+    var distractions: [Distraction]? = nil
+    if let metadataString = entry.metadata,
+       let jsonData = metadataString.data(using: .utf8) {
+        let decoder = JSONDecoder()
+        distractions = try? decoder.decode([Distraction].self, from: jsonData)
+    }
+    
+    return TimelineCard(
+        startTimestamp: entry.start,
+        endTimestamp: entry.end,
+        category: entry.category,
+        subcategory: entry.subcategory ?? "",
+        title: entry.title,
+        summary: entry.summary ?? "",
+        detailedSummary: entry.detailedSummary ?? "",
+        day: entry.day,
+        distractions: distractions,
+        videoSummaryURL: entry.videoSummaryUrl,
+        otherVideoSummaryURLs: nil
+    )
+}
+
 // MARK: – Zoom model -----------------------------------------------------------
 
 enum Zoom: Int, CaseIterable, Identifiable {
@@ -327,7 +352,10 @@ struct ContentView: View {
     func loadTimelineData() {
         let dayInfo = Date().getDayInfoFor4AMBoundary()
         currentDayString = dayInfo.dayString
-        let fetchedCards = storageManager.fetchTimelineCards(forDay: currentDayString)
+        let fetchedEntries = storageManager.fetchTimelineEntries(dayKey: currentDayString)
+        let fetchedCards = fetchedEntries.map { entry in
+            convertTimelineEntryToCard(entry)
+        }
         print("Fetched \(fetchedCards.count) cards for day \(currentDayString):")
         for card in fetchedCards {
             print("  - \(card.title) (\(card.startTimestamp) - \(card.endTimestamp)), Category: \(card.category), Subcategory: \(card.subcategory)")
