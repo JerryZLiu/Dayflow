@@ -93,9 +93,9 @@ enum TranscriptionError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidTimestampFormat: return "Invalid timestamp format. Expected MM:SS."
-        case .apiError(let msg): return "Transcription API error: \\(msg)"
-        case .decodingError(let msg): return "Transcription decoding error: \\(msg)"
-        case .fileUploadFailed(let msg): return "Transcription file upload failed: \\(msg)"
+        case .apiError(let msg): return "Transcription API error: \(msg)"
+        case .decodingError(let msg): return "Transcription decoding error: \(msg)"
+        case .fileUploadFailed(let msg): return "Transcription file upload failed: \(msg)"
         }
     }
 }

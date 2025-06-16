@@ -97,7 +97,7 @@ final class GeminiAnalysisManager: AnalysisManaging {
         let chunksInBatch = StorageManager.shared.chunksForBatch(batchId)
 
         if chunksInBatch.isEmpty {
-            print("Warning: Batch \\(batchId) has no chunks. Marking as 'failed_empty'.")
+            print("Warning: Batch \(batchId) has no chunks. Marking as 'failed_empty'.")
             self.updateBatchStatus(batchId: batchId, status: "failed_empty")
             return
         }
@@ -110,7 +110,7 @@ final class GeminiAnalysisManager: AnalysisManaging {
         let minimumDurationSeconds: TimeInterval = 300.0 // 5 minutes
 
         if totalVideoDurationSeconds < minimumDurationSeconds {
-            print("Batch \\(batchId) duration (\\(totalVideoDurationSeconds)s) is less than \\(minimumDurationSeconds)s. Marking as 'skipped_short'.")
+            print("Batch \(batchId) duration (\(totalVideoDurationSeconds)s) is less than \(minimumDurationSeconds)s. Marking as 'skipped_short'.")
             self.updateBatchStatus(batchId: batchId, status: "skipped_short")
             return
         }
@@ -135,15 +135,15 @@ final class GeminiAnalysisManager: AnalysisManaging {
 
             switch result {
             case .success(let activityCards):
-                print("Gemini succeeded for Batch \\\\(batchId). Processing \\\\(activityCards.count) activity cards for day \\\\(currentLogicalDayString).")
+                print("Gemini succeeded for Batch \(batchId). Processing \(activityCards.count) activity cards for day \(currentLogicalDayString).")
                 
                 guard let firstChunk = chunksInBatch.first else {
-                    print("Error: No chunks found for batch \\\\(batchId) during timestamp conversion")
+                    print("Error: No chunks found for batch \(batchId) during timestamp conversion")
                     self.markBatchFailed(batchId: batchId, reason: "No chunks found for timestamp conversion")
                     return
                 }
                 let firstChunkStartDate = Date(timeIntervalSince1970: TimeInterval(firstChunk.startTs))
-                print("First chunk starts at real time: \\\\(firstChunkStartDate)")
+                print("First chunk starts at real time: \(firstChunkStartDate)")
 
                 // --- Asynchronous Video Processing Task ---
                 Task { [weak self] in
@@ -326,7 +326,7 @@ final class GeminiAnalysisManager: AnalysisManaging {
                     for tempFile in temporaryFilesToDelete {
                         await self.videoProcessingService.cleanupTemporaryFile(at: tempFile)
                     }
-                    print("Temporary video files cleaned up for batch \\\\(batchId).")
+                    print("Temporary video files cleaned up for batch \(batchId).")
 
                     await self.processDashboardQuestionsAndTodos(batchId: batchId, dayString: currentLogicalDayString)
 
