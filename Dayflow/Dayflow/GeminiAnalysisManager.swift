@@ -190,26 +190,36 @@ final class GeminiAnalysisManager: AnalysisManaging {
                             }
                             let actualStartDate = firstChunkStartDate.addingTimeInterval(videoStartInterval)
                             let actualEndDate = firstChunkStartDate.addingTimeInterval(videoEndInterval)
-                            let finalStartTimestamp = self.formatAsClockTime(actualStartDate)
-                            let finalEndTimestamp = self.formatAsClockTime(actualEndDate)
+                            let finalStartTs = Int(actualStartDate.timeIntervalSince1970)
+                            let finalEndTs = Int(actualEndDate.timeIntervalSince1970)
 
-                            // 1. Create and save TimelineCardShell to get its DB ID
-                            let cardShell = TimelineCardShell(
-                                startTimestamp: finalStartTimestamp, // Use calculated timestamp
-                                endTimestamp: finalEndTimestamp,   // Use calculated timestamp
-                                category: activityCard.category,
-                                subcategory: activityCard.subcategory,
+                            // 1. Create and save TimelineEntry in the database
+                            var meta: String? = nil
+                            if let d = activityCard.distractions, !d.isEmpty,
+                               let data = try? JSONEncoder().encode(d),
+                               let json = String(data: data, encoding: .utf8) {
+                                meta = json
+                            }
+                            let entry = TimelineEntry(
+                                id: nil,
+                                batch_id: batchId,
+                                start: finalStartTs,
+                                end: finalEndTs,
+                                day: currentLogicalDayString,
                                 title: activityCard.title,
                                 summary: activityCard.summary,
-                                detailedSummary: activityCard.detailedSummary,
-                                day: currentLogicalDayString,
-                                distractions: activityCard.distractions
+                                category: activityCard.category,
+                                subcategory: activityCard.subcategory,
+                                detailed_summary: activityCard.detailedSummary,
+                                metadata: meta,
+                                video_summary_url: nil,
+                                created_at: nil
                             )
-                            
-                            currentDbCardId = self.store.saveTimelineCardShell(batchId: batchId, card: cardShell)
+
+                            currentDbCardId = self.store.saveTimelineEntry(batchId: batchId, entry: entry)
 
                             if let dbId = currentDbCardId {
-                                print("Saved TimelineCard shell for '\(activityCard.title)' with DB ID: \(dbId) (Timestamps: \(finalStartTimestamp) - \(finalEndTimestamp))")
+                                print("Saved TimelineEntry for '\(activityCard.title)' with DB ID: \(dbId) (\(finalStartTs)-\(finalEndTs))")
                                 
                                 // Video processing (cardStartInterval and cardEndInterval are already parsed above)
                                 if let fullBatchVideo = mainBatchVideoURL {

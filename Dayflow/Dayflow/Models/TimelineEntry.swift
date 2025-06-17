@@ -3,8 +3,8 @@ import Foundation
 struct TimelineEntry: Codable, Sendable {
     let id: Int64?
     let batch_id: Int64?
-    let start: String
-    let end: String
+    let start: Int
+    let end: Int
     let day: String
     let title: String
     let summary: String?

@@ -29,6 +29,13 @@ extension DateFormatter {
     //     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     //     return formatter
     // }()
+
+    static let clock: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "h:mm a"
+        f.timeZone = .current
+        return f
+    }()
 }
 
 // MARK: - Date Helper Extension
@@ -186,8 +193,8 @@ struct LLMCall: Codable, Sendable {
 
 // Add TimelineCardShell struct for the new save function
 struct TimelineCardShell: Sendable {
-    let startTimestamp: String
-    let endTimestamp: String
+    let startTimestamp: Int
+    let endTimestamp: Int
     let category: String
     let subcategory: String
     let title: String
@@ -263,8 +270,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 CREATE TABLE timeline_entries (
                     id               INTEGER PRIMARY KEY AUTOINCREMENT,
                     batch_id         INTEGER REFERENCES processing_batches(id) ON DELETE CASCADE,
-                    start            TEXT    NOT NULL,
-                    end              TEXT    NOT NULL,
+                    start            INTEGER NOT NULL,
+                    end              INTEGER NOT NULL,
                     day              DATE    NOT NULL,
                     title            TEXT    NOT NULL,
                     summary          TEXT,
@@ -280,8 +287,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 CREATE TABLE observations (
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
                     batch_id    INTEGER NOT NULL REFERENCES processing_batches(id) ON DELETE CASCADE,
-                    start_time  TEXT    NOT NULL,
-                    end_time    TEXT    NOT NULL,
+                    start_time  INTEGER NOT NULL,
+                    end_time    INTEGER NOT NULL,
                     description TEXT    NOT NULL,
                     llm_source  TEXT    NOT NULL,
                     created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -508,6 +515,11 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }
     }
 
+    private func clockString(from ts: Int) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(ts))
+        return DateFormatter.clock.string(from: date)
+    }
+
     // MARK: – Timeline --------------------------------------------------------
 
     func saveTimelineEntry(batchId: Int64, entry: TimelineEntry) -> Int64? {
@@ -592,14 +604,14 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }) ?? []
         // Map to old TimelineCard structure
         return entries.map { e in
-            TimelineCard(startTimestamp: e.start, endTimestamp: e.end, category: e.category, subcategory: e.subcategory ?? "", title: e.title, summary: e.summary ?? "", detailedSummary: e.detailed_summary ?? "", day: e.day, distractions: nil, videoSummaryURL: e.video_summary_url, otherVideoSummaryURLs: nil)
+            TimelineCard(startTimestamp: clockString(from: e.start), endTimestamp: clockString(from: e.end), category: e.category, subcategory: e.subcategory ?? "", title: e.title, summary: e.summary ?? "", detailedSummary: e.detailed_summary ?? "", day: e.day, distractions: nil, videoSummaryURL: e.video_summary_url, otherVideoSummaryURLs: nil)
         }
     }
 
     func fetchTimelineCards(forDay day: String) -> [TimelineCard] {
         let entries = fetchTimelineEntries(dayKey: day)
         return entries.map { e in
-            TimelineCard(startTimestamp: e.start, endTimestamp: e.end, category: e.category, subcategory: e.subcategory ?? "", title: e.title, summary: e.summary ?? "", detailedSummary: e.detailed_summary ?? "", day: e.day, distractions: nil, videoSummaryURL: e.video_summary_url, otherVideoSummaryURLs: nil)
+            TimelineCard(startTimestamp: clockString(from: e.start), endTimestamp: clockString(from: e.end), category: e.category, subcategory: e.subcategory ?? "", title: e.title, summary: e.summary ?? "", detailedSummary: e.detailed_summary ?? "", day: e.day, distractions: nil, videoSummaryURL: e.video_summary_url, otherVideoSummaryURLs: nil)
         }
     }
 
