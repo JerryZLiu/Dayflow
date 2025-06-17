@@ -245,9 +245,9 @@ final class GeminiAnalysisManager: AnalysisManaging {
                                         activitySpecificSummaryPath = persistentCardSummaryURL.path
                                         print("Summary generated for ActivityCard DB ID: \(dbId) at: \(activitySpecificSummaryPath ?? "nil")")
                                         
-                                        // 3. Update the TimelineCard record with the video summary URL
-                                        self.store.updateTimelineCardVideoURL(cardId: dbId, videoSummaryURL: activitySpecificSummaryPath!)
-                                        print("Updated TimelineCard DB ID: \(dbId) with video path.")
+                                        // 3. Update the TimelineEntry record with the video summary URL
+                                        self.store.updateTimelineEntryVideoURL(id: dbId, url: activitySpecificSummaryPath!)
+                                        print("Updated TimelineEntry DB ID: \(dbId) with video path.")
                                     } else {
                                         print("Warning: ActivityCard '\(activityCard.title)' (DB ID: \(dbId)) has non-positive duration based on parsed intervals. Skipping summary generation.")
                                         activitySpecificSummaryPath = nil

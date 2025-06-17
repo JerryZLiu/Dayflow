@@ -90,7 +90,6 @@ protocol StorageManaging: Sendable {
 
     // Timeline‑cards
     func saveTimelineCardShell(batchId: Int64, card: TimelineCardShell) -> Int64?
-    func updateTimelineCardVideoURL(cardId: Int64, videoSummaryURL: String)
     func fetchTimelineCards(forBatch batchId: Int64) -> [TimelineCard]
 
     // Timeline Queries
