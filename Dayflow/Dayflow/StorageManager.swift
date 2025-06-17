@@ -318,7 +318,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             """)
         }
     }
-    }
 
     // MARK: – Recording‑file helpers ------------------------------------------
 
@@ -686,7 +685,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     }
 }
 
-// MARK: - File‑size helper -----------------------------------------------------
+// MARK: - File‑size helper ----------------------------------------------------
 
 private extension FileManager {
     func allocatedSizeOfDirectory(at url: URL) throws -> Int {
