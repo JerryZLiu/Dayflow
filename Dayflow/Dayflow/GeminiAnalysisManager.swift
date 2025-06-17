@@ -81,10 +81,10 @@ final class GeminiAnalysisManager: AnalysisManaging {
         guard !isProcessing else { return }; isProcessing = true
         defer { isProcessing = false }
 
-        // 1. Gather unprocessed chunks
-        let chunks = fetchUnprocessedChunks()
+        // 1. Gather unprocessed recordings
+        let recs = fetchUnprocessedRecordings()
         // 2. Build logical batches (~15‑min)
-        let batches = createBatches(from: chunks)
+        let batches = createBatches(from: recs)
         // 3. Persist batch rows & join table
         let batchIDs = batches.compactMap(saveBatch)
         // 4. Fire Gemini for each batch
@@ -94,7 +94,7 @@ final class GeminiAnalysisManager: AnalysisManaging {
     // MARK: – Gemini kick‑off ----------------------------------------------
 
     private func queueGeminiRequest(batchId: Int64) {
-        let chunksInBatch = StorageManager.shared.chunksForBatch(batchId)
+        let chunksInBatch = StorageManager.shared.recordingsForBatch(batchId)
 
         if chunksInBatch.isEmpty {
             print("Warning: Batch \\(batchId) has no chunks. Marking as 'failed_empty'.")
@@ -102,8 +102,8 @@ final class GeminiAnalysisManager: AnalysisManaging {
             return
         }
 
-        let totalVideoDurationSeconds = chunksInBatch.reduce(0.0) { acc, chunk -> TimeInterval in
-            let duration = TimeInterval(chunk.endTs - chunk.startTs)
+        let totalVideoDurationSeconds = chunksInBatch.reduce(0.0) { acc, rec -> TimeInterval in
+            let duration = TimeInterval(rec.end_ts - rec.start_ts)
             return acc + duration
         }
 
@@ -119,10 +119,10 @@ final class GeminiAnalysisManager: AnalysisManaging {
 
         // Prepare file URLs for video processing
         let chunkFileURLs: [URL] = chunksInBatch.compactMap { chunk in
-            // Assuming chunk.fileUrl is a String path, convert to URL
+            // Assuming recording file path is a String path, convert to URL
             // Ensure this path is accessible. If it's a relative path, resolve it.
             // For now, assuming it's an absolute file path string.
-            URL(fileURLWithPath: chunk.fileUrl)
+            URL(fileURLWithPath: chunk.file_url)
         }
 
         geminiService.processBatch(batchId) { [weak self] result in
@@ -142,7 +142,7 @@ final class GeminiAnalysisManager: AnalysisManaging {
                     self.markBatchFailed(batchId: batchId, reason: "No chunks found for timestamp conversion")
                     return
                 }
-                let firstChunkStartDate = Date(timeIntervalSince1970: TimeInterval(firstChunk.startTs))
+                let firstChunkStartDate = Date(timeIntervalSince1970: TimeInterval(firstChunk.start_ts))
                 print("First chunk starts at real time: \\\\(firstChunkStartDate)")
 
                 // --- Asynchronous Video Processing Task ---
@@ -346,34 +346,34 @@ final class GeminiAnalysisManager: AnalysisManaging {
     // MARK: – DB helpers -----------------------------------------------------
 
     private func markBatchFailed(batchId: Int64, reason: String) {
-        store.markBatchFailed(batchId: batchId, reason: reason)
+        store.updateProcessingBatchStatus(batchId, status: "failed", reason: reason)
     }
 
     private func updateBatchStatus(batchId: Int64, status: String) {
-        store.updateBatchStatus(batchId: batchId, status: status)
+        store.updateProcessingBatchStatus(batchId, status: status, reason: nil)
     }
 
     // MARK: – Batching logic -------------------------------------------------
 
-    private struct AnalysisBatch { let chunks: [RecordingChunk]; let start: Int; let end: Int }
+    private struct AnalysisBatch { let chunks: [Recording]; let start: Int; let end: Int }
 
-    private func fetchUnprocessedChunks() -> [RecordingChunk] {
+    private func fetchUnprocessedRecordings() -> [Recording] {
         let oldest = Int(Date().timeIntervalSince1970) - Int(maxLookback)
-        return store.fetchUnprocessedChunks(olderThan: oldest)
+        return store.fetchUnprocessedRecordings(olderThan: oldest)
     }
 
     // MARK: – Batching logic -----------------------------------------------------
 
-private func createBatches(from chunks: [RecordingChunk]) -> [AnalysisBatch] {
+private func createBatches(from chunks: [Recording]) -> [AnalysisBatch] {
     guard !chunks.isEmpty else { return [] }
 
-    let ordered = chunks.sorted { $0.startTs < $1.startTs }
+    let ordered = chunks.sorted { $0.start_ts < $1.start_ts }
     let maxGap: TimeInterval        = 120             // ≤ 2 min between chunks
     let maxBatchDuration: TimeInterval = targetBatchDuration // 900 s (15 min)
 
     var batches: [AnalysisBatch] = []
 
-    var bucket: [RecordingChunk]   = []
+    var bucket: [Recording]   = []
     var bucketDur: TimeInterval    = 0                // sum of 15‑s chunks
 
     for chunk in ordered {
@@ -384,15 +384,15 @@ private func createBatches(from chunks: [RecordingChunk]) -> [AnalysisBatch] {
         }
 
         let prev       = bucket.last!
-        let gap        = TimeInterval(chunk.startTs - prev.endTs)
+        let gap        = TimeInterval(chunk.start_ts - prev.end_ts)
         let wouldBurst = bucketDur + chunk.duration > maxBatchDuration
 
         if gap > maxGap || wouldBurst {
             // close current batch
             batches.append(
                 AnalysisBatch(chunks: bucket,
-                              start: bucket.first!.startTs,
-                              end:   bucket.last!.endTs)
+                              start: bucket.first!.start_ts,
+                              end:   bucket.last!.end_ts)
             )
             // start new bucket with this chunk
             bucket      = [chunk]
@@ -408,8 +408,8 @@ private func createBatches(from chunks: [RecordingChunk]) -> [AnalysisBatch] {
     if !bucket.isEmpty {
         batches.append(
             AnalysisBatch(chunks: bucket,
-                          start: bucket.first!.startTs,
-                          end:   bucket.last!.endTs)
+                          start: bucket.first!.start_ts,
+                          end:   bucket.last!.end_ts)
         )
     }
 
@@ -427,7 +427,7 @@ private func createBatches(from chunks: [RecordingChunk]) -> [AnalysisBatch] {
 
     private func saveBatch(_ batch: AnalysisBatch) -> Int64? {
         let ids = batch.chunks.map { $0.id }
-        return store.saveBatch(startTs: batch.start, endTs: batch.end, chunkIds: ids)
+        return store.createProcessingBatch(startTs: batch.start, endTs: batch.end, recordingIds: ids)
     }
 
     // MARK: - Timestamp conversion helpers

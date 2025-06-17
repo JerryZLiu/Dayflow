@@ -7,15 +7,15 @@
 
 import Foundation
 
-/// Represents a recording chunk from the database
-struct RecordingChunk: Codable {
+/// Represents a recording from the database
+struct Recording: Codable {
     let id: Int64
-    let startTs: Int
-    let endTs: Int
-    let fileUrl: String
+    let start_ts: Int
+    let end_ts: Int
+    let file_url: String
     let status: String
     
     var duration: TimeInterval {
-        TimeInterval(endTs - startTs)
+        TimeInterval(end_ts - start_ts)
     }
 }

@@ -185,7 +185,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         guard writer == nil else { finishSegment(); return }
         let url = StorageManager.shared.nextFileURL(); fileURL = url; frames = 0
 
-        StorageManager.shared.registerChunk(url: url)
+        StorageManager.shared.registerRecording(url: url)
         do {
             let w = try AVAssetWriter(outputURL: url, fileType: .mp4)
             let inp = AVAssetWriterInput(mediaType: .video,
@@ -205,7 +205,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             t.resume(); timer = t
         } catch {
             dbg("writer creation failed – \(error.localizedDescription)")
-            StorageManager.shared.markChunkFailed(url: url); reset()
+            StorageManager.shared.markRecordingFailed(url: url); reset()
         }
     }
 
@@ -222,14 +222,14 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         // ── EARLY EXIT ────────────────────────────────────────────────────
         guard frames > 0 else {
             w.cancelWriting()
-            StorageManager.shared.markChunkFailed(url: url)
+            StorageManager.shared.markRecordingFailed(url: url)
             return reset()
         }
         // ─────────────────────────────────────────────────────────────────
 
         guard w.status == .writing else {
             w.cancelWriting()
-            StorageManager.shared.markChunkFailed(url: url)
+            StorageManager.shared.markRecordingFailed(url: url)
             return reset()
         }
 
@@ -237,9 +237,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         inp.markAsFinished()
         w.finishWriting { [weak self] in
             if w.status == .completed {
-                StorageManager.shared.markChunkCompleted(url: url)
+                StorageManager.shared.markRecordingCompleted(url: url)
             } else {
-                StorageManager.shared.markChunkFailed(url: url)
+                StorageManager.shared.markRecordingFailed(url: url)
             }
             self?.reset()
 

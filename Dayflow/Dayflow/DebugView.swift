@@ -74,11 +74,11 @@ struct DebugView: View {
         composition = nil
 
         guard let id else { return }
-        let chunks = StorageManager.shared.chunksForBatch(id)
+        let chunks = StorageManager.shared.recordingsForBatch(id)
         if !chunks.isEmpty {
             let comp = AVMutableComposition()
             for c in chunks {
-                let asset = AVURLAsset(url: URL(fileURLWithPath: c.fileUrl))
+                let asset = AVURLAsset(url: URL(fileURLWithPath: c.file_url))
                 do {
                     guard try await asset.load(.isPlayable) else { continue }
                     let tracks = try await asset.loadTracks(withMediaType: .video)
@@ -87,7 +87,7 @@ struct DebugView: View {
                     let dur = try await asset.load(.duration)
                     try await comp.insertTimeRange(.init(start: .zero, duration: dur), of: asset, at: comp.duration)
                 } catch {
-                    print("Failed to process asset \(c.fileUrl): \(error)")
+                    print("Failed to process asset \(c.file_url): \(error)")
                 }
             }
             if comp.tracks.first != nil {

@@ -158,9 +158,9 @@ final class GeminiService: GeminiServicing {
                 do {
                     // 1. Gather & Stitch Video Chunks
                     currentPhase = "gather & stitch"
-                    let recordingChunks = StorageManager.shared.chunksForBatch(batchId)
+                    let recordingChunks = StorageManager.shared.recordingsForBatch(batchId)
                     guard !recordingChunks.isEmpty else { throw GeminiServiceError.noChunks }
-                    let videoURLs = recordingChunks.map { URL(fileURLWithPath: $0.fileUrl) }
+                    let videoURLs = recordingChunks.map { URL(fileURLWithPath: $0.file_url) }
                     let stitchedVideoURL = try self.stitch(urls: videoURLs)
                     defer { try? FileManager.default.removeItem(at: stitchedVideoURL) }
                     let mimeType = self.mimeType(for: stitchedVideoURL) ?? "video/mp4"

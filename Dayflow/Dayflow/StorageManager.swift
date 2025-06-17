@@ -63,19 +63,19 @@ extension Date {
 /// _No_ `@MainActor` isolation ⇒ can be called from any thread/actor.
 /// If you add UI‑touching methods later, isolate **those** individually.
 protocol StorageManaging: Sendable {
-    // Recording‑chunk lifecycle
+    // Recording lifecycle
     func nextFileURL() -> URL
-    func registerChunk(url: URL)
-    func markChunkCompleted(url: URL)
-    func markChunkFailed(url: URL)
+    func registerRecording(url: URL)
+    func markRecordingCompleted(url: URL)
+    func markRecordingFailed(url: URL)
 
-    // Fetch unprocessed (completed + not yet batched) chunks
-    func fetchUnprocessedChunks(olderThan oldestAllowed: Int) -> [RecordingChunk]
+    // Fetch unprocessed (completed + not yet batched) recordings
+    func fetchUnprocessedRecordings(olderThan oldestAllowed: Int) -> [Recording]
 
-    // Analysis‑batch management
-    func saveBatch(startTs: Int, endTs: Int, chunkIds: [Int64]) -> Int64?
-    func updateBatchStatus(batchId: Int64, status: String)
-    func markBatchFailed(batchId: Int64, reason: String)
+    // Batch management
+    func createProcessingBatch(startTs: Int, endTs: Int, recordingIds: [Int64]) -> Int64?
+    func updateProcessingBatchStatus(_ id: Int64, status: String, reason: String?)
+    func flagBatch(_ id: Int64, timelineDone: Bool?, questionsDone: Bool?, summaryDone: Bool?)
 
     // Record details about all LLM calls for a batch
     func updateBatchLLMMetadata(batchId: Int64, calls: [LLMCall])
@@ -89,6 +89,24 @@ protocol StorageManaging: Sendable {
     // Timeline Queries
     func fetchTimelineCards(forDay day: String) -> [TimelineCard]
 
+    // Observations
+    func saveObservations(batchId: Int64, observations: [Observation])
+    func fetchObservations(batchId: Int64) -> [Observation]
+
+    // Timeline
+    func saveTimelineEntry(batchId: Int64, entry: TimelineEntry) -> Int64?
+    func updateTimelineEntryVideoURL(id: Int64, url: String)
+    func fetchTimelineEntries(dayKey: String) -> [TimelineEntry]
+
+    // Questions
+    func saveQuestions(_ qs: [Question]) -> [Int64]
+    func saveAnswers(_ answers: [Answer])
+    func fetchAnswers(questionId: Int64, dayKey: String) -> [Answer]
+
+    // Daily Summaries
+    func saveDailySummary(_ summary: DailySummary)
+    func fetchDailySummary(dayKey: String) -> DailySummary?
+
     // Transcript Storage - Updated for ClockTranscriptChunk
     func saveTranscript(batchId: Int64, chunks: [ClockTranscriptChunk])
     func fetchTranscript(batchId: Int64) -> [ClockTranscriptChunk]
@@ -96,8 +114,11 @@ protocol StorageManaging: Sendable {
     // Helper for GeminiService – map file paths → timestamps
     func getTimestampsForVideoFiles(paths: [String]) -> [String: (startTs: Int, endTs: Int)]
 
-    /// Chunks that belong to one batch, already sorted.
-    func chunksForBatch(_ batchId: Int64) -> [RecordingChunk]
+    /// Recordings that belong to one batch, already sorted.
+    func recordingsForBatch(_ id: Int64) -> [Recording]
+
+    // Misc
+    func purgeIfNeeded()
 }
 
 // MARK: - Data Structures -----------------------------------------------------
@@ -194,71 +215,103 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             .appendingPathComponent("Dayflow/recordings", isDirectory: true)
         try? fileMgr.createDirectory(at: root, withIntermediateDirectories: true)
 
-        db = try! DatabaseQueue(path: root.appendingPathComponent("chunks.sqlite").path)
-        migrate()
+        let dbPath = root.appendingPathComponent("storage_v2.sqlite")
+        if fileMgr.fileExists(atPath: dbPath.path) {
+            try? fileMgr.removeItem(at: dbPath)
+        }
+        db = try! DatabaseQueue(path: dbPath.path)
+        migrateV2()
         purgeIfNeeded()
     }
 
     // MARK: – Schema / migrations
-    private func migrate() {
+    private func migrateV2() {
         try? db.write { db in
             try db.execute(sql: """
-                CREATE TABLE IF NOT EXISTS chunks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    start_ts INTEGER NOT NULL,
-                    end_ts   INTEGER NOT NULL,
-                    file_url TEXT    NOT NULL UNIQUE,
-                    status   TEXT    NOT NULL DEFAULT 'recording'
+                -- 1. Recordings
+                CREATE TABLE recordings (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    start_ts    INTEGER  NOT NULL,
+                    end_ts      INTEGER  NOT NULL,
+                    file_url    TEXT     NOT NULL UNIQUE,
+                    status      TEXT     NOT NULL DEFAULT "recording"
                 );
-                CREATE INDEX IF NOT EXISTS idx_chunks_status   ON chunks(status);
-                CREATE INDEX IF NOT EXISTS idx_chunks_start_ts ON chunks(start_ts);
-            """)
-
-            try db.execute(sql: """
-                CREATE TABLE IF NOT EXISTS analysis_batches (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    batch_start_ts INTEGER NOT NULL,
-                    batch_end_ts   INTEGER NOT NULL,
-                    status         TEXT    NOT NULL DEFAULT 'pending',
-                    reason         TEXT,
-                    llm_metadata   TEXT,
+                CREATE INDEX idx_recordings_status   ON recordings(status);
+                CREATE INDEX idx_recordings_start_ts ON recordings(start_ts);
+                -- 2. Processing Batches
+                CREATE TABLE processing_batches (
+                    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_start_ts    INTEGER NOT NULL,
+                    batch_end_ts      INTEGER NOT NULL,
+                    status            TEXT    NOT NULL DEFAULT "pending",
+                    reason            TEXT,
+                    llm_metadata      TEXT,
                     detailed_transcription TEXT,
-                    created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    timeline_processed   INTEGER NOT NULL DEFAULT 0,
+                    questions_processed  INTEGER NOT NULL DEFAULT 0,
+                    summary_processed    INTEGER NOT NULL DEFAULT 0,
+                    created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
-                CREATE INDEX IF NOT EXISTS idx_analysis_batches_status ON analysis_batches(status);
-            """)
-
-            // Attempt to add the new column if the table pre-dates it
-            try? db.execute(sql: "ALTER TABLE analysis_batches ADD COLUMN llm_metadata TEXT")
-            try? db.execute(sql: "ALTER TABLE analysis_batches ADD COLUMN detailed_transcription TEXT")
-
-            try db.execute(sql: """
-                CREATE TABLE IF NOT EXISTS batch_chunks (
-                    batch_id INTEGER NOT NULL REFERENCES analysis_batches(id) ON DELETE CASCADE,
-                    chunk_id INTEGER NOT NULL REFERENCES chunks(id)          ON DELETE RESTRICT,
-                    PRIMARY KEY (batch_id, chunk_id)
+                CREATE INDEX idx_processing_batches_status ON processing_batches(status);
+                -- 3. Batch ↔︎ Recording join
+                CREATE TABLE batch_recordings (
+                    batch_id     INTEGER NOT NULL REFERENCES processing_batches(id) ON DELETE CASCADE,
+                    recording_id INTEGER NOT NULL REFERENCES recordings(id)         ON DELETE RESTRICT,
+                    PRIMARY KEY (batch_id, recording_id)
                 );
-            """)
-
-            try db.execute(sql: """
-                CREATE TABLE IF NOT EXISTS timeline_cards (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    batch_id   INTEGER REFERENCES analysis_batches(id) ON DELETE CASCADE,
-                    start   TEXT NOT NULL, -- Renamed from start_ts
-                    end     TEXT NOT NULL, -- Renamed from end_ts
-                    day        DATE    NOT NULL,
-                    title      TEXT    NOT NULL,
-                    summary TEXT,
-                    category    TEXT    NOT NULL,
-                    subcategory TEXT,
+                -- 4. Timeline Entries
+                CREATE TABLE timeline_entries (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id         INTEGER REFERENCES processing_batches(id) ON DELETE CASCADE,
+                    start            TEXT    NOT NULL,
+                    end              TEXT    NOT NULL,
+                    day              DATE    NOT NULL,
+                    title            TEXT    NOT NULL,
+                    summary          TEXT,
+                    category         TEXT    NOT NULL,
+                    subcategory      TEXT,
                     detailed_summary TEXT,
-                    metadata    TEXT, -- For distractions JSON
-                    video_summary_url TEXT, -- Link to video summary on filesystem
+                    metadata         TEXT,
+                    video_summary_url TEXT,
+                    created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX idx_timeline_entries_day ON timeline_entries(day);
+                -- 5. Observations
+                CREATE TABLE observations (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id    INTEGER NOT NULL REFERENCES processing_batches(id) ON DELETE CASCADE,
+                    start_time  TEXT    NOT NULL,
+                    end_time    TEXT    NOT NULL,
+                    description TEXT    NOT NULL,
+                    llm_source  TEXT    NOT NULL,
                     created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
-                 CREATE INDEX IF NOT EXISTS idx_timeline_cards_day ON timeline_cards(day);
+                CREATE INDEX idx_observations_batch_id ON observations(batch_id);
+                CREATE INDEX idx_observations_start    ON observations(start_time);
+                -- 6. Questions
+                CREATE TABLE questions (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    prompt      TEXT    NOT NULL,
+                    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                -- 7. Answers
+                CREATE TABLE answers (
+                    question_id INTEGER NOT NULL REFERENCES questions(id)          ON DELETE CASCADE,
+                    batch_id    INTEGER NOT NULL REFERENCES processing_batches(id) ON DELETE CASCADE,
+                    value       REAL    NOT NULL,
+                    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (question_id, batch_id)
+                );
+                CREATE INDEX idx_answers_question_batch ON answers(question_id, batch_id);
+                -- 8. Daily Summaries
+                CREATE TABLE daily_summaries (
+                    day_key     TEXT PRIMARY KEY,
+                    summary_md  TEXT,
+                    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
             """)
         }
+    }
     }
 
     // MARK: – Recording‑file helpers ------------------------------------------
@@ -268,69 +321,77 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         return root.appendingPathComponent("\(df.string(from: Date())).mp4")
     }
 
-    func registerChunk(url: URL) {
+    func registerRecording(url: URL) {
         let ts = Int(Date().timeIntervalSince1970)
         try? db.write { db in
-            try db.execute(sql: "INSERT INTO chunks(start_ts, end_ts, file_url, status) VALUES (?, ?, ?, 'recording')",
+            try db.execute(sql: "INSERT INTO recordings(start_ts, end_ts, file_url, status) VALUES (?, ?, ?, 'recording')",
                            arguments: [ts, ts + 60, url.path])
         }
         purgeIfNeeded()
     }
 
-    func markChunkCompleted(url: URL) {
+    func markRecordingCompleted(url: URL) {
         let end = Int(Date().timeIntervalSince1970)
         try? db.write { db in
-            try db.execute(sql: "UPDATE chunks SET end_ts = ?, status = 'completed' WHERE file_url = ?",
+            try db.execute(sql: "UPDATE recordings SET end_ts = ?, status = 'completed' WHERE file_url = ?",
                            arguments: [end, url.path])
         }
     }
 
-    func markChunkFailed(url: URL) {
+    func markRecordingFailed(url: URL) {
         try? db.write { db in
-            try db.execute(sql: "DELETE FROM chunks WHERE file_url = ?", arguments: [url.path])
+            try db.execute(sql: "DELETE FROM recordings WHERE file_url = ?", arguments: [url.path])
         }
         try? fileMgr.removeItem(at: url)
     }
 
     // MARK: – Queries used by GeminiAnalysisManager ---------------------------
 
-    func fetchUnprocessedChunks(olderThan oldestAllowed: Int) -> [RecordingChunk] {
+    func fetchUnprocessedRecordings(olderThan oldestAllowed: Int) -> [Recording] {
         (try? db.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT * FROM chunks
+                SELECT * FROM recordings
                 WHERE start_ts >= ?
                   AND status = 'completed'
-                  AND id NOT IN (SELECT chunk_id FROM batch_chunks)
+                  AND id NOT IN (SELECT recording_id FROM batch_recordings)
                 ORDER BY start_ts ASC
             """, arguments: [oldestAllowed])
                 .map { row in
-                    RecordingChunk(id: row["id"], startTs: row["start_ts"], endTs: row["end_ts"], fileUrl: row["file_url"], status: row["status"]) }
+                    Recording(id: row["id"], start_ts: row["start_ts"], end_ts: row["end_ts"], file_url: row["file_url"], status: row["status"]) }
         }) ?? []
     }
 
-    func saveBatch(startTs: Int, endTs: Int, chunkIds: [Int64]) -> Int64? {
-        guard !chunkIds.isEmpty else { return nil }
+    func createProcessingBatch(startTs: Int, endTs: Int, recordingIds: [Int64]) -> Int64? {
+        guard !recordingIds.isEmpty else { return nil }
         var batchID: Int64 = 0
         try? db.write { db in
-            try db.execute(sql: "INSERT INTO analysis_batches(batch_start_ts, batch_end_ts) VALUES (?, ?)",
+            try db.execute(sql: "INSERT INTO processing_batches(batch_start_ts, batch_end_ts) VALUES (?, ?)",
                            arguments: [startTs, endTs])
             batchID = db.lastInsertedRowID
-            for id in chunkIds {
-                try db.execute(sql: "INSERT INTO batch_chunks(batch_id, chunk_id) VALUES (?, ?)", arguments: [batchID, id])
+            for id in recordingIds {
+                try db.execute(sql: "INSERT INTO batch_recordings(batch_id, recording_id) VALUES (?, ?)", arguments: [batchID, id])
             }
         }
         return batchID == 0 ? nil : batchID
     }
 
-    func updateBatchStatus(batchId: Int64, status: String) {
+    func updateProcessingBatchStatus(_ id: Int64, status: String, reason: String?) {
         try? db.write { db in
-            try db.execute(sql: "UPDATE analysis_batches SET status = ? WHERE id = ?", arguments: [status, batchId])
+            try db.execute(sql: "UPDATE processing_batches SET status = ?, reason = ? WHERE id = ?", arguments: [status, reason, id])
         }
     }
 
-    func markBatchFailed(batchId: Int64, reason: String) {
+    func flagBatch(_ id: Int64, timelineDone: Bool?, questionsDone: Bool?, summaryDone: Bool?) {
         try? db.write { db in
-            try db.execute(sql: "UPDATE analysis_batches SET status = 'failed', reason = ? WHERE id = ?", arguments: [reason, batchId])
+            if let t = timelineDone {
+                try db.execute(sql: "UPDATE processing_batches SET timeline_processed = ? WHERE id = ?", arguments: [t ? 1 : 0, id])
+            }
+            if let q = questionsDone {
+                try db.execute(sql: "UPDATE processing_batches SET questions_processed = ? WHERE id = ?", arguments: [q ? 1 : 0, id])
+            }
+            if let s = summaryDone {
+                try db.execute(sql: "UPDATE processing_batches SET summary_processed = ? WHERE id = ?", arguments: [s ? 1 : 0, id])
+            }
         }
     }
 
@@ -339,7 +400,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(calls), let json = String(data: data, encoding: .utf8) else { return }
         try? db.write { db in
-            try db.execute(sql: "UPDATE analysis_batches SET llm_metadata = ? WHERE id = ?", arguments: [json, batchId])
+            try db.execute(sql: "UPDATE processing_batches SET llm_metadata = ? WHERE id = ?", arguments: [json, batchId])
         }
     }
 
@@ -347,7 +408,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return (try? db.read { db in
-            if let row = try Row.fetchOne(db, sql: "SELECT llm_metadata FROM analysis_batches WHERE id = ?", arguments: [batchId]),
+            if let row = try Row.fetchOne(db, sql: "SELECT llm_metadata FROM processing_batches WHERE id = ?", arguments: [batchId]),
                let json: String = row["llm_metadata"],
                let data = json.data(using: .utf8) {
                 return try decoder.decode([LLMCall].self, from: data)
@@ -356,94 +417,140 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }) ?? []
     }
 
-    /// Chunks that belong to one batch, already sorted.
-    func chunksForBatch(_ batchId: Int64) -> [RecordingChunk] {
+    /// Recordings that belong to one batch, already sorted.
+    func recordingsForBatch(_ id: Int64) -> [Recording] {
         (try? db.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT c.* FROM batch_chunks bc
-                JOIN chunks c ON c.id = bc.chunk_id
-                WHERE bc.batch_id = ?
-                ORDER BY c.start_ts ASC
-                """, arguments: [batchId]
+                SELECT r.* FROM batch_recordings br
+                JOIN recordings r ON r.id = br.recording_id
+                WHERE br.batch_id = ?
+                ORDER BY r.start_ts ASC
+                """, arguments: [id]
             ).map { r in
-                RecordingChunk(id: r["id"], startTs: r["start_ts"], endTs: r["end_ts"],
-                               fileUrl: r["file_url"], status: r["status"])
+                Recording(id: r["id"], start_ts: r["start_ts"], end_ts: r["end_ts"],
+                          file_url: r["file_url"], status: r["status"])
             }
         }) ?? []
     }
 
-    // MARK: – Timeline‑cards --------------------------------------------------
+    // MARK: – Observations ----------------------------------------------------
 
-    func saveTimelineCardShell(batchId: Int64, card: TimelineCardShell) -> Int64? {
+    func saveObservations(batchId: Int64, observations: [Observation]) {
+        guard !observations.isEmpty else { return }
+        try? db.write { db in
+            for o in observations {
+                try db.execute(sql: """
+                    INSERT INTO observations(batch_id, start_time, end_time, description, llm_source)
+                    VALUES (?, ?, ?, ?, ?)
+                """, arguments: [batchId, o.start_time, o.end_time, o.description, o.llm_source])
+            }
+        }
+    }
+
+    func fetchObservations(batchId: Int64) -> [Observation] {
+        (try? db.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM observations WHERE batch_id = ? ORDER BY start_time ASC", arguments: [batchId]).map { row in
+                Observation(id: row["id"], batch_id: row["batch_id"], start_time: row["start_time"], end_time: row["end_time"], description: row["description"], llm_source: row["llm_source"], created_at: row["created_at"])
+            }
+        }) ?? []
+    }
+
+    // MARK: – Questions & Answers -------------------------------------------
+
+    func saveQuestions(_ qs: [Question]) -> [Int64] {
+        guard !qs.isEmpty else { return [] }
+        var ids: [Int64] = []
+        try? db.write { db in
+            for q in qs {
+                try db.execute(sql: "INSERT INTO questions(prompt) VALUES (?)", arguments: [q.prompt])
+                ids.append(db.lastInsertedRowID)
+            }
+        }
+        return ids
+    }
+
+    func saveAnswers(_ answers: [Answer]) {
+        guard !answers.isEmpty else { return }
+        try? db.write { db in
+            for a in answers {
+                try db.execute(sql: "INSERT OR REPLACE INTO answers(question_id, batch_id, value) VALUES (?, ?, ?)", arguments: [a.question_id, a.batch_id, a.value])
+            }
+        }
+    }
+
+    func fetchAnswers(questionId: Int64, dayKey: String) -> [Answer] {
+        (try? db.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT a.question_id, a.batch_id, a.value, a.created_at
+                FROM answers a
+                JOIN processing_batches pb ON pb.id = a.batch_id
+                WHERE a.question_id = ? AND strftime('%Y-%m-%d', pb.batch_start_ts, 'unixepoch') = ?
+            """, arguments: [questionId, dayKey]).map { row in
+                Answer(question_id: row["question_id"], batch_id: row["batch_id"], value: row["value"], created_at: row["created_at"])
+            }
+        }) ?? []
+    }
+
+    // MARK: – Daily Summaries -----------------------------------------------
+
+    func saveDailySummary(_ summary: DailySummary) {
+        try? db.write { db in
+            try db.execute(sql: "INSERT OR REPLACE INTO daily_summaries(day_key, summary_md) VALUES (?, ?)", arguments: [summary.day_key, summary.summary_md])
+        }
+    }
+
+    func fetchDailySummary(dayKey: String) -> DailySummary? {
+        return try? db.read { db in
+            if let row = try Row.fetchOne(db, sql: "SELECT * FROM daily_summaries WHERE day_key = ?", arguments: [dayKey]) {
+                return DailySummary(day_key: row["day_key"], summary_md: row["summary_md"], created_at: row["created_at"])
+            }
+            return nil
+        }
+    }
+
+    // MARK: – Timeline --------------------------------------------------------
+
+    func saveTimelineEntry(batchId: Int64, entry: TimelineEntry) -> Int64? {
         let encoder = JSONEncoder()
         var lastId: Int64? = nil
         try? db.write {
             db in
             var distractionsString: String? = nil
-            if let distractions = card.distractions, !distractions.isEmpty {
-                if let jsonData = try? encoder.encode(distractions) {
-                    distractionsString = String(data: jsonData, encoding: .utf8)
-                }
+            if let metadata = entry.metadata, !metadata.isEmpty {
+                distractionsString = metadata
             }
 
             try db.execute(sql: """
-                INSERT INTO timeline_cards(
+                INSERT INTO timeline_entries(
                     batch_id, start, end, day, title,
                     summary, category, subcategory, detailed_summary, metadata
                     -- video_summary_url is omitted here
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
-                batchId, card.startTimestamp, card.endTimestamp, card.day, card.title,
-                card.summary, card.category, card.subcategory, card.detailedSummary, distractionsString
+                batchId, entry.start, entry.end, entry.day, entry.title,
+                entry.summary ?? "", entry.category, entry.subcategory ?? "", entry.detailed_summary ?? "", distractionsString
             ])
             lastId = db.lastInsertedRowID
         }
         return lastId
     }
 
-    func updateTimelineCardVideoURL(cardId: Int64, videoSummaryURL: String) {
+    func updateTimelineEntryVideoURL(id: Int64, url: String) {
         try? db.write {
             db in
             try db.execute(sql: """
-                UPDATE timeline_cards
+                UPDATE timeline_entries
                 SET video_summary_url = ?
                 WHERE id = ?
-            """, arguments: [videoSummaryURL, cardId])
+            """, arguments: [url, id])
         }
     }
-
-    func fetchTimelineCards(forBatch batchId: Int64) -> [TimelineCard] {
-        let decoder = JSONDecoder()
-        return (try? db.read { db in
-            try Row.fetchAll(db, sql: "SELECT * FROM timeline_cards WHERE batch_id = ? ORDER BY start ASC", arguments: [batchId]).map { row in
-                var distractions: [Distraction]? = nil
-                if let metadataString: String = row["metadata"],
-                   let jsonData = metadataString.data(using: .utf8) {
-                    distractions = try? decoder.decode([Distraction].self, from: jsonData)
-                }
-                return TimelineCard(
-                    startTimestamp: row["start"] ?? "",
-                    endTimestamp: row["end"] ?? "",
-                    category: row["category"],
-                    subcategory: row["subcategory"],
-                    title: row["title"],
-                    summary: row["summary"],
-                    detailedSummary: row["detailed_summary"],
-                    day: row["day"],
-                    distractions: distractions,
-                    videoSummaryURL: row["video_summary_url"],
-                    otherVideoSummaryURLs: nil
-                )
-            }
-        }) ?? []
-    }
-    
     // All batches, newest first
        func allBatches() -> [(id: Int64, start: Int, end: Int, status: String)] {
             (try? db.read { db in
                 try Row.fetchAll(db, sql:
-                    "SELECT id, batch_start_ts, batch_end_ts, status FROM analysis_batches ORDER BY id DESC"
+                    "SELECT id, batch_start_ts, batch_end_ts, status FROM processing_batches ORDER BY id DESC"
                 ).map { row in
                     (row["id"], row["batch_start_ts"], row["batch_end_ts"], row["status"])
                 }
@@ -452,39 +559,48 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
     // MARK: - Timeline Queries -----------------------------------------------
 
-    func fetchTimelineCards(forDay day: String) -> [TimelineCard] {
-        let decoder = JSONDecoder()
-        let cards: [TimelineCard]? = try? db.read { db in
-            try Row.fetchAll(db, sql: """
-                SELECT * FROM timeline_cards
-                WHERE day = ?
-                ORDER BY start ASC -- Order by renamed column 'start'
-            """, arguments: [day])
-            .map { row in
-                // Decode distractions from metadata JSON
-                var distractions: [Distraction]? = nil
-                if let metadataString: String = row["metadata"],
-                   let jsonData = metadataString.data(using: .utf8) {
-                    distractions = try? decoder.decode([Distraction].self, from: jsonData)
-                }
-
-                // Create TimelineCard instance using renamed columns
-                return TimelineCard(
-                    startTimestamp: row["start"] ?? "", // Use row["start"]
-                    endTimestamp: row["end"] ?? "",   // Use row["end"]
-                    category: row["category"],
-                    subcategory: row["subcategory"],
+    func fetchTimelineEntries(dayKey: String) -> [TimelineEntry] {
+        return (try? db.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM timeline_entries WHERE day = ? ORDER BY start ASC", arguments: [dayKey]).map { row in
+                TimelineEntry(
+                    id: row["id"],
+                    batch_id: row["batch_id"],
+                    start: row["start"],
+                    end: row["end"],
+                    day: row["day"],
                     title: row["title"],
                     summary: row["summary"],
-                    detailedSummary: row["detailed_summary"],
-                    day: row["day"],
-                    distractions: distractions,
-                    videoSummaryURL: row["video_summary_url"],
-                    otherVideoSummaryURLs: nil
+                    category: row["category"],
+                    subcategory: row["subcategory"],
+                    detailed_summary: row["detailed_summary"],
+                    metadata: row["metadata"],
+                    video_summary_url: row["video_summary_url"],
+                    created_at: row["created_at"]
                 )
             }
+        }) ?? []
+    }
+
+    // Temporary wrapper for old API
+    func fetchTimelineCards(forBatch batchId: Int64) -> [TimelineCard] {
+        let entries = (try? db.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM timeline_entries WHERE batch_id = ? ORDER BY start ASC", arguments: [batchId])
+                .map { row in
+                    TimelineEntry(
+                        id: row["id"], batch_id: row["batch_id"], start: row["start"], end: row["end"], day: row["day"], title: row["title"], summary: row["summary"], category: row["category"], subcategory: row["subcategory"], detailed_summary: row["detailed_summary"], metadata: row["metadata"], video_summary_url: row["video_summary_url"], created_at: row["created_at"])
+                }
+        }) ?? []
+        // Map to old TimelineCard structure
+        return entries.map { e in
+            TimelineCard(startTimestamp: e.start, endTimestamp: e.end, category: e.category, subcategory: e.subcategory ?? "", title: e.title, summary: e.summary ?? "", detailedSummary: e.detailed_summary ?? "", day: e.day, distractions: nil, videoSummaryURL: e.video_summary_url, otherVideoSummaryURLs: nil)
         }
-        return cards ?? []
+    }
+
+    func fetchTimelineCards(forDay day: String) -> [TimelineCard] {
+        let entries = fetchTimelineEntries(dayKey: day)
+        return entries.map { e in
+            TimelineCard(startTimestamp: e.start, endTimestamp: e.end, category: e.category, subcategory: e.subcategory ?? "", title: e.title, summary: e.summary ?? "", detailedSummary: e.detailed_summary ?? "", day: e.day, distractions: nil, videoSummaryURL: e.video_summary_url, otherVideoSummaryURLs: nil)
+        }
     }
 
     // MARK: - Transcript Storage (Updated) --------------------------------------
@@ -498,7 +614,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             let jsonString = String(data: jsonData, encoding: .utf8)
             try db.write { db in
                 try db.execute(sql: """
-                    UPDATE analysis_batches
+                    UPDATE processing_batches
                     SET detailed_transcription = ?
                     WHERE id = ?
                 """, arguments: [jsonString, batchId])
@@ -512,7 +628,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601 // Decode Dates from ISO8601 strings
         return (try? db.read { db in
-            if let row = try Row.fetchOne(db, sql: "SELECT detailed_transcription FROM analysis_batches WHERE id = ?", arguments: [batchId]),
+            if let row = try Row.fetchOne(db, sql: "SELECT detailed_transcription FROM processing_batches WHERE id = ?", arguments: [batchId]),
                let jsonString: String = row["detailed_transcription"],
                let jsonData = jsonString.data(using: .utf8) {
                 return try decoder.decode([ClockTranscriptChunk].self, from: jsonData)
@@ -526,7 +642,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         guard !paths.isEmpty else { return [:] }
         var out: [String: (Int, Int)] = [:]
         let placeholders = Array(repeating: "?", count: paths.count).joined(separator: ",")
-        let sql = "SELECT file_url, start_ts, end_ts FROM chunks WHERE file_url IN (\(placeholders))"
+        let sql = "SELECT file_url, start_ts, end_ts FROM recordings WHERE file_url IN (\(placeholders))"
         try? db.read { db in
             let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(paths))
             for row in rows {
@@ -548,11 +664,11 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         purgeQ.async {
             guard let size = try? self.fileMgr.allocatedSizeOfDirectory(at: self.root), size > self.quota else { return }
             try? self.db.write { db in
-                let old = try Row.fetchAll(db, sql: "SELECT id, file_url FROM chunks WHERE status = 'completed' ORDER BY start_ts ASC LIMIT 20")
+                let old = try Row.fetchAll(db, sql: "SELECT id, file_url FROM recordings WHERE status = 'completed' ORDER BY start_ts ASC LIMIT 20")
                 for r in old {
                     guard let id: Int64 = r["id"], let path: String = r["file_url"] else { continue }
                     try? self.fileMgr.removeItem(atPath: path)
-                    try db.execute(sql: "DELETE FROM chunks WHERE id = ?", arguments: [id])
+                    try db.execute(sql: "DELETE FROM recordings WHERE id = ?", arguments: [id])
                 }
             }
         }
