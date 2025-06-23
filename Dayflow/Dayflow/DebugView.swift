@@ -6,7 +6,7 @@ struct DebugView: View {
     @State private var batches = StorageManager.shared.allBatches()
     @State private var selected: Int64?
     @State private var player = AVPlayer()
-    @State private var timelineCards: [TimelineCard] = []
+    @State private var timelineEntries: [TimelineEntry] = []
     @State private var llmCalls: [LLMCall] = []
     @State private var composition: AVMutableComposition?
     @State private var isProcessing = false
@@ -39,10 +39,10 @@ struct DebugView: View {
                             .disabled(isProcessing)
                             .padding(.top, 5)
 
-                        if !timelineCards.isEmpty {
-                            Text("Timeline Cards").font(.headline)
-                            ForEach(timelineCards) { card in
-                                TimelineCardRow(card: card)
+                        if !timelineEntries.isEmpty {
+                            Text("Timeline").font(.headline)
+                            ForEach(timelineEntries) { entry in
+                                TimelineEntryRowV2(entry: entry)
                             }
                         }
 
@@ -69,16 +69,16 @@ struct DebugView: View {
 
     private func loadBatch(_ id: Int64?) async {
         player.pause()
-        timelineCards = []
+        timelineEntries = []
         llmCalls = []
         composition = nil
 
         guard let id else { return }
-        let chunks = StorageManager.shared.chunksForBatch(id)
+        let chunks = StorageManager.shared.recordingsForBatch(id)
         if !chunks.isEmpty {
             let comp = AVMutableComposition()
             for c in chunks {
-                let asset = AVURLAsset(url: URL(fileURLWithPath: c.fileUrl))
+                let asset = AVURLAsset(url: URL(fileURLWithPath: c.file_url))
                 do {
                     guard try await asset.load(.isPlayable) else { continue }
                     let tracks = try await asset.loadTracks(withMediaType: .video)
@@ -87,7 +87,7 @@ struct DebugView: View {
                     let dur = try await asset.load(.duration)
                     try await comp.insertTimeRange(.init(start: .zero, duration: dur), of: asset, at: comp.duration)
                 } catch {
-                    print("Failed to process asset \(c.fileUrl): \(error)")
+                    print("Failed to process asset \(c.file_url): \(error)")
                 }
             }
             if comp.tracks.first != nil {
@@ -99,7 +99,7 @@ struct DebugView: View {
         } else {
             composition = nil
         }
-        timelineCards = StorageManager.shared.fetchTimelineCards(forBatch: id)
+        timelineEntries = StorageManager.shared.fetchTimelineEntries(batchId: id)
         llmCalls = StorageManager.shared.fetchBatchLLMMetadata(batchId: id)
     }
 
@@ -119,9 +119,7 @@ struct DebugView: View {
                     print("Failed to reprocess batch \(batchId): \(error.localizedDescription)")
                 }
                 self.refresh()
-                Task {
-                    await self.loadBatch(batchId)
-                }
+                Task { await self.loadBatch(batchId) }
             }
         }
     }
@@ -184,62 +182,6 @@ struct DebugView: View {
     }
 }
 
-struct TimelineCardRow: View {
-    let card: TimelineCard
-
-    var body: some View {
-        DisclosureGroup {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("\(card.startTimestamp) – \(card.endTimestamp)")
-                    .font(.caption)
-                Text(card.category + " / " + card.subcategory)
-                    .font(.caption2)
-                Text(card.summary).font(.caption)
-
-                if let path = card.videoSummaryURL,
-                   !path.isEmpty,
-                   let url = videoURL(from: path) {
-                    InlineVideoPlayer(url: url)
-                        .frame(height: 120)
-                        .cornerRadius(6)
-                }
-
-                if let distractions = card.distractions,
-                   !distractions.isEmpty {
-                    Text("Distractions").font(.subheadline)
-                    ForEach(distractions) { d in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(d.title).bold().font(.caption)
-                            Text("\(d.startTime) – \(d.endTime)")
-                                .font(.caption2)
-                            Text(d.summary).font(.caption2)
-                            if let dPath = d.videoSummaryURL,
-                               !dPath.isEmpty,
-                               let dUrl = videoURL(from: dPath) {
-                                InlineVideoPlayer(url: dUrl)
-                                    .frame(height: 80)
-                                    .cornerRadius(4)
-                            }
-                        }
-                        .padding(.leading, 8)
-                    }
-                }
-            }
-            .padding(.vertical, 4)
-        } label: {
-            Text(card.title).bold()
-        }
-        .padding(.bottom, 4)
-    }
-
-    private func videoURL(from path: String) -> URL? {
-        if path.hasPrefix("file://") {
-            return URL(string: path)
-        }
-        return URL(string: "file://" + path)
-    }
-}
-
 struct LLMCallRow: View {
     let index: Int
     let call: LLMCall
@@ -267,7 +209,7 @@ struct LLMCallRow: View {
     }
 }
 
-private struct InlineVideoPlayer: View {
+struct InlineVideoPlayer: View {
     let url: URL
     @State private var player = AVPlayer()
 
@@ -275,5 +217,45 @@ private struct InlineVideoPlayer: View {
         VideoPlayer(player: player)
             .onAppear { player.replaceCurrentItem(with: AVPlayerItem(url: url)) }
             .onDisappear { player.pause() }
+    }
+}
+
+struct TimelineEntryRowV2: View {
+    let entry: TimelineEntry
+
+    private func videoURL(from path: String) -> URL? {
+        path.hasPrefix("file://") ? URL(string: path)
+                                  : URL(string: "file://" + path)
+    }
+
+    var body: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("\(entry.start) – \(entry.end)")
+                    .font(.caption)
+                Text(entry.category + (entry.subcategory.map { " / \($0)" } ?? ""))
+                    .font(.caption2)
+                if let s = entry.summary { Text(s).font(.caption) }
+
+                if let path = entry.video_summary_url,
+                   !path.isEmpty,
+                   let url  = videoURL(from: path) {
+                    InlineVideoPlayer(url: url)
+                        .frame(height: 120)
+                        .cornerRadius(6)
+                }
+
+                // Raw distractions / metadata JSON for now
+                if let meta = entry.metadata, !meta.isEmpty {
+                    Text(meta)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.vertical, 4)
+        } label: {
+            Text(entry.title).bold()
+        }
+        .padding(.bottom, 4)
     }
 }

@@ -41,7 +41,7 @@ final class GeminiAnalysisManager: AnalysisManaging {
     private let DISTRACTION_SUMMARY_PICK_INTERVAL_N = 15
 
     private let checkInterval: TimeInterval = 60          // every minute
-    private let targetBatchDuration: TimeInterval = 15*60 // ≈15‑min logical batches
+    private let targetBatchDuration: TimeInterval = 15*60 // ≈15-min logical batches
     private let maxLookback: TimeInterval   = 24*60*60    // only last 24h
 
     private var analysisTimer: Timer?
@@ -81,10 +81,10 @@ final class GeminiAnalysisManager: AnalysisManaging {
         guard !isProcessing else { return }; isProcessing = true
         defer { isProcessing = false }
 
-        // 1. Gather unprocessed chunks
-        let chunks = fetchUnprocessedChunks()
-        // 2. Build logical batches (~15‑min)
-        let batches = createBatches(from: chunks)
+        // 1. Gather unprocessed recordings
+        let recordings = fetchUnprocessedRecordings()
+        // 2. Build logical batches (~15-min)
+        let batches = createBatches(from: recordings)
         // 3. Persist batch rows & join table
         let batchIDs = batches.compactMap(saveBatch)
         // 4. Fire Gemini for each batch
@@ -94,16 +94,17 @@ final class GeminiAnalysisManager: AnalysisManaging {
     // MARK: – Gemini kick‑off ----------------------------------------------
 
     private func queueGeminiRequest(batchId: Int64) {
-        let chunksInBatch = StorageManager.shared.chunksForBatch(batchId)
+        let recordingsInBatch = StorageManager.shared.recordingsForBatch(batchId)
 
-        if chunksInBatch.isEmpty {
+        if recordingsInBatch.isEmpty {
             print("Warning: Batch \\(batchId) has no chunks. Marking as 'failed_empty'.")
             self.updateBatchStatus(batchId: batchId, status: "failed_empty")
+            self.updateProcessingBatchStatus(batchId, "failed_empty")
             return
         }
 
-        let totalVideoDurationSeconds = chunksInBatch.reduce(0.0) { acc, chunk -> TimeInterval in
-            let duration = TimeInterval(chunk.endTs - chunk.startTs)
+        let totalVideoDurationSeconds = recordingsInBatch.reduce(0.0) { acc, rec -> TimeInterval in
+            let duration = TimeInterval(rec.end_ts - rec.start_ts)
             return acc + duration
         }
 
@@ -118,11 +119,11 @@ final class GeminiAnalysisManager: AnalysisManaging {
         updateBatchStatus(batchId: batchId, status: "processing")
 
         // Prepare file URLs for video processing
-        let chunkFileURLs: [URL] = chunksInBatch.compactMap { chunk in
+        let chunkFileURLs: [URL] = recordingsInBatch.compactMap { rec in
             // Assuming chunk.fileUrl is a String path, convert to URL
             // Ensure this path is accessible. If it's a relative path, resolve it.
             // For now, assuming it's an absolute file path string.
-            URL(fileURLWithPath: chunk.fileUrl)
+            URL(fileURLWithPath: rec.file_url)
         }
 
         geminiService.processBatch(batchId) { [weak self] result in
@@ -137,12 +138,12 @@ final class GeminiAnalysisManager: AnalysisManaging {
             case .success(let activityCards):
                 print("Gemini succeeded for Batch \\\\(batchId). Processing \\\\(activityCards.count) activity cards for day \\\\(currentLogicalDayString).")
                 
-                guard let firstChunk = chunksInBatch.first else {
+                guard let firstRec = recordingsInBatch.first else {
                     print("Error: No chunks found for batch \\\\(batchId) during timestamp conversion")
                     self.markBatchFailed(batchId: batchId, reason: "No chunks found for timestamp conversion")
                     return
                 }
-                let firstChunkStartDate = Date(timeIntervalSince1970: TimeInterval(firstChunk.startTs))
+                let firstChunkStartDate = Date(timeIntervalSince1970: TimeInterval(firstRec.start_ts))
                 print("First chunk starts at real time: \\\\(firstChunkStartDate)")
 
                 // --- Asynchronous Video Processing Task ---
@@ -353,81 +354,81 @@ final class GeminiAnalysisManager: AnalysisManaging {
         store.updateBatchStatus(batchId: batchId, status: status)
     }
 
+    private func updateProcessingBatchStatus(_ id:Int64,_ status:String,_ reason:String? = nil) {
+        store.updateProcessingBatchStatus(id, status: status, reason: reason)
+    }
+
     // MARK: – Batching logic -------------------------------------------------
 
-    private struct AnalysisBatch { let chunks: [RecordingChunk]; let start: Int; let end: Int }
+    private struct AnalysisBatch { let recs: [Recording]; let start: Int; let end: Int }
 
-    private func fetchUnprocessedChunks() -> [RecordingChunk] {
+    private func fetchUnprocessedRecordings() -> [Recording] {
         let oldest = Int(Date().timeIntervalSince1970) - Int(maxLookback)
-        return store.fetchUnprocessedChunks(olderThan: oldest)
+        return store.fetchUnprocessedRecordings(olderThan: oldest)
     }
 
-    // MARK: – Batching logic -----------------------------------------------------
+    private func createBatches(from recs: [Recording]) -> [AnalysisBatch] {
+        guard !recs.isEmpty else { return [] }
 
-private func createBatches(from chunks: [RecordingChunk]) -> [AnalysisBatch] {
-    guard !chunks.isEmpty else { return [] }
+        func duration(_ r: Recording) -> TimeInterval { TimeInterval(r.end_ts - r.start_ts) }
 
-    let ordered = chunks.sorted { $0.startTs < $1.startTs }
-    let maxGap: TimeInterval        = 120             // ≤ 2 min between chunks
-    let maxBatchDuration: TimeInterval = targetBatchDuration // 900 s (15 min)
+        let ordered = recs.sorted { $0.start_ts < $1.start_ts }
+        let maxGap: TimeInterval      = 120                 // ≤ 2 min gap
+        let maxBatchDur: TimeInterval = targetBatchDuration // 15 min
 
-    var batches: [AnalysisBatch] = []
+        var batches: [AnalysisBatch] = []
+        var bucket:  [Recording]     = []
+        var bucketDur: TimeInterval  = 0
 
-    var bucket: [RecordingChunk]   = []
-    var bucketDur: TimeInterval    = 0                // sum of 15‑s chunks
+        for rec in ordered {
+            let recDur = duration(rec)
 
-    for chunk in ordered {
-        if bucket.isEmpty {
-            bucket.append(chunk)
-            bucketDur = chunk.duration                // first chunk → 15 s
-            continue
+            if bucket.isEmpty {
+                bucket      = [rec]
+                bucketDur   = recDur
+                continue
+            }
+
+            let prev       = bucket.last!
+            let gap        = TimeInterval(rec.start_ts - prev.end_ts)
+            let wouldBurst = bucketDur + recDur > maxBatchDur
+
+            if gap > maxGap || wouldBurst {
+                batches.append(
+                    AnalysisBatch(recs: bucket,
+                                  start: bucket.first!.start_ts,
+                                  end:   bucket.last!.end_ts)
+                )
+                bucket    = [rec]
+                bucketDur = recDur
+            } else {
+                bucket.append(rec)
+                bucketDur += recDur
+            }
         }
 
-        let prev       = bucket.last!
-        let gap        = TimeInterval(chunk.startTs - prev.endTs)
-        let wouldBurst = bucketDur + chunk.duration > maxBatchDuration
-
-        if gap > maxGap || wouldBurst {
-            // close current batch
+        if !bucket.isEmpty {
             batches.append(
-                AnalysisBatch(chunks: bucket,
-                              start: bucket.first!.startTs,
-                              end:   bucket.last!.endTs)
+                AnalysisBatch(recs: bucket,
+                              start: bucket.first!.start_ts,
+                              end:   bucket.last!.end_ts)
             )
-            // start new bucket with this chunk
-            bucket      = [chunk]
-            bucketDur   = chunk.duration
-        } else {
-            // still in same batch
-            bucket.append(chunk)
-            bucketDur += chunk.duration
         }
-    }
 
-    // Flush any leftover bucket
-    if !bucket.isEmpty {
-        batches.append(
-            AnalysisBatch(chunks: bucket,
-                          start: bucket.first!.startTs,
-                          end:   bucket.last!.endTs)
-        )
-    }
-
-    // ─── Special rule: drop the *most‑recent* batch if < 15 min ───
-    if let last = batches.last {
-        let dur = last.chunks.reduce(0) { $0 + $1.duration }   // sum of 15‑s chunks
-        if dur < maxBatchDuration {
-            batches.removeLast()
+        // Drop the most-recent batch if < 15 min
+        if let last = batches.last {
+            let total = last.recs.reduce(0) { $0 + duration($1) }
+            if total < maxBatchDur { batches.removeLast() }
         }
+
+        return batches
     }
-
-    return batches
-}
-
 
     private func saveBatch(_ batch: AnalysisBatch) -> Int64? {
-        let ids = batch.chunks.map { $0.id }
-        return store.saveBatch(startTs: batch.start, endTs: batch.end, chunkIds: ids)
+        let ids = batch.recs.compactMap { $0.id }
+        return store.createProcessingBatch(startTs: batch.start,
+                                           endTs:   batch.end,
+                                           recordingIds: ids)
     }
 
     // MARK: - Timestamp conversion helpers
