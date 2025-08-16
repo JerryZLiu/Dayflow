@@ -16,7 +16,16 @@ struct NewMainView: View {
     @State private var selectedActivity: TimelineActivity? = nil
     
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack {
+            // Full window glass background
+            GlassEffectBackground.windowBackground
+                .ignoresSafeArea()
+            
+            // Transparent window configuration
+            TransparentWindowView()
+                .allowsHitTesting(false)
+            
+            VStack(spacing: 0) {
             // Top row of 2x2 grid
             HStack(alignment: .center, spacing: 0) {
                 // Top left: Logo (centered)
@@ -85,6 +94,13 @@ struct NewMainView: View {
                 
                 // Bottom right: Main content area
                 ZStack {
+                    // Glass effect background for main content
+                    GlassEffectBackground(
+                        material: .hudWindow,
+                        blendingMode: .behindWindow,
+                        cornerRadius: 14.72286
+                    )
+                    
                     VStack(alignment: .leading, spacing: 20) {
                         // Tab filters
                         TabFilterBar()
@@ -103,7 +119,6 @@ struct NewMainView: View {
                     .padding(30)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.white.opacity(0.3))
                 .cornerRadius(14.72286)
                 .overlay(
                     RoundedRectangle(cornerRadius: 14.72286)
@@ -115,6 +130,7 @@ struct NewMainView: View {
             .padding(.trailing, 20)
             .padding(.bottom, 20)
             .frame(maxHeight: .infinity)
+            }
         }
         .frame(minWidth: 800, minHeight: 600)
         .sheet(isPresented: $showDatePicker) {
@@ -175,7 +191,13 @@ struct SidebarView: View {
         }
         .padding(9.88329)
         .frame(width: 59.29975, alignment: .center)
-        .background(.white.opacity(0.3))
+        .background(
+            GlassEffectBackground(
+                material: .sidebar,
+                blendingMode: .behindWindow,
+                cornerRadius: 72
+            )
+        )
         .clipShape(RoundedRectangle(cornerRadius: 72, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 72, style: .continuous)
