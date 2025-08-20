@@ -23,34 +23,34 @@ final class LLMService: LLMServicing {
     static let shared: LLMServicing = LLMService()
     
     private var providerType: LLMProviderType {
-        // Read directly from UserDefaults each time
+        // Read provider configuration from UserDefaults
         guard let savedData = UserDefaults.standard.data(forKey: "llmProviderType") else {
-            // No saved provider type
-            // Default to Gemini with empty API key
-            return .geminiDirect(apiKey: "")
+            // No saved provider type - default to Gemini
+            return .geminiDirect
         }
         
-        // Found saved provider type
-        
         do {
-            let decoded = try JSONDecoder().decode(LLMProviderType.self, from: savedData)
-            // Successfully decoded provider type
-            return decoded
+            return try JSONDecoder().decode(LLMProviderType.self, from: savedData)
         } catch {
-            // Failed to decode provider type
-            // Default to Gemini with empty API key
-            return .geminiDirect(apiKey: "")
+            // Failed to decode provider type - default to Gemini
+            return .geminiDirect
         }
     }
     
     private var provider: LLMProvider? {
         switch providerType {
-        case .geminiDirect(let apiKey):
-            guard !apiKey.isEmpty else { return nil }
+        case .geminiDirect:
+            // Retrieve API key from Keychain
+            guard let apiKey = KeychainManager.shared.retrieve(for: "gemini"),
+                  !apiKey.isEmpty else { return nil }
             return GeminiDirectProvider(apiKey: apiKey)
-        case .dayflowBackend(let token, let endpoint):
-            guard !token.isEmpty else { return nil }
+            
+        case .dayflowBackend(let endpoint):
+            // Retrieve token from Keychain
+            guard let token = KeychainManager.shared.retrieve(for: "dayflow"),
+                  !token.isEmpty else { return nil }
             return DayflowBackendProvider(token: token, endpoint: endpoint)
+            
         case .ollamaLocal(let endpoint):
             return OllamaProvider(endpoint: endpoint)
         }

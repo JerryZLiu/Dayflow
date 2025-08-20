@@ -1,14 +1,14 @@
 //
-//  NewTimelineView.swift
+//  TimelineView.swift
 //  Dayflow
 //
-//  Timeline visualization for the new UI
+//  Timeline visualization for the UI
 //
 
 import SwiftUI
 import AppKit
 
-struct NewTimelineView: View {
+struct TimelineView: View {
     @Binding var selectedDate: Date
     @Binding var selectedActivity: TimelineActivity?
     @State private var activities: [TimelineActivity] = []
@@ -36,7 +36,7 @@ struct NewTimelineView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    NewTimelineContent(
+                    TimelineContent(
                         activities: activities,
                         selectedActivity: $selectedActivity,
                         containerHeight: max(geometry.size.height, calculateTotalHeight())
@@ -196,7 +196,7 @@ struct NewTimelineView: View {
     }
 }
 
-struct NewTimelineContent: View {
+struct TimelineContent: View {
     let activities: [TimelineActivity]
     @Binding var selectedActivity: TimelineActivity?
     let containerHeight: CGFloat
@@ -208,7 +208,7 @@ struct NewTimelineContent: View {
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             // Time column with markers
-            NewTimeColumn(
+            TimeColumn(
                 activities: activities,
                 containerHeight: containerHeight
             )
@@ -217,7 +217,7 @@ struct NewTimelineContent: View {
             // Activities column
             ZStack(alignment: .topLeading) {
                 // Dotted line
-                NewDottedLine()
+                DottedLine()
                     .stroke(style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
                     .foregroundColor(Color.gray.opacity(0.3))
                     .frame(width: 1)
@@ -225,7 +225,7 @@ struct NewTimelineContent: View {
                 
                 // Activity cards
                 ForEach(adjustedActivities) { activityInfo in
-                    NewTimelineActivityCard(
+                    TimelineActivityCard(
                         activity: activityInfo.activity,
                         isSelected: selectedActivity?.id == activityInfo.activity.id,
                         position: (start: activityInfo.adjustedY, height: activityInfo.adjustedHeight),
@@ -329,7 +329,7 @@ struct NewTimelineContent: View {
     }
 }
 
-struct NewTimeColumn: View {
+struct TimeColumn: View {
     let activities: [TimelineActivity]
     let containerHeight: CGFloat
     
@@ -373,7 +373,7 @@ struct NewTimeColumn: View {
     }
 }
 
-struct NewDottedLine: Shape {
+struct DottedLine: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.move(to: CGPoint(x: rect.midX, y: rect.minY))
@@ -382,7 +382,7 @@ struct NewDottedLine: Shape {
     }
 }
 
-struct NewTimelineActivityCard: View {
+struct TimelineActivityCard: View {
     let activity: TimelineActivity
     let isSelected: Bool
     let position: (start: CGFloat, height: CGFloat)

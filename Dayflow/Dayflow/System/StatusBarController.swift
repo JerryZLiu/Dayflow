@@ -35,10 +35,6 @@ final class StatusBarController {
                               keyEquivalent: "o")
         open.target = self               // ← add this line
         m.addItem(open)
-
-        let debug = NSMenuItem(title: "Debug…", action: #selector(openBatchViewer), keyEquivalent: "b")
-        debug.target = self
-        m.addItem(debug)
         
         m.addItem(NSMenuItem.separator())
 
@@ -51,21 +47,6 @@ final class StatusBarController {
 
         return m
     }()
-    
-
-@objc private func openBatchViewer() {
-    let window = NSWindow(
-        contentRect: .init(x: 0, y: 0, width: 800, height: 450),
-        styleMask: [.titled, .closable, .resizable],
-        backing: .buffered,
-        defer: false
-    )
-    window.title = "Dayflow – Debug"
-    window.contentView = NSHostingView(rootView: DebugView())
-    window.center()
-    window.makeKeyAndOrderFront(nil)
-}
-
     
     @objc private func openFolder() {
         let dir = StorageManager.shared.recordingsRoot

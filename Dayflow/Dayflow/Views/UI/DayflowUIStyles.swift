@@ -56,9 +56,9 @@ extension View {
     }
     
     /// Applies complete Dayflow style with rounded rectangle shape
-    func dayflowStyle(cornerRadius: CGFloat = 735.4068, strokeWidth: CGFloat = 0.61771) -> some View {
+    func dayflowStyle(cornerRadius: CGFloat = 735.4068, strokeWidth: CGFloat = 0.61771, backgroundOpacity: CGFloat = 0.3) -> some View {
         self
-            .background(.white.opacity(0.3))
+            .background(.white.opacity(backgroundOpacity))
             .cornerRadius(cornerRadius)
             .dayflowShadow()
             .overlay(
@@ -69,9 +69,9 @@ extension View {
     }
     
     /// Applies complete Dayflow style with circle shape
-    func dayflowCircleStyle(strokeWidth: CGFloat = 0.61771) -> some View {
+    func dayflowCircleStyle(strokeWidth: CGFloat = 0.61771, backgroundOpacity: CGFloat = 0.3) -> some View {
         self
-            .background(.white.opacity(0.3))
+            .background(.white.opacity(backgroundOpacity))
             .clipShape(Circle())
             .dayflowShadow()
             .overlay(

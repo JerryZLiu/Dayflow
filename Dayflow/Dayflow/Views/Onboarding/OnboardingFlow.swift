@@ -7,15 +7,12 @@
 
 import SwiftUI
 import ScreenCaptureKit
-import AppKit
-import ServiceManagement
 
 struct OnboardingFlow: View {
     // MARK: – State
     @AppStorage("onboardingStep") private var savedStepRawValue = 0
     @State private var step: Step = .welcome
     @AppStorage("didOnboard") private var didOnboard = false
-    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var timelineOffset: CGFloat = 300 // Start below screen
     @State private var textOpacity: Double = 0
     private let fullText = "Stop wondering where your day went.\nStart understanding it."
@@ -97,6 +94,12 @@ struct OnboardingFlow: View {
                         onBack: { step.prev() },
                         onNext: { advance() }
                     )
+                } else if step == .llmSelection {
+                    // LLM Selection view
+                    OnboardingLLMSelectionView(
+                        onBack: { step.prev() },
+                        onNext: { advance() }
+                    )
                 } else {
                     // Other onboarding steps
                     VStack(spacing: 24) {
@@ -104,17 +107,8 @@ struct OnboardingFlow: View {
                         case .screen:
                             Heading("Give screen-recording permission",
                                     "macOS will open System Settings → Screen Recording. Please enable Dayflow.")
-                        case .access:
-                            Heading("Optional: Accessibility",
-                                    "If you'd like us to tag window titles, allow Accessibility access next.")
-                        case .login:
-                            Heading("Start Dayflow at Login",
-                                    "We can automatically launch Dayflow each time you log in.")
-                            Toggle("Launch at login", isOn: $launchAtLogin)
-                                .toggleStyle(.switch)
-                                .onChange(of: launchAtLogin) { _, newValue in
-                                    setLogin(newValue)
-                                }
+                        case .llmSelection:
+                            EmptyView() // Handled by custom view
                         case .done:
                             Heading("Setup Complete",
                                     "You can now close this window; Dayflow will keep running in the menu-bar.")
@@ -133,7 +127,7 @@ struct OnboardingFlow: View {
                 }
                 
                 // Navigation buttons (hidden on custom layout pages)
-                if step != .welcome && step != .howItWorks && step != .screen {
+                if step != .welcome && step != .howItWorks && step != .llmSelection && step != .screen {
                     VStack {
                         Spacer()
                         HStack {
@@ -180,14 +174,7 @@ struct OnboardingFlow: View {
             Task { try? await requestScreenPerm() }
             step.next()
             savedStepRawValue = step.rawValue
-        case .access:
-            if !AXIsProcessTrusted() {
-                let opts = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true] as CFDictionary
-                _ = AXIsProcessTrustedWithOptions(opts)
-            }
-            step.next()
-            savedStepRawValue = step.rawValue
-        case .login:        
+        case .llmSelection:
             step.next()
             savedStepRawValue = step.rawValue
         case .done:         
@@ -199,17 +186,12 @@ struct OnboardingFlow: View {
     private func requestScreenPerm() async throws {
         _ = try await SCShareableContent.current                 // triggers prompt
     }
-    
-    private func setLogin(_ enable: Bool) {
-        try? (enable ? SMAppService.mainApp.register()           // 1-line API in macOS 14
-                     : SMAppService.mainApp.unregister())
-    }
 }
 
 // MARK: – Helpers
 
 /// Wizard step order
-private enum Step: Int, CaseIterable { case welcome, howItWorks, screen, access, login, done
+private enum Step: Int, CaseIterable { case welcome, howItWorks, screen, llmSelection, done
     mutating func next() { self = Step(rawValue: rawValue + 1)! }
     mutating func prev() { self = Step(rawValue: rawValue - 1)! }
 }

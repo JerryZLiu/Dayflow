@@ -19,8 +19,8 @@ struct ActivityGenerationContext {
 }
 
 enum LLMProviderType: Codable {
-    case geminiDirect(apiKey: String)
-    case dayflowBackend(token: String, endpoint: String = "https://api.dayflow.app")
+    case geminiDirect
+    case dayflowBackend(endpoint: String = "https://api.dayflow.app")
     case ollamaLocal(endpoint: String = "http://localhost:11434")
 }
 

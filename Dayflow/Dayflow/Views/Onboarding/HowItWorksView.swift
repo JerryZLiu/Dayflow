@@ -143,9 +143,9 @@ private func clamp<T: Comparable>(_ value: T, _ limits: ClosedRange<T>) -> T {
 private extension HowItWorksView {
     func animateCards() {
         for idx in cards.indices {
-            // Each card appears 5 seconds after the previous one
-            // First card appears after 1 second, then 5 seconds between each
-            let delay = 1.0 + Double(idx) * 5.0
+            // Each card appears 2 seconds after the previous one
+            // First card appears after 1 second, then 2 seconds between each
+            let delay = 1.0 + Double(idx) * 2.0
             
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 withAnimation(.spring(response: 0.8,
@@ -157,8 +157,8 @@ private extension HowItWorksView {
             }
         }
         
-        // Animate buttons 5 seconds after the last card
-        let buttonsDelay = 1.0 + Double(cards.count) * 5.0
+        // Animate buttons 2 seconds after the last card
+        let buttonsDelay = 1.0 + Double(cards.count) * 2.0
         DispatchQueue.main.asyncAfter(deadline: .now() + buttonsDelay) {
             withAnimation(.easeInOut(duration: 0.6)) {
                 buttonsOpacity = 1

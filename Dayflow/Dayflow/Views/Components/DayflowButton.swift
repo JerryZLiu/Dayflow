@@ -15,7 +15,12 @@ struct DayflowButton: View {
     var isSubtle: Bool = false
     
     @State private var isPressed = false
+    @State private var isHovered = false
     @State private var showPulse = false
+    
+    // Animation constants following Emil Kowalski principles
+    private let hoverAnimation = Animation.spring(response: 0.25, dampingFraction: 0.8, blendDuration: 0)
+    private let pressAnimation = Animation.spring(response: 0.3, dampingFraction: 0.6, blendDuration: 0)
     
     var body: some View {
         Button(action: {
@@ -34,7 +39,7 @@ struct DayflowButton: View {
             
             // Reset and call action
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                withAnimation(pressAnimation) {
                     isPressed = false
                     showPulse = true
                 }
@@ -77,18 +82,49 @@ struct DayflowButton: View {
                     }
                 )
                 .cornerRadius(12)
-                .shadow(color: .black.opacity(0.25), radius: 0.25, x: 0, y: 0.5)
-                .shadow(color: .black.opacity(0.16), radius: 0.5, x: 0, y: 1)
-                .shadow(color: .black.opacity(0.3), radius: 6, x: 0, y: 2)
+                // Enhanced shadows with hover state
+                .shadow(
+                    color: .black.opacity(isHovered ? 0.35 : 0.25),
+                    radius: isHovered ? 0.5 : 0.25,
+                    x: 0,
+                    y: isHovered ? 1 : 0.5
+                )
+                .shadow(
+                    color: .black.opacity(isHovered ? 0.22 : 0.16),
+                    radius: isHovered ? 1 : 0.5,
+                    x: 0,
+                    y: isHovered ? 2 : 1
+                )
+                .shadow(
+                    color: .black.opacity(isHovered ? 0.4 : 0.3),
+                    radius: isHovered ? 10 : 6,
+                    x: 0,
+                    y: isHovered ? 4 : 2
+                )
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
                         .inset(by: 0.75)
-                        .stroke(isSubtle ? Color.black.opacity(0.1) : .white.opacity(0.17), lineWidth: 1.5)
+                        .stroke(
+                            isSubtle 
+                                ? Color.black.opacity(isHovered ? 0.15 : 0.1)
+                                : .white.opacity(isHovered ? 0.25 : 0.17),
+                            lineWidth: 1.5
+                        )
                 )
-                .scaleEffect(isPressed ? 0.95 : 1.0)
-                .brightness(isPressed ? -0.1 : 0)
+                // Combined transformations with proper priority
+                .scaleEffect(
+                    isPressed ? 0.95 : (isHovered ? 1.02 : 1.0)
+                )
+                .brightness(
+                    isPressed ? -0.1 : (isHovered ? (isSubtle ? 0.05 : 0.08) : 0)
+                )
         }
         .buttonStyle(.plain) // Remove default button styling
+        .onHover { hovering in
+            withAnimation(hoverAnimation) {
+                isHovered = hovering
+            }
+        }
     }
 }
 
@@ -99,6 +135,7 @@ struct DayflowButton_Previews: PreviewProvider {
             DayflowButton(title: "Start", action: {})
             DayflowButton(title: "Continue", action: {}, width: 200)
             DayflowButton(title: "Next", action: {}, width: 120, fontSize: 14)
+            DayflowButton(title: "Subtle", action: {}, isSubtle: true)
         }
         .padding(40)
         .background(Color.gray.opacity(0.1))

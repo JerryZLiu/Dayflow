@@ -1,19 +1,28 @@
 //
-//  NewMainView.swift
+//  MainView.swift
 //  Dayflow
 //
-//  New Timeline UI with transparent design
+//  Timeline UI with transparent design
 //
 
 import SwiftUI
 import AVKit
 import AVFoundation
 
-struct NewMainView: View {
+struct MainView: View {
     @State private var selectedIcon: SidebarIcon = .analytics
     @State private var selectedDate = Date()
     @State private var showDatePicker = false
     @State private var selectedActivity: TimelineActivity? = nil
+    
+    // Animation states for orchestrated entrance - Emil Kowalski principles
+    @State private var logoScale: CGFloat = 0.8
+    @State private var logoOpacity: Double = 0
+    @State private var timelineOffset: CGFloat = -20
+    @State private var timelineOpacity: Double = 0
+    @State private var sidebarOffset: CGFloat = -30
+    @State private var sidebarOpacity: Double = 0
+    @State private var contentOpacity: Double = 0
     
     var body: some View {
         ZStack {
@@ -34,12 +43,16 @@ struct NewMainView: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 60, height: 60)
                     .frame(maxWidth: 100, maxHeight: .infinity)
+                    .scaleEffect(logoScale)
+                    .opacity(logoOpacity)
                 
                 // Top right: Timeline text + Date navigation
                 HStack {
                     Text("Timeline")
                         .font(.custom("InstrumentSerif-Regular", size: 42))
                         .foregroundColor(.primary)
+                        .offset(x: timelineOffset)
+                        .opacity(timelineOpacity)
                     
                     Spacer()
                     
@@ -86,6 +99,8 @@ struct NewMainView: View {
                     Spacer()
                     VStack {
                         SidebarView(selectedIcon: $selectedIcon)
+                            .offset(y: sidebarOffset)
+                            .opacity(sidebarOpacity)
                         Spacer()
                     }
                     Spacer()
@@ -101,22 +116,32 @@ struct NewMainView: View {
                         cornerRadius: 14.72286
                     )
                     
-                    VStack(alignment: .leading, spacing: 20) {
-                        // Tab filters
-                        TabFilterBar()
-                        
-                        // Content area with timeline and activity card
-                        HStack(spacing: 20) {
-                            // Timeline area
-                            NewTimelineView(selectedDate: $selectedDate, selectedActivity: $selectedActivity)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if selectedIcon == .settings {
+                        // Settings view
+                        SettingsView()
+                            .opacity(contentOpacity)
+                    } else {
+                        // Default timeline view
+                        VStack(alignment: .leading, spacing: 20) {
+                            // Tab filters
+                            TabFilterBar()
+                                .opacity(contentOpacity)
                             
-                            // Activity detail card
-                            NewActivityCard(activity: selectedActivity)
-                                .frame(width: 400)
+                            // Content area with timeline and activity card
+                            HStack(spacing: 20) {
+                                // Timeline area
+                                TimelineView(selectedDate: $selectedDate, selectedActivity: $selectedActivity)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .opacity(contentOpacity)
+                                
+                                // Activity detail card
+                                ActivityCard(activity: selectedActivity)
+                                    .frame(width: 400)
+                                    .opacity(contentOpacity)
+                            }
                         }
+                        .padding(30)
                     }
-                    .padding(30)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .cornerRadius(14.72286)
@@ -135,6 +160,34 @@ struct NewMainView: View {
         .frame(minWidth: 800, minHeight: 600)
         .sheet(isPresented: $showDatePicker) {
             DatePickerSheet(selectedDate: $selectedDate, isPresented: $showDatePicker)
+        }
+        .onAppear {
+            animateEntrance()
+        }
+    }
+    
+    private func animateEntrance() {
+        // Logo entrance - first to appear
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.1)) {
+            logoScale = 1.0
+            logoOpacity = 1.0
+        }
+        
+        // Timeline text - slides in from left
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.85).delay(0.3)) {
+            timelineOffset = 0
+            timelineOpacity = 1.0
+        }
+        
+        // Sidebar - slides up
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.85).delay(0.4)) {
+            sidebarOffset = 0
+            sidebarOpacity = 1.0
+        }
+        
+        // Main content - fades in last
+        withAnimation(.easeInOut(duration: 0.6).delay(0.5)) {
+            contentOpacity = 1.0
         }
     }
     
@@ -374,8 +427,8 @@ extension View {
     }
 }
 
-// MARK: - New Activity Card
-struct NewActivityCard: View {
+// MARK: - Activity Card
+struct ActivityCard: View {
     let activity: TimelineActivity?
     
     private let timeFormatter: DateFormatter = {
@@ -538,5 +591,42 @@ struct MetricRow: View {
                 .frame(height: 8)
             }
         }
+    }
+}
+
+// Date picker sheet
+struct DatePickerSheet: View {
+    @Binding var selectedDate: Date
+    @Binding var isPresented: Bool
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Select Date")
+                .font(.title2)
+                .fontWeight(.semibold)
+            
+            DatePicker(
+                "",
+                selection: $selectedDate,
+                in: ...Date(),
+                displayedComponents: .date
+            )
+            .datePickerStyle(GraphicalDatePickerStyle())
+            .frame(maxWidth: 400)
+            
+            HStack(spacing: 12) {
+                Button("Cancel") {
+                    isPresented = false
+                }
+                .buttonStyle(PlainButtonStyle())
+                
+                Button("Select") {
+                    isPresented = false
+                }
+                .buttonStyle(DefaultButtonStyle())
+            }
+        }
+        .padding(30)
+        .frame(width: 450)
     }
 }
