@@ -25,7 +25,16 @@ struct MainView: View {
     @State private var contentOpacity: Double = 0
     
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack {
+            // Full window glass background
+            GlassEffectBackground.windowBackground
+                .ignoresSafeArea()
+            
+            // Transparent window configuration
+            TransparentWindowView()
+                .allowsHitTesting(false)
+            
+            VStack(spacing: 0) {
             // Top row of 2x2 grid
             HStack(alignment: .center, spacing: 0) {
                 // Top left: Logo (centered)
@@ -100,9 +109,17 @@ struct MainView: View {
                 
                 // Bottom right: Main content area
                 ZStack {
+                    // Glass effect background for main content
+                    GlassEffectBackground(
+                        material: .hudWindow,
+                        blendingMode: .behindWindow,
+                        cornerRadius: 14.72286
+                    )
+                    
                     if selectedIcon == .settings {
                         // Settings view
                         SettingsView()
+                            .opacity(contentOpacity)
                     } else {
                         // Default timeline view
                         VStack(alignment: .leading, spacing: 20) {
@@ -127,7 +144,6 @@ struct MainView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.white.opacity(0.3))
                 .cornerRadius(14.72286)
                 .overlay(
                     RoundedRectangle(cornerRadius: 14.72286)
@@ -139,37 +155,39 @@ struct MainView: View {
             .padding(.trailing, 20)
             .padding(.bottom, 20)
             .frame(maxHeight: .infinity)
+            }
         }
         .frame(minWidth: 800, minHeight: 600)
         .sheet(isPresented: $showDatePicker) {
             DatePickerSheet(selectedDate: $selectedDate, isPresented: $showDatePicker)
         }
         .onAppear {
-            // Orchestrated entrance animations following Emil Kowalski principles
-            // Fast, under 300ms, natural spring motion
-            
-            // Logo appears first with scale and fade
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0)) {
-                logoScale = 1.0
-                logoOpacity = 1
-            }
-            
-            // Timeline text slides in from left
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0).delay(0.1)) {
-                timelineOffset = 0
-                timelineOpacity = 1
-            }
-            
-            // Sidebar slides up
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0).delay(0.15)) {
-                sidebarOffset = 0
-                sidebarOpacity = 1
-            }
-            
-            // Main content fades in last
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0).delay(0.2)) {
-                contentOpacity = 1
-            }
+            animateEntrance()
+        }
+    }
+    
+    private func animateEntrance() {
+        // Logo entrance - first to appear
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.1)) {
+            logoScale = 1.0
+            logoOpacity = 1.0
+        }
+        
+        // Timeline text - slides in from left
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.85).delay(0.3)) {
+            timelineOffset = 0
+            timelineOpacity = 1.0
+        }
+        
+        // Sidebar - slides up
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.85).delay(0.4)) {
+            sidebarOffset = 0
+            sidebarOpacity = 1.0
+        }
+        
+        // Main content - fades in last
+        withAnimation(.easeInOut(duration: 0.6).delay(0.5)) {
+            contentOpacity = 1.0
         }
     }
     
@@ -226,7 +244,13 @@ struct SidebarView: View {
         }
         .padding(9.88329)
         .frame(width: 59.29975, alignment: .center)
-        .background(.white.opacity(0.3))
+        .background(
+            GlassEffectBackground(
+                material: .sidebar,
+                blendingMode: .behindWindow,
+                cornerRadius: 72
+            )
+        )
         .clipShape(RoundedRectangle(cornerRadius: 72, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 72, style: .continuous)
@@ -567,5 +591,42 @@ struct MetricRow: View {
                 .frame(height: 8)
             }
         }
+    }
+}
+
+// Date picker sheet
+struct DatePickerSheet: View {
+    @Binding var selectedDate: Date
+    @Binding var isPresented: Bool
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Select Date")
+                .font(.title2)
+                .fontWeight(.semibold)
+            
+            DatePicker(
+                "",
+                selection: $selectedDate,
+                in: ...Date(),
+                displayedComponents: .date
+            )
+            .datePickerStyle(GraphicalDatePickerStyle())
+            .frame(maxWidth: 400)
+            
+            HStack(spacing: 12) {
+                Button("Cancel") {
+                    isPresented = false
+                }
+                .buttonStyle(PlainButtonStyle())
+                
+                Button("Select") {
+                    isPresented = false
+                }
+                .buttonStyle(DefaultButtonStyle())
+            }
+        }
+        .padding(30)
+        .frame(width: 450)
     }
 }
