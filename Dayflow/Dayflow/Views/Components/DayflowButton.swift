@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 struct DayflowButton: View {
     let title: String
@@ -17,10 +18,11 @@ struct DayflowButton: View {
     @State private var isPressed = false
     @State private var isHovered = false
     @State private var showPulse = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     
     // Animation constants following Emil Kowalski principles
-    private let hoverAnimation = Animation.spring(response: 0.25, dampingFraction: 0.8, blendDuration: 0)
-    private let pressAnimation = Animation.spring(response: 0.3, dampingFraction: 0.6, blendDuration: 0)
+    private let hoverAnimation = Animation.spring(response: 0.22, dampingFraction: 0.8, blendDuration: 0)
+    private let pressAnimation = Animation.spring(response: 0.3, dampingFraction: 0.65, blendDuration: 0)
     
     var body: some View {
         Button(action: {
@@ -113,13 +115,15 @@ struct DayflowButton: View {
                 )
                 // Combined transformations with proper priority
                 .scaleEffect(
-                    isPressed ? 0.95 : (isHovered ? 1.02 : 1.0)
+                    reduceMotion ? 1.0 : (isPressed ? 0.97 : (isHovered ? (isSubtle ? 1.03 : 1.05) : 1.0))
                 )
+                .offset(y: reduceMotion ? 0 : (isHovered ? (isSubtle ? -1 : -2) : 0))
                 .brightness(
                     isPressed ? -0.1 : (isHovered ? (isSubtle ? 0.05 : 0.08) : 0)
                 )
         }
         .buttonStyle(.plain) // Remove default button styling
+        .pointingHandCursor()
         .onHover { hovering in
             withAnimation(hoverAnimation) {
                 isHovered = hovering
