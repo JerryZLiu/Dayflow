@@ -155,6 +155,14 @@ flowchart LR
 - Xcode **15+**
 - A **Gemini API key** (if using Gemini): https://ai.google.dev/gemini-api/docs/api-key
 
+### Homebrew
+
+If you are using [Homebrew](https://brew.sh/), you can install [Dayflow](https://formulae.brew.sh/cask/dayflow) with:
+
+```bash
+$ brew install --cask dayflow
+```
+
 ### From Releases
 1. Download `Dayflow.dmg` and drag **Dayflow** into **Applications**.
 2. Launch and grant the **Screen & System Audio Recording** permission.
