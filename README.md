@@ -180,13 +180,17 @@ open Dayflow.xcodeproj
 This section explains **what Dayflow stores locally**, **what leaves your machine**, and **how provider choices affect privacy**.
 
 ### Data locations (on your Mac)
-- **App support folder:** `~/Library/Application Support/Dayflow/`
-- **Recordings (video chunks):** `~/Library/Application Support/Dayflow/recordings/`
-- **Local database:** `~/Library/Application Support/Dayflow/chunks.sqlite`
-- **Recording details:** 1 FPS capture, analyzed every 15 minutes, 3-day retention
-- **Purge / reset tip:** Quit Dayflow. Then delete the entire `~/Library/Application Support/Dayflow/` folder to remove recordings and analysis artifacts. Relaunch to start fresh.
 
-> These paths are created by the app at first run. If you package Dayflow differently or run in a sandbox, paths may vary slightly.
+The `Dayflow` folder that contains most of your information is likely in one of two places:
+1. `~/Library/Application Support/Dayflow/`
+2. `~Library/Containers/teleportlabs.com.Dayflow/Data/Library/Application Support/Dayflow/`
+
+The former is most likely, the latter is if the app has been installed in a "sandbox" of container, The below paths and files should be created when the app is first launched.
+
+- **Recordings (video chunks):** `Dayflow/recordings/` (or choose "Open Recordings..." from the Dayflow Taskbar Icon Menu)
+- **Local database:** `Dayflow/chunks.sqlite`
+- **Recording details:** 1 FPS capture, analyzed every 15 minutes, 3-day retention
+- **Purge / reset tip:** Quit Dayflow. Then delete the entire `Dayflow/` folder to remove recordings and analysis artifacts. Relaunch to start fresh.
 
 ### Processing modes & providers
 - **Gemini (cloud, BYO key)** — Dayflow sends batch payloads to **Google’s Gemini API** for analysis.
