@@ -180,6 +180,7 @@ struct TimelineCard: Codable, Sendable, Identifiable {
     let videoSummaryURL: String? // Optional link to primary video summary
     let otherVideoSummaryURLs: [String]? // For merged cards, subsequent video URLs
     let appSites: AppSites?
+    let batchId: Int64? // Batch ID for reprocessing functionality
 }
 
 /// Metadata about a single LLM request/response cycle
@@ -611,7 +612,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     distractions: distractions,
                     videoSummaryURL: row["video_summary_url"],
                     otherVideoSummaryURLs: nil,
-                    appSites: appSites
+                    appSites: appSites,
+                    batchId: row["batch_id"]
                 )
             }
         }) ?? []
@@ -689,7 +691,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     distractions: distractions,
                     videoSummaryURL: row["video_summary_url"],
                     otherVideoSummaryURLs: nil,
-                    appSites: appSites
+                    appSites: appSites,
+                    batchId: row["batch_id"]
                 )
             }
         }
@@ -736,7 +739,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     distractions: distractions,
                     videoSummaryURL: row["video_summary_url"],
                     otherVideoSummaryURLs: nil,
-                    appSites: appSites
+                    appSites: appSites,
+                    batchId: row["batch_id"]
                 )
             }
         }

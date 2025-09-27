@@ -333,7 +333,8 @@ struct CanvasTimelineDataView: View {
                 distractions: card.distractions,
                 videoSummaryURL: card.videoSummaryURL,
                 screenshot: nil,
-                appSites: card.appSites
+                appSites: card.appSites,
+                batchId: card.batchId
             )
         }
     }

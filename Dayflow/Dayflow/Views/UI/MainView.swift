@@ -694,6 +694,12 @@ struct ActivityCard: View {
     var hasAnyActivities: Bool = true
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var categoryStore: CategoryStore
+
+    // Reprocessing state
+    @State private var isReprocessing: Bool = false
+    @State private var reprocessingProgress: String = ""
+    @State private var showProgressModal: Bool = false
+    @State private var reprocessingError: String? = nil
     
     private let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -827,6 +833,43 @@ struct ActivityCard: View {
             .if(maxHeight != nil) { view in
                 view.frame(maxHeight: maxHeight!)
             }
+            .overlay {
+                if showProgressModal {
+                    ZStack {
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+
+                        VStack(spacing: 16) {
+                            ProgressView()
+                                .scaleEffect(1.2)
+                                .progressViewStyle(CircularProgressViewStyle())
+
+                            Text(reprocessingProgress)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.black)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 20)
+
+                            if let error = reprocessingError {
+                                Button("Dismiss") {
+                                    showProgressModal = false
+                                    reprocessingError = nil
+                                    reprocessingProgress = ""
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(6)
+                            }
+                        }
+                        .padding(24)
+                        .background(Color.white)
+                        .cornerRadius(12)
+                        .shadow(color: Color.black.opacity(0.15), radius: 10, x: 0, y: 5)
+                    }
+                }
+            }
         }
     }
 
@@ -851,7 +894,7 @@ struct ActivityCard: View {
                     .fontWeight(.semibold)
                     .foregroundColor(Color(red: 0.45, green: 0.45, blue: 0.45))
                     .padding(.top, 8)
-                
+
                 Text(activity.detailedSummary)
                     .font(.system(size: 12))
                     .foregroundColor(.black)
@@ -859,7 +902,144 @@ struct ActivityCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
+
+            // Show reprocessing buttons for failed processing cards
+            if activity.title == "Processing failed", let batchId = activity.batchId {
+                reprocessingButtons(for: activity, batchId: batchId)
+            }
         }
+    }
+
+    @ViewBuilder
+    private func reprocessingButtons(for activity: TimelineActivity, batchId: Int64) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("REPROCESSING")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(Color(red: 0.45, green: 0.45, blue: 0.45))
+                .padding(.top, 8)
+
+            VStack(spacing: 8) {
+                Button(action: {
+                    reprocessBatch(batchId: batchId)
+                }) {
+                    HStack {
+                        if isReprocessing {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 12))
+                        }
+                        Text(isReprocessing ? "Processing..." : "Reprocess This Batch")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(isReprocessing ? Color.blue.opacity(0.6) : Color.blue)
+                    .cornerRadius(6)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(isReprocessing)
+
+                Button(action: {
+                    reprocessDay(for: activity)
+                }) {
+                    HStack {
+                        if isReprocessing {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                        } else {
+                            Image(systemName: "arrow.clockwise.circle")
+                                .font(.system(size: 12))
+                        }
+                        Text(isReprocessing ? "Processing..." : "Reprocess Entire Day")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(isReprocessing ? .blue.opacity(0.6) : .blue)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(6)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(isReprocessing)
+            }
+        }
+    }
+
+    // MARK: - Reprocessing Functions
+
+    private func reprocessBatch(batchId: Int64) {
+        guard !isReprocessing else { return }
+
+        isReprocessing = true
+        reprocessingError = nil
+        showProgressModal = true
+        reprocessingProgress = "Starting batch reprocessing..."
+
+        AnalysisManager.shared.reprocessSpecificBatches([batchId], progressHandler: { progress in
+            DispatchQueue.main.async {
+                self.reprocessingProgress = progress
+            }
+        }, completion: { result in
+            DispatchQueue.main.async {
+                self.isReprocessing = false
+
+                switch result {
+                case .success:
+                    self.reprocessingProgress = "✅ Batch reprocessing completed successfully!"
+                    // Auto-hide modal after 2 seconds
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        self.showProgressModal = false
+                        self.reprocessingProgress = ""
+                    }
+                case .failure(let error):
+                    self.reprocessingError = error.localizedDescription
+                    self.reprocessingProgress = "❌ Reprocessing failed: \(error.localizedDescription)"
+                }
+            }
+        })
+    }
+
+    private func reprocessDay(for activity: TimelineActivity) {
+        guard !isReprocessing else { return }
+
+        // Convert activity start time to day string
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let dayString = formatter.string(from: activity.startTime)
+
+        isReprocessing = true
+        reprocessingError = nil
+        showProgressModal = true
+        reprocessingProgress = "Starting day reprocessing for \(dayString)..."
+
+        AnalysisManager.shared.reprocessDay(dayString, progressHandler: { progress in
+            DispatchQueue.main.async {
+                self.reprocessingProgress = progress
+            }
+        }, completion: { result in
+            DispatchQueue.main.async {
+                self.isReprocessing = false
+
+                switch result {
+                case .success:
+                    self.reprocessingProgress = "✅ Day reprocessing completed successfully!"
+                    // Auto-hide modal after 2 seconds
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        self.showProgressModal = false
+                        self.reprocessingProgress = ""
+                    }
+                case .failure(let error):
+                    self.reprocessingError = error.localizedDescription
+                    self.reprocessingProgress = "❌ Reprocessing failed: \(error.localizedDescription)"
+                }
+            }
+        })
     }
 
     private func categoryBadge(for raw: String) -> (name: String, background: Color, textColor: Color)? {
