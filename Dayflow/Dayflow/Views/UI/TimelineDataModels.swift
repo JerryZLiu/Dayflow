@@ -23,6 +23,7 @@ struct TimelineActivity: Identifiable {
     let videoSummaryURL: String?
     let screenshot: NSImage?
     let appSites: AppSites?
+    let batchId: Int64? // Batch ID for reprocessing functionality
 }
 
 
