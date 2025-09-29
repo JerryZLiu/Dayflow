@@ -463,7 +463,7 @@ final class OllamaProvider: LLMProvider {
                     urlRequest.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
                 }
                 urlRequest.httpBody = try JSONEncoder().encode(request)
-                urlRequest.timeoutInterval = 30.0  // 30-second timeout
+                urlRequest.timeoutInterval = 60.0  // 60-second timeout
                 
                 let apiStart = Date()
                 let requestBodyForLogging: Data?
