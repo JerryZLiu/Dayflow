@@ -82,7 +82,6 @@ final class FilmstripGenerator {
 
             var images: [NSImage] = Array(repeating: NSImage(), count: frameCount)
             var produced = 0
-            let group = DispatchGroup()
 
             // Use generateCGImagesAsynchronously for better throughput
             generator.generateCGImagesAsynchronously(forTimes: times) { requestedTime, cg, actualTime, result, error in

@@ -450,7 +450,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
         guard type == .screen else { return }
         guard CMSampleBufferDataIsReady(sb) else { return }
         guard isComplete(sb) else { return }
-        if let pb = CMSampleBufferGetImageBuffer(sb) {
+		if CMSampleBufferGetImageBuffer(sb) != nil {
             // TEMPORARILY DISABLED to test if this causes corruption
             // overlayClock(on: pb)          // ← inject the clock into this frame
         }
@@ -459,7 +459,8 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
 
         if firstPTS == nil {
             firstPTS = sb.presentationTimeStamp
-            let started = w.startWriting()
+            let didStartWriting = w.startWriting()
+            assert(didStartWriting)
             w.startSession(atSourceTime: firstPTS!)
         }
 

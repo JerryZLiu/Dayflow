@@ -981,12 +981,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                    OR (start_ts >= ? AND start_ts < ?)
             """, arguments: [toTs, fromTs, fromTs, toTs])
             
-            for card in cardsToDelete {
-                let id: Int64 = card["id"]
-                let start: String = card["start"]
-                let end: String = card["end"]
-                let title: String = card["title"]
-            }
             
             // Delete existing cards in the range using timestamp columns
             try db.execute(sql: """

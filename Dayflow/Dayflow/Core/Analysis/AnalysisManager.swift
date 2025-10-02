@@ -113,7 +113,7 @@ final class AnalysisManager: AnalysisManaging {
             
             // 6. Process each batch sequentially
             var processedCount = 0
-            var hasError = false
+			let hasError = false
             
             for (index, batchId) in batchIds.enumerated() {
                 if hasError { break }
@@ -124,9 +124,6 @@ final class AnalysisManager: AnalysisManaging {
                 DispatchQueue.main.async { 
                     progressHandler("Processing batch \(index + 1) of \(batchIds.count)... (Total elapsed: \(self.formatDuration(elapsedTotal)))")
                 }
-                
-                // Use a semaphore to wait for each batch to complete
-                let semaphore = DispatchSemaphore(value: 0)
                 
                 self.queueGeminiRequest(batchId: batchId)
                 
@@ -245,10 +242,8 @@ final class AnalysisManager: AnalysisManaging {
             
             // Process batches
             var processedCount = 0
-            var hasError = false
             
             for (index, batchId) in batchIds.enumerated() {
-                if hasError { break }
                 
                 let batchStartTime = Date()
                 let elapsedTotal = Date().timeIntervalSince(overallStartTime)
@@ -261,7 +256,7 @@ final class AnalysisManager: AnalysisManaging {
                 
                 // Wait for batch to complete (check status periodically)
                 var isCompleted = false
-                while !isCompleted && !hasError {
+                while !isCompleted {
                     Thread.sleep(forTimeInterval: 2.0) // Check every 2 seconds
                     
                     let allBatches = self.store.allBatches()
@@ -353,14 +348,6 @@ final class AnalysisManager: AnalysisManaging {
         }
 
         updateBatchStatus(batchId: batchId, status: "processing")
-
-        // Prepare file URLs for video processing
-        let chunkFileURLs: [URL] = chunksInBatch.compactMap { chunk in
-            // Assuming chunk.fileUrl is a String path, convert to URL
-            // Ensure this path is accessible. If it's a relative path, resolve it.
-            // For now, assuming it's an absolute file path string.
-            URL(fileURLWithPath: chunk.fileUrl)
-        }
 
         llmService.processBatch(batchId) { [weak self] (result: Result<ProcessedBatchResult, Error>) in
             guard let self else { return }

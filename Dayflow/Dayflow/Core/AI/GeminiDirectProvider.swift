@@ -7,7 +7,6 @@ import Foundation
 
 final class GeminiDirectProvider: LLMProvider {
     private let apiKey: String
-    private let genEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent"
     private let fileEndpoint = "https://generativelanguage.googleapis.com/upload/v1beta/files"
     private let proModel = "gemini-2.5-pro"
     private let flashModel = "gemini-2.5-flash"
@@ -317,7 +316,6 @@ final class GeminiDirectProvider: LLMProvider {
         var lastError: Error?
         var finalResponse = ""
         var finalObservations: [Observation] = []
-        var finalUsedModel = proModel
 
         // Model state for Flash fallback (persists across retries)
         var currentModel = proModel
@@ -387,7 +385,6 @@ final class GeminiDirectProvider: LLMProvider {
                 print("✅ Video transcription succeeded on attempt \(attempt + 1)")
                 finalResponse = response
                 finalObservations = observations
-                finalUsedModel = usedModel
                 break
 
             } catch {
@@ -547,8 +544,6 @@ final class GeminiDirectProvider: LLMProvider {
         encoder.outputFormatting = .prettyPrinted
         let existingCardsJSON = try encoder.encode(context.existingCards)
         let existingCardsString = String(data: existingCardsJSON, encoding: .utf8) ?? "[]"
-
-        let exampleCategory = context.categories.first?.name ?? "Work"
 
         let basePrompt = """
         You are a digital anthropologist, observing a user's raw activity log. Your goal is to synthesize this log into a high-level, human-readable story of their session, presented as a series of timeline cards.
@@ -1165,7 +1160,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             // Prepare logging context
             let responseHeaders: [String:String] = httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
                 if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
-            } ?? [:]
+			}
             let modelName: String? = {
                 if let u = URL(string: urlWithKey) {
                     let last = u.path.split(separator: "/").last.map(String.init)
@@ -1475,7 +1470,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             // Prepare logging context
             let responseHeaders: [String:String] = httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
                 if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
-            } ?? [:]
+			}
             let modelName: String? = {
                 if let u = URL(string: urlWithKey) {
                     let last = u.path.split(separator: "/").last.map(String.init)

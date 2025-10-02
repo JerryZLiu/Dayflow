@@ -132,12 +132,11 @@ final class LLMService: LLMServicing {
                     throw NSError(domain: "LLMService", code: 6, userInfo: [NSLocalizedDescriptionKey: "Failed to create composition track"])
                 }
                 
-                for (index, filePath) in chunkFiles.enumerated() {
+				for (_, filePath) in chunkFiles.enumerated() {
                     let url = URL(fileURLWithPath: filePath)
                     
                     let asset = AVAsset(url: url)
                     let duration = try await asset.load(.duration)
-                    let durationSeconds = CMTimeGetSeconds(duration)
                     
         
                     if let track = try await asset.loadTracks(withMediaType: .video).first {
@@ -169,7 +168,7 @@ final class LLMService: LLMServicing {
                 // Get batch start time for timestamp conversion
                 let batchStartDate = Date(timeIntervalSince1970: TimeInterval(batchStartTs))
                 
-                let (observations, transcribeLog) = try await provider.transcribeVideo(
+                let (observations, _) = try await provider.transcribeVideo(
                     videoData: videoData,
                     mimeType: mimeType,
                     prompt: "Transcribe this video", // Provider will use its own prompt
@@ -245,7 +244,7 @@ final class LLMService: LLMServicing {
                 )
                 
                 // Generate activity cards using sliding window observations
-                let (cards, cardsLog) = try await provider.generateActivityCards(
+				let (cards, _) = try await provider.generateActivityCards(
                     observations: recentObservations,
                     context: context,
                     batchId: batchId

@@ -271,7 +271,6 @@ actor VideoProcessingService {
         let actualSize = naturalSize.applying(preferredTransform)
         let width = Int(abs(actualSize.width))
         let height = Int(abs(actualSize.height))
-        let nominalFrameRate = try await assetTrack.load(.nominalFrameRate)
         
         // Create composition with time mapping for speedup
         let composition = AVMutableComposition()

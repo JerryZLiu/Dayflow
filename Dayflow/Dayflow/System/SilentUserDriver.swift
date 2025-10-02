@@ -19,7 +19,7 @@ final class SilentUserDriver: NSObject, SPUUserDriver {
     }
 
     func showUpdateFound(with appcastItem: SUAppcastItem, state: SPUUserUpdateState, reply: @escaping (SPUUserUpdateChoice) -> Void) {
-        print("[Sparkle] Update found: \(appcastItem.displayVersionString ?? appcastItem.versionString)")
+		print("[Sparkle] Update found: \(appcastItem.displayVersionString)")
         // Always proceed to install
         reply(.install)
     }

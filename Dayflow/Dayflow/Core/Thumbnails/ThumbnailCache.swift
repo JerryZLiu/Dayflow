@@ -56,7 +56,6 @@ final class ThumbnailCache {
 
         queue.addOperation { [weak self] in
             guard let self = self else { return }
-            let t0 = CFAbsoluteTimeGetCurrent()
             let image = self.generateThumbnail(urlString: normalizedURL, targetSize: targetSize)
 
             if let image = image {
