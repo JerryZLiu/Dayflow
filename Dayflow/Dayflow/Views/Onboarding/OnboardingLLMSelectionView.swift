@@ -108,7 +108,7 @@ struct OnboardingLLMSelectionView: View {
                 features: [
                     ("100% private - everything's processed on your computer", true),
                     ("Works completely offline", true),
-                    ("Significantly less intelligence", true),
+                    ("Significantly less intelligence", false),
                     ("Requires the most setup", false),
                     ("16GB+ of RAM recommended", false),
                     ("Can be battery-intensive", false)
