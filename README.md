@@ -203,6 +203,7 @@ The former is most likely, the latter is if the app has been installed in a "san
 ### Processing modes & providers
 - **Gemini (cloud, BYO key)** — Dayflow sends batch payloads to **Google’s Gemini API** for analysis.
 - **Local models (Ollama / LM Studio)** — Processing stays **on‑device**; Dayflow talks to a **local server** you run.
+- **Model** - qwen2.5vl:3b only takes up about 3-4 GB of RAM if context window is set to 4k tokens.
 
 ### TL;DR: Gemini data handling (my reading of Google’s ToS)
 - **Short answer: There is a way to prevent Google from training on your data.** If you **enable Cloud Billing** on **at least one** Gemini API project, Google treats **all of your Gemini API and Google AI Studio usage** under the **“Paid Services”** data‑use rules — **even when you’re using unpaid/free quota**. Under Paid Services, **Google does not use your prompts/responses to improve Google products/models**.  
