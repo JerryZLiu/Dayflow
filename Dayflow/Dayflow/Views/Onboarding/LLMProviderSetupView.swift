@@ -437,7 +437,7 @@ struct LLMProviderSetupView: View {
                                     .pickerStyle(.segmented)
                                     .frame(maxWidth: 380)
                                 }
-                                .onChange(of: setupState.localEngine) { _, newValue in
+                                .onChange(of: setupState.localEngine) { newValue in
                                     setupState.selectEngine(newValue)
                                 }
 
