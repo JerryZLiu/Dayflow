@@ -50,7 +50,7 @@ struct APIKeyInputView: View {
                     }
                     .font(.custom("SF Mono", size: 13))
                     .focused($isFocused)
-                    .onChange(of: apiKey) { _, newValue in
+                    .onChange(of: apiKey) { newValue in
                         validateKey(newValue)
                     }
                     

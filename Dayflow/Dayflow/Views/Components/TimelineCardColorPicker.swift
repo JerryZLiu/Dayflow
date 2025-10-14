@@ -810,7 +810,10 @@ struct ColorOrganizerRoot: View {
                 .background(
                     RoundedRectangle(cornerRadius: 8)
                         .fill(canAddMore ? Color.white : Color.gray.opacity(0.1))
-                        .stroke(Color.black.opacity(canAddMore && !newCategoryName.isEmpty ? 0.25 : 0.12), lineWidth: 1)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.black.opacity(canAddMore && !newCategoryName.isEmpty ? 0.25 : 0.12), lineWidth: 1)
+                        )
                         .animation(.easeOut(duration: 0.2), value: newCategoryName.isEmpty)
                 )
 
