@@ -1,3 +1,4 @@
+# YOU CAN USE THIS APP IN YOUR MAC(Intel or Apple Silicon)！
 
 <div align="center">
   <img src="docs/images/dayflow_header.png" alt="Dayflow" width="400">
