@@ -1,0 +1,197 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build:
+    runs-on: macos-14  # 使用 macOS 14 runner，支持最新的 Xcode
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整历史，用于版本号计算
+      
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      
+      - name: Install dependencies
+        run: |
+          brew install create-dmg
+      
+      - name: Get version information
+        id: version
+        run: |
+          # 从 Xcode 项目中读取版本号
+          PROJECT_FILE="Dayflow/Dayflow.xcodeproj/project.pbxproj"
+          MARKETING_VERSION=$(grep -m1 -E "MARKETING_VERSION = " "$PROJECT_FILE" | sed -E 's/.*MARKETING_VERSION = ([^;]+);/\1/' | head -1)
+          BUILD_VERSION=$(grep -m1 -E "CURRENT_PROJECT_VERSION = " "$PROJECT_FILE" | sed -E 's/.*CURRENT_PROJECT_VERSION = ([^;]+);/\1/' | head -1)
+          
+          # 如果没有找到，尝试从 Info.plist 读取
+          if [ -z "$MARKETING_VERSION" ]; then
+            MARKETING_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "Dayflow/Dayflow/Info.plist" 2>/dev/null || echo "unknown")
+          fi
+          if [ -z "$BUILD_VERSION" ]; then
+            BUILD_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "Dayflow/Dayflow/Info.plist" 2>/dev/null || echo "0")
+          fi
+          
+          # 获取 Git 信息
+          GIT_SHA=$(git rev-parse --short HEAD)
+          GIT_TAG=$(git describe --tags --exact-match 2>/dev/null || echo "")
+          
+          echo "MARKETING_VERSION=$MARKETING_VERSION" >> $GITHUB_OUTPUT
+          echo "BUILD_VERSION=$BUILD_VERSION" >> $GITHUB_OUTPUT
+          echo "GIT_SHA=$GIT_SHA" >> $GITHUB_OUTPUT
+          echo "GIT_TAG=$GIT_TAG" >> $GITHUB_OUTPUT
+          
+          # 构建版本字符串
+          if [ -n "$GIT_TAG" ]; then
+            VERSION_NAME="v$MARKETING_VERSION"
+          else
+            VERSION_NAME="v$MARKETING_VERSION-build$BUILD_VERSION-$GIT_SHA"
+          fi
+          echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_OUTPUT
+          
+          echo "Version: $MARKETING_VERSION"
+          echo "Build: $BUILD_VERSION"
+          echo "Git SHA: $GIT_SHA"
+          echo "Version Name: $VERSION_NAME"
+      
+      - name: Build application
+        env:
+          SCHEME: Dayflow
+          CONFIG: Release
+          APP_NAME: Dayflow
+          DERIVED_DATA: build
+          PROJECT_PATH: Dayflow/Dayflow.xcodeproj
+        run: |
+          echo "Building ${APP_NAME} (${SCHEME}|${CONFIG})..."
+          echo "Building universal binary (arm64 + x86_64) for Intel and Apple Silicon Macs…"
+          
+          xcodebuild \
+            -project "${PROJECT_PATH}" \
+            -scheme "${SCHEME}" \
+            -configuration "${CONFIG}" \
+            -derivedDataPath "${DERIVED_DATA}" \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+          
+          APP_PATH="${DERIVED_DATA}/Build/Products/${CONFIG}/${APP_NAME}.app"
+          if [ ! -d "${APP_PATH}" ]; then
+            echo "ERROR: Built app not found at ${APP_PATH}" >&2
+            exit 1
+          fi
+          echo "✓ Build successful: ${APP_PATH}"
+      
+      - name: Create DMG
+        env:
+          APP_NAME: Dayflow
+          DMG_NAME: Dayflow.dmg
+          VOL_NAME: Dayflow
+          CONFIG: Release
+          DERIVED_DATA: build
+          DMG_BG: docs/assets/dmg-background.png
+        run: |
+          APP_PATH="${DERIVED_DATA}/Build/Products/${CONFIG}/${APP_NAME}.app"
+          
+          # 检查 create-dmg 是否已安装
+          if ! command -v create-dmg >/dev/null 2>&1; then
+            echo "ERROR: create-dmg is required but not installed." >&2
+            exit 1
+          fi
+          
+          # 检查背景图片是否存在
+          if [ ! -f "${DMG_BG}" ]; then
+            echo "WARNING: Background image not found at ${DMG_BG}, using default..." >&2
+            # 如果没有背景图片，创建一个简单的 DMG
+            hdiutil create -volname "${VOL_NAME}" -srcfolder "${APP_PATH}" -ov -format UDZO "${DMG_NAME}"
+          else
+            # 使用 create-dmg 创建带背景的 DMG
+            rm -f "${DMG_NAME}"
+            create-dmg \
+              --volname "${VOL_NAME}" \
+              --background "${DMG_BG}" \
+              --window-size 775 480 \
+              --icon-size 128 \
+              --icon "${APP_NAME}.app" 200 270 \
+              --app-drop-link 575 270 \
+              --no-internet-enable \
+              "${DMG_NAME}" \
+              "${APP_PATH}"
+          fi
+          
+          if [ ! -f "${DMG_NAME}" ]; then
+            echo "ERROR: DMG not created" >&2
+            exit 1
+          fi
+          
+          # 显示 DMG 信息
+          ls -lh "${DMG_NAME}"
+          echo "✓ DMG created: ${DMG_NAME}"
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dayflow-dmg
+          path: Dayflow.dmg
+          retention-days: 90
+      
+      - name: Determine Release Tag
+        id: release_tag
+        run: |
+          if [ -n "${{ steps.version.outputs.GIT_TAG }}" ]; then
+            echo "TAG_NAME=${{ steps.version.outputs.GIT_TAG }}" >> $GITHUB_OUTPUT
+          else
+            echo "TAG_NAME=build-${{ steps.version.outputs.GIT_SHA }}" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Create or Update Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.release_tag.outputs.TAG_NAME }}
+          name: Dayflow ${{ steps.version.outputs.VERSION_NAME }}
+          body: |
+            ## Build Information
+            - **Version**: ${{ steps.version.outputs.MARKETING_VERSION }}
+            - **Build**: ${{ steps.version.outputs.BUILD_VERSION }}
+            - **Git SHA**: ${{ steps.version.outputs.GIT_SHA }}
+            - **Build Date**: ${{ github.event.head_commit.timestamp || github.run_started_at }}
+            
+            ## Artifacts
+            - Dayflow.dmg - macOS application installer
+            
+            ## Build Details
+            - **Workflow Run**: [View Details](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            - **Commit**: ${{ github.event.head_commit.message || 'Manual trigger' }}
+            
+            > **Note**: This is an automated build. The DMG is unsigned and not notarized.  
+            > For production releases with code signing and notarization, use the manual release scripts.
+          draft: ${{ steps.version.outputs.GIT_TAG == '' }}  # 如果不是 tag，则创建为 draft（用于归档）
+          prerelease: false
+          files: |
+            Dayflow.dmg
+          make_latest: ${{ steps.version.outputs.GIT_TAG != '' }}  # 只有正式 tag 才设为最新
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Display Release Info
+        if: steps.create_release.outputs.id != ''
+        run: |
+          echo "✓ Release created/updated: ${{ steps.create_release.outputs.url }}"
+          echo "  Tag: ${{ steps.create_release.outputs.tag_name }}"
+          echo "  Draft: ${{ steps.version.outputs.GIT_TAG == '' && 'true' || 'false' }}"
+
