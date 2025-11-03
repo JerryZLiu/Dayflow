@@ -54,7 +54,9 @@ final class ActiveDisplayTracker: ObservableObject {
     private func start() {
         stop()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / pollHz, repeats: true) { [weak self] _ in
-            self?.tick()
+            Task { @MainActor [weak self] in
+                await self?.tick()
+            }
         }
         RunLoop.current.add(timer!, forMode: .common)
     }

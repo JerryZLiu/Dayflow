@@ -34,7 +34,7 @@ final class FaviconService {
         }
 
         // Create a new task for this host and store it in-flight
-        let task = Task<NSImage?, Never> { [weak self] in
+        let task = Task<NSImage?, Never> { @MainActor [weak self] in
             guard let self = self else { return nil }
             defer { self.removeTask(for: host) }
 

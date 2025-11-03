@@ -146,7 +146,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
     private var wantsRecording = false        // mirrors AppState flag on recorder queue
     private var recordingWidth: Int = 1280   // Store recording dimensions
     private var recordingHeight: Int = 800
-    private var tracker: ActiveDisplayTracker!
+    @MainActor private var tracker: ActiveDisplayTracker!
     private var currentDisplayID: CGDirectDisplayID?
     private var requestedDisplayID: CGDirectDisplayID?
 
@@ -255,7 +255,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             // choose the display: prefer requested → active → first
             let displaysByID: [CGDirectDisplayID: SCDisplay] = Dictionary(uniqueKeysWithValues: content.displays.map { ($0.displayID, $0) })
             // Read tracker's active display on the main actor to respect isolation
-            let trackerID: CGDirectDisplayID? = await MainActor.run { [weak tracker] in tracker?.activeDisplayID }
+            let trackerID: CGDirectDisplayID? = await MainActor.run { [tracker] in tracker.activeDisplayID }
             let preferredID = requestedDisplayID ?? trackerID
             let display: SCDisplay
             if let pid = preferredID, let scd = displaysByID[pid] {
