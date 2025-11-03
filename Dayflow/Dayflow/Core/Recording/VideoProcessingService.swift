@@ -355,17 +355,15 @@ actor VideoProcessingService {
         ]
         
         // Create writer input - use simpler settings on Intel Macs to prevent crashes
-        // On Intel Macs, certain encoding settings may cause AVAssetWriterInput initialization to fail
-        var finalWriterInput: AVAssetWriterInput
+        // On Intel Macs, certain encoding settings may cause AVAssetWriterInput to throw exceptions
+        // We use architecture-specific settings upfront to avoid exceptions
+        let writerInput: AVAssetWriterInput
         
-        if let input = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings) {
-            finalWriterInput = input
-        } else {
-            // Fallback: try with minimal settings for maximum compatibility on Intel Macs
-            print("⚠️ Failed to create AVAssetWriterInput with standard settings")
-            print("   Attempting fallback settings for Intel Mac compatibility...")
-            
-            let fallbackSettings: [String: Any] = [
+        // For Intel Macs, use minimal settings to ensure compatibility
+        // AVAssetWriterInput init is not failable, but can throw Objective-C exceptions with invalid settings
+        if isIntelMac {
+            // Use minimal safe settings for Intel Mac hardware encoder
+            let safeSettings: [String: Any] = [
                 AVVideoCodecKey: AVVideoCodecType.h264,
                 AVVideoWidthKey: outputWidth,
                 AVVideoHeightKey: outputHeight,
@@ -374,16 +372,11 @@ actor VideoProcessingService {
                     AVVideoProfileLevelKey: AVVideoProfileLevelH264MainAutoLevel
                 ]
             ]
-            
-            guard let fallbackInput = AVAssetWriterInput(mediaType: .video, outputSettings: fallbackSettings) else {
-                print("❌ Failed to create AVAssetWriterInput even with fallback settings")
-                throw VideoProcessingError.assetWriterInputCreationFailed
-            }
-            
-            finalWriterInput = fallbackInput
+            writerInput = AVAssetWriterInput(mediaType: .video, outputSettings: safeSettings)
+        } else {
+            // Use full settings on Apple Silicon which supports more encoding features
+            writerInput = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
         }
-        
-        let writerInput = finalWriterInput
         
         writerInput.expectsMediaDataInRealTime = false
         writerInput.transform = preferredTransform
