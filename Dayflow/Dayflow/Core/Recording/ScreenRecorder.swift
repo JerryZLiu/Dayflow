@@ -172,6 +172,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
         SentryHelper.addBreadcrumb(breadcrumb)
     }
 
+    @MainActor
     func start() {
         q.async { [weak self] in
             guard let self else { return }
@@ -189,6 +190,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
         }
     }
 
+    @MainActor
     func stop() {
         q.async { [weak self] in
             guard let self else { return }
@@ -198,6 +200,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
         }
     }
 
+    @MainActor
     private func shouldRetry(_ err: NSError?) -> Bool {
         guard let scErr = err, scErr.domain == SCStreamErrorDomain else { return false }
 
@@ -210,11 +213,13 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
         return false
     }
 
+    @MainActor
     private func shouldRetry(_ err: Error) -> Bool {
         let nsError = err as NSError
         return shouldRetry(nsError as NSError?)
     }
     
+    @MainActor
     private func isUserInitiatedStop(_ err: NSError?) -> Bool {
         guard let scErr = err, scErr.domain == SCStreamErrorDomain else { return false }
 
@@ -235,6 +240,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
         return false
     }
 
+    @MainActor
     private func isUserInitiatedStop(_ err: Error) -> Bool {
         let nsError = err as NSError
         return isUserInitiatedStop(nsError as NSError?)
@@ -835,17 +841,16 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
 }
 
 extension ScreenRecorder: SCStreamDelegate {
-    func stream(_ s: SCStream, didStopWithError error: Error?) {
+    nonisolated func stream(_ s: SCStream, didStopWithError error: Error?) {
         // ReplayKit occasionally hands a nil NSError pointer; accept it as optional before bridging.
         let scError = error as NSError?
 
         guard let scError else {
             dbg("stream stopped – nil error pointer, treating as transient")
-            stop()
-
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
+                await self?.stop()
                 if AppState.shared.isRecording {
-                    self.start()
+                    await self?.start()
                 }
             }
             return
@@ -858,31 +863,25 @@ extension ScreenRecorder: SCStreamDelegate {
             dbg("Error userInfo: \(userInfo)")
         }
 
-        stop()
+        Task { @MainActor [weak self] in
+            await self?.stop()
 
-        if isUserInitiatedStop(scError) {
-            dbg("User stopped recording through system UI - updating app state")
-            Task { @MainActor in
+            if await self?.isUserInitiatedStop(scError) ?? false {
+                dbg("User stopped recording through system UI - updating app state")
                 AppState.shared.isRecording = false
                 AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "user"])
-            }
-        } else if shouldRetry(scError) {
-            dbg("Retryable error - will restart if recording flag is set")
-            Task { @MainActor in
+            } else if await self?.shouldRetry(scError) ?? false {
+                dbg("Retryable error - will restart if recording flag is set")
                 AnalyticsService.shared.capture("recording_error", [
                     "code": scError.code,
                     "retryable": true
                 ])
-            }
-            Task { @MainActor in
                 if AppState.shared.isRecording {
                     AnalyticsService.shared.capture("recording_auto_recovery", ["outcome": "restarted"])
-                    start()
+                    await self?.start()
                 }
-            }
-        } else {
-            dbg("Non-retryable error - stopping recording")
-            Task { @MainActor in
+            } else {
+                dbg("Non-retryable error - stopping recording")
                 AppState.shared.isRecording = false
                 AnalyticsService.shared.capture("recording_error", [
                     "code": scError.code,

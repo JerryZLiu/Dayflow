@@ -309,7 +309,9 @@ struct CanvasTimelineDataView: View {
             let segments = await self.resolveOverlapsForDisplay(activities)
 
             let positioned = await segments.map { seg -> CanvasPositionedActivity in
-                let y = self.calculateYPosition(for: seg.start)
+                let y = await MainActor.run {
+                    self.calculateYPosition(for: seg.start)
+                }
                 // Card spacing: -2 total (1px top + 1px bottom)
                 let durationMinutes = max(0, seg.end.timeIntervalSince(seg.start) / 60)
                 let rawHeight = CGFloat(durationMinutes) * CanvasConfig.pixelsPerMinute

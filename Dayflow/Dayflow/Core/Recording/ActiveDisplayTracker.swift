@@ -35,8 +35,10 @@ final class ActiveDisplayTracker: ObservableObject {
             object: NSApplication.shared,
             queue: .main
         ) { [weak self] _ in
-            self?.resetCandidateDueToDisplayChange()
-            self?.tick()
+            Task { @MainActor [weak self] in
+                await self?.resetCandidateDueToDisplayChange()
+                await self?.tick()
+            }
         }
 
         start()
@@ -59,11 +61,13 @@ final class ActiveDisplayTracker: ObservableObject {
 
     private func stop() { timer?.invalidate(); timer = nil }
 
+    @MainActor
     private func resetCandidateDueToDisplayChange() {
         candidateID = nil
         candidateSince = nil
     }
 
+    @MainActor
     private func tick() {
         let loc = NSEvent.mouseLocation
         guard let screen = NSScreen.screens.first(where: { $0.frame.insetBy(dx: hysteresisInset, dy: hysteresisInset).contains(loc) })

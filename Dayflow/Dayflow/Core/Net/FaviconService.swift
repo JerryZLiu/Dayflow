@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 
+@MainActor
 final class FaviconService {
     static let shared = FaviconService()
 
@@ -105,13 +106,16 @@ final class FaviconService {
         do {
             let (data, resp) = try await session.data(for: req)
             guard let http = resp as? HTTPURLResponse, http.statusCode == 200, !data.isEmpty else { return nil }
-            if let img = NSImage(data: data), img.size.width > 0, img.size.height > 0 {
-                return img
+            // Create NSImage on MainActor to ensure thread safety
+            return await MainActor.run {
+                if let img = NSImage(data: data), img.size.width > 0, img.size.height > 0 {
+                    return img
+                }
+                return nil
             }
         } catch {
             return nil
         }
-        return nil
     }
 
     private func existingTask(for host: String) -> Task<NSImage?, Never>? {
