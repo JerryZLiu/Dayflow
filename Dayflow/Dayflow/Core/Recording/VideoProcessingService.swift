@@ -328,20 +328,63 @@ actor VideoProcessingService {
 
         print("🎬 Timelapse encoding: \(outputWidth)×\(outputHeight) @ \(outputFPS)fps, bitrate: \(Double(bitrate) / 1_000_000)Mbps")
         
+        // Detect if we're on Intel Mac (which may have encoding limitations)
+        let isIntelMac = !HardwareInfo.shared.isAppleSilicon
+        
+        // Create output settings - use simpler settings for Intel Macs to avoid crashes
+        var compressionProperties: [String: Any] = [
+            AVVideoAverageBitRateKey: bitrate,
+            AVVideoProfileLevelKey: AVVideoProfileLevelH264MainAutoLevel
+        ]
+        
+        // Add frame rate settings only on Apple Silicon (Intel Macs may not support these)
+        if !isIntelMac {
+            compressionProperties[AVVideoExpectedSourceFrameRateKey] = outputFPS
+            compressionProperties[AVVideoAverageNonDroppableFrameRateKey] = outputFPS
+            compressionProperties[AVVideoMaxKeyFrameIntervalKey] = 150 // Keyframe every 10 seconds at 15fps
+        } else {
+            // Intel Mac fallback: use simpler keyframe interval
+            compressionProperties[AVVideoMaxKeyFrameIntervalKey] = 30 // More frequent keyframes for compatibility
+        }
+        
         let outputSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: outputWidth,
             AVVideoHeightKey: outputHeight,
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: bitrate,
-                AVVideoMaxKeyFrameIntervalKey: 150, // Keyframe every 10 seconds at 15fps
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264MainAutoLevel,
-                AVVideoExpectedSourceFrameRateKey: outputFPS,
-                AVVideoAverageNonDroppableFrameRateKey: outputFPS
-            ]
+            AVVideoCompressionPropertiesKey: compressionProperties
         ]
         
-        let writerInput = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
+        // Create writer input - use simpler settings on Intel Macs to prevent crashes
+        // On Intel Macs, certain encoding settings may cause AVAssetWriterInput initialization to fail
+        var finalWriterInput: AVAssetWriterInput
+        
+        if let input = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings) {
+            finalWriterInput = input
+        } else {
+            // Fallback: try with minimal settings for maximum compatibility on Intel Macs
+            print("⚠️ Failed to create AVAssetWriterInput with standard settings")
+            print("   Attempting fallback settings for Intel Mac compatibility...")
+            
+            let fallbackSettings: [String: Any] = [
+                AVVideoCodecKey: AVVideoCodecType.h264,
+                AVVideoWidthKey: outputWidth,
+                AVVideoHeightKey: outputHeight,
+                AVVideoCompressionPropertiesKey: [
+                    AVVideoAverageBitRateKey: bitrate,
+                    AVVideoProfileLevelKey: AVVideoProfileLevelH264MainAutoLevel
+                ]
+            ]
+            
+            guard let fallbackInput = AVAssetWriterInput(mediaType: .video, outputSettings: fallbackSettings) else {
+                print("❌ Failed to create AVAssetWriterInput even with fallback settings")
+                throw VideoProcessingError.assetWriterInputCreationFailed
+            }
+            
+            finalWriterInput = fallbackInput
+        }
+        
+        let writerInput = finalWriterInput
+        
         writerInput.expectsMediaDataInRealTime = false
         writerInput.transform = preferredTransform
         
@@ -451,6 +494,7 @@ actor VideoProcessingService {
         let even = value - (value % 2)
         return max(even, 2)
     }
+    
 
     func cleanupTemporaryFile(at url: URL) {
         if fileManager.fileExists(atPath: url.path) {
