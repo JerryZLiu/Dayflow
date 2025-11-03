@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/SwiftUI-✓-orange" alt="SwiftUI">
   <img src="https://img.shields.io/badge/Updates-Sparkle-informational" alt="Updates: Sparkle">
   <img src="https://img.shields.io/badge/AI-Gemini%20or%20Local-blue" alt="AI: Gemini / Local">
-  <img src="https://img.shields.io/badge/License-MIT-green" alt="License: MIT">
+  <img src="https://img.shields.io/badge/License-GPL--3.0--or--later-green" alt="License: GPL-3.0-or-later">
 </div>
 
 <div align="center">
@@ -54,7 +54,7 @@ It's lightweight (25MB app size) and uses ~100MB of RAM and <1% cpu.
 
 I built Dayflow after realizing that my calendar wasn't the source of truth for how I actually spent my time. My screen was. I wanted a calm, trustworthy timeline that let me see my workday without turning into yet another dashboard I had to maintain.
 
-Dayflow stands for ownership and privacy by default. You control the data, you choose the AI provider, and you can keep everything local if that's what makes you comfortable. It's MIT licensed and fully open source because anything that watches your screen all day should be completely transparent about what it does with that information. The app should feel like a quiet assistant: respectful of your attention, honest about what it captures, and easy to shut off.
+Dayflow stands for ownership and privacy by default. You control the data, you choose the AI provider, and you can keep everything local if that's what makes you comfortable. This fork is GPL-3.0-or-later and fully open source because anything that watches your screen all day should be completely transparent about what it does with that information. The app should feel like a quiet assistant: respectful of your attention, honest about what it captures, and easy to shut off.
 
 
 ---
@@ -308,8 +308,10 @@ PRs welcome! If you plan a larger change, please open an issue first to discuss 
 
 ## License
 
-Licensed under the MIT License. See LICENSE for the full text.
-Software is provided “AS IS”, without warranty of any kind.
+This fork is licensed under the GNU GPL v3.0 or later. See `LICENSE` for terms.
+
+This distribution includes material originally licensed under MIT; see `LICENSE-MIT`.
+The upstream project remains under the MIT License.
 
 ---
 

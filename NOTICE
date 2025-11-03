@@ -1,0 +1,15 @@
+Dayflow (fork) — Licensing Notice
+
+This distribution of Dayflow is licensed under the GNU General Public License,
+version 3 or (at your option) any later version. See LICENSE for the full terms.
+
+Attribution to original authors and license:
+- Includes material originally licensed under the MIT License.
+- Copyright (c) 2025 Jerry Liu.
+- The original MIT license text is preserved in LICENSE-MIT and must be
+  retained in redistributions of the original MIT-licensed material.
+
+Notes:
+- Upstream Dayflow remains available under the MIT License.
+- This fork, as a whole, is distributed under GPL-3.0-or-later terms.
+
