@@ -213,8 +213,15 @@ The former is most likely, the latter is if the app has been installed in a "san
 
 **A couple useful nuances** (from docs + forum clarifications):
 - **AI Studio is still free** to use; enabling billing changes **data handling**, not whether Studio charges you. ([Pricing page](https://ai.google.dev/gemini-api/docs/pricing))  
-- **UI “Plan: Paid” check:** In **AI Studio → API keys**, you’ll typically see “Plan: Paid” once billing is enabled on any linked project (UI may evolve).  
-- **Free workaround:** _“Make one project paid, keep using a free key elsewhere to get the best of both worlds.”_ The **Terms** imply **account‑level** coverage once any billing account is activated, but the **Apps** nuance above may limit this in specific UI contexts. **Treat this as an interpretation, not legal advice.**
+- **UI "Plan: Paid" check:** In **AI Studio → API keys**, you'll typically see "Plan: Paid" once billing is enabled on any linked project (UI may evolve).  
+- **Free workaround:** _"Make one project paid, keep using a free key elsewhere to get the best of both worlds."_ The **Terms** imply **account‑level** coverage once any billing account is activated, but the **Apps** nuance above may limit this in specific UI contexts. **Treat this as an interpretation, not legal advice.**
+
+### Crash reporting & telemetry
+- **Analytics/Telemetry:** All analytics methods in the codebase are **completely stubbed out** (no-ops). The `AnalyticsService` class exists for compatibility but **collects zero data**. No telemetry is sent anywhere.
+- **Crash Reporting (Sentry):** **Disabled by default.** Sentry is only initialized if a `SentryDSN` is configured at build time via environment variables in `scripts/release.env` (not committed to the repository). Source builds have **no crash reporting** enabled.
+- **Privacy guarantee:** Building Dayflow from source results in **zero data collection** of any kind—no analytics, no crash reports, no telemetry.
+
+This approach maintains full transparency: you can audit the code and verify that your build sends nothing to external services.
 
 ### Local mode: privacy & trade‑offs
 - **Privacy:** With **Ollama/LM Studio**, prompts and model inference run on your machine. LM Studio documents full **offline** operation once models are downloaded.  
