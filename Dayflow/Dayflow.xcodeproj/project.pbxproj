@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		C469402F2E8C947E00CA648B /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = C469402E2E8C947E00CA648B /* Sentry */; };
-		C4A035B12E6CFEC600DE0FBD /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = C4A035B02E6CFEC600DE0FBD /* PostHog */; };
 		C4D74EB12E3608B5005E3CD7 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = C4D74EB02E3608B5005E3CD7 /* Sparkle */; };
 		C4EBF0022DBDF82000FC5824 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = C4EBF0012DBDF82000FC5824 /* GRDB */; };
 /* End PBXBuildFile section */
@@ -67,7 +66,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C4A035B12E6CFEC600DE0FBD /* PostHog in Frameworks */,
 				C4EBF0022DBDF82000FC5824 /* GRDB in Frameworks */,
 				C4D74EB12E3608B5005E3CD7 /* Sparkle in Frameworks */,
 				C469402F2E8C947E00CA648B /* Sentry in Frameworks */,
@@ -132,7 +130,6 @@
 			packageProductDependencies = (
 				C4EBF0012DBDF82000FC5824 /* GRDB */,
 				C4D74EB02E3608B5005E3CD7 /* Sparkle */,
-				C4A035B02E6CFEC600DE0FBD /* PostHog */,
 				C469402E2E8C947E00CA648B /* Sentry */,
 			);
 			productName = Dayflow;
@@ -217,7 +214,6 @@
 			packageReferences = (
 				C4EBF0002DBDF82000FC5824 /* XCRemoteSwiftPackageReference "GRDB" */,
 				C4D74EAF2E3608B5005E3CD7 /* XCRemoteSwiftPackageReference "Sparkle" */,
-				C4A035AF2E6CFEC600DE0FBD /* XCRemoteSwiftPackageReference "posthog-ios" */,
 				C469402D2E8C947E00CA648B /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -420,12 +416,12 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = Dayflow/Dayflow.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 60;
 				DEVELOPMENT_ASSET_PATHS = "\"Dayflow/Preview Content\"";
-				DEVELOPMENT_TEAM = L75WYD8X4Y;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -454,12 +450,12 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = Dayflow/Dayflow.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 60;
 				DEVELOPMENT_ASSET_PATHS = "\"Dayflow/Preview Content\"";
-				DEVELOPMENT_TEAM = L75WYD8X4Y;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -598,14 +594,6 @@
 				minimumVersion = 8.56.2;
 			};
 		};
-		C4A035AF2E6CFEC600DE0FBD /* XCRemoteSwiftPackageReference "posthog-ios" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/PostHog/posthog-ios.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 3.31.0;
-			};
-		};
 		C4D74EAF2E3608B5005E3CD7 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
@@ -629,11 +617,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C469402D2E8C947E00CA648B /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
 			productName = Sentry;
-		};
-		C4A035B02E6CFEC600DE0FBD /* PostHog */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = C4A035AF2E6CFEC600DE0FBD /* XCRemoteSwiftPackageReference "posthog-ios" */;
-			productName = PostHog;
 		};
 		C4D74EB02E3608B5005E3CD7 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;

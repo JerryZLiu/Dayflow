@@ -6,7 +6,6 @@
 import AppKit
 import ServiceManagement
 import ScreenCaptureKit
-import PostHog
 import Sentry
 import Combine
 

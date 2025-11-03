@@ -769,6 +769,7 @@ struct SettingsView: View {
                             .foregroundColor(.black.opacity(0.7))
                     }
                     .toggleStyle(.switch)
+                    .disabled(true)
 
                     Text("Dayflow v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")")
                         .font(.custom("Nunito", size: 12))
