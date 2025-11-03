@@ -111,7 +111,13 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
                         self.transition(to: .idle, context: "user disabled recording")
                     }
 
-                    rec ? self.start() : self.stop()
+                    Task { @MainActor [weak self] in
+                        if rec {
+                            await self?.start()
+                        } else {
+                            await self?.stop()
+                        }
+                    }
                 }
             }
 
@@ -445,7 +451,9 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
         // Finish the current segment and restart on the new display.
         finishSegment(restart: false)
         stopStream()
-        start()
+        Task { @MainActor [weak self] in
+            await self?.start()
+        }
     }
 
     private func beginSegment() {
@@ -769,12 +777,12 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
     private func resumeRecording(after delay: TimeInterval, context: String) {
         q.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard AppState.shared.isRecording else {
                     dbg("\(context) – skip auto-resume (recording disabled)")
                     return
                 }
-                self.start()
+                await self?.start()
             }
         }
     }
