@@ -310,28 +310,9 @@ struct SimilarityCalculator {
 // MARK: - Main MemoryStore Implementation
 
 actor HybridMemoryStore: MemoryStore {
-    static let shared: HybridMemoryStore = {
-        do {
-            return try HybridMemoryStore()
-        } catch {
-            #if DEBUG
-            fatalError("Failed to initialize HybridMemoryStore: \(error)")
-            #else
-            // In production, log error and return a disabled instance
-            print("⚠️ HybridMemoryStore initialization failed: \(error). Feature will be disabled.")
-            // Attempt fallback initialization
-            do {
-                return try HybridMemoryStore()
-            } catch {
-                // If even fallback fails, crash only in debug
-                print("❌ Critical: HybridMemoryStore fallback also failed: \(error)")
-                fatalError("HybridMemoryStore initialization failed twice")
-            }
-            #endif
-        }
-    }()
+    static let shared = HybridMemoryStore()
 
-    private let databaseQueue: DatabaseQueue
+    private var databaseQueue: DatabaseQueue?
     private var bm25Index = BM25Index()
     private let embeddingGenerator = VectorEmbeddingGenerator()
     private let logger = Logger(subsystem: "FocusLock", category: "HybridMemoryStore")
@@ -340,20 +321,72 @@ actor HybridMemoryStore: MemoryStore {
     private var embeddingGenerationTimes: [TimeInterval] = []
     private var searchTimes: [TimeInterval] = []
 
-    init() throws {
-        // Initialize database
-        let dbPath = try FileManager.default
-            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            .appendingPathComponent("FocusLock")
-            .appendingPathComponent("MemoryStore.sqlite")
+    // Async initialization tracking
+    private var isInitialized = false
+    private var initializationTask: Task<Void, Never>?
 
-        try FileManager.default.createDirectory(at: dbPath.deletingLastPathComponent(),
-                                             withIntermediateDirectories: true)
+    init() {
+        // ✅ NO synchronous database operations in init
+        // Database setup deferred to ensureInitialized()
+    }
 
-        let queue = try DatabaseQueue(path: dbPath.path)
-        databaseQueue = queue
-        // Setup database synchronously during init
-        try setupDatabase(queue: queue)
+    /// Ensures the database is initialized before use (call before any database operation)
+    func ensureInitialized() async {
+        // Check if already initialized
+        guard !isInitialized else { return }
+
+        // Check if initialization is in progress
+        if let task = initializationTask {
+            await task.value
+            return
+        }
+
+        // Start initialization
+        let task = Task {
+            await performInitialization()
+        }
+        initializationTask = task
+        await task.value
+    }
+
+    private func performInitialization() async {
+        guard !isInitialized else { return }
+
+        do {
+            // Initialize database path
+            let dbPath = try FileManager.default
+                .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+                .appendingPathComponent("FocusLock")
+                .appendingPathComponent("MemoryStore.sqlite")
+
+            try FileManager.default.createDirectory(at: dbPath.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+
+            // Create database queue with proper configuration
+            var config = Configuration()
+            config.prepareDatabase { db in
+                db.busyMode = .timeout(5.0)
+                try db.execute(sql: "PRAGMA journal_mode = WAL")
+            }
+
+            let queue = try DatabaseQueue(path: dbPath.path, configuration: config)
+            self.databaseQueue = queue
+
+            // Setup database schema asynchronously
+            try await setupDatabaseAsync(queue: queue)
+
+            // Load embedding model and existing items
+            await completeInitialization()
+
+            isInitialized = true
+            logger.info("✅ HybridMemoryStore initialized successfully")
+
+        } catch {
+            logger.error("❌ Failed to initialize HybridMemoryStore: \(error.localizedDescription)")
+            // Set initialized to true to prevent infinite retry loops
+            // Database operations will fail gracefully
+            isInitialized = true
+        }
     }
 
     // Public method to complete async initialization
@@ -367,8 +400,9 @@ actor HybridMemoryStore: MemoryStore {
         logger.info("MemoryStore initialization complete")
     }
 
-    nonisolated private func setupDatabase(queue: DatabaseQueue) throws {
-        try queue.write { db in
+    private func setupDatabaseAsync(queue: DatabaseQueue) async throws {
+        // Perform database setup asynchronously to avoid blocking
+        try await queue.write { db in
             try db.execute(sql: """
                 CREATE TABLE IF NOT EXISTS memory_items (
                     id TEXT PRIMARY KEY,
@@ -438,6 +472,8 @@ actor HybridMemoryStore: MemoryStore {
     // MARK: - MemoryStore Protocol Implementation
 
     func index(_ item: MemoryItem) async throws {
+        await ensureInitialized()
+
         let startTime = CFAbsoluteTimeGetCurrent()
 
         // Generate embeddings if not provided
@@ -467,8 +503,10 @@ actor HybridMemoryStore: MemoryStore {
     }
 
     func search(_ query: String, limit: Int = 10) async throws -> [MemorySearchResult] {
+        await ensureInitialized()
+
         let startTime = CFAbsoluteTimeGetCurrent()
-        
+
         // Lazy load index on first search
         await ensureIndexLoaded()
 
@@ -498,6 +536,8 @@ actor HybridMemoryStore: MemoryStore {
     }
 
     func semanticSearch(_ query: String, limit: Int = 10) async throws -> [MemorySearchResult] {
+        await ensureInitialized()
+
         let startTime = CFAbsoluteTimeGetCurrent()
 
         // Generate embedding for query
@@ -548,6 +588,8 @@ actor HybridMemoryStore: MemoryStore {
     }
 
     func hybridSearch(_ query: String, limit: Int = 10) async throws -> [MemorySearchResult] {
+        await ensureInitialized()
+
         let startTime = CFAbsoluteTimeGetCurrent()
 
         // Get both keyword and semantic results
@@ -602,7 +644,13 @@ actor HybridMemoryStore: MemoryStore {
     }
 
     func delete(id: UUID) async throws {
-        try await databaseQueue.write { db in
+        await ensureInitialized()
+
+        guard let queue = databaseQueue else {
+            throw DatabaseError.storageError
+        }
+
+        try await queue.write { db in
             try db.execute(sql: "DELETE FROM memory_items WHERE id = ?", arguments: [id.uuidString])
         }
 
@@ -611,7 +659,13 @@ actor HybridMemoryStore: MemoryStore {
     }
 
     func clear() async throws {
-        try await databaseQueue.write { db in
+        await ensureInitialized()
+
+        guard let queue = databaseQueue else {
+            throw DatabaseError.storageError
+        }
+
+        try await queue.write { db in
             try db.execute(sql: "DELETE FROM memory_items")
         }
 
@@ -624,6 +678,12 @@ actor HybridMemoryStore: MemoryStore {
     }
 
     func getStatistics() async throws -> MemoryStoreStatistics {
+        await ensureInitialized()
+
+        guard let queue = databaseQueue else {
+            throw DatabaseError.storageError
+        }
+
         let items = try await getAllStoredItems()
         let indexedItems = items.filter { $0.embeddings != nil }
 
@@ -634,7 +694,7 @@ actor HybridMemoryStore: MemoryStore {
             searchTimes.reduce(0, +) / Double(searchTimes.count)
 
         // Calculate storage size
-        let storageSize = try await databaseQueue.read { db -> Int64 in
+        let storageSize = try await queue.read { db -> Int64 in
             try Int64.fetchOne(db, sql: "SELECT SUM(LENGTH(embeddings) + LENGTH(content) + LENGTH(metadata)) FROM memory_items") ?? 0
         }
 
@@ -653,6 +713,10 @@ actor HybridMemoryStore: MemoryStore {
     // MARK: - Private Helper Methods
 
     private func storeItem(_ item: MemoryItem) async throws {
+        guard let queue = databaseQueue else {
+            throw DatabaseError.storageError
+        }
+
         let metadataData = try JSONEncoder().encode(item.metadata)
 
         let embeddingsData: Data?
@@ -662,7 +726,7 @@ actor HybridMemoryStore: MemoryStore {
             embeddingsData = nil
         }
 
-        try await databaseQueue.write { db in
+        try await queue.write { db in
             try db.execute(sql: """
                 INSERT OR REPLACE INTO memory_items
                 (id, content, timestamp, source, embeddings, metadata)
@@ -679,7 +743,11 @@ actor HybridMemoryStore: MemoryStore {
     }
 
     private func getItem(id: UUID) async throws -> MemoryItem? {
-        return try await databaseQueue.read { db -> MemoryItem? in
+        guard let queue = databaseQueue else {
+            throw DatabaseError.storageError
+        }
+
+        return try await queue.read { db -> MemoryItem? in
             guard let row = try Row.fetchOne(db, sql: """
                 SELECT id, content, timestamp, source, embeddings, metadata
                 FROM memory_items WHERE id = ?
@@ -690,7 +758,11 @@ actor HybridMemoryStore: MemoryStore {
     }
 
     private func getAllStoredItems() async throws -> [MemoryItem] {
-        let rows = try databaseQueue.read { db -> [Row] in
+        guard let queue = databaseQueue else {
+            throw DatabaseError.storageError
+        }
+
+        let rows = try queue.read { db -> [Row] in
             try Row.fetchAll(db, sql: """
                 SELECT id, content, timestamp, source, embeddings, metadata
                 FROM memory_items ORDER BY timestamp DESC
@@ -700,7 +772,11 @@ actor HybridMemoryStore: MemoryStore {
     }
 
     private func getItemsWithEmbeddings() async throws -> [MemoryItem] {
-        let rows = try databaseQueue.read { db -> [Row] in
+        guard let queue = databaseQueue else {
+            throw DatabaseError.storageError
+        }
+
+        let rows = try queue.read { db -> [Row] in
             try Row.fetchAll(db, sql: """
                 SELECT id, content, timestamp, source, embeddings, metadata
                 FROM memory_items

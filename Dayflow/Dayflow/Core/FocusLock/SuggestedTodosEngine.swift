@@ -22,7 +22,7 @@ class SuggestedTodosEngine: ObservableObject {
     private let sessionManager = SessionManager.shared
 
     // Database
-    private let databaseQueue: DatabaseQueue
+    private var databaseQueue: DatabaseQueue?
 
     // Configuration
     private var config = SuggestionEngineConfig()
@@ -42,34 +42,87 @@ class SuggestedTodosEngine: ObservableObject {
     private var processingTimes: [TimeInterval] = []
     private var generationStats: GenerationStats
 
-    private init() throws {
-        // Initialize performance stats
+    // Async initialization tracking
+    private var isInitialized = false
+    private var initializationTask: Task<Void, Never>?
+
+    private init() {
+        // ✅ NO synchronous database operations in init
+        // Initialize only non-blocking components
         generationStats = GenerationStats()
+        // Database setup deferred to ensureInitialized()
+    }
 
-        // Initialize database
-        let dbPath = try FileManager.default
-            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            .appendingPathComponent("FocusLock")
-            .appendingPathComponent("SuggestedTodos.sqlite")
+    /// Ensures the database and components are initialized before use
+    func ensureInitialized() async {
+        // Check if already initialized
+        guard !isInitialized else { return }
 
-        try FileManager.default.createDirectory(at: dbPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // Check if initialization is in progress
+        if let task = initializationTask {
+            await task.value
+            return
+        }
 
-        databaseQueue = try DatabaseQueue(path: dbPath.path)
+        // Start initialization
+        let task = Task {
+            await performInitialization()
+        }
+        initializationTask = task
+        await task.value
+    }
 
-        try setupDatabase()
-        loadUserPreferences()
-        loadSuggestionHistory()
-        initializeNLPComponents()
+    private func performInitialization() async {
+        guard !isInitialized else { return }
 
-        // Start background processing
-        startBackgroundProcessing()
+        do {
+            // Initialize database path
+            let dbPath = try FileManager.default
+                .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+                .appendingPathComponent("FocusLock")
+                .appendingPathComponent("SuggestedTodos.sqlite")
 
-        logger.info("SuggestedTodosEngine initialized successfully")
+            try FileManager.default.createDirectory(at: dbPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+            // Create database queue with proper configuration
+            var config = Configuration()
+            config.qos = .userInitiated // Prevent priority inversion
+            config.prepareDatabase { db in
+                db.busyMode = .timeout(5.0)
+                try db.execute(sql: "PRAGMA journal_mode = WAL")
+            }
+
+            let queue = try DatabaseQueue(path: dbPath.path, configuration: config)
+            self.databaseQueue = queue
+
+            // Setup database schema asynchronously
+            try await setupDatabaseAsync(queue: queue)
+
+            // Load data asynchronously
+            await loadUserPreferencesAsync()
+            await loadSuggestionHistoryAsync()
+
+            // Initialize NLP components (non-blocking)
+            initializeNLPComponents()
+
+            // Start background processing
+            startBackgroundProcessing()
+
+            isInitialized = true
+            logger.info("✅ SuggestedTodosEngine initialized successfully")
+
+        } catch {
+            logger.error("❌ Failed to initialize SuggestedTodosEngine: \(error.localizedDescription)")
+            // Set initialized to prevent infinite retry loops
+            isInitialized = true
+        }
     }
 
     // MARK: - Public Interface
 
     func generateSuggestions(from activity: Activity? = nil) async -> [SuggestedTodo] {
+        await ensureInitialized()
+
         let startTime = CFAbsoluteTimeGetCurrent()
 
         do {
@@ -128,9 +181,12 @@ class SuggestedTodosEngine: ObservableObject {
     }
 
     func getSuggestions(limit: Int = 10, priority: SuggestionPriority? = nil, category: String? = nil) async -> [SuggestedTodo] {
+        await ensureInitialized()
+
         return await withCheckedContinuation { continuation in
             do {
-                try databaseQueue.read { db in
+                let queue = try getDatabaseQueue()
+                try queue.read { db in
                     var query = "SELECT * FROM suggested_todos WHERE is_dismissed = 0"
                     var arguments = StatementArguments()
 
@@ -215,8 +271,15 @@ class SuggestedTodosEngine: ObservableObject {
 
     // MARK: - Private Methods
 
-    private func setupDatabase() throws {
-        try databaseQueue.write { db in
+    private func getDatabaseQueue() throws -> DatabaseQueue {
+        guard let queue = databaseQueue else {
+            throw DatabaseError.notInitialized
+        }
+        return queue
+    }
+
+    private func setupDatabaseAsync(queue: DatabaseQueue) async throws {
+        try await queue.write { db in
             try db.execute(sql: """
                 CREATE TABLE IF NOT EXISTS suggested_todos (
                     id TEXT PRIMARY KEY,
@@ -261,7 +324,7 @@ class SuggestedTodosEngine: ObservableObject {
         }
     }
 
-    private func loadUserPreferences() {
+    private func loadUserPreferencesAsync() async {
         do {
             let prefsPath = try FileManager.default
                 .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
@@ -278,12 +341,10 @@ class SuggestedTodosEngine: ObservableObject {
         }
     }
 
-    private func loadSuggestionHistory() {
-        Task {
-            let suggestions = await getSuggestions(limit: 1000)
-            suggestionHistory = suggestions
-            logger.info("Loaded \(suggestions.count) suggestions from database")
-        }
+    private func loadSuggestionHistoryAsync() async {
+        let suggestions = await getSuggestions(limit: 1000)
+        suggestionHistory = suggestions
+        logger.info("Loaded \(suggestions.count) suggestions from database")
     }
 
     private func initializeNLPComponents() {
@@ -1002,6 +1063,7 @@ struct GenerationStats {
 
 private extension DatabaseError {
     static let invalidData = DatabaseError(message: "Invalid data in database")
+    static let notInitialized = DatabaseError(message: "Database not initialized")
 }
 
 private extension Formatter {
@@ -1013,25 +1075,5 @@ private extension Formatter {
 
 // MARK: - Singleton Instance
 extension SuggestedTodosEngine {
-    static let shared: SuggestedTodosEngine = {
-        do {
-            return try SuggestedTodosEngine()
-        } catch {
-            #if DEBUG
-            fatalError("Failed to initialize SuggestedTodosEngine: \(error)")
-            #else
-            // In production, log error and return a disabled instance
-            print("⚠️ SuggestedTodosEngine initialization failed: \(error). Feature will be disabled.")
-            // Create a minimal instance that won't crash but will be non-functional
-            // This is a last-resort fallback - the feature flag system should prevent usage
-            do {
-                return try SuggestedTodosEngine()
-            } catch {
-                // If even fallback fails, crash only in debug
-                print("❌ Critical: SuggestedTodosEngine fallback also failed: \(error)")
-                fatalError("SuggestedTodosEngine initialization failed twice")
-            }
-            #endif
-        }
-    }()
+    static let shared = SuggestedTodosEngine()
 }

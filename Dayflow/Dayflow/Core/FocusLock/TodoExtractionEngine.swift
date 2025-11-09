@@ -34,8 +34,19 @@ class TodoExtractionEngine: ObservableObject {
         ScheduleBlock(dayOfWeek: 2, startTime: "18:00", endTime: "21:00", activity: "Astronomy Class", isRecurring: true) // Monday evening
     ]
     
+    private var hasLoadedTodos = false
+
     private init(llmService: LLMServicing = LLMService.shared) {
         self.llmService = llmService
+        // ✅ Defer database loading to async initialization
+        // loadExistingTodos() moved to ensureInitialized()
+    }
+
+    /// Ensures existing todos are loaded before use
+    func ensureInitialized() {
+        // Load existing todos on first access (lazy loading)
+        guard !hasLoadedTodos else { return }
+        hasLoadedTodos = true
         loadExistingTodos()
     }
     
@@ -43,8 +54,10 @@ class TodoExtractionEngine: ObservableObject {
     
     /// Extract todos from a Jarvis conversation
     func extractTodosFromConversation(_ messages: [ChatMessage]) async throws -> [SmartTodo] {
+        ensureInitialized()
+
         guard !messages.isEmpty else { return [] }
-        
+
         isExtracting = true
         defer { isExtracting = false }
         

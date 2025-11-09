@@ -179,10 +179,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize FocusLock components
         setupFocusLock()
         
-        // Initialize MemoryStore asynchronously (lazy load)
+        // Pre-initialize database singletons to prevent lazy init during UI rendering
+        // This prevents synchronous database operations on the main thread causing SIGABRT crashes
         Task {
-            await HybridMemoryStore.shared.completeInitialization()
-            print("AppDelegate: MemoryStore initialization complete")
+            await HybridMemoryStore.shared.ensureInitialized()
+            print("✅ AppDelegate: HybridMemoryStore pre-initialized")
+
+            await SuggestedTodosEngine.shared.ensureInitialized()
+            print("✅ AppDelegate: SuggestedTodosEngine pre-initialized")
+
+            // TodoExtractionEngine uses sync loading, ensure it's initialized early
+            TodoExtractionEngine.shared.ensureInitialized()
+            print("✅ AppDelegate: TodoExtractionEngine pre-initialized")
+
+            print("✅ AppDelegate: All database singletons pre-initialized successfully")
         }
 
         // Observe recording state
