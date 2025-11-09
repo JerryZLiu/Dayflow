@@ -1289,7 +1289,7 @@ final class OllamaProvider: LLMProvider {
         }
 
         if observations.isEmpty {
-            throw NSError(domain: "OllamaProvider", code: 11, userInfo: [NSLocalizedDescriptionKey: "No valid observations generated from merge"])
+            throw NSError(domain: "OllamaProvider", code: 11, userInfo: [NSLocalizedDescriptionKey: "Screenshots failed to process - check Ollama/LMStudio logs or report a bug."])
         }
 
         if observations.count > 5 {

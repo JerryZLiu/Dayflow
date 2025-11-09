@@ -382,6 +382,11 @@ fileprivate struct ColorSwatch: View {
 
 
 fileprivate struct EditableCategoryCard: View {
+    enum Field: Hashable {
+        case name
+        case description
+    }
+
     let category: TimelineCategory
     let isEditing: Bool
     @Binding var draftName: String
@@ -390,22 +395,17 @@ fileprivate struct EditableCategoryCard: View {
     var onSave: () -> Void
     var onDelete: () -> Void
 
-    @FocusState private var descriptionFieldFocused: Bool
-    @State private var didAutoFocusDescription: Bool = false
+    @FocusState private var focusedField: Field?
 
     var body: some View {
         Group {
             if isEditing {
                 editingView
                     .onAppear {
-                        if didAutoFocusDescription == false {
-                            didAutoFocusDescription = true
-                            descriptionFieldFocused = true
-                        }
+                        focusedField = .name
                     }
                     .onDisappear {
-                        descriptionFieldFocused = false
-                        didAutoFocusDescription = false
+                        focusedField = nil
                     }
             } else {
                 displayView
@@ -420,16 +420,16 @@ fileprivate struct EditableCategoryCard: View {
                     .font(Font.custom("Nunito", size: 14).weight(.bold))
                     .textFieldStyle(.plain)
                     .foregroundColor(.black)
-                    .submitLabel(.done)
+                    .submitLabel(.next)
+                    .focused($focusedField, equals: .name)
                     .onSubmit {
-                        descriptionFieldFocused = false
-                        onSave()
+                        focusedField = .description
                     }
 
                 Spacer(minLength: 12)
 
                 Button {
-                    descriptionFieldFocused = false
+                    focusedField = nil
                     onSave()
                 } label: {
                     Image("CategoriesCheckmark")
@@ -458,7 +458,7 @@ fileprivate struct EditableCategoryCard: View {
                     .padding(.bottom, 12)
                     .frame(minHeight: 55)
                     .background(Color.white)
-                    .focused($descriptionFieldFocused)
+                    .focused($focusedField, equals: .description)
                     .scrollContentBackground(.hidden)
             }
             .background(
