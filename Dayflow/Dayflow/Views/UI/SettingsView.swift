@@ -37,6 +37,7 @@ struct SettingsView: View {
     // Tab + analytics state
     @State private var selectedTab: SettingsTab = .storage
     @State private var analyticsEnabled: Bool = AnalyticsService.shared.isOptedIn
+    @ObservedObject private var launchAtLoginManager = LaunchAtLoginManager.shared
 
     // Provider state
     @State private var currentProvider: String = "gemini"
@@ -146,6 +147,7 @@ struct SettingsView: View {
             timelapsesLimitBytes = timelapseLimit
             timelapsesLimitIndex = indexForLimit(timelapseLimit)
             AnalyticsService.shared.capture("settings_opened")
+            launchAtLoginManager.refreshStatus()
         }
         .onChange(of: analyticsEnabled) { enabled in
             AnalyticsService.shared.setOptIn(enabled)
@@ -860,6 +862,20 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 28) {
             SettingsCard(title: "App preferences", subtitle: "General toggles and telemetry settings") {
                 VStack(alignment: .leading, spacing: 14) {
+                    Toggle(isOn: Binding(
+                        get: { launchAtLoginManager.isEnabled },
+                        set: { launchAtLoginManager.setEnabled($0) }
+                    )) {
+                        Text("Launch Dayflow at login")
+                            .font(.custom("Nunito", size: 13))
+                            .foregroundColor(.black.opacity(0.7))
+                    }
+                    .toggleStyle(.switch)
+
+                    Text("Keeps the menu bar controller running right after you sign in so capture can resume instantly.")
+                        .font(.custom("Nunito", size: 11.5))
+                        .foregroundColor(.black.opacity(0.5))
+
                     Toggle(isOn: $analyticsEnabled) {
                         Text("Share crash reports and anonymous usage data")
                             .font(.custom("Nunito", size: 13))

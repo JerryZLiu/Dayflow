@@ -81,6 +81,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         UserDefaults.standard.set(build, forKey: "lastRunBuild")
         statusBar = StatusBarController()
+        LaunchAtLoginManager.shared.bootstrapDefaultPreference()
         deepLinkRouter = AppDeepLinkRouter(delegate: self)
 
         // Check if we've passed the screen recording permission step
@@ -128,15 +129,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             flushPendingDeepLinks()
         }
         
-        // Register login item helper (Ventura+). Non-fatal if user disabled it.
-        if #available(macOS 13.0, *) {
-            do {
-                try SMAppService.loginItem(identifier: "teleportlabs.com.Dayflow.LoginItem").register()
-            } catch {
-                print("Login item register failed: \(error)")
-            }
-        }
-        
         // Start the Gemini analysis background job
         setupGeminiAnalysis()
 
@@ -149,6 +141,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] enabled in
                 guard let self else { return }
                 let reason = self.pendingRecordingAnalyticsReason ?? "user"
+                guard reason != "auto" else { return }
                 self.pendingRecordingAnalyticsReason = nil
                 AnalyticsService.shared.capture("recording_toggled", ["enabled": enabled, "reason": reason])
                 AnalyticsService.shared.setPersonProperties(["recording_enabled": enabled])
