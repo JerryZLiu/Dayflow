@@ -10,36 +10,32 @@ struct AppRootView: View {
     @EnvironmentObject private var categoryStore: CategoryStore
     @State private var whatsNewNote: ReleaseNote? = nil
     @State private var activeWhatsNewVersion: String? = nil
-    private let isWhatsNewEnabled = false
+    @State private var shouldMarkWhatsNewSeen = false
 
     var body: some View {
         MainView()
             .environmentObject(AppState.shared)
             .environmentObject(categoryStore)
             .onAppear {
-                guard isWhatsNewEnabled else { return }
-                // Check if we should show What's New automatically
-                if whatsNewNote == nil {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        if let note = WhatsNewView.shouldShowWhatsNew() {
-                            whatsNewNote = note
-                            activeWhatsNewVersion = note.version
-                        }
+                guard whatsNewNote == nil else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    if let note = WhatsNewConfiguration.pendingReleaseForCurrentBuild() {
+                        whatsNewNote = note
+                        activeWhatsNewVersion = note.version
+                        shouldMarkWhatsNewSeen = true
                     }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .showWhatsNew)) { _ in
-                guard isWhatsNewEnabled else { return }
-                // Manual trigger from menu - show latest release notes
-                if let latestNote = releaseNotes.first {
-                    whatsNewNote = latestNote
-                    activeWhatsNewVersion = latestNote.version
+                guard let release = WhatsNewConfiguration.latestRelease() else { return }
+                whatsNewNote = release
+                activeWhatsNewVersion = release.version
+                shouldMarkWhatsNewSeen = release.version == currentAppVersion
 
-                    // Analytics: track manual view
-                    AnalyticsService.shared.capture("whats_new_viewed_manual", [
-                        "version": latestNote.version
-                    ])
-                }
+                // Analytics: track manual view
+                AnalyticsService.shared.capture("whats_new_viewed_manual", [
+                    "version": release.version
+                ])
             }
             .sheet(item: $whatsNewNote, onDismiss: handleWhatsNewDismissed) { note in
                 ZStack {
@@ -59,10 +55,24 @@ struct AppRootView: View {
     }
 
     private func handleWhatsNewDismissed() {
-        guard isWhatsNewEnabled else { return }
-        guard activeWhatsNewVersion != nil else { return }
-        WhatsNewView.markAsSeen()
+                guard let version = activeWhatsNewVersion else { return }
+        if shouldMarkWhatsNewSeen {
+            WhatsNewConfiguration.markReleaseAsSeen(version: version)
+            AnalyticsService.shared.capture("whats_new_viewed", [
+                "version": version,
+                "source": "auto"
+            ])
+        }
+        AnalyticsService.shared.capture("whats_new_viewed", [
+            "version": version,
+            "source": "manual"
+        ])
         activeWhatsNewVersion = nil
+        shouldMarkWhatsNewSeen = false
+    }
+
+    private var currentAppVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     }
 }
 

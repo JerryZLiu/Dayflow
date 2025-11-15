@@ -22,36 +22,63 @@ struct ReleaseNote: Identifiable {
     }
 }
 
-// MARK: - Release Notes Database
-// TO UPDATE: Add new releases at the TOP of this array
+// MARK: - What's New Configuration
 
-private let currentAppVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.0"
+enum WhatsNewConfiguration {
+    private static let seenKey = "lastSeenWhatsNewVersion"
 
-let releaseNotes: [ReleaseNote] = [
-    // Current release - update highlights when shipping a new build
-    ReleaseNote(
-        version: currentAppVersion,
-        title: "Thanks for being an early user of Dayflow! This is the first major update to the app - really appreciate everyone who spent the time to send in feedback.",
-        highlights: [
-            "Huge UI refresh - Dayflow should feel much more pleasant on the eyes.",
-            "Added ability to retry a failed timeline card. (Much requested feature!)",
-            "Fixed a lot of bugs with timeline card generation and recording - thank you to everyone who submitted a bug report.",
-            "Please keep the feedback coming - I would love to hear from you, whether it's just to say you enjoy a particular feature, have a feature request, or see any issues using the app!"
-        ],
-        imageName: nil
-    ),
+    /// Override with the specific release number you want to show.
+    private static let versionOverride: String? = "1.2.0"
 
-    // Add future releases here...
-    // ReleaseNote(
-    //     version: "1.2.0",
-    //     title: "Amazing New Features",
-    //     highlights: [
-    //         "Feature 1",
-    //         "Feature 2"
-    //     ],
-    //     imageName: nil
-    // ),
-]
+    /// Update this content before shipping each release. Return nil to disable the modal entirely.
+    static var configuredRelease: ReleaseNote? {
+        ReleaseNote(
+            version: targetVersion,
+            title: "Huge upgrade to local mode quality + new recategorization & voting tools.",
+            highlights: [
+                "Qwen3VL-4B is now the default local model - titles/summaries, fewer hallucinations, and better titles thanks to fresh prompt tuning. Upgrade from Settings → Providers if you're still on Qwen2.5VL.",
+                "Bring your own LLM provider with new integrations for custom endpoints like OpenRouter or LiteLLM.",
+                "Manually recategorize timeline cards whenever something lands in the wrong section.",
+                "Vote on timeline card quality inside the app so we can learn which generations are helpful (please keep the feedback coming!).",
+                "Fixed a bug where a small part of the screen could become unclickable."
+            ],
+            imageName: nil
+        )
+    }
+
+    /// Returns the configured release when it matches the app version and hasn't been shown yet.
+    static func pendingReleaseForCurrentBuild() -> ReleaseNote? {
+        guard let release = configuredRelease else { return nil }
+        guard release.version == currentAppVersion else { return nil }
+        let defaults = UserDefaults.standard
+        let lastSeen = defaults.string(forKey: seenKey)
+
+        // First run: seed seen version so new installs skip the modal until next upgrade.
+        if lastSeen == nil || lastSeen?.isEmpty == true {
+            defaults.set(release.version, forKey: seenKey)
+            return nil
+        }
+
+        return lastSeen == release.version ? nil : release
+    }
+
+    /// Returns the latest configured release, regardless of the running app version.
+    static func latestRelease() -> ReleaseNote? {
+        configuredRelease
+    }
+
+    static func markReleaseAsSeen(version: String) {
+        UserDefaults.standard.set(version, forKey: seenKey)
+    }
+
+    private static var targetVersion: String {
+        versionOverride ?? currentAppVersion
+    }
+
+    private static var currentAppVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+    }
+}
 
 // MARK: - What's New View
 
@@ -104,12 +131,6 @@ struct WhatsNewView: View {
                 }
             }
 
-            Divider()
-
-            ReferralSurveyView(
-                prompt: "I have a small favor to ask. I'd love to understand where you first heard about Dayflow.",
-                onSubmit: handleReferralSubmission
-            )
         }
         .padding(.horizontal, 44)
         .padding(.vertical, 36)
@@ -121,24 +142,7 @@ struct WhatsNewView: View {
         )
         .onAppear {
             AnalyticsService.shared.screen("whats_new")
-            AnalyticsService.shared.capture("whats_new_viewed", [
-                "version": releaseNote.version
-            ])
         }
-    }
-
-    private func handleReferralSubmission(option: ReferralOption, detail: String?) {
-        var payload: [String: String] = [
-            "version": releaseNote.version,
-            "source": option.analyticsValue
-        ]
-
-        if let detail = detail, !detail.isEmpty {
-            payload["detail"] = detail
-        }
-
-        AnalyticsService.shared.capture("whats_new_referral", payload)
-        dismiss()
     }
 
     private func dismiss() {
@@ -146,51 +150,7 @@ struct WhatsNewView: View {
             "version": releaseNote.version
         ])
 
-        // Mark this version as seen
-        WhatsNewView.markAsSeen()
-
         onDismiss()
-    }
-}
-
-// MARK: - Helper Functions
-
-extension WhatsNewView {
-    /// Determines if What's New should be shown for the current app version
-    /// - Returns: ReleaseNote to show, or nil if shouldn't show
-    static func shouldShowWhatsNew() -> ReleaseNote? {
-        // Get current app version build number
-        guard let currentBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String else {
-            return nil
-        }
-
-        let lastSeenVersion = UserDefaults.standard.string(forKey: "lastSeenWhatsNewVersion") ?? ""
-
-        // If never seen before, save current and don't show (fresh install)
-        if lastSeenVersion.isEmpty {
-            UserDefaults.standard.set(currentBuild, forKey: "lastSeenWhatsNewVersion")
-            return nil
-        }
-
-        // If already seen this version, don't show
-        if lastSeenVersion == currentBuild {
-            return nil
-        }
-
-        // Find the release note for current version
-        // Match by comparing short version (e.g., "1.0.0")
-        let currentShortVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
-        let matchingNote = releaseNotes.first { $0.version == currentShortVersion }
-
-        return matchingNote
-    }
-
-    /// Marks the current version as seen
-    static func markAsSeen() {
-        guard let currentBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String else {
-            return
-        }
-        UserDefaults.standard.set(currentBuild, forKey: "lastSeenWhatsNewVersion")
     }
 }
 
@@ -198,10 +158,17 @@ extension WhatsNewView {
 
 struct WhatsNewView_Previews: PreviewProvider {
     static var previews: some View {
-        WhatsNewView(
-            releaseNote: releaseNotes[0],
-            onDismiss: { print("Dismissed") }
-        )
-        .frame(width: 1200, height: 800)
+        Group {
+            if let note = WhatsNewConfiguration.configuredRelease {
+                WhatsNewView(
+                    releaseNote: note,
+                    onDismiss: { print("Dismissed") }
+                )
+                .frame(width: 1200, height: 800)
+            } else {
+                Text("Configure WhatsNewConfiguration.configuredRelease to preview.")
+                    .frame(width: 780, height: 400)
+            }
+        }
     }
 }
