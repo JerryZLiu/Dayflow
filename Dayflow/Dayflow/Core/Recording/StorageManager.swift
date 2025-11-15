@@ -489,6 +489,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 );
                 CREATE INDEX IF NOT EXISTS idx_chunks_status ON chunks(status);
                 CREATE INDEX IF NOT EXISTS idx_chunks_start_ts ON chunks(start_ts);
+                CREATE INDEX IF NOT EXISTS idx_chunks_status_start_ts ON chunks(status, start_ts);
                 
                 -- Analysis batches: groups chunks for LLM processing
                 CREATE TABLE IF NOT EXISTS analysis_batches (
@@ -509,6 +510,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     chunk_id INTEGER NOT NULL REFERENCES chunks(id) ON DELETE RESTRICT,
                     PRIMARY KEY (batch_id, chunk_id)
                 );
+                CREATE INDEX IF NOT EXISTS idx_batch_chunks_chunk ON batch_chunks(chunk_id);
                 
                 -- Timeline cards: stores activity summaries
                 CREATE TABLE IF NOT EXISTS timeline_cards (
