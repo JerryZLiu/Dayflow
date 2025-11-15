@@ -321,6 +321,11 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             let errorDomain = nsError.domain
             let errorCode = nsError.code
             let isNoDisplay = (error as? RecorderError) == .noDisplay
+            let isCoreGraphicsDisplayBusy: Bool = {
+                guard errorDomain == "CoreGraphicsErrorDomain" else { return false }
+                let cannotCompleteCode = Int(CGError.cannotComplete.rawValue)
+                return errorCode == cannotCompleteCode
+            }()
 
             // Check if this is a user-initiated stop
             if isUserInitiatedStop(error) {
@@ -341,22 +346,32 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
             }
 
             // Treat `noDisplay` like other transient issues
-            let retryable = shouldRetry(error) || isNoDisplay
+            let retryable = shouldRetry(error) || isNoDisplay || isCoreGraphicsDisplayBusy
 
             if retryable, attempt < maxAttempts {
                 let delay = Double(attempt)        // 1 s, 2 s, 3 s …
                 dbg("retrying in \(delay)s")
 
                 Task { @MainActor in
-                    AnalyticsService.shared.capture("recording_startup_failed", [
+                    let props: [String: Any] = [
                         "attempt": attempt,
                         "max_attempts": maxAttempts,
                         "error_domain": errorDomain,
                         "error_code": errorCode,
-                        "error_type": isNoDisplay ? "no_display" : "retryable",
+                        "error_type": isNoDisplay ? "no_display" : (isCoreGraphicsDisplayBusy ? "coregraphics_display_busy" : "retryable"),
                         "outcome": "will_retry",
                         "retry_delay_seconds": delay
-                    ])
+                    ]
+
+                    // The no_display/attempt=1 case fires constantly when displays are unavailable.
+                    // Sample aggressively to keep analytics volume manageable while retaining signal.
+                    if isNoDisplay && attempt == 1 {
+                        AnalyticsService.shared.withSampling(probability: 0.0001) {
+                            AnalyticsService.shared.capture("recording_startup_failed", props)
+                        }
+                    } else {
+                        AnalyticsService.shared.capture("recording_startup_failed", props)
+                    }
                 }
 
                 q.asyncAfter(deadline: .now() + delay) { [weak self] in self?.start() }
@@ -370,7 +385,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
                         "max_attempts": maxAttempts,
                         "error_domain": errorDomain,
                         "error_code": errorCode,
-                        "error_type": isNoDisplay ? "no_display" : (retryable ? "retryable" : "non_retryable"),
+                        "error_type": isNoDisplay ? "no_display" : (isCoreGraphicsDisplayBusy ? "coregraphics_display_busy" : (retryable ? "retryable" : "non_retryable")),
                         "outcome": "gave_up",
                         "failure_reason": failureReason
                     ])
