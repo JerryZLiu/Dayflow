@@ -4,13 +4,13 @@ Coordinates all components of Dayflow
 """
 
 from pathlib import Path
-from src.core.config import config
-from src.core.storage import Storage
-from src.core.recorder import ScreenRecorder
-from src.core.cleanup import CleanupService
-from src.ai.gemini_provider import GeminiProvider
-from src.ai.ollama_provider import OllamaProvider
-from src.analysis.timeline_generator import TimelineGenerator
+from core.config import config
+from core.storage import Storage
+from core.recorder import ScreenRecorder
+from core.cleanup import CleanupService
+from ai.gemini_provider import GeminiProvider
+from ai.ollama_provider import OllamaProvider
+from analysis.timeline_generator import TimelineGenerator
 
 
 class AppController:
@@ -102,8 +102,8 @@ class AppController:
     def run(self):
         """Run the application"""
         # Import here to avoid circular dependency
-        from src.ui.main_window import MainWindow
-        from src.ui.tray_icon import TrayIcon
+        from ui.main_window import MainWindow
+        from ui.tray_icon import TrayIcon
 
         # Start services
         self.start_services()

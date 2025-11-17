@@ -121,6 +121,7 @@ class ScreenRecorder:
         filename = f"chunk_{timestamp_str}_{chunk_id[:8]}.mp4"
         filepath = recordings_path / filename
 
+        out = None
         try:
             # Get video dimensions from first frame
             height, width, _ = frames[0].shape
@@ -133,8 +134,6 @@ class ScreenRecorder:
             # Write frames
             for frame in frames:
                 out.write(frame)
-
-            out.release()
 
             # Store in database
             self.storage.insert_chunk(
@@ -161,3 +160,7 @@ class ScreenRecorder:
                 file_path=str(filepath),
                 status='failed'
             )
+        finally:
+            # Ensure video writer is released
+            if out is not None:
+                out.release()

@@ -12,7 +12,7 @@ import os
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from src.app_controller import AppController
+from app_controller import AppController
 
 
 def main():
