@@ -448,6 +448,9 @@ struct MainView: View {
             // Safety: stop timer if view disappears
             stopDayChangeTimer()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
+            selectedIcon = .settings
+        }
         .overlay {
             if showCategoryEditor {
                 ColorOrganizerRoot(

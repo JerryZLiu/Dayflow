@@ -162,6 +162,11 @@ struct DayflowApp: App {
             // Add custom menu items after the app info section
             CommandGroup(after: .appInfo) {
                 Divider()
+                Button("Settings") {
+                    NotificationCenter.default.post(name: .openSettings, object: nil)
+                }
+                .keyboardShortcut(",")
+
                 Button("Reset Onboarding") {
                     // Reset the onboarding flag
                     UserDefaults.standard.set(false, forKey: "didOnboard")
@@ -202,4 +207,5 @@ struct DayflowApp: App {
 
 extension Notification.Name {
     static let showWhatsNew = Notification.Name("showWhatsNew")
+    static let openSettings = Notification.Name("openSettings")
 }
