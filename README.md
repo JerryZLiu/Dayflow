@@ -10,9 +10,9 @@
 
 <div align="center">
   <!-- Badges -->
-  <img src="https://img.shields.io/badge/macOS-13%2B-000?logo=apple" alt="Platform: macOS 13+">
-  <img src="https://img.shields.io/badge/SwiftUI-✓-orange" alt="SwiftUI">
-  <img src="https://img.shields.io/badge/Updates-Sparkle-informational" alt="Updates: Sparkle">
+  <img src="https://img.shields.io/badge/Windows-10%2B-0078D6?logo=windows" alt="Platform: Windows 10+">
+  <img src="https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet" alt=".NET 8">
+  <img src="https://img.shields.io/badge/WPF-✓-512BD4" alt="WPF">
   <img src="https://img.shields.io/badge/AI-Gemini%20or%20Local-blue" alt="AI: Gemini / Local">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License: MIT">
 </div>
@@ -23,7 +23,7 @@
 
 <div align="center">
   <a href="https://github.com/JerryZLiu/Dayflow/releases/latest">
-    <img src="https://img.shields.io/badge/Download%20for%20Mac-⬇%20%20Dayflow.dmg-blue?style=for-the-badge&logo=apple" alt="Download for Mac">
+    <img src="https://img.shields.io/badge/Download%20for%20Windows-⬇%20%20DayflowSetup.exe-0078D6?style=for-the-badge&logo=windows" alt="Download for Windows">
   </a>
 </div>
 
@@ -36,7 +36,7 @@
   <a href="#data--privacy">Data & Privacy</a> •
   <a href="#automation">Automation</a> •
   <a href="#debug--developer-tools">Debug & Developer Tools</a> •
-  <a href="#auto-updates-sparkle">Auto‑updates</a> •
+  <a href="#auto-updates">Auto‑updates</a> •
   <a href="#contributing">Contributing</a>
 </p>
 
@@ -44,8 +44,8 @@
 
 ## What is Dayflow?
 
-Dayflow is a **native macOS app** (SwiftUI) that records your screen at **1 FPS**, analyzes it **every 15 minutes** with AI, and generates a **timeline** of your activities with summaries. 
-It's lightweight (25MB app size) and uses ~100MB of RAM and <1% cpu. 
+Dayflow is a **native Windows app** (WPF/.NET 8) that records your screen at **1 FPS**, analyzes it **every 15 minutes** with AI, and generates a **timeline** of your activities with summaries.
+It's lightweight and uses minimal system resources.
 
 > _Privacy‑minded by design_: You choose your AI provider. Use **Gemini** (bring your own API key) or **local models** (Ollama / LM Studio). See **Data & Privacy** for details.
 
@@ -67,8 +67,8 @@ Dayflow stands for ownership and privacy by default. You control the data, you c
 - **Watch timelapses of your day**.
 - **Auto storage cleanup** - removes old recordings after 3 days.
 - **Distraction highlights** to see what pulled you off‑task.
-- **Native UX** built with **SwiftUI**.
-- **Auto‑updates** with **Sparkle** (daily check + background download).
+- **Native UX** built with **WPF** and modern Windows design.
+- **Auto‑updates** with **Squirrel** (daily check + background download).
 
 ### Coming soon
 
@@ -86,7 +86,7 @@ Dayflow stands for ownership and privacy by default. You control the data, you c
 
 ## How it works
 
-1) **Capture** — Records screen at 1 FPS in 15-second chunks.
+1) **Capture** — Records screen at 1 FPS using Windows Graphics Capture API.
 2) **Analyze** — Every 15 minutes, sends recent footage to AI.
 3) **Generate** — AI creates timeline cards with activity summaries.
 4) **Display** — Shows your day as a visual timeline.
@@ -132,55 +132,54 @@ flowchart LR
 ## Quickstart
 
 **Download (end users)**
-1. Grab the latest `Dayflow.dmg` from **GitHub Releases**.
-2. Open the app; grant **Screen & System Audio Recording** when prompted:  
-   macOS → **System Settings** → **Privacy & Security** → **Screen & System Audio Recording** → enable **Dayflow**.
+1. Grab the latest `DayflowSetup.exe` from **GitHub Releases**.
+2. Run the installer and follow the prompts.
+3. Grant **Screen Recording** permission when the Graphics Capture picker appears.
 
 <div align="center">
   <a href="https://github.com/JerryZLiu/Dayflow/releases/latest">
-    <img src="https://img.shields.io/badge/Download%20for%20Mac-⬇%20%20Dayflow.dmg-blue?style=for-the-badge&logo=apple" alt="Download the latest Dayflow.dmg">
+    <img src="https://img.shields.io/badge/Download%20for%20Windows-⬇%20%20DayflowSetup.exe-0078D6?style=for-the-badge&logo=windows" alt="Download DayflowSetup.exe">
   </a>
 </div>
 
 **Build from source (developers)**
-1. Install **Xcode 15+** and open `Dayflow.xcodeproj`.
-2. Run the `Dayflow` scheme on macOS 13+.
-3. In your Run **scheme**, add your `GEMINI_API_KEY` under _Arguments > Environment Variables_ (if using Gemini).
+1. Install **Visual Studio 2022** or **.NET 8 SDK**.
+2. Clone the repo and open `Dayflow.sln` in Visual Studio.
+3. Build and run, or use PowerShell: `.\build.ps1`
+4. Set your `GEMINI_API_KEY` in user secrets or environment variables (if using Gemini).
 
 ---
 
 ## Installation
 
 ### Requirements
-- macOS **13.0+**
-- Xcode **15+**
+- **Windows 10** (version 1803+) or **Windows 11**
+- **.NET 8 Runtime** (included in installer)
 - A **Gemini API key** (if using Gemini): https://ai.google.dev/gemini-api/docs/api-key
 
 ### From Releases
-1. Download `Dayflow.dmg` and drag **Dayflow** into **Applications**.
-2. Launch and grant the **Screen & System Audio Recording** permission.
+1. Download `DayflowSetup.exe` from GitHub Releases.
+2. Run the installer and follow the setup wizard.
+3. Launch Dayflow from the Start Menu or Desktop shortcut.
 
 <div align="center">
   <a href="https://github.com/JerryZLiu/Dayflow/releases/latest">
-    <img src="https://img.shields.io/badge/Download%20for%20Mac-⬇%20%20Dayflow.dmg-blue?style=for-the-badge&logo=apple" alt="Download the latest Dayflow.dmg">
+    <img src="https://img.shields.io/badge/Download%20for%20Windows-⬇%20%20DayflowSetup.exe-0078D6?style=for-the-badge&logo=windows" alt="Download DayflowSetup.exe">
   </a>
 </div>
 
 ### From source
-```bash
+```powershell
 git clone https://github.com/JerryZLiu/Dayflow.git
 cd Dayflow
-open Dayflow.xcodeproj
-# In Xcode: select the Dayflow target, configure signing if needed, then Run.
+dotnet build Dayflow.sln
+# Or use the build script:
+.\build.ps1
 ```
 
-### Homebrew
+### Package Managers
 
-If you are using [Homebrew](https://brew.sh/), you can install [Dayflow](https://formulae.brew.sh/cask/dayflow) with:
-
-```bash
-$ brew install --cask dayflow
-```
+Support for Windows package managers (winget, Chocolatey) coming soon!
 
 ---
 
@@ -188,58 +187,59 @@ $ brew install --cask dayflow
 
 This section explains **what Dayflow stores locally**, **what leaves your machine**, and **how provider choices affect privacy**.
 
-### Data locations (on your Mac)
+### Data locations (on Windows)
 
-The `Dayflow` folder that contains most of your information is likely in one of two places:
-1. `~/Library/Application Support/Dayflow/`
-2. `~Library/Containers/teleportlabs.com.Dayflow/Data/Library/Application Support/Dayflow/`
+The `Dayflow` folder is located at:
+- `%LOCALAPPDATA%\Dayflow\` (typically `C:\Users\YourName\AppData\Local\Dayflow\`)
 
-The former is most likely, the latter is if the app has been installed in a "sandbox" of container, The below paths and files should be created when the app is first launched.
-
-- **Recordings (video chunks):** `Dayflow/recordings/` (or choose "Open Recordings..." from the Dayflow Taskbar Icon Menu)
-- **Local database:** `Dayflow/chunks.sqlite`
+Contents:
+- **Recordings (video chunks):** `recordings\` subfolder (or choose "Open Recordings..." from the system tray menu)
+- **Timelapses:** `timelapses\` subfolder
+- **Local database:** `chunks.db` (SQLite)
 - **Recording details:** 1 FPS capture, analyzed every 15 minutes, 3-day retention
-- **Purge / reset tip:** Quit Dayflow. Then delete the entire `Dayflow/` folder to remove recordings and analysis artifacts. Relaunch to start fresh.
+- **Purge / reset tip:** Quit Dayflow from the system tray. Delete the entire `Dayflow` folder to remove recordings and analysis data. Relaunch to start fresh.
 
 ### Processing modes & providers
-- **Gemini (cloud, BYO key)** — Dayflow sends batch payloads to **Google’s Gemini API** for analysis.
+- **Gemini (cloud, BYO key)** — Dayflow sends batch payloads to **Google's Gemini API** for analysis.
 - **Local models (Ollama / LM Studio)** — Processing stays **on‑device**; Dayflow talks to a **local server** you run.
 
-### TL;DR: Gemini data handling (my reading of Google’s ToS)
-- **Short answer: There is a way to prevent Google from training on your data.** If you **enable Cloud Billing** on **at least one** Gemini API project, Google treats **all of your Gemini API and Google AI Studio usage** under the **“Paid Services”** data‑use rules — **even when you’re using unpaid/free quota**. Under Paid Services, **Google does not use your prompts/responses to improve Google products/models**.  
-  - Terms: “When you activate a Cloud Billing account, all use of Gemini API and Google AI Studio is a ‘Paid Service’ with respect to how Google Uses Your Data, even when using Services that are offered free of charge.” ([Gemini API Additional Terms](https://ai.google.dev/gemini-api/terms#paid-services-how-google-uses-your-data))  
-  - Abuse monitoring: even under Paid Services, Google **logs prompts/responses for a limited period** for **policy enforcement and legal compliance**. ([Same Terms](https://ai.google.dev/gemini-api/terms#paid-services-how-google-uses-your-data))  
+### TL;DR: Gemini data handling (my reading of Google's ToS)
+- **Short answer: There is a way to prevent Google from training on your data.** If you **enable Cloud Billing** on **at least one** Gemini API project, Google treats **all of your Gemini API and Google AI Studio usage** under the **"Paid Services"** data‑use rules — **even when you're using unpaid/free quota**. Under Paid Services, **Google does not use your prompts/responses to improve Google products/models**.
+  - Terms: "When you activate a Cloud Billing account, all use of Gemini API and Google AI Studio is a 'Paid Service' with respect to how Google Uses Your Data, even when using Services that are offered free of charge." ([Gemini API Additional Terms](https://ai.google.dev/gemini-api/terms#paid-services-how-google-uses-your-data))
+  - Abuse monitoring: even under Paid Services, Google **logs prompts/responses for a limited period** for **policy enforcement and legal compliance**. ([Same Terms](https://ai.google.dev/gemini-api/terms#paid-services-how-google-uses-your-data))
   - **EEA/UK/Switzerland:** the **Paid‑style data handling applies by default** to **all Services** (including AI Studio and unpaid quota) **even without billing**. ([Same Terms](https://ai.google.dev/gemini-api/terms#unpaid-services-how-google-uses-your-data))
 
 **A couple useful nuances** (from docs + forum clarifications):
-- **AI Studio is still free** to use; enabling billing changes **data handling**, not whether Studio charges you. ([Pricing page](https://ai.google.dev/gemini-api/docs/pricing))  
-- **UI “Plan: Paid” check:** In **AI Studio → API keys**, you’ll typically see “Plan: Paid” once billing is enabled on any linked project (UI may evolve).  
-- **Free workaround:** _“Make one project paid, keep using a free key elsewhere to get the best of both worlds.”_ The **Terms** imply **account‑level** coverage once any billing account is activated, but the **Apps** nuance above may limit this in specific UI contexts. **Treat this as an interpretation, not legal advice.**
+- **AI Studio is still free** to use; enabling billing changes **data handling**, not whether Studio charges you. ([Pricing page](https://ai.google.dev/gemini-api/docs/pricing))
+- **UI "Plan: Paid" check:** In **AI Studio → API keys**, you'll typically see "Plan: Paid" once billing is enabled on any linked project (UI may evolve).
+- **Free workaround:** _"Make one project paid, keep using a free key elsewhere to get the best of both worlds."_ The **Terms** imply **account‑level** coverage once any billing account is activated, but the **Apps** nuance above may limit this in specific UI contexts. **Treat this as an interpretation, not legal advice.**
 
 ### Local mode: privacy & trade‑offs
-- **Privacy:** With **Ollama/LM Studio**, prompts and model inference run on your machine. LM Studio documents full **offline** operation once models are downloaded.  
-- **Quality/latency:** Local open models are improving but **can underperform** cloud models on complex summarization.  
-- **Power/battery:** Local inference is **GPU‑heavy** on Apple Silicon and will drain battery faster; prefer **plugged‑in** sessions for long captures.  
+- **Privacy:** With **Ollama/LM Studio**, prompts and model inference run on your machine. LM Studio documents full **offline** operation once models are downloaded.
+- **Quality/latency:** Local open models are improving but **can underperform** cloud models on complex summarization.
+- **Power consumption:** Local inference is **GPU‑heavy** and will increase power usage; consider this for laptops.
 - **Future:** We may explore **fine‑tuning** or distilling a local model for better timeline summaries.
 
-References:  
-- LM Studio offline: https://lmstudio.ai/docs/app/offline  
-- Ollama GPU acceleration (Metal on Apple): https://github.com/ollama/ollama/blob/main/docs/gpu.md
+References:
+- LM Studio offline: https://lmstudio.ai/docs/app/offline
+- Ollama GPU acceleration (CUDA/ROCm): https://github.com/ollama/ollama/blob/main/docs/gpu.md
 
-### Permissions (macOS)
-To record your screen, Dayflow requires the **Screen & System Audio Recording** permission. Review or change later at:  
-**System Settings → Privacy & Security → Screen & System Audio Recording**.  
-Apple’s docs: https://support.apple.com/guide/mac-help/control-access-screen-system-audio-recording-mchld6aa7d23/mac
+### Permissions (Windows)
+Dayflow uses the **Windows Graphics Capture API** which requires user consent on first use. Windows 10 (1803+) or Windows 11 is required.
+You may need to grant permissions in **Settings → Privacy → Screen capture** on some Windows configurations.
+
+### Secure Credential Storage
+API keys are stored securely using **Windows Credential Manager** (equivalent to macOS Keychain), encrypted with your Windows account credentials.
 
 ---
 
 ## Configuration
 
 - **AI Provider**
-  - Choose **Gemini** (set `GEMINI_API_KEY`) or **Local** (Ollama/LM Studio endpoint).  
+  - Choose **Gemini** (set API key in settings) or **Local** (Ollama/LM Studio endpoint).
   - For Gemini keys: https://ai.google.dev/gemini-api/docs/api-key
 - **Capture settings**
-  - Start/stop capture from the main UI. Use **Debug** to verify batch contents.
+  - Start/stop capture from the main UI or system tray menu.
 - **Data locations**
   - See **Data & Privacy** for exact paths and a purge tip.
 
@@ -247,15 +247,16 @@ Apple’s docs: https://support.apple.com/guide/mac-help/control-access-screen-s
 
 ## Automation
 
-Dayflow registers a `dayflow://` URL scheme so you can trigger common actions from Shortcuts, hotkey launchers, or scripts.
+Dayflow registers a `dayflow://` URL scheme so you can trigger common actions from scripts, task schedulers, or automation tools.
 
 **Supported URLs**
 - `dayflow://start-recording` — enable capture (no-op if already recording)
 - `dayflow://stop-recording` — pause capture (no-op if already paused)
 
 **Quick checks**
-- From Terminal: `open dayflow://start-recording` or `open dayflow://stop-recording`
-- In Shortcuts: add an **Open URLs** action with either link above
+- From Command Prompt: `start dayflow://start-recording` or `start dayflow://stop-recording`
+- From PowerShell: `Start-Process "dayflow://start-recording"`
+- In Task Scheduler: Create a task that runs `cmd /c start dayflow://start-recording`
 
 Deeplink-triggered state changes are logged as `reason: "deeplink"` in analytics so you can distinguish automations from manual toggles.
 
@@ -263,32 +264,52 @@ Deeplink-triggered state changes are logged as `reason: "deeplink"` in analytics
 
 ## Debug & Developer Tools
 
-You can click the Dayflow icon in the menu bar and view the saved recordings
+You can right-click the Dayflow icon in the system tray and choose "Open Recordings..." to view saved recordings.
 
 ---
 
-## Auto‑updates (Sparkle)
+## Auto‑updates (Squirrel)
 
-Dayflow integrates **Sparkle** via Swift Package Manager and shows the current version + a “Check for updates” action. By default, the updater **auto‑checks daily** and **auto‑downloads** updates.
-
+Dayflow integrates **Squirrel.Windows** for seamless updates. The app checks for updates daily and downloads them in the background. Updates are applied on next launch.
 
 ## Project structure
 
 ```
 Dayflow/
-├─ Dayflow/                 # SwiftUI app sources (timeline UI, debug UI, capture & analysis pipeline)
-├─ docs/                    # Appcast and documentation assets (screenshots, videos)
-├─ scripts/                 # Release automation (DMG, notarization, appcast, Sparkle signing, one-button release)
+├─ DayflowWindows/          # WPF app sources (timeline UI, capture & analysis pipeline)
+│  ├─ Core/                 # Business logic
+│  │  ├─ Recording/         # Screen capture (Graphics Capture API)
+│  │  ├─ Storage/           # Database & file management (SQLite/EF Core)
+│  │  ├─ Security/          # Credential Manager integration
+│  │  └─ AI/                # AI providers (Gemini, Local/Ollama)
+│  ├─ System/               # Windows integration
+│  │  ├─ SystemTrayController.cs
+│  │  ├─ UpdaterManager.cs  # Squirrel.Windows
+│  │  ├─ InactivityMonitor.cs
+│  │  └─ AnalyticsService.cs
+│  ├─ Views/                # WPF UI views
+│  ├─ ViewModels/           # MVVM view models
+│  ├─ Styles/               # WPF styles and themes
+│  ├─ App.xaml              # Application entry point
+│  └─ MainWindow.xaml       # Main window
+├─ docs/                    # Documentation assets (screenshots, videos)
+├─ build.ps1                # Build script
+├─ installer.nsi            # NSIS installer configuration
+└─ Dayflow.sln              # Visual Studio solution
 ```
 
 ---
 
 ## Troubleshooting
 
-- **Screen capture is blank or fails**  
-  Check System Settings → Privacy & Security → **Screen & System Audio Recording** and ensure **Dayflow** is enabled.
-- **API errors**  
-  Go into settings and verify your `GEMINI_API_KEY` and network connectivity.
+- **Screen capture is blank or fails**
+  Ensure you granted permission when the Graphics Capture picker appeared. Restart Dayflow and try again. Requires Windows 10 1803+ or Windows 11.
+- **API errors**
+  Go into settings and verify your Gemini API key and network connectivity.
+- **App won't start**
+  Ensure you have .NET 8 runtime installed. Download from https://dotnet.microsoft.com/download/dotnet/8.0
+- **System tray icon missing**
+  Check Windows notification area settings. The Dayflow icon may be hidden in the overflow area.
 
 ---
 
@@ -296,25 +317,28 @@ Dayflow/
 
 - [ ] V1 of the Dashboard (track answers to custom questions)
 - [ ] V1 of the daily journal
-- [ ] Fine tuning a small VLM 
+- [ ] Fine tuning a small VLM
 
 ---
 
 ## Contributing
 
-PRs welcome! If you plan a larger change, please open an issue first to discuss scope and approach.  
+PRs welcome! If you plan a larger change, please open an issue first to discuss scope and approach.
 
 ---
 
 ## License
 
 Licensed under the MIT License. See LICENSE for the full text.
-Software is provided “AS IS”, without warranty of any kind.
+Software is provided "AS IS", without warranty of any kind.
 
 ---
 
 ## Acknowledgements
 
-- [Sparkle](https://github.com/sparkle-project/Sparkle) for battle‑tested macOS updates.
+- [Squirrel.Windows](https://github.com/Squirrel/Squirrel.Windows) for seamless Windows updates.
+- [Windows Graphics Capture API](https://docs.microsoft.com/en-us/windows/uwp/audio-video-camera/screen-capture) for screen recording.
 - [Google AI Gemini API](https://ai.google.dev/gemini-api/docs) for analysis.
 - [Ollama](https://ollama.com/) and [LM Studio](https://lmstudio.ai/) for local model support.
+- [WPF Community Toolkit](https://github.com/CommunityToolkit/dotnet) for MVVM helpers.
+- [Entity Framework Core](https://docs.microsoft.com/en-us/ef/core/) for database management.
