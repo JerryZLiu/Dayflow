@@ -1,0 +1,100 @@
+name: Nightly Build
+
+on:
+  schedule:
+    # Run every night at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  build-nightly:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: develop
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Get version
+      id: version
+      shell: pwsh
+      run: |
+        $date = Get-Date -Format "yyyyMMdd"
+        $commit = "${{ github.sha }}".Substring(0, 7)
+        $version = "0.0.0-nightly.$date.$commit"
+        echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+        echo "Nightly version: $version"
+
+    - name: Restore dependencies
+      run: dotnet restore Dayflow.sln
+
+    - name: Build and publish (x64)
+      run: |
+        dotnet publish DayflowWindows/Dayflow.csproj `
+          -c Release `
+          -r win-x64 `
+          --self-contained true `
+          -p:PublishSingleFile=true `
+          -p:Version=${{ steps.version.outputs.VERSION }} `
+          -o publish/nightly-x64
+
+    - name: Build and publish (ARM64)
+      run: |
+        dotnet publish DayflowWindows/Dayflow.csproj `
+          -c Release `
+          -r win-arm64 `
+          --self-contained true `
+          -p:PublishSingleFile=true `
+          -p:Version=${{ steps.version.outputs.VERSION }} `
+          -o publish/nightly-arm64
+
+    - name: Create archives
+      shell: pwsh
+      run: |
+        Compress-Archive -Path publish/nightly-x64/* -DestinationPath "Dayflow-nightly-x64.zip"
+        Compress-Archive -Path publish/nightly-arm64/* -DestinationPath "Dayflow-nightly-arm64.zip"
+
+    - name: Upload nightly builds
+      uses: actions/upload-artifact@v4
+      with:
+        name: nightly-builds-${{ steps.version.outputs.VERSION }}
+        path: |
+          Dayflow-nightly-x64.zip
+          Dayflow-nightly-arm64.zip
+        retention-days: 30
+
+    - name: Create nightly release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: nightly-${{ steps.version.outputs.VERSION }}
+        name: Nightly Build ${{ steps.version.outputs.VERSION }}
+        body: |
+          ## ⚠️ Nightly Build - ${{ steps.version.outputs.VERSION }}
+
+          This is an **automated nightly build** from the `develop` branch.
+
+          **Warning:** Nightly builds are **unstable** and may contain bugs or incomplete features.
+          Use at your own risk and for testing purposes only.
+
+          **Commit:** ${{ github.sha }}
+          **Branch:** develop
+          **Build Date:** ${{ steps.version.outputs.VERSION }}
+
+          ### Download
+          - Windows x64: Dayflow-nightly-x64.zip
+          - Windows ARM64: Dayflow-nightly-arm64.zip
+
+          Extract the archive and run `Dayflow.exe`.
+        draft: false
+        prerelease: true
+        files: |
+          Dayflow-nightly-x64.zip
+          Dayflow-nightly-arm64.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

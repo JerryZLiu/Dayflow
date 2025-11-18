@@ -1,0 +1,61 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, develop, 'claude/**' ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        configuration: [Debug, Release]
+        platform: [x64, ARM64]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore Dayflow.sln
+
+    - name: Build solution
+      run: dotnet build Dayflow.sln --configuration ${{ matrix.configuration }} --no-restore
+
+    - name: Run tests
+      run: dotnet test Dayflow.sln --configuration ${{ matrix.configuration }} --no-build --verbosity normal --collect:"XPlat Code Coverage"
+
+    - name: Upload coverage reports
+      if: matrix.configuration == 'Release' && matrix.platform == 'x64'
+      uses: codecov/codecov-action@v3
+      with:
+        files: '**/coverage.cobertura.xml'
+        flags: unittests
+        name: codecov-umbrella
+
+    - name: Publish application
+      if: matrix.configuration == 'Release'
+      run: |
+        dotnet publish DayflowWindows/Dayflow.csproj `
+          -c ${{ matrix.configuration }} `
+          -r win-${{ matrix.platform }} `
+          --self-contained true `
+          -p:PublishSingleFile=true `
+          -p:PublishTrimmed=true `
+          -o publish/win-${{ matrix.platform }}
+
+    - name: Upload build artifacts
+      if: matrix.configuration == 'Release'
+      uses: actions/upload-artifact@v4
+      with:
+        name: Dayflow-win-${{ matrix.platform }}
+        path: publish/win-${{ matrix.platform }}/*
+        retention-days: 7

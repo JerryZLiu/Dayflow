@@ -1,0 +1,200 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  build-and-package:
+    runs-on: windows-latest
+
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Get version
+      id: version
+      shell: pwsh
+      run: |
+        if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+          $version = "${{ inputs.version }}"
+        } else {
+          $version = "${{ github.ref_name }}".TrimStart("v")
+        }
+        echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+        echo "Version: $version"
+
+    - name: Update version in csproj
+      shell: pwsh
+      run: |
+        $version = "${{ steps.version.outputs.VERSION }}"
+        $csproj = "DayflowWindows/Dayflow.csproj"
+        $content = Get-Content $csproj
+        $content = $content -replace '<Version>.*</Version>', "<Version>$version</Version>"
+        $content | Set-Content $csproj
+
+    - name: Restore dependencies
+      run: dotnet restore Dayflow.sln
+
+    - name: Build and publish (x64)
+      run: |
+        dotnet publish DayflowWindows/Dayflow.csproj `
+          -c Release `
+          -r win-x64 `
+          --self-contained true `
+          -p:PublishSingleFile=true `
+          -p:PublishTrimmed=true `
+          -p:Version=${{ steps.version.outputs.VERSION }} `
+          -o publish/win-x64
+
+    - name: Build and publish (ARM64)
+      run: |
+        dotnet publish DayflowWindows/Dayflow.csproj `
+          -c Release `
+          -r win-arm64 `
+          --self-contained true `
+          -p:PublishSingleFile=true `
+          -p:PublishTrimmed=true `
+          -p:Version=${{ steps.version.outputs.VERSION }} `
+          -o publish/win-arm64
+
+    - name: Install NSIS
+      run: |
+        choco install nsis -y
+
+    - name: Create installers
+      shell: pwsh
+      run: |
+        # Create x64 installer
+        Copy-Item publish/win-x64 publish/current -Recurse
+        makensis /DVERSION="${{ steps.version.outputs.VERSION }}" installer.nsi
+        Move-Item DayflowSetup.exe "DayflowSetup-${{ steps.version.outputs.VERSION }}-x64.exe"
+
+        # Create ARM64 installer
+        Remove-Item publish/current -Recurse
+        Copy-Item publish/win-arm64 publish/current -Recurse
+        makensis /DVERSION="${{ steps.version.outputs.VERSION }}" /DARCH=ARM64 installer.nsi
+        Move-Item DayflowSetup.exe "DayflowSetup-${{ steps.version.outputs.VERSION }}-arm64.exe"
+
+    - name: Create Squirrel releases
+      shell: pwsh
+      run: |
+        # Install Squirrel.Windows CLI
+        dotnet tool install -g Clowd.Squirrel
+
+        # Create x64 Squirrel release
+        squirrel pack `
+          --packId Dayflow `
+          --packVersion ${{ steps.version.outputs.VERSION }} `
+          --packDirectory publish/win-x64 `
+          --releaseDir releases/win-x64
+
+        # Create ARM64 Squirrel release
+        squirrel pack `
+          --packId Dayflow `
+          --packVersion ${{ steps.version.outputs.VERSION }} `
+          --packDirectory publish/win-arm64 `
+          --releaseDir releases/win-arm64
+
+    - name: Calculate checksums
+      shell: pwsh
+      run: |
+        Get-ChildItem -Path . -Filter "DayflowSetup-*.exe" | ForEach-Object {
+          $hash = Get-FileHash $_.FullName -Algorithm SHA256
+          "$($hash.Hash)  $($_.Name)" | Out-File -Append checksums.txt
+        }
+
+    - name: Generate release notes
+      id: release_notes
+      shell: pwsh
+      run: |
+        $notes = @"
+        ## Dayflow for Windows v${{ steps.version.outputs.VERSION }}
+
+        ### Download
+
+        **Recommended:**
+        - **Windows x64**: DayflowSetup-${{ steps.version.outputs.VERSION }}-x64.exe
+        - **Windows ARM64**: DayflowSetup-${{ steps.version.outputs.VERSION }}-arm64.exe
+
+        ### What's New
+
+        - Native Windows application built with .NET 8 and WPF
+        - Screen recording at 1 FPS using Windows Graphics Capture API
+        - AI-powered timeline generation with Gemini or Local models
+        - Automatic updates via Squirrel.Windows
+        - Secure credential storage with Windows Credential Manager
+
+        ### System Requirements
+
+        - Windows 10 (version 1803 or later) or Windows 11
+        - .NET 8 Runtime (included in installer)
+        - 4GB RAM recommended
+        - 500MB free disk space
+
+        ### Installation
+
+        1. Download the installer for your architecture
+        2. Run the installer and follow the prompts
+        3. Launch Dayflow from the Start Menu
+        4. Configure your AI provider (Gemini or Local)
+        5. Grant screen recording permission when prompted
+
+        ### Checksums (SHA256)
+
+        ``````
+        $(Get-Content checksums.txt)
+        ``````
+
+        ### Support
+
+        - [Documentation](https://github.com/${{ github.repository }})
+        - [Report Issues](https://github.com/${{ github.repository }}/issues)
+        - [Discussions](https://github.com/${{ github.repository }}/discussions)
+        "@
+
+        $notes | Out-File release_notes.md
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', steps.version.outputs.VERSION) || github.ref_name }}
+        name: Dayflow v${{ steps.version.outputs.VERSION }}
+        body_path: release_notes.md
+        draft: false
+        prerelease: false
+        files: |
+          DayflowSetup-${{ steps.version.outputs.VERSION }}-x64.exe
+          DayflowSetup-${{ steps.version.outputs.VERSION }}-arm64.exe
+          checksums.txt
+          releases/win-x64/RELEASES
+          releases/win-x64/*.nupkg
+          releases/win-arm64/RELEASES
+          releases/win-arm64/*.nupkg
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload to release server (optional)
+      if: vars.RELEASE_SERVER_URL != ''
+      shell: pwsh
+      run: |
+        # Upload installers and Squirrel packages to your release server
+        # This is optional and requires configuration
+        Write-Host "Uploading to release server: ${{ vars.RELEASE_SERVER_URL }}"
+        # Add your upload logic here

@@ -1,0 +1,136 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    types: [ opened, synchronize, reopened ]
+
+jobs:
+  validate:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Check code formatting
+      run: dotnet format Dayflow.sln --verify-no-changes --verbosity diagnostic
+
+    - name: Restore dependencies
+      run: dotnet restore Dayflow.sln
+
+    - name: Build solution
+      run: dotnet build Dayflow.sln --configuration Release --no-restore
+
+    - name: Run tests with coverage
+      run: dotnet test Dayflow.sln --configuration Release --no-build --verbosity normal --collect:"XPlat Code Coverage"
+
+    - name: Code analysis
+      run: dotnet build Dayflow.sln --configuration Release --no-restore /p:TreatWarningsAsErrors=true
+
+    - name: Check for security vulnerabilities
+      run: |
+        dotnet list package --vulnerable --include-transitive 2>&1 | tee vulnerabilities.txt
+        if (Select-String -Path vulnerabilities.txt -Pattern "has the following vulnerable packages") {
+          Write-Error "Vulnerable packages detected"
+          exit 1
+        }
+      shell: pwsh
+
+    - name: Validate installer configuration
+      shell: pwsh
+      run: |
+        if (-not (Test-Path installer.nsi)) {
+          Write-Error "installer.nsi not found"
+          exit 1
+        }
+        Write-Host "✓ Installer configuration valid"
+
+    - name: Check project version
+      shell: pwsh
+      run: |
+        [xml]$csproj = Get-Content DayflowWindows/Dayflow.csproj
+        $version = $csproj.Project.PropertyGroup.Version
+        if (-not $version) {
+          Write-Error "Version not set in csproj"
+          exit 1
+        }
+        Write-Host "✓ Project version: $version"
+
+    - name: PR size check
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { data: pr } = await github.rest.pulls.get({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: context.issue.number
+          });
+
+          const additions = pr.additions;
+          const deletions = pr.deletions;
+          const total = additions + deletions;
+
+          console.log(`PR size: +${additions} -${deletions} (${total} total)`);
+
+          if (total > 5000) {
+            core.warning(`This PR is quite large (${total} lines changed). Consider splitting it into smaller PRs.`);
+          }
+
+    - name: Comment PR with build status
+      if: always()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const status = '${{ job.status }}';
+          const emoji = status === 'success' ? '✅' : '❌';
+          const body = `${emoji} PR Validation ${status}
+
+          **Build Configuration:** Release
+          **Platform:** Windows
+          **Runtime:** .NET 8.0
+
+          ${status === 'success' ? 'All checks passed! 🎉' : 'Some checks failed. Please review the logs above.'}`;
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: body
+          });
+
+  lint:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Install dotnet-format
+      run: dotnet tool install -g dotnet-format
+
+    - name: Run linter
+      run: dotnet format Dayflow.sln --verify-no-changes --verbosity diagnostic
+
+  dependency-review:
+    runs-on: windows-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Dependency Review
+      uses: actions/dependency-review-action@v4
+      with:
+        fail-on-severity: moderate
