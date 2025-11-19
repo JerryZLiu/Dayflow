@@ -119,6 +119,12 @@ struct CanvasTimelineDataView: View {
         .onChange(of: refreshTrigger) { _ in
             loadActivities()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            loadActivities()
+            if refreshTimer == nil {
+                startRefreshTimer()
+            }
+        }
     }
 
     @ViewBuilder
@@ -655,63 +661,86 @@ struct CanvasActivityCard: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: isFailedCard ? 10 : 8) {
-            if durationMinutes >= 10 {
-                if !isFailedCard {
-                    if faviconPrimaryHost != nil || faviconSecondaryHost != nil {
-                        FaviconOrSparkleView(primaryHost: faviconPrimaryHost, secondaryHost: faviconSecondaryHost)
-                            .frame(width: 16, height: 16)
+        Button(action: {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                onTap()
+            }
+        }) {
+            HStack(alignment: .top, spacing: isFailedCard ? 10 : 8) {
+                if durationMinutes >= 10 {
+                    if !isFailedCard {
+                        if faviconPrimaryHost != nil || faviconSecondaryHost != nil {
+                            FaviconOrSparkleView(primaryHost: faviconPrimaryHost, secondaryHost: faviconSecondaryHost)
+                                .frame(width: 16, height: 16)
+                        }
                     }
+
+                    Text(title)
+                        .font(
+                            Font.custom("Nunito", size: 13)
+                                .weight(.semibold)
+                        )
+                        .foregroundColor(style.text)
+
+                    Spacer()
+
+                    Text(time)
+                        .font(
+                            Font.custom("Nunito", size: 10)
+                                .weight(.medium)
+                        )
+                        .foregroundColor(style.time)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
-
-                Text(title)
-                    .font(
-                        Font.custom("Nunito", size: 13)
-                            .weight(.semibold)
-                    )
-                    .foregroundColor(style.text)
-
-                Spacer()
-
-                Text(time)
-                    .font(
-                        Font.custom("Nunito", size: 10)
-                            .weight(.medium)
-                    )
-                    .foregroundColor(style.time)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
             }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, isFailedCard ? 0 : 6)
-        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .topLeading)
-        .background(isFailedCard ? Color(hex: "FFECE4") ?? Color.white : (Color(hex: "FFFBF8") ?? Color.white))
-        .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .inset(by: 0.25)
-                .stroke(
-                    isFailedCard ? Color(red: 1, green: 0.16, blue: 0.11) : (Color(hex: "E8E8E8") ?? Color.gray),
-                    style: isFailedCard ? StrokeStyle(lineWidth: 0.5, dash: [2.5, 2.5]) : StrokeStyle(lineWidth: 0.25)
-                )
-        )
-        .overlay(alignment: .leading) {
-            if !isFailedCard {
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 2,
-                    bottomLeadingRadius: 2,
-                    bottomTrailingRadius: 0,
-                    topTrailingRadius: 0,
-                    style: .continuous
-                )
-                .fill(style.accent)
-                .frame(width: 6)
+            .padding(.horizontal, 10)
+            .padding(.vertical, isFailedCard ? 0 : 6)
+            .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .topLeading)
+            .background(isFailedCard ? Color(hex: "FFECE4") ?? Color.white : (Color(hex: "FFFBF8") ?? Color.white))
+            .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .inset(by: 0.25)
+                    .stroke(
+                        isFailedCard ? Color(red: 1, green: 0.16, blue: 0.11) : (Color(hex: "E8E8E8") ?? Color.gray),
+                        style: isFailedCard ? StrokeStyle(lineWidth: 0.5, dash: [2.5, 2.5]) : StrokeStyle(lineWidth: 0.25)
+                    )
+            )
+            .overlay(alignment: .leading) {
+                if !isFailedCard {
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 2,
+                        bottomLeadingRadius: 2,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 0,
+                        style: .continuous
+                    )
+                    .fill(style.accent)
+                    .frame(width: 6)
+                }
             }
+            // Selection halo for the active activity
+            .overlay(
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .stroke(style.accent, lineWidth: 1.5)
+                    .opacity(isSelected ? 1 : 0)
+            )
         }
+        .buttonStyle(CanvasCardButtonStyle())
         .padding(.horizontal, 6)
-        .contentShape(Rectangle())
-        .onTapGesture { onTap() }
+    }
+}
+
+struct CanvasCardButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .brightness(configuration.isPressed ? -0.02 : 0)
+            .animation(
+                .spring(response: 0.3, dampingFraction: 0.6),
+                value: configuration.isPressed
+            )
     }
 }
 

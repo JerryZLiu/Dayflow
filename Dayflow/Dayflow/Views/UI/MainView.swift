@@ -48,6 +48,8 @@ struct MainView: View {
     @State private var feedbackDirection: TimelineRatingDirection? = nil
     @State private var feedbackActivitySnapshot: TimelineActivity? = nil
     @State private var feedbackMode: TimelineFeedbackMode = .form
+    @State private var copyTimelineState: TimelineCopyState = .idle
+    @State private var copyTimelineTask: Task<Void, Never>? = nil
 
     private let rateSummaryFooterHeight: CGFloat = 28
     private var rateSummaryFooterInset: CGFloat {
@@ -115,108 +117,116 @@ struct MainView: View {
                     GeometryReader { geo in
                         HStack(alignment: .top, spacing: 0) {
                             // Left column: header + chips + timeline
-                            VStack(alignment: .leading, spacing: 18) {
-                                // Header: Date navigation + Recording toggle
-                                HStack(alignment: .center) {
-                                    HStack(spacing: 16) {
-                                        Text(formatDateForDisplay(selectedDate))
-                                            .font(.custom("InstrumentSerif-Regular", size: 36))
-                                            .foregroundColor(Color.black)
-                                            .frame(width: Self.maxDateTitleWidth, alignment: .leading)
+                            ZStack(alignment: .bottomTrailing) {
+                                VStack(alignment: .leading, spacing: 18) {
+                                    // Header: Date navigation + Recording toggle
+                                    HStack(alignment: .center) {
+                                        HStack(spacing: 16) {
+                                            Text(formatDateForDisplay(selectedDate))
+                                                .font(.custom("InstrumentSerif-Regular", size: 36))
+                                                .foregroundColor(Color.black)
+                                                .frame(width: Self.maxDateTitleWidth, alignment: .leading)
 
-                                        HStack(spacing: 3) {
-                                            Button(action: {
-                                                let from = selectedDate
-                                                let to = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
-                                                previousDate = selectedDate
-                                                setSelectedDate(to)
-                                                lastDateNavMethod = "prev"
-                                                AnalyticsService.shared.capture("date_navigation", [
-                                                    "method": "prev",
-                                                    "from_day": dayString(from),
-                                                    "to_day": dayString(to)
-                                                ])
-                                            }) {
-                                                Image("CalendarLeftButton")
-                                                    .resizable()
-                                                    .scaledToFit()
-                                                    .frame(width: 26, height: 26)
-                                            }
-                                            .buttonStyle(PlainButtonStyle())
+                                            HStack(spacing: 3) {
+                                                Button(action: {
+                                                    let from = selectedDate
+                                                    let to = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
+                                                    previousDate = selectedDate
+                                                    setSelectedDate(to)
+                                                    lastDateNavMethod = "prev"
+                                                    AnalyticsService.shared.capture("date_navigation", [
+                                                        "method": "prev",
+                                                        "from_day": dayString(from),
+                                                        "to_day": dayString(to)
+                                                    ])
+                                                }) {
+                                                    Image("CalendarLeftButton")
+                                                        .resizable()
+                                                        .scaledToFit()
+                                                        .frame(width: 26, height: 26)
+                                                }
+                                                .buttonStyle(PlainButtonStyle())
 
-                                            Button(action: {
-                                                guard canNavigateForward(from: selectedDate) else { return }
-                                                let from = selectedDate
-                                                let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
-                                                previousDate = selectedDate
-                                                setSelectedDate(tomorrow)
-                                                lastDateNavMethod = "next"
-                                                AnalyticsService.shared.capture("date_navigation", [
-                                                    "method": "next",
-                                                    "from_day": dayString(from),
-                                                    "to_day": dayString(tomorrow)
-                                                ])
-                                            }) {
-                                                Image("CalendarRightButton")
-                                                    .resizable()
-                                                    .scaledToFit()
-                                                    .frame(width: 26, height: 26)
+                                                Button(action: {
+                                                    guard canNavigateForward(from: selectedDate) else { return }
+                                                    let from = selectedDate
+                                                    let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
+                                                    previousDate = selectedDate
+                                                    setSelectedDate(tomorrow)
+                                                    lastDateNavMethod = "next"
+                                                    AnalyticsService.shared.capture("date_navigation", [
+                                                        "method": "next",
+                                                        "from_day": dayString(from),
+                                                        "to_day": dayString(tomorrow)
+                                                    ])
+                                                }) {
+                                                    Image("CalendarRightButton")
+                                                        .resizable()
+                                                        .scaledToFit()
+                                                        .frame(width: 26, height: 26)
+                                                }
+                                                .buttonStyle(PlainButtonStyle())
+                                                .disabled(!canNavigateForward(from: selectedDate))
                                             }
-                                            .buttonStyle(PlainButtonStyle())
-                                            .disabled(!canNavigateForward(from: selectedDate))
+                                        }
+                                        .offset(x: timelineOffset)
+                                        .opacity(timelineOpacity)
+
+                                        Spacer()
+
+                                        // Recording toggle (now inline with header)
+                                        HStack(spacing: 4) {
+                                            Text("Record")
+                                                .font(
+                                                    Font.custom("Nunito", size: 12)
+                                                        .weight(.medium)
+                                                )
+                                                .foregroundColor(Color(red: 0.62, green: 0.44, blue: 0.36))
+
+                                            Toggle("Record", isOn: $appState.isRecording)
+                                                .labelsHidden()
+                                                .toggleStyle(SunriseGlassPillToggleStyle())
+                                                .scaleEffect(0.7)
+                                                .accessibilityLabel(Text("Recording"))
                                         }
                                     }
-                                    .offset(x: timelineOffset)
-                                    .opacity(timelineOpacity)
+                                    .padding(.horizontal, 10)
 
-                                    Spacer()
+                                    // Content area: chips + timeline
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        TabFilterBar(
+                                            categories: categoryStore.editableCategories,
+                                            idleCategory: categoryStore.idleCategory,
+                                            onManageCategories: { showCategoryEditor = true }
+                                        )
+                                        .padding(.leading, 10)
+                                        .opacity(contentOpacity)
 
-                                    // Recording toggle (now inline with header)
-                                    HStack(spacing: 4) {
-                                        Text("Record")
-                                            .font(
-                                                Font.custom("Nunito", size: 12)
-                                                    .weight(.medium)
-                                            )
-                                            .foregroundColor(Color(red: 0.62, green: 0.44, blue: 0.36))
-
-                                        Toggle("Record", isOn: $appState.isRecording)
-                                            .labelsHidden()
-                                            .toggleStyle(SunriseGlassPillToggleStyle())
-                                            .scaleEffect(0.7)
-                                            .accessibilityLabel(Text("Recording"))
+                                        CanvasTimelineDataView(
+                                            selectedDate: $selectedDate,
+                                            selectedActivity: $selectedActivity,
+                                            scrollToNowTick: $scrollToNowTick,
+                                            hasAnyActivities: $hasAnyActivities,
+                                            refreshTrigger: $refreshActivitiesTrigger
+                                        )
+                                        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+                                        .environmentObject(categoryStore)
+                                        .opacity(contentOpacity)
                                     }
-                                }
-                                .padding(.horizontal, 10)
-
-                                // Content area: chips + timeline
-                                VStack(alignment: .leading, spacing: 12) {
-                                    TabFilterBar(
-                                        categories: categoryStore.editableCategories,
-                                        idleCategory: categoryStore.idleCategory,
-                                        onManageCategories: { showCategoryEditor = true }
-                                    )
-                                    .padding(.leading, 10)
-                                    .opacity(contentOpacity)
-
-                                    CanvasTimelineDataView(
-                                        selectedDate: $selectedDate,
-                                        selectedActivity: $selectedActivity,
-                                        scrollToNowTick: $scrollToNowTick,
-                                        hasAnyActivities: $hasAnyActivities,
-                                        refreshTrigger: $refreshActivitiesTrigger
-                                    )
-                                    .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
-                                    .environmentObject(categoryStore)
-                                    .opacity(contentOpacity)
+                                    .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                                 }
                                 .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                                .padding(.top, 15)
+                                .padding(.bottom, 15)
+                                .padding(.leading, 15)
+                                .padding(.trailing, 5)
+
+                                copyTimelineButton
+                                    .padding(.trailing, 24)
+                                    .padding(.bottom, 24)
+                                    .opacity(contentOpacity)
                             }
                             .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                            .padding(.top, 15)
-                            .padding(.bottom, 15)
-                            .padding(.leading, 15)
-                            .padding(.trailing, 5)
 
                             // Divider
                             Rectangle()
@@ -242,6 +252,10 @@ struct MainView: View {
                                         }
                                     )
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .animation(
+                                        .spring(response: 0.35, dampingFraction: 0.9),
+                                        value: selectedActivity?.id
+                                    )
                                     .allowsHitTesting(!feedbackModalVisible)
                                     .padding(.bottom, rateSummaryFooterInset)
 
@@ -447,6 +461,15 @@ struct MainView: View {
         .onDisappear {
             // Safety: stop timer if view disappears
             stopDayChangeTimer()
+            copyTimelineTask?.cancel()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Check if day changed while app was backgrounded
+            handleMinuteTickForDayChange()
+            // Ensure timer is running
+            if dayChangeTimer == nil {
+                startDayChangeTimer()
+            }
         }
         .overlay {
             if showCategoryEditor {
@@ -560,6 +583,118 @@ struct MainView: View {
         }
     }
 
+    private var copyTimelineButton: some View {
+            let background = Color(red: 0.99, green: 0.93, blue: 0.88)
+            let stroke = Color(red: 0.97, green: 0.89, blue: 0.81)
+            let textColor = Color(red: 0.84, green: 0.65, blue: 0.52)
+            
+            let transition = AnyTransition.opacity.combined(with: .scale(scale: 0.5))
+
+            return Button(action: copyTimelineToClipboard) {
+                ZStack {
+                    if copyTimelineState == .copying {
+                        ProgressView()
+                            .scaleEffect(0.5)
+                            .progressViewStyle(CircularProgressViewStyle(tint: textColor))
+                            .transition(transition)
+                    } else if copyTimelineState == .copied {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 10, weight: .medium))
+                            Text("Copied")
+                                .font(Font.custom("Nunito", size: 10).weight(.medium))
+                        }
+                        .transition(transition)
+                    } else {
+                        HStack(spacing: 4) {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 10, weight: .medium))
+                            Text("Copy timeline")
+                                .font(Font.custom("Nunito", size: 10).weight(.medium))
+                        }
+                        .transition(transition)
+                    }
+                }
+                .frame(width: 90, height: 20)
+                .foregroundColor(textColor)
+                .background(background)
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .inset(by: 0.38)
+                        .stroke(stroke, lineWidth: 0.75)
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(ShrinkButtonStyle())
+            .disabled(copyTimelineState == .copying)
+            .accessibilityLabel(Text("Copy timeline to clipboard"))
+        }
+
+        private func copyTimelineToClipboard() {
+            guard copyTimelineState != .copying else { return }
+
+            let timelineDate = timelineDisplayDate(from: selectedDate, now: Date())
+            let day = dayString(timelineDate)
+
+            copyTimelineTask?.cancel()
+            
+            withAnimation(.snappy(duration: 0.3)) {
+                copyTimelineState = .copying
+            }
+
+            copyTimelineTask = Task {
+                defer {
+                    Task { @MainActor in
+                        if copyTimelineState == .copying {
+                            withAnimation(.snappy(duration: 0.3)) {
+                                copyTimelineState = .idle
+                            }
+                        }
+                        copyTimelineTask = nil
+                    }
+                }
+
+                let cards = StorageManager.shared.fetchTimelineCards(forDay: day)
+                let clipboardText = TimelineClipboardFormatter.makeClipboardText(for: timelineDate, cards: cards)
+
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    pasteboard.setString(clipboardText, forType: .string)
+                    
+                    withAnimation(.snappy(duration: 0.3)) {
+                        copyTimelineState = .copied
+                    }
+                }
+
+                AnalyticsService.shared.capture("timeline_copied", [
+                    "timeline_day": day,
+                    "activity_count": cards.count
+                ])
+
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    withAnimation(.snappy(duration: 0.3)) {
+                        copyTimelineState = .idle
+                    }
+                }
+            }
+        }
+
+        struct ShrinkButtonStyle: ButtonStyle {
+            func makeBody(configuration: Configuration) -> some View {
+                configuration.label
+                    .scaleEffect(configuration.isPressed ? 0.96 : 1)
+                    .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
+                    .opacity(1)
+            }
+        }
+
     private func timelineFeedbackAnalyticsPayload(for activity: TimelineActivity, direction: TimelineRatingDirection) -> [String: Any] {
         var props: [String: Any] = [
             "thumb_direction": direction.rawValue,
@@ -608,6 +743,12 @@ struct MainView: View {
 
         return props
     }
+}
+
+private enum TimelineCopyState: Equatable {
+    case idle
+    case copying
+    case copied
 }
 
 enum SidebarIcon: CaseIterable {
@@ -1035,6 +1176,12 @@ struct ActivityCard: View {
                 activityDetails(for: activity)
                     .padding(16)
                     .allowsHitTesting(!showCategoryPicker)
+                    .id(activity.id)
+                    .transition(
+                        .blurReplace.animation(
+                            .easeOut(duration: 0.2)
+                        )
+                    )
 
                 if showCategoryPicker && !isFailedCard(activity) {
                     CategoryPickerOverlay(
@@ -1469,4 +1616,23 @@ func timelineIsToday(_ date: Date, now: Date = Date()) -> Bool {
     let timelineDate = timelineDisplayDate(from: date, now: now)
     let timelineToday = timelineDisplayDate(from: now, now: now)
     return calendar.isDate(timelineDate, inSameDayAs: timelineToday)
+}
+
+struct BlurReplaceModifier: ViewModifier {
+    let active: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .blur(radius: active ? 2 : 0)
+            .opacity(active ? 0 : 1)
+    }
+}
+
+extension AnyTransition {
+    static var blurReplace: AnyTransition {
+        .modifier(
+            active: BlurReplaceModifier(active: true),
+            identity: BlurReplaceModifier(active: false)
+        )
+    }
 }

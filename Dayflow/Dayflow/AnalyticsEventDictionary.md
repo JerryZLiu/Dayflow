@@ -70,6 +70,9 @@ This document lists manual events, properties, and code locations. All events re
 - activity_card_opened
   - props: `activity_type: string`, `duration_bucket: string`, `has_video: bool`
   - file: Views/UI/MainView.swift
+- timeline_copied
+  - props: `timeline_day: yyyy-MM-dd`, `activity_count: int`
+  - file: Views/UI/MainView.swift
 
 ## Video
 - video_modal_opened
