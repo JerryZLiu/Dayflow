@@ -5,6 +5,7 @@ struct JournalView: View {
     @AppStorage("isJournalUnlocked") private var isUnlocked: Bool = false
     @State private var accessCode: String = ""
     @State private var attempts: Int = 0
+    @State private var showRemindersSheet: Bool = false
     
     // Hardcoded Beta Code
     private let requiredCode = "ACCESS123"
@@ -12,41 +13,18 @@ struct JournalView: View {
     
     var body: some View {
         ZStack {
-            // MARK: - 1. Background Layer
-            GeometryReader { geo in
-                Image("JournalPreview") // Make sure this exists in Assets
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
-                    .clipped()
-                    // Blur when locked
-                    .blur(radius: isUnlocked ? 0 : 6)
-                    .overlay(
-                        Color.black.opacity(isUnlocked ? 0 : 0.4)
-                    )
-                    .animation(.easeInOut(duration: 0.8), value: isUnlocked)
-            }
-            .padding(.all, -1)
-            
-            // MARK: - 2. Content Layer
             if isUnlocked {
                 unlockedContent
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    .transition(.opacity)
             } else {
                 lockScreen
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.25), lineWidth: 1)
-        )
-        .padding(.horizontal, 20)
-        .padding(.vertical, 30)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(hex: "F7F2EC").opacity(0.35))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .sheet(isPresented: $showRemindersSheet) {
+            JournalRemindersView()
+        }
     }
     
     // MARK: - Lock Screen View
@@ -124,48 +102,16 @@ struct JournalView: View {
     
     // MARK: - Unlocked Content
     var unlockedContent: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            ZStack {
-                // Static Content Overlay
-                VStack(spacing: 10) {
-                    Text("Daily Journal is in development. Reach out via the feedback tab if you want early access!")
-                        .font(.custom("Nunito-SemiBold", size: 12))
-                        .foregroundColor(.black)
-                        .multilineTextAlignment(.center)
+        ZStack {
+            Color(red: 0.96, green: 0.94, blue: 0.92) // match JournalDayView preview backdrop
+                .ignoresSafeArea()
 
-                    Text("Get an automatic write-up of focus blocks, key apps, context switches, and distractions.")
-                        .font(.custom("Nunito-Regular", size: 13))
-                        .foregroundColor(Color.black.opacity(0.8))
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 480)
-                    
-                    // Debug Lock Button
-                    Button("Lock (Debug)") {
-                        withAnimation {
-                            isUnlocked = false
-                            accessCode = ""
-                        }
-                    }
-                    .font(.custom("Nunito-Regular", size: 11))
-                    .padding(.top, 5)
-                    .foregroundColor(.gray)
-                }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 14)
-                .background(Color.white.opacity(0.96))
-                .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
-                .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 6)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            Text(betaNoticeCopy)
-                .font(.custom("Nunito-Regular", size: 12))
-                .foregroundColor(Color.black.opacity(0.65))
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 520)
+            JournalDayView(
+                onSetReminders: { showRemindersSheet = true }
+            )
+            .frame(maxWidth: 980, alignment: .center)
+            .padding(.horizontal, 12)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 30)
     }
     
     // MARK: - Logic

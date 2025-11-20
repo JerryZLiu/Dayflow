@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// Day-focused journal surface inspired by the "Journal" exploration in Figma.
 struct JournalDayView: View {
     var summary: JournalDaySummary
     var onSetReminders: (() -> Void)?
@@ -25,102 +24,150 @@ struct JournalDayView: View {
     }
 
     var body: some View {
-        ZStack {
-            JournalDayTokens.canvasBackground
-                .ignoresSafeArea()
+        VStack(spacing: 26) {
+            toolbar
 
-            VStack(spacing: 26) {
-                toolbar
+            Text(summary.headline)
+                .font(.custom("InstrumentSerif-Regular", size: 36))
+                .foregroundStyle(JournalDayTokens.primaryText)
+                .padding(.top, 4)
 
-                Text(summary.headline)
-                    .font(.custom("InstrumentSerif-Regular", size: 36))
-                    .foregroundStyle(JournalDayTokens.primaryText)
-                    .padding(.top, 4)
-
-                HStack(alignment: .top, spacing: 24) {
-                    JournalDayCard(sections: summary.sections)
-
-                    JournalDayEditorToolbar()
-                        .padding(.top, 12)
-                }
-
-                Button(action: { onReflect?() }) {
-                    Text(summary.ctaTitle)
-                        .font(.custom("Nunito-SemiBold", size: 15))
-                        .foregroundStyle(JournalDayTokens.ctaText)
-                        .padding(.horizontal, 34)
-                        .padding(.vertical, 12)
-                        .frame(minWidth: 0)
-                }
-                .buttonStyle(.plain)
-                .background(JournalDayTokens.ctaBackground)
-                .clipShape(Capsule())
-                .overlay(
-                    Capsule()
-                        .stroke(JournalDayTokens.ctaBorder, lineWidth: 1)
-                )
-                .shadow(color: JournalDayTokens.ctaShadow, radius: 18, y: 10)
+            HStack(alignment: .top, spacing: 0) {
+                JournalDayCard(sections: summary.sections)
             }
-            .padding(.vertical, 34)
-            .padding(.horizontal, 38)
-            .frame(maxWidth: 820)
-            .background(
-                RoundedRectangle(cornerRadius: 32, style: .continuous)
-                    .fill(JournalDayTokens.background)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 32, style: .continuous)
-                    .stroke(JournalDayTokens.outerStroke, lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.08), radius: 32, y: 24)
+
+            Button(action: { onReflect?() }) {
+                Text(summary.ctaTitle)
+                    .font(.custom("Nunito-SemiBold", size: 17))
+            }
+            .buttonStyle(ReflectCapsuleStyle())
         }
+        .padding(.vertical, 34)
+        .padding(.horizontal, 48)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var toolbar: some View {
-        HStack(spacing: 16) {
+        ZStack {
+            // Centered navigation + period selector
             HStack(spacing: 10) {
-                JournalDayCircleButton(iconName: "chevron.left") {
+                JournalDayCircleButton(direction: .left) {
                     onNavigatePrevious?()
                 }
 
                 JournalDaySegmentedControl(selection: $selectedPeriod)
+                    .fixedSize()
 
-                JournalDayCircleButton(
-                    iconName: "chevron.right",
-                    isDisabled: summary.isForwardNavigationDisabled
-                ) {
+                JournalDayCircleButton(direction: .right, isDisabled: summary.isForwardNavigationDisabled) {
                     onNavigateNext?()
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .center)
 
-            Spacer()
+            // Right-aligned reminder pill
+            HStack {
+                Spacer()
+                Button(action: { onSetReminders?() }) {
+                    HStack(alignment: .center, spacing: 4) {
+                        Image("JournalReminderIcon")
+                            .resizable()
+                            .renderingMode(.template)
+                            .foregroundStyle(JournalDayTokens.reminderText)
+                            .frame(width: 16, height: 16)
 
-            Button(action: { onSetReminders?() }) {
-                HStack(spacing: 8) {
-                    ZStack {
-                        Circle()
-                            .fill(JournalDayTokens.reminderBadge)
-                            .frame(width: 24, height: 24)
-                        Image(systemName: "sun.max.fill")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color.white)
+                        Text(summary.reminderTitle)
+                            .font(.custom("Nunito-SemiBold", size: 12))
+                            .foregroundStyle(JournalDayTokens.reminderText)
                     }
-
-                    Text(summary.reminderTitle)
-                        .font(.custom("Nunito-SemiBold", size: 13))
-                        .foregroundStyle(JournalDayTokens.reminderText)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color.white.opacity(0.2), location: 0.00),
+                                .init(color: Color(red: 1, green: 0.91, blue: 0.79), location: 1.00),
+                            ],
+                            startPoint: .init(x: 0.5, y: 0),
+                            endPoint: .init(x: 0.5, y: 1)
+                        )
+                    )
+                    .cornerRadius(100)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 100)
+                            .inset(by: 0.5)
+                            .stroke(Color(red: 1, green: 0.79, blue: 0.62), lineWidth: 1)
+                    )
                 }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 9)
-                .background(JournalDayTokens.reminderBackground)
-                .clipShape(Capsule())
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+// MARK: - Figma Specific Toolbar Components
+
+private struct JournalDayCircleButton: View {
+    enum Direction { case left, right }
+    var direction: Direction
+    var isDisabled: Bool = false
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(JournalDayTokens.navCircleFill)
+                Circle()
+                    .stroke(JournalDayTokens.navCircleStroke, lineWidth: 1)
+
+                Image("JournalArrow")
+                    .renderingMode(.template)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 9, height: 9)
+                    .foregroundStyle(JournalDayTokens.navArrow.opacity(isDisabled ? 0.35 : 1))
+                    .scaleEffect(x: direction == .right ? -1 : 1, y: 1)
+            }
+            .frame(width: 26, height: 26)
+            .shadow(color: JournalDayTokens.navCircleShadow, radius: 2, x: 0, y: 0)
+            .opacity(isDisabled ? 0.55 : 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+    }
+}
+
+private struct JournalDaySegmentedControl: View {
+    @Binding var selection: JournalDayViewPeriod
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 2) {
+            ForEach(JournalDayViewPeriod.allCases) { option in
+                Button(action: { selection = option }) {
+                    Text(option.rawValue)
+                        .font(.custom("Nunito-Regular", size: 12))
+                        .tracking(-0.12)
+                        .foregroundStyle(selection == option ? Color.white : JournalDayTokens.segmentInactiveText)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 4)
+                        .frame(width: 64, alignment: .center)
+                        .background(selection == option ? JournalDayTokens.segmentActiveFill : JournalDayTokens.segmentInactiveFill)
+                        .cornerRadius(200)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(2)
+        .background(
+            Capsule()
+                .fill(JournalDayTokens.segmentContainerFill)
                 .overlay(
                     Capsule()
-                        .stroke(JournalDayTokens.reminderBorder, lineWidth: 1)
+                        .inset(by: 0.5)
+                        .stroke(Color.white.opacity(0.6), lineWidth: 1)
                 )
-            }
-            .buttonStyle(.plain)
-        }
+        )
+        .shadow(color: Color.black.opacity(0.10), radius: 2, x: 0, y: 1)
     }
 }
 
@@ -142,18 +189,27 @@ private struct JournalDayCard: View {
                 }
             }
         }
-        .padding(.horizontal, 30)
-        .padding(.vertical, 28)
-        .frame(maxWidth: 520, alignment: .leading)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 32)
+        .frame(width: 489, height: 458, alignment: .topLeading)
         .background(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(JournalDayTokens.cardBackground)
+            LinearGradient(
+                stops: [
+                    .init(color: Color.white.opacity(0.3), location: 0.00),
+                    .init(color: Color.white.opacity(0.8), location: 0.51),
+                    .init(color: Color.white.opacity(0.3), location: 1.00)
+                ],
+                startPoint: .init(x: 1, y: 0.14),
+                endPoint: .init(x: 0, y: 0.78)
+            )
         )
+        .cornerRadius(8)
+        .shadow(color: Color.black.opacity(0.1), radius: 6, x: 0, y: 0)
         .overlay(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .stroke(JournalDayTokens.cardStroke, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 8)
+                .inset(by: 0.5)
+                .stroke(Color.white, lineWidth: 1)
         )
-        .shadow(color: JournalDayTokens.cardShadow, radius: 26, y: 18)
     }
 }
 
@@ -201,115 +257,53 @@ private struct JournalDayBulletList: View {
     }
 }
 
-private struct JournalDayEditorToolbar: View {
-    var body: some View {
-        VStack(spacing: 12) {
-            VStack(spacing: 0) {
-                JournalDayEditorToggle(label: "I", isActive: true)
+// MARK: - Reflect Button Style
 
-                Divider()
-                    .frame(maxWidth: .infinity)
-                    .background(JournalDayTokens.toolbarDivider)
+private struct ReflectCapsuleStyle: ButtonStyle {
+    // Gradient stops from Figma
+    private let strokeStops: [Gradient.Stop] = [
+        .init(color: Color(red: 1.0, green: 0.66, blue: 0.38), location: 0.08), // Orange
+        .init(color: Color(red: 0.93, green: 0.92, blue: 0.92), location: 0.22), // White/Grey
+        .init(color: Color(red: 0.76, green: 0.69, blue: 0.65), location: 0.32), // Darker Grey
+        .init(color: Color(red: 1.0, green: 0.66, blue: 0.38), location: 0.57), // Orange
+        .init(color: Color(red: 0.93, green: 0.92, blue: 0.92), location: 0.71), // White/Grey
+        .init(color: Color(red: 0.76, green: 0.69, blue: 0.65), location: 0.83)  // Darker Grey
+    ]
 
-                JournalDayEditorToggle(label: "B", isActive: false)
-            }
-            .frame(width: 42)
-            .padding(.vertical, 10)
-            .background(JournalDayTokens.toolbarBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(JournalDayTokens.toolbarStroke, lineWidth: 1)
-            )
-
-            Button(action: {}) {
-                Image(systemName: "pencil")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(JournalDayTokens.toolbarIcon)
-                    .frame(width: 38, height: 38)
-                    .background(JournalDayTokens.toolbarBackground)
-                    .clipShape(Circle())
-                    .overlay(
-                        Circle()
-                            .stroke(JournalDayTokens.toolbarStroke, lineWidth: 1)
-                    )
-            }
-            .buttonStyle(.plain)
-            .disabled(true)
-            .opacity(0.85)
-        }
-    }
-}
-
-private struct JournalDayEditorToggle: View {
-    var label: String
-    var isActive: Bool
-
-    var body: some View {
-        Text(label)
-            .font(.custom("InstrumentSerif-Regular", size: 18))
-            .foregroundStyle(isActive ? JournalDayTokens.toolbarActiveText : JournalDayTokens.toolbarIcon)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .background(isActive ? JournalDayTokens.toolbarActiveBackground : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .padding(.horizontal, 6)
-    }
-}
-
-// MARK: - Toolbar helpers
-
-private struct JournalDayCircleButton: View {
-    var iconName: String
-    var isDisabled: Bool = false
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: iconName)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(isDisabled ? JournalDayTokens.secondaryText.opacity(0.5) : JournalDayTokens.primaryText)
-                .frame(width: 34, height: 34)
-                .background(
-                    Circle()
-                        .fill(Color.white)
-                        .shadow(color: Color.black.opacity(0.08), radius: 8, y: 4)
-                )
-        }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .opacity(isDisabled ? 0.45 : 1)
-    }
-}
-
-private struct JournalDaySegmentedControl: View {
-    @Binding var selection: JournalDayViewPeriod
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(JournalDayViewPeriod.allCases) { option in
-                Button(action: { selection = option }) {
-                    Text(option.rawValue)
-                        .font(.custom("Nunito-SemiBold", size: 13))
-                        .foregroundStyle(selection == option ? Color.white : JournalDayTokens.secondaryText)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 6)
-                        .background(
-                            Group {
-                                if selection == option {
-                                    Capsule().fill(JournalDayTokens.segmentActive)
-                                } else {
-                                    Capsule().fill(JournalDayTokens.segmentBackground)
-                                }
-                            }
+    func makeBody(configuration: Configuration) -> some View {
+        let borderGradient = AngularGradient(
+            gradient: Gradient(stops: strokeStops),
+            center: .center,
+            startAngle: .degrees(-30),
+            endAngle: .degrees(330)
+        )
+    
+        configuration.label
+            .font(.custom("Nunito-SemiBold", size: 17))
+            .foregroundColor(Color(red: 0.52, green: 0.46, blue: 0.42)) // "84766C"
+            .padding(.horizontal, 34)
+            .padding(.vertical, 13)
+            .background(
+                Capsule()
+                    .fill(
+                        RadialGradient(
+                            gradient: Gradient(colors: [
+                                Color.white.opacity(0.95),
+                                Color(red: 1.0, green: 0.92, blue: 0.83).opacity(0.4)
+                            ]),
+                            center: .center,
+                            startRadius: 20,
+                            endRadius: 200
                         )
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(4)
-        .background(JournalDayTokens.segmentContainer)
-        .clipShape(Capsule())
+                    )
+            )
+            .overlay(
+                Capsule()
+                    .strokeBorder(borderGradient, lineWidth: 1)
+            )
+            .shadow(color: Color(red: 0.77, green: 0.36, blue: 0.02).opacity(0.12), radius: 4, x: 0, y: 2)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .animation(.spring(response: 0.3, dampingFraction: 0.85), value: configuration.isPressed)
     }
 }
 
@@ -377,50 +371,45 @@ enum JournalDayViewPeriod: String, CaseIterable, Identifiable {
 // MARK: - Tokens
 
 private enum JournalDayTokens {
-    static let canvasBackground = LinearGradient(
-        colors: [Color(hex: "F8F1EA"), Color(hex: "FDF5ED")],
+    static let primaryText = Color(red: 0.18, green: 0.09, blue: 0.03) // "2F1607"
+    static let reminderText = Color(red: 0.35, green: 0.20, blue: 0.05) // "5A320E"
+    static let reminderBackground = LinearGradient(
+        stops: [
+            .init(color: Color.white.opacity(0.2), location: 0.0),
+            .init(color: Color(red: 1, green: 0.91, blue: 0.79), location: 1.0)
+        ],
         startPoint: .top,
         endPoint: .bottom
     )
-    static let background = LinearGradient(
-        colors: [Color(hex: "FFF8F2"), Color(hex: "FFE8D5"), Color(hex: "FFD5B4")],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
-    static let outerStroke = Color.white.opacity(0.35)
-    static let primaryText = Color(hex: "2F1607")
-    static let secondaryText = Color(hex: "66503E")
-    static let reminderText = Color(hex: "5A320E")
-    static let reminderBackground = LinearGradient(colors: [Color(hex: "FFE8CF"), Color(hex: "FFD2A4")], startPoint: .top, endPoint: .bottom)
-    static let reminderBorder = Color(hex: "FFC688").opacity(0.8)
-    static let reminderBadge = Color(hex: "FFB14F")
+    static let reminderBorder = Color(red: 1, green: 0.79, blue: 0.62)
+    
     static let cardBackground = Color.white
     static let cardStroke = Color.white.opacity(0.8)
     static let cardShadow = Color.black.opacity(0.06)
-    static let bodyText = Color(hex: "2D1B10")
-    static let bullet = Color(hex: "F4923C")
-    static let sectionHeader = Color(hex: "D96F0A")
-    static let divider = Color(hex: "E6D8CB")
-    static let ctaBackground = LinearGradient(colors: [Color(hex: "FFE9D2"), Color(hex: "FFC99A")], startPoint: .topLeading, endPoint: .bottomTrailing)
-    static let ctaBorder = Color(hex: "FFC287")
-    static let ctaText = Color(hex: "5A320E")
-    static let ctaShadow = Color(hex: "FFCEAA").opacity(0.5)
-    static let segmentBackground = Color(hex: "F6EEE7")
-    static let segmentActive = Color(hex: "FFB859")
-    static let segmentContainer = Color.white.opacity(0.8)
-    static let toolbarBackground = Color(hex: "F8EBDE")
-    static let toolbarStroke = Color.white.opacity(0.9)
-    static let toolbarDivider = Color.white.opacity(0.7)
-    static let toolbarIcon = Color(hex: "6B4D3A")
-    static let toolbarActiveBackground = Color(hex: "FFE3C5")
-    static let toolbarActiveText = Color(hex: "C45D04")
+    
+    static let bodyText = Color(red: 0.18, green: 0.11, blue: 0.06) // "2D1B10"
+    static let bullet = Color(red: 0.96, green: 0.57, blue: 0.24) // "F4923C"
+    static let sectionHeader = Color(red: 0.85, green: 0.44, blue: 0.04) // "D96F0A"
+    static let divider = Color(red: 0.90, green: 0.85, blue: 0.80) // "E6D8CB"
+
+    // Navigation arrows
+    static let navCircleFill = Color(red: 0.996, green: 0.976, blue: 0.953) // #FEF9F3
+    static let navCircleStroke = Color.white
+    static let navCircleShadow = Color.black.opacity(0.04)
+    static let navArrow = Color(red: 1.0, green: 0.74, blue: 0.35)
+    
+    // Segmented control specifics
+    static let segmentActiveFill = Color(red: 1, green: 0.72, blue: 0.35) // #FFB859
+    static let segmentInactiveFill = Color(red: 0.95, green: 0.94, blue: 0.93) // #F2EFEE
+    static let segmentInactiveText = Color(red: 0.80, green: 0.78, blue: 0.77) // #CDC8C4
+    static let segmentContainerFill = Color(red: 1.0, green: 0.976, blue: 0.953) // #FFF9F3
+    
 }
 
 struct JournalDayView_Previews: PreviewProvider {
     static var previews: some View {
         JournalDayView()
-            .padding(40)
-            .background(Color(hex: "F6F0EA"))
+            .background(Color(red: 0.96, green: 0.94, blue: 0.92))
             .previewLayout(.sizeThatFits)
             .preferredColorScheme(.light)
     }
