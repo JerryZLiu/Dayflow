@@ -637,7 +637,17 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
     func stream(_ s: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen else { return }
         guard CMSampleBufferDataIsReady(sb) else { return }
-        guard isComplete(sb) else { return }
+        guard let status = frameStatus(for: sb) else {
+            return
+        }
+
+        // Accept both .complete and .idle frames; drop everything else.
+        switch status {
+        case .complete, .idle:
+            break
+        default:
+            return
+        }
         if let pb = CMSampleBufferGetImageBuffer(sb) {
             // TEMPORARILY DISABLED to test if this causes corruption
             // overlayClock(on: pb)          // ← inject the clock into this frame
@@ -798,12 +808,17 @@ final class ScreenRecorder: NSObject, SCStreamOutput {
 
     private enum RecorderError: Error { case badInput, noDisplay }
 
-    /// Accept only fully-assembled frames (complete & not dropped).
+    /// Accept frames that are usable for the recording.
     private func isComplete(_ sb: CMSampleBuffer) -> Bool {
+        guard let status = frameStatus(for: sb) else { return false }
+        return status == .complete || status == .idle
+    }
+
+    private func frameStatus(for sb: CMSampleBuffer) -> SCFrameStatus? {
         guard let arr = CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false) as? [[SCStreamFrameInfo : Any]],
               let raw = arr.first?[SCStreamFrameInfo.status] as? Int,
-              let status = SCFrameStatus(rawValue: raw) else { return false }
-        return status == .complete
+              let status = SCFrameStatus(rawValue: raw) else { return nil }
+        return status
     }
 
     
