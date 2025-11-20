@@ -50,6 +50,67 @@ struct TimelineClipboardFormatter {
         return ([header, ""] + entries).joined(separator: "\n\n")
     }
 
+    static func makeMarkdown(for date: Date, cards: [TimelineCard], now: Date = Date()) -> String {
+        let calendar = Calendar.current
+        let timelineDate = timelineDisplayDate(from: date, now: now)
+        let timelineToday = timelineDisplayDate(from: now, now: now)
+
+        let dateFormatter = DateFormatter()
+        if calendar.isDate(timelineDate, inSameDayAs: timelineToday) {
+            dateFormatter.dateFormat = "'Today,' MMM d"
+        } else {
+            dateFormatter.dateFormat = "EEEE, MMM d"
+        }
+        let header = "## Dayflow timeline · \(dateFormatter.string(from: timelineDate))"
+
+        guard !cards.isEmpty else {
+            return """
+            \(header)
+
+            _No timeline activities were recorded for this day._
+            """
+        }
+
+        let entries = cards.enumerated().map { index, card -> String in
+            var lines: [String] = []
+
+            let timeRange = formattedRange(start: card.startTimestamp, end: card.endTimestamp)
+            let titleText = card.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let bulletTitle = timeRange.isEmpty ? titleText : "\(timeRange) — \(titleText)"
+            lines.append("\(index + 1). **\(bulletTitle)**")
+
+            let metaParts = metadataParts(for: card)
+            if !metaParts.isEmpty {
+                lines.append("   - _\(metaParts.joined(separator: " • "))_")
+            }
+
+            if let summary = cleanedParagraph(card.summary) {
+                let summaryLines = normalizedLines(summary)
+                if summaryLines.count == 1 {
+                    lines.append("   - Summary: \(summaryLines[0])")
+                } else {
+                    lines.append("   - Summary:")
+                    summaryLines.forEach { lines.append("      \($0)") }
+                }
+            }
+
+            if let details = cleanedParagraph(card.detailedSummary),
+               details != cleanedParagraph(card.summary) {
+                let detailLines = normalizedLines(details)
+                if detailLines.count == 1 {
+                    lines.append("   - Details: \(detailLines[0])")
+                } else {
+                    lines.append("   - Details:")
+                    detailLines.forEach { lines.append("      \($0)") }
+                }
+            }
+
+            return lines.joined(separator: "\n")
+        }
+
+        return ([header, ""] + entries).joined(separator: "\n\n")
+    }
+
     private static func formattedRange(start: String, end: String) -> String {
         let trimmedStart = start.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedEnd = end.trimmingCharacters(in: .whitespacesAndNewlines)

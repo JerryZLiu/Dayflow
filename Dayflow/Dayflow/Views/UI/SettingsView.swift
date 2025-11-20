@@ -102,6 +102,13 @@ struct SettingsView: View {
     @State private var showLimitConfirmation = false
     @State private var pendingLimit: PendingLimit?
 
+    // Timeline export
+    @State private var exportStartDate = timelineDisplayDate(from: Date())
+    @State private var exportEndDate = timelineDisplayDate(from: Date())
+    @State private var isExportingTimelineRange = false
+    @State private var exportStatusMessage: String?
+    @State private var exportErrorMessage: String?
+
     // Providers – debug log copy feedback
 
     private let usageFormatter: ByteCountFormatter = {
@@ -578,14 +585,15 @@ struct SettingsView: View {
 
             SettingsCard(title: "Connection health", subtitle: "Run a quick test for the active provider") {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text(currentProvider == "gemini" ? "Gemini API" : "Local API")
+                    Text(connectionHealthLabel)
                         .font(.custom("Nunito", size: 14))
                         .fontWeight(.semibold)
                         .foregroundColor(.black.opacity(0.72))
 
-                    if currentProvider == "gemini" {
+                    switch currentProvider {
+                    case "gemini":
                         TestConnectionView(onTestComplete: { _ in })
-                    } else if currentProvider == "ollama" {
+                    case "ollama":
                         LocalLLMTestView(
                             baseURL: $localBaseURL,
                             modelId: $localModelId,
@@ -600,7 +608,31 @@ struct SettingsView: View {
                                 refreshUpgradeBannerState()
                             }
                         )
-                    } else {
+                    case "chatgpt_claude":
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Use the CLI setup flow to re-check Codex or Claude installations and run sample prompts.")
+                                .font(.custom("Nunito", size: 13))
+                                .foregroundColor(.black.opacity(0.6))
+                            DayflowSurfaceButton(
+                                action: { setupModalProvider = "chatgpt_claude" },
+                                content: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "terminal")
+                                        Text("Open CLI checker")
+                                            .font(.custom("Nunito", size: 13))
+                                            .fontWeight(.semibold)
+                                    }
+                                },
+                                background: Color(red: 0.25, green: 0.17, blue: 0),
+                                foreground: .white,
+                                borderColor: .clear,
+                                cornerRadius: 8,
+                                horizontalPadding: 18,
+                                verticalPadding: 9,
+                                showOverlayStroke: true
+                            )
+                        }
+                    default:
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Dayflow Pro diagnostics coming soon")
                                 .font(.custom("Nunito", size: 13))
@@ -829,6 +861,9 @@ struct SettingsView: View {
             case "gemini":
                 summaryRow(label: "Model preference", value: selectedGeminiModel.displayName)
                 summaryRow(label: "API key", value: KeychainManager.shared.retrieve(for: "gemini") != nil ? "Stored safely in Keychain" : "Not set")
+            case "chatgpt_claude":
+                summaryRow(label: "CLI preference", value: chatCLIStatusLabel())
+                summaryRow(label: "Status", value: "Use Edit configuration to re-run CLI checks")
             default:
                 summaryRow(label: "Status", value: "Coming soon")
             }
@@ -851,6 +886,7 @@ struct SettingsView: View {
         switch id {
         case "ollama": return "Use local AI"
         case "gemini": return "Bring your own API keys"
+        case "chatgpt_claude": return "Use ChatGPT or Claude"
         case "dayflow": return "Dayflow Pro"
         default: return id.capitalized
         }
@@ -860,6 +896,8 @@ struct SettingsView: View {
 
     private var otherContent: some View {
         VStack(alignment: .leading, spacing: 28) {
+            timelineExportCard
+
             SettingsCard(title: "App preferences", subtitle: "General toggles and telemetry settings") {
                 VStack(alignment: .leading, spacing: 14) {
                     Toggle(isOn: Binding(
@@ -888,6 +926,80 @@ struct SettingsView: View {
                         .foregroundColor(.black.opacity(0.45))
                 }
             }
+        }
+    }
+
+    private var timelineExportCard: some View {
+        SettingsCard(title: "Export timeline", subtitle: "Download a Markdown export for any date range") {
+            let rangeInvalid = timelineDisplayDate(from: exportStartDate) > timelineDisplayDate(from: exportEndDate)
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 14) {
+                    DatePicker("Start", selection: $exportStartDate, displayedComponents: .date)
+                        .datePickerStyle(.compact)
+                        .labelsHidden()
+                        .accessibilityLabel(Text("Export start date"))
+
+                    Image(systemName: "arrow.right")
+                        .foregroundColor(.black.opacity(0.35))
+
+                    DatePicker("End", selection: $exportEndDate, displayedComponents: .date)
+                        .datePickerStyle(.compact)
+                        .labelsHidden()
+                        .accessibilityLabel(Text("Export end date"))
+                }
+
+                Text("Uses the same 4 AM boundary as the timeline; includes titles, summaries, and details for each card.")
+                    .font(.custom("Nunito", size: 11.5))
+                    .foregroundColor(.black.opacity(0.55))
+
+                HStack(spacing: 10) {
+                    DayflowSurfaceButton(
+                        action: exportTimelineRange,
+                        content: {
+                            HStack(spacing: 8) {
+                                if isExportingTimelineRange {
+                                    ProgressView().scaleEffect(0.75)
+                                } else {
+                                    Image(systemName: "square.and.arrow.down")
+                                        .font(.system(size: 13, weight: .semibold))
+                                }
+                                Text(isExportingTimelineRange ? "Exporting…" : "Export as Markdown")
+                                    .font(.custom("Nunito", size: 13))
+                                    .fontWeight(.semibold)
+                            }
+                            .frame(minWidth: 150)
+                        },
+                        background: Color(red: 0.25, green: 0.17, blue: 0),
+                        foreground: .white,
+                        borderColor: .clear,
+                        cornerRadius: 8,
+                        horizontalPadding: 20,
+                        verticalPadding: 10,
+                        showOverlayStroke: true
+                    )
+                    .disabled(isExportingTimelineRange || rangeInvalid)
+
+                    if rangeInvalid {
+                        Text("Start date must be on or before end date.")
+                            .font(.custom("Nunito", size: 12))
+                            .foregroundColor(Color(hex: "E91515"))
+                    }
+                }
+
+                if let message = exportStatusMessage {
+                    Text(message)
+                        .font(.custom("Nunito", size: 12))
+                        .foregroundColor(Color(red: 0.1, green: 0.5, blue: 0.22))
+                }
+
+                if let error = exportErrorMessage {
+                    Text(error)
+                        .font(.custom("Nunito", size: 12))
+                        .foregroundColor(Color(hex: "E91515"))
+                }
+            }
+            .padding(.top, 4)
         }
     }
 
@@ -953,6 +1065,108 @@ struct SettingsView: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    // MARK: - Timeline export
+
+    private func exportTimelineRange() {
+        guard !isExportingTimelineRange else { return }
+
+        let start = timelineDisplayDate(from: exportStartDate)
+        let end = timelineDisplayDate(from: exportEndDate)
+
+        guard start <= end else {
+            exportErrorMessage = "Start date must be on or before end date."
+            exportStatusMessage = nil
+            return
+        }
+
+        isExportingTimelineRange = true
+        exportStatusMessage = nil
+        exportErrorMessage = nil
+
+        Task.detached(priority: .userInitiated) {
+            let calendar = Calendar.current
+            let dayFormatter = DateFormatter()
+            dayFormatter.dateFormat = "yyyy-MM-dd"
+
+            var cursor = start
+            let endDate = end
+
+            var sections: [String] = []
+            var totalActivities = 0
+            var dayCount = 0
+
+            while cursor <= endDate {
+                let dayString = dayFormatter.string(from: cursor)
+                let cards = StorageManager.shared.fetchTimelineCards(forDay: dayString)
+                totalActivities += cards.count
+                let section = TimelineClipboardFormatter.makeMarkdown(for: cursor, cards: cards)
+                sections.append(section)
+                dayCount += 1
+
+                guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
+                cursor = next
+            }
+
+            let divider = "\n\n---\n\n"
+            let exportText = sections.joined(separator: divider)
+
+            await MainActor.run {
+                presentSavePanelAndWrite(
+                    exportText: exportText,
+                    startDate: start,
+                    endDate: end,
+                    dayCount: dayCount,
+                    activityCount: totalActivities
+                )
+            }
+        }
+    }
+
+    @MainActor
+    private func presentSavePanelAndWrite(exportText: String,
+                                          startDate: Date,
+                                          endDate: Date,
+                                          dayCount: Int,
+                                          activityCount: Int) {
+        let dayFormatter = DateFormatter()
+        dayFormatter.dateFormat = "yyyy-MM-dd"
+
+        let savePanel = NSSavePanel()
+        savePanel.title = "Export timeline"
+        savePanel.prompt = "Export"
+        savePanel.nameFieldStringValue = "Dayflow timeline \(dayFormatter.string(from: startDate)) to \(dayFormatter.string(from: endDate)).md"
+        savePanel.allowedFileTypes = ["md", "markdown", "txt"]
+        savePanel.canCreateDirectories = true
+
+        let response = savePanel.runModal()
+
+        defer { isExportingTimelineRange = false }
+
+        guard response == .OK, let url = savePanel.url else {
+            exportStatusMessage = nil
+            exportErrorMessage = "Export canceled"
+            return
+        }
+
+        do {
+            try exportText.write(to: url, atomically: true, encoding: .utf8)
+            exportErrorMessage = nil
+            exportStatusMessage = "Saved \(activityCount) activit\(activityCount == 1 ? "y" : "ies") across \(dayCount) day\(dayCount == 1 ? "" : "s") to \(url.lastPathComponent)"
+
+            AnalyticsService.shared.capture("timeline_exported", [
+                "start_day": dayFormatter.string(from: startDate),
+                "end_day": dayFormatter.string(from: endDate),
+                "day_count": dayCount,
+                "activity_count": activityCount,
+                "format": "markdown",
+                "file_extension": url.pathExtension.lowercased()
+            ])
+        } catch {
+            exportStatusMessage = nil
+            exportErrorMessage = "Couldn't save file: \(error.localizedDescription)"
+        }
     }
 
     private func loadGeminiPromptOverridesIfNeeded(force: Bool = false) {
@@ -1238,17 +1452,7 @@ struct SettingsView: View {
             case .ollamaLocal:
                 currentProvider = "ollama"
             case .chatGPTClaude:
-                // ChatGPT/Claude integration is currently disabled;
-                // fall back to Gemini so the app keeps functioning.
-                currentProvider = "gemini"
-                let fallback = LLMProviderType.geminiDirect
-                if let encoded = try? JSONEncoder().encode(fallback) {
-                    UserDefaults.standard.set(encoded, forKey: "llmProviderType")
-                }
-                UserDefaults.standard.set("gemini", forKey: "selectedLLMProvider")
-                let preference = GeminiModelPreference.load()
-                selectedGeminiModel = preference.primary
-                savedGeminiModel = preference.primary
+                currentProvider = "chatgpt_claude"
             }
         }
         hasLoadedProvider = true
@@ -1284,6 +1488,7 @@ struct SettingsView: View {
         if let encoded = try? JSONEncoder().encode(providerType) {
             UserDefaults.standard.set(encoded, forKey: "llmProviderType")
         }
+        UserDefaults.standard.set(providerId, forKey: "selectedLLMProvider")
 
         withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
             currentProvider = providerId
@@ -1361,6 +1566,24 @@ struct SettingsView: View {
                 buttonMode: .settings(onSwitch: { switchToProvider("gemini") }),
                 showCurrentlySelected: true,
                 customStatusText: statusText(for: "gemini")
+            ),
+            FlexibleProviderCard(
+                id: "chatgpt_claude",
+                title: "Use ChatGPT or Claude",
+                badgeText: "NEW",
+                badgeType: .blue,
+                icon: "bolt.horizontal.circle",
+                features: [
+                    ("Drives ChatGPT (Codex CLI) or Claude Code directly on your Mac", true),
+                    ("Excellent reasoning with no API billing setup", true),
+                    ("Easy to switch between assistants anytime", true),
+                    ("Requires installing + signing into the CLI tools", false),
+                    ("Desktop app must stay open while Dayflow runs", false)
+                ],
+                isSelected: currentProvider == "chatgpt_claude",
+                buttonMode: .settings(onSwitch: { switchToProvider("chatgpt_claude") }),
+                showCurrentlySelected: true,
+                customStatusText: statusText(for: "chatgpt_claude")
             )
         ].filter { !$0.isSelected }
     }
@@ -1381,8 +1604,35 @@ struct SettingsView: View {
             return "\(engineName) - \(truncatedModel)"
         case "gemini":
             return selectedGeminiModel.displayName
+        case "chatgpt_claude":
+            return chatCLIStatusLabel()
         default:
             return nil
+        }
+    }
+
+    private func chatCLIStatusLabel() -> String {
+        let preferredTool = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? ""
+        switch preferredTool {
+        case "codex":
+            return "ChatGPT – Codex CLI"
+        case "claude":
+            return "Claude Code CLI"
+        default:
+            return "Codex or Claude CLI"
+        }
+    }
+
+    private var connectionHealthLabel: String {
+        switch currentProvider {
+        case "gemini":
+            return "Gemini API"
+        case "ollama":
+            return "Local API"
+        case "chatgpt_claude":
+            return "ChatGPT / Claude CLI"
+        default:
+            return "Diagnostics"
         }
     }
 }
