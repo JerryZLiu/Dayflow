@@ -103,9 +103,6 @@ struct JournalView: View {
     // MARK: - Unlocked Content
     var unlockedContent: some View {
         ZStack {
-            Color(red: 0.96, green: 0.94, blue: 0.92) // match JournalDayView preview backdrop
-                .ignoresSafeArea()
-
             JournalDayView(
                 onSetReminders: { showRemindersSheet = true }
             )
