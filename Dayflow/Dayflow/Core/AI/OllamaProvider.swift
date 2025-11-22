@@ -380,7 +380,7 @@ final class OllamaProvider: LLMProvider {
         let model: String
         let messages: [ChatMessage]
         let temperature: Double = 0.7
-        let max_tokens: Int = -1
+        let max_tokens: Int = 4000
         let stream: Bool = false
     }
     
