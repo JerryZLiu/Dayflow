@@ -1,0 +1,39 @@
+# Dayflow Python - Windows/Cross-Platform Implementation
+# Core dependencies for screen recording, video processing, and UI
+
+# Screen recording and video processing
+mss>=9.0.1                  # Fast cross-platform screen capture
+opencv-python>=4.8.0        # Video encoding and image processing
+Pillow>=10.0.0              # Image manipulation
+numpy>=1.24.0               # Array operations for image data
+
+# Database
+# sqlite3 is built-in to Python, no need to install
+
+# AI/LLM Integration
+requests>=2.31.0            # HTTP client for API calls
+google-generativeai>=0.3.0  # Gemini API client
+
+# UI Framework
+customtkinter>=5.2.0        # Modern, customizable tkinter
+pystray>=0.19.0             # System tray icon
+Pillow>=10.0.0              # Image support for tray icon
+
+# Configuration and utilities
+python-dotenv>=1.0.0        # Environment variable management
+pywin32>=306; platform_system=="Windows"  # Windows-specific features
+pynput>=1.7.6               # Keyboard/mouse event monitoring for idle detection
+
+# Date/time utilities
+python-dateutil>=2.8.2
+
+# JSON handling (built-in, but useful for reference)
+# json (built-in)
+
+# Optional: Better logging
+coloredlogs>=15.0.1
+
+# Development dependencies (optional)
+# pytest>=7.4.0
+# black>=23.0.0
+# flake8>=6.0.0
