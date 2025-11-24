@@ -47,11 +47,11 @@ private enum SCStreamErrorCode: Int {
     }
 }
 
-#if DEBUG
-@inline(__always) func dbg(_ msg: @autoclosure () -> String) { print("[Recorder] \(msg())") }
-#else
-@inline(__always) func dbg(_: @autoclosure () -> String) {}
-#endif
+private let recorderDebugLogging = false
+@inline(__always) func dbg(_ msg: @autoclosure () -> String) {
+    guard recorderDebugLogging else { return }
+    print("[Recorder] \(msg())")
+}
 
 /// Explicit state machine for the recorder lifecycle
 private enum RecorderState: Equatable {
