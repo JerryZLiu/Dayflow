@@ -111,7 +111,7 @@ This document lists manual events, properties, and code locations. All events re
 
 ## AI / LLM / Analysis
 - analysis_job_started
-  - props: `provider: gemini|ollama|dayflow|unknown`
+  - props: `provider: gemini|ollama|dayflow|chat_cli|unknown`
   - file: App/AppDelegate.swift
 - llm_api_call (sampled ~10%)
   - props: `provider: string`, `model: string`, `latency_ms_bucket: <500ms|0.5-1.5s|>=1.5s`, `outcome: success|error`, `error_code?: int`
