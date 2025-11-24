@@ -184,8 +184,17 @@ struct LLMProviderSetupView: View {
     let onBack: () -> Void
     let onComplete: () -> Void
     
-    private var activeProviderType: String {
-        providerType == "chatgpt_claude" ? "gemini" : providerType
+    private var activeProviderType: String { providerType }
+    
+    private var headerTitle: String {
+        switch activeProviderType {
+        case "ollama":
+            return "Use local AI"
+        case "chatgpt_claude":
+            return "Connect ChatGPT or Claude"
+        default:
+            return "Bring your own API keys"
+        }
     }
     
     // Layout constants
@@ -228,7 +237,7 @@ struct LLMProviderSetupView: View {
                 
                 // Title in the content area
                 HStack {
-                    Text(activeProviderType == "ollama" ? "Use local AI" : "Bring your own API keys")
+                    Text(headerTitle)
                         .font(.custom("Nunito", size: 32))
                         .fontWeight(.semibold)
                         .foregroundColor(.black.opacity(0.9))
@@ -652,19 +661,8 @@ struct LLMProviderSetupView: View {
                 isChecking: setupState.isCheckingCLIStatus,
                 onRetry: { setupState.refreshCLIStatuses() },
                 onInstall: { tool in openChatCLIInstallPage(for: tool) },
-                debugCommand: $setupState.debugCommandInput,
-                debugOutput: setupState.debugCommandOutput,
-                isRunningDebug: setupState.isRunningDebugCommand,
-                onRunDebug: { setupState.runDebugCommand() },
-                cliPrompt: $setupState.cliPrompt,
-                codexOutput: setupState.codexStreamOutput,
-                claudeOutput: setupState.claudeStreamOutput,
-                isRunningCodex: setupState.isRunningCodexStream,
-                isRunningClaude: setupState.isRunningClaudeStream,
-                onRunCodex: { setupState.runCodexStream() },
-                onCancelCodex: { setupState.cancelCodexStream() },
-                onRunClaude: { setupState.runClaudeStream() },
-                onCancelClaude: { setupState.cancelClaudeStream() },
+                selectedTool: setupState.preferredCLITool,
+                onSelectTool: { tool in setupState.selectPreferredCLITool(tool) },
                 nextButton: { nextButton }
             )
             .onAppear {
@@ -892,6 +890,7 @@ class ProviderSetupState: ObservableObject {
     @Published var claudeStreamOutput: String = ""
     @Published var isRunningCodexStream: Bool = false
     @Published var isRunningClaudeStream: Bool = false
+    @Published var preferredCLITool: CLITool? = ProviderSetupState.loadStoredPreferredCLITool()
 
     private var lastSavedGeminiModel: GeminiModel
     private var hasStartedCLICheck = false
@@ -916,7 +915,7 @@ class ProviderSetupState: ObservableObject {
         case .apiKeyInput:
             return !apiKey.isEmpty && apiKey.count > 20
         case .cliDetection:
-            return hasAnyCLIInstalled
+            return isSelectedCLIToolReady
         case .terminalCommand(_), .modelDownload(_), .localChoice, .localModelInstall, .information(_, _), .apiKeyInstructions:
             return true
         }
@@ -944,13 +943,14 @@ class ProviderSetupState: ObservableObject {
                 SetupStep(id: "complete", title: "Complete", contentType: .information("All set!", "Local AI is configured and ready to use with Dayflow."))
             ]
         case "chatgpt_claude":
+            preferredCLITool = ProviderSetupState.loadStoredPreferredCLITool()
             steps = [
                 SetupStep(
                     id: "intro",
                     title: "Before you begin",
                     contentType: .information(
-                        "Install ChatGPT or Claude",
-                        "Dayflow can drive either ChatGPT (through the Codex CLI) or Claude Code. You'll need at least one installed and signed in on this Mac. We'll check automatically in the next step."
+                        "Install Codex CLI (ChatGPT) or Claude Code",
+                        "If you have a paid ChatGPT/Claude account, you can have Dayflow tap into your existing usage limits. Everything flows through your current account—no extra charges—and you can opt out of training for privacy. You only need one CLI installed and signed in on this Mac; we'll verify it automatically next."
                     )
                 ),
                 SetupStep(
@@ -1048,8 +1048,9 @@ class ProviderSetupState: ObservableObject {
         testSuccessful = false
     }
     
-    private var hasAnyCLIInstalled: Bool {
-        codexCLIStatus.isInstalled || claudeCLIStatus.isInstalled
+    private var isSelectedCLIToolReady: Bool {
+        guard let preferredCLITool else { return false }
+        return isToolAvailable(preferredCLITool)
     }
     
     func ensureCLICheckStarted() {
@@ -1078,6 +1079,7 @@ class ProviderSetupState: ObservableObject {
                 self.codexCLIStatus = codexResult.state
                 self.claudeCLIStatus = claudeResult.state
                 self.isCheckingCLIStatus = false
+                self.ensurePreferredCLIToolIsValid()
             }
         }
     }
@@ -1130,6 +1132,54 @@ class ProviderSetupState: ObservableObject {
         }
         return env
     }
+    
+    func selectPreferredCLITool(_ tool: CLITool) {
+        guard isToolAvailable(tool) else { return }
+        preferredCLITool = tool
+        persistPreferredCLITool()
+    }
+    
+    func persistPreferredCLITool() {
+        guard let tool = preferredCLITool else {
+            UserDefaults.standard.removeObject(forKey: Self.cliPreferenceKey)
+            return
+        }
+        UserDefaults.standard.set(tool.rawValue, forKey: Self.cliPreferenceKey)
+    }
+    
+    private func ensurePreferredCLIToolIsValid() {
+        if let current = preferredCLITool, isToolAvailable(current) {
+            return
+        }
+        if isToolAvailable(.codex) {
+            preferredCLITool = .codex
+        } else if isToolAvailable(.claude) {
+            preferredCLITool = .claude
+        } else {
+            preferredCLITool = nil
+        }
+        persistPreferredCLITool()
+    }
+    
+    private func isToolAvailable(_ tool: CLITool) -> Bool {
+        switch tool {
+        case .codex:
+            if codexCLIStatus.isInstalled { return true }
+            return codexCLIReport?.resolvedPath != nil
+        case .claude:
+            if claudeCLIStatus.isInstalled { return true }
+            return claudeCLIReport?.resolvedPath != nil
+        }
+    }
+    
+    private static func loadStoredPreferredCLITool() -> CLITool? {
+        guard let raw = UserDefaults.standard.string(forKey: Self.cliPreferenceKey) else {
+            return nil
+        }
+        return CLITool(rawValue: raw)
+    }
+    
+    private static let cliPreferenceKey = "chatCLIPreferredTool"
     
     func runCodexStream() {
         guard !isRunningCodexStream else { return }
@@ -1706,23 +1756,9 @@ struct ChatCLIDetectionStepView<NextButton: View>: View {
     let isChecking: Bool
     let onRetry: () -> Void
     let onInstall: (CLITool) -> Void
-    @Binding var debugCommand: String
-    let debugOutput: String
-    let isRunningDebug: Bool
-    let onRunDebug: () -> Void
-    @Binding var cliPrompt: String
-    let codexOutput: String
-    let claudeOutput: String
-    let isRunningCodex: Bool
-    let isRunningClaude: Bool
-    let onRunCodex: () -> Void
-    let onCancelCodex: () -> Void
-    let onRunClaude: () -> Void
-    let onCancelClaude: () -> Void
+    let selectedTool: CLITool?
+    let onSelectTool: (CLITool) -> Void
     @ViewBuilder let nextButton: () -> NextButton
-    
-    @State private var showCodexDebug = false
-    @State private var showClaudeDebug = false
     
     private let accentColor = Color(red: 0.25, green: 0.17, blue: 0)
     
@@ -1742,15 +1778,11 @@ struct ChatCLIDetectionStepView<NextButton: View>: View {
                 ChatCLIToolStatusRow(
                     tool: .codex,
                     status: codexStatus,
-                    report: codexReport,
-                    showDebug: $showCodexDebug,
                     onInstall: { onInstall(.codex) }
                 )
                 ChatCLIToolStatusRow(
                     tool: .claude,
                     status: claudeStatus,
-                    report: claudeReport,
-                    showDebug: $showClaudeDebug,
                     onInstall: { onInstall(.claude) }
                 )
             }
@@ -1759,88 +1791,22 @@ struct ChatCLIDetectionStepView<NextButton: View>: View {
                 .font(.custom("Nunito", size: 12))
                 .foregroundColor(.black.opacity(0.5))
             
-            DebugCommandConsole(
-                command: $debugCommand,
-                output: debugOutput,
-                isRunning: isRunningDebug,
-                runAction: {
-                    onRunDebug()
-                }
-            )
-            
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Try a sample prompt")
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Choose which assistant Dayflow should control")
                     .font(.custom("Nunito", size: 13))
                     .fontWeight(.semibold)
-                    .foregroundColor(.black.opacity(0.7))
-                TextField("Ask ChatGPT or Claude…", text: $cliPrompt)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.custom("Nunito", size: 13))
+                    .foregroundColor(.black.opacity(0.65))
                 HStack(spacing: 12) {
-                    DayflowSurfaceButton(
-                        action: {
-                            if isRunningCodex {
-                                onCancelCodex()
-                            } else if codexStatus.isInstalled || codexReport?.resolvedPath != nil {
-                                onRunCodex()
-                            }
-                        },
-                        content: {
-                            HStack(spacing: 6) {
-                                Image(systemName: isRunningCodex ? "stop.fill" : "play.fill").font(.system(size: 12, weight: .semibold))
-                                Text(isRunningCodex ? "Stop Codex" : "Run Codex")
-                                    .font(.custom("Nunito", size: 13))
-                                    .fontWeight(.semibold)
-                            }
-                        },
-                        background: Color(red: 0.25, green: 0.17, blue: 0),
-                        foreground: .white,
-                        borderColor: .clear,
-                        cornerRadius: 8,
-                        horizontalPadding: 16,
-                        verticalPadding: 10,
-                        showOverlayStroke: true
-                    )
-                    .disabled(!(codexStatus.isInstalled || codexReport?.resolvedPath != nil) && !isRunningCodex)
-                    
-                    DayflowSurfaceButton(
-                        action: {
-                            if isRunningClaude {
-                                onCancelClaude()
-                            } else if claudeStatus.isInstalled || claudeReport?.resolvedPath != nil {
-                                onRunClaude()
-                            }
-                        },
-                        content: {
-                            HStack(spacing: 6) {
-                                Image(systemName: isRunningClaude ? "stop.fill" : "play.fill").font(.system(size: 12, weight: .semibold))
-                                Text(isRunningClaude ? "Stop Claude" : "Run Claude")
-                                    .font(.custom("Nunito", size: 13))
-                                    .fontWeight(.semibold)
-                            }
-                        },
-                        background: Color(red: 0.25, green: 0.17, blue: 0),
-                        foreground: .white,
-                        borderColor: .clear,
-                        cornerRadius: 8,
-                        horizontalPadding: 16,
-                        verticalPadding: 10,
-                        showOverlayStroke: true
-                    )
-                    .disabled(!(claudeStatus.isInstalled || claudeReport?.resolvedPath != nil) && !isRunningClaude)
-                }
-                if !codexOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    DebugField(label: "Codex output", value: codexOutput)
-                }
-                if !claudeOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    DebugField(label: "Claude output", value: claudeOutput)
+                    ForEach(CLITool.allCases, id: \.self) { tool in
+                        selectionButton(for: tool)
+                    }
                 }
             }
             .padding(16)
-            .background(Color.white.opacity(0.55))
-            .cornerRadius(16)
+            .background(Color.white.opacity(0.5))
+            .cornerRadius(12)
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: 12)
                     .stroke(Color.black.opacity(0.05), lineWidth: 1)
             )
             
@@ -1883,15 +1849,64 @@ struct ChatCLIDetectionStepView<NextButton: View>: View {
     }
     
     private var canContinue: Bool {
-        codexStatus.isInstalled || claudeStatus.isInstalled
+        guard let selectedTool else { return false }
+        return isToolAvailable(selectedTool)
+    }
+    
+    private func isToolAvailable(_ tool: CLITool) -> Bool {
+        switch tool {
+        case .codex:
+            if codexStatus.isInstalled { return true }
+            return codexReport?.resolvedPath != nil
+        case .claude:
+            if claudeStatus.isInstalled { return true }
+            return claudeReport?.resolvedPath != nil
+        }
+    }
+    
+    @ViewBuilder
+    private func selectionButton(for tool: CLITool) -> some View {
+        let enabled = isToolAvailable(tool)
+        Button(action: {
+            if enabled {
+                onSelectTool(tool)
+            }
+        }) {
+            HStack(spacing: 6) {
+                Image(systemName: selectedTool == tool ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(enabled ? accentColor : Color.gray.opacity(0.6))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(tool.shortName)
+                        .font(.custom("Nunito", size: 13))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.black.opacity(enabled ? 0.85 : 0.4))
+                    Text(enabled ? "Ready to use" : "Install to enable")
+                        .font(.custom("Nunito", size: 11))
+                        .foregroundColor(.black.opacity(enabled ? 0.5 : 0.35))
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(selectedTool == tool ? Color.white.opacity(0.9) : Color.white.opacity(0.5))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(selectedTool == tool ? accentColor.opacity(0.4) : Color.black.opacity(0.05), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1.0 : 0.5)
     }
 }
 
 struct ChatCLIToolStatusRow: View {
     let tool: CLITool
     let status: CLIDetectionState
-    let report: CLIDetectionReport?
-    @Binding var showDebug: Bool
     let onInstall: () -> Void
     
     private let accentColor = Color(red: 0.25, green: 0.17, blue: 0)
@@ -1927,40 +1942,6 @@ struct ChatCLIToolStatusRow: View {
                     .font(.custom("Nunito", size: 12))
                     .foregroundColor(.black.opacity(0.6))
                     .padding(.leading, 48)
-            }
-            
-            if let report {
-                Button(action: { withAnimation { showDebug.toggle() } }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: showDebug ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 11, weight: .semibold))
-                        Text(showDebug ? "Hide debug info" : "Show debug info")
-                            .font(.custom("Nunito", size: 12))
-                            .fontWeight(.semibold)
-                    }
-                }
-                .buttonStyle(.plain)
-                .padding(.leading, 48)
-                .pointingHandCursor()
-                
-                if showDebug {
-                    VStack(alignment: .leading, spacing: 6) {
-                        if let path = report.resolvedPath {
-                            DebugField(label: "Resolved path", value: path)
-                        }
-                        if let stdout = report.stdout, !stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            DebugField(label: "stdout", value: stdout)
-                        }
-                        if let stderr = report.stderr, !stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            DebugField(label: "stderr", value: stderr)
-                        }
-                        if (report.stdout?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) && (report.stderr?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
-                            DebugField(label: "Note", value: "No output captured from --version")
-                        }
-                    }
-                    .padding(.leading, 48)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
             }
             
             if shouldShowInstallButton {
