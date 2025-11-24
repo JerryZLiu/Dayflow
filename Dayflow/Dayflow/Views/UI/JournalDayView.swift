@@ -536,6 +536,7 @@ private struct ReflectionEditorCard: View {
                 placeholder: "How was your day? What did you do? How do you feel?",
                 minLines: 6
             )
+            .padding(.leading, -4)
             .frame(maxWidth: .infinity, alignment: .topLeading)
 
             Spacer(minLength: 0)
@@ -575,6 +576,9 @@ private struct ReflectionSavedCard: View {
                         .font(.custom("Nunito-Regular", size: 15))
                         .foregroundStyle(JournalDayTokens.bodyText)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 6)
+                        .padding(.leading, 0)
+                        .padding(.horizontal, 2)
                 }
             } else {
                 Text("Return near the end of your day to reflect on your intentions.")
