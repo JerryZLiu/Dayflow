@@ -1481,6 +1481,8 @@ struct SettingsView: View {
             providerType = .geminiDirect
         case "dayflow":
             providerType = .dayflowBackend()
+        case "chatgpt_claude":
+            providerType = .chatGPTClaude
         default:
             return
         }
