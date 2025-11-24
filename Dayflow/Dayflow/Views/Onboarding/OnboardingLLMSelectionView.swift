@@ -52,9 +52,6 @@ struct OnboardingLLMSelectionView: View {
                     .frame(height: headerHeight)
                     .opacity(titleOpacity)
                     .onAppear {
-                        if selectedProvider == "chatgpt_claude" {
-                            selectedProvider = "gemini"
-                        }
                         guard !hasAppeared else { return }
                         hasAppeared = true
                         withAnimation(.easeOut(duration: 0.6)) { titleOpacity = 1 }
@@ -168,6 +165,38 @@ struct OnboardingLLMSelectionView: View {
                     }
                 }
             ),
+
+            // ChatGPT/Claude CLI card
+            FlexibleProviderCard(
+                id: "chatgpt_claude",
+                title: "Use ChatGPT or Claude",
+                badgeText: "NEW",
+                badgeType: .blue,
+                icon: "bolt.horizontal.circle",
+                features: [
+                    ("Drives ChatGPT (Codex CLI) or Claude Code directly on your Mac", true),
+                    ("Best-in-class reasoning quality for narratives", true),
+                    ("No API key setup needed once CLI is installed", true),
+                    ("Requires installing the Codex or Claude CLI and staying signed in", false),
+                    ("Needs the desktop app + internet connection", false)
+                ],
+                isSelected: selectedProvider == "chatgpt_claude",
+                buttonMode: .onboarding(onProceed: {
+                    if selectedProvider == "chatgpt_claude" {
+                        saveProviderSelection()
+                        onNext("chatgpt_claude")
+                    } else {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                            selectedProvider = "chatgpt_claude"
+                        }
+                    }
+                }),
+                onSelect: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                        selectedProvider = "chatgpt_claude"
+                    }
+                }
+            ),
             
             /*
             // Dayflow Pro card
@@ -218,6 +247,8 @@ struct OnboardingLLMSelectionView: View {
             providerType = .geminiDirect
         case "dayflow":
             providerType = .dayflowBackend()
+        case "chatgpt_claude":
+            providerType = .chatGPTClaude
         default:
             providerType = .geminiDirect
         }
