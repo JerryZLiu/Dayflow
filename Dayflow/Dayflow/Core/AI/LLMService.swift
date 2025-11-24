@@ -37,30 +37,6 @@ final class LLMService: LLMServicing {
             let decoded = try JSONDecoder().decode(LLMProviderType.self, from: savedData)
             print("✅ [LLMService] Successfully decoded provider type: \(decoded)")
             
-            if case .chatGPTClaude = decoded {
-                print("⚠️ [LLMService] Deprecated ChatGPT/Claude provider detected. Migrating selection to a supported provider.")
-                
-                let fallbackType: LLMProviderType = {
-                    if let dayflowToken = KeychainManager.shared.retrieve(for: "dayflow"), !dayflowToken.isEmpty {
-                        print("   ↳ Found Dayflow backend credentials. Migrating to Dayflow backend provider.")
-                        return .dayflowBackend()
-                    }
-                    
-                    print("   ↳ No Dayflow token detected. Migrating to Gemini Direct provider.")
-                    return .geminiDirect
-                }()
-                
-                do {
-                    let encodedFallback = try JSONEncoder().encode(fallbackType)
-                    UserDefaults.standard.set(encodedFallback, forKey: "llmProviderType")
-                    print("✅ [LLMService] Persisted migrated provider selection: \(fallbackType)")
-                } catch {
-                    print("❌ [LLMService] Failed to persist migrated provider selection: \(error)")
-                }
-                
-                return fallbackType
-            }
-            
             return decoded
         } catch {
             print("❌ [LLMService] Failed to decode provider type: \(error)")
@@ -89,8 +65,9 @@ final class LLMService: LLMServicing {
         case .ollamaLocal(let endpoint):
             return OllamaProvider(endpoint: endpoint)
         case .chatGPTClaude:
-            print("⚠️ [LLMService] Received deprecated ChatGPT/Claude provider after migration. Falling back to Gemini Direct.")
-            return makeGeminiProvider()
+            let preferredTool = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "codex"
+            let tool: ChatCLITool = (preferredTool == "claude") ? .claude : .codex
+            return ChatCLIProvider(tool: tool)
         }
     }
     
