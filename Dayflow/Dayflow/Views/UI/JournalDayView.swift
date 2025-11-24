@@ -26,34 +26,38 @@ struct JournalDayView: View {
     }
 
     var body: some View {
-        GeometryReader { _ in
-            ZStack(alignment: .bottomTrailing) {
-                VStack(spacing: 10) {
-                    toolbar
+        // Main container
+        ZStack(alignment: .bottomTrailing) {
+            VStack(spacing: 10) {
+                toolbar
 
-                    Text(summary.headline)
-                        .font(.custom("InstrumentSerif-Regular", size: 36))
-                        .foregroundStyle(JournalDayTokens.primaryText)
+                Text(summary.headline)
+                    .font(.custom("InstrumentSerif-Regular", size: 36))
+                    .foregroundStyle(JournalDayTokens.primaryText)
 
-                    contentForFlowState
+                // Main content area
+                contentForFlowState
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-                    Spacer(minLength: 0)
-                }
-                .padding(.top, 10)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 10)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 10)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-                Button("Next state: \(flowState.next.label)") {
+            // Debug/Demo state switcher
+            Button("Next state: \(flowState.next.label)") {
+                withAnimation {
                     flowState = flowState.next
                 }
-                .font(.custom("Nunito-SemiBold", size: 12))
-                .padding(10)
-                .background(Color.white.opacity(0.8))
-                .cornerRadius(12)
-                .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 1)
-                .padding(14)
             }
+            .font(.custom("Nunito-SemiBold", size: 12))
+            .padding(10)
+            .background(Color.white.opacity(0.8))
+            .cornerRadius(12)
+            .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 1)
+            .padding(14)
         }
     }
 
@@ -74,35 +78,64 @@ struct JournalDayView: View {
                 onCancel: { flowState = .intro },
                 onSave: {
                     entry.normalizeLists()
-                    flowState = .boardPending
+                    flowState = .reflectionPrompt
                 }
             )
-        case .boardPending:
-            BoardViewLeftIntentionsRightSummary(
+        case .reflectionPrompt:
+            JournalBoardLayout(
                 intentions: entry.intentionsList,
                 notes: entry.notesText,
-                goals: entry.goalsList,
-                summary: "Summarizing your day recorded on your timeline…",
-                reflections: entry.reflectionsText.isEmpty ? nil : entry.reflectionsText,
-                showSummarizeButton: true,
-                onSummarize: {
-                    // Simulate Dayflow summary generation
-                    if entry.summaryText.isEmpty {
-                        entry.summaryText = JournalDaySummary.placeholderSummaryText
+                goals: entry.goalsList
+            ) {
+                ReflectionPromptCard {
+                    flowState = .reflectionEdit
+                }
+            }
+        case .reflectionEdit:
+            JournalBoardLayout(
+                intentions: entry.intentionsList,
+                notes: entry.notesText,
+                goals: entry.goalsList
+            ) {
+                ReflectionEditorCard(
+                    text: $entry.reflectionsText,
+                    onSave: {
+                        entry.reflectionsText = entry.reflectionsText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        flowState = .reflectionSaved
+                    },
+                    onSkip: {
+                        entry.reflectionsText = ""
+                        flowState = .reflectionSaved
                     }
-                    flowState = .boardComplete
-                }
-            )
-        case .boardComplete:
-            BoardViewLeftIntentionsRightSummary(
+                )
+            }
+        case .reflectionSaved:
+            JournalBoardLayout(
                 intentions: entry.intentionsList,
                 notes: entry.notesText,
-                goals: entry.goalsList,
-                summary: entry.summaryText.isEmpty ? nil : entry.summaryText,
-                reflections: entry.reflectionsText.isEmpty ? nil : entry.reflectionsText,
-                showSummarizeButton: false,
-                onSummarize: {}
-            )
+                goals: entry.goalsList
+            ) {
+                ReflectionSavedCard(
+                    reflections: entry.reflectionsText,
+                    onSummarize: {
+                        if entry.summaryText.isEmpty {
+                            entry.summaryText = JournalDaySummary.placeholderSummaryText
+                        }
+                        flowState = .boardComplete
+                    }
+                )
+            }
+        case .boardComplete:
+            JournalBoardLayout(
+                intentions: entry.intentionsList,
+                notes: entry.notesText,
+                goals: entry.goalsList
+            ) {
+                SummaryCard(
+                    summary: entry.summaryText.isEmpty ? JournalDaySummary.placeholderSummaryText : entry.summaryText,
+                    reflections: entry.reflectionsText.isEmpty ? nil : entry.reflectionsText
+                )
+            }
         }
     }
 
@@ -138,33 +171,602 @@ struct JournalDayView: View {
                             .font(.custom("Nunito-SemiBold", size: 12))
                             .foregroundStyle(JournalDayTokens.reminderText)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(
-                        LinearGradient(
-                            stops: [
-                                .init(color: Color.white.opacity(0.2), location: 0.00),
-                                .init(color: Color(red: 1, green: 0.91, blue: 0.79), location: 1.00),
-                            ],
-                            startPoint: .init(x: 0.5, y: 0),
-                            endPoint: .init(x: 0.5, y: 1)
-                        )
-                    )
-                    .cornerRadius(100)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 100)
-                            .inset(by: 0.5)
-                            .stroke(Color(red: 1, green: 0.79, blue: 0.62), lineWidth: 1)
-                    )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(JournalPillButtonStyle(horizontalPadding: 12, verticalPadding: 6, font: .custom("Nunito-SemiBold", size: 12)))
                 .padding(.trailing, 20)
             }
         }
     }
 }
 
-// MARK: - Figma Specific Toolbar Components
+// MARK: - Reusable Modern Text Editor
+
+private struct JournalTextEditor: View {
+    @Binding var text: String
+    var placeholder: String
+    var minLines: Int = 3
+    
+    // 1. Define the font and padding constants once so the math matches perfectly
+    private let font = NSFont(name: "Nunito-Regular", size: 15) ?? .systemFont(ofSize: 15)
+    private let verticalInset: CGFloat = 4 // Matches MacTextView.textContainerInset
+    
+    // Initialize with a calculated default so it doesn't jump on load
+    @State private var height: CGFloat = 0
+    
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            // Placeholder
+            if text.isEmpty {
+                Text(placeholder)
+                    .font(.custom("Nunito-Regular", size: 15))
+                    .foregroundStyle(JournalDayTokens.bodyText.opacity(0.45))
+                    .padding(.top, verticalInset)
+                    // 2. Adjust placeholder to match cursor position (LineFragmentPadding is 4 inside MacTextView)
+                    .padding(.leading, 4)
+                    .allowsHitTesting(false)
+            }
+            
+            MacTextView(
+                text: $text,
+                height: $height,
+                minLines: minLines,
+                font: font
+            )
+            // 3. FIX: Use calculated height instead of hardcoded * 22
+            .frame(height: max(height, calculateMinHeight()))
+        }
+        .padding(.vertical, 2)
+        // 4. FIX: Removed .padding(.horizontal, 4) to shift the box left
+        // We keep trailing padding if you want the right edge to stay indented,
+        // or remove it entirely to widen the box.
+        .padding(.horizontal, 2)
+    }
+    
+    // Calculates the exact height 3 lines of this specific font will take up
+    private func calculateMinHeight() -> CGFloat {
+        // Get the real line height (Ascender + Descender + Leading)
+        // For Nunito 15, this is usually around 20.5pt, not 22pt.
+        guard let layoutManager = NSLayoutManager() as? NSLayoutManager else {
+            return CGFloat(minLines * 22) // Fallback if something weird happens
+        }
+        let lineHeight = layoutManager.defaultLineHeight(for: font)
+        
+        // (LineHeight * Lines) + (Top Padding + Bottom Padding)
+        return (lineHeight * CGFloat(minLines)) + (verticalInset * 2)
+    }
+}
+
+// MARK: - The AppKit Wrapper (Fixes Enter Key & Layout Loops & Clicks)
+
+private struct MacTextView: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var height: CGFloat
+    var minLines: Int
+    var font: NSFont
+    
+    func makeCoordinator() -> Coordinator {
+        return Coordinator(parent: self)
+    }
+    
+    func makeNSView(context: Context) -> JournalClickableTextView {
+        let textView = JournalClickableTextView()
+        textView.delegate = context.coordinator
+        
+        // Appearance
+        textView.font = font
+        textView.textColor = NSColor(red: 0.18, green: 0.11, blue: 0.06, alpha: 1.0)
+        textView.drawsBackground = false
+        textView.isRichText = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        
+        // Layout Config
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        
+        // Padding/Insets
+        textView.textContainerInset = NSSize(width: 0, height: 4)
+        
+        if let container = textView.textContainer {
+            container.lineFragmentPadding = 4
+            container.widthTracksTextView = true
+            // Initialize with a massive height so it doesn't feel cramped immediately
+            container.containerSize = NSSize(width: textView.bounds.width, height: .greatestFiniteMagnitude)
+        }
+        
+        textView.selectedTextAttributes = [
+            .backgroundColor: NSColor(red: 1.0, green: 0.93, blue: 0.82, alpha: 1.0),
+            .foregroundColor: NSColor(red: 0.18, green: 0.11, blue: 0.06, alpha: 1.0)
+        ]
+        
+        return textView
+    }
+    
+    func updateNSView(_ nsView: JournalClickableTextView, context: Context) {
+        // FIX 2: Handle Cursor Jump on Enter
+        // Only update if the text is actually different
+        if nsView.string != text {
+            // 1. Capture current selection
+            let selectedRange = nsView.selectedRange()
+            
+            // 2. Update text
+            nsView.string = text
+            
+            // 3. Restore selection (clamped to safety in case text length changed drastically)
+            let newLength = (text as NSString).length
+            let location = min(selectedRange.location, newLength)
+            let length = min(selectedRange.length, newLength - location)
+            
+            if location >= 0 {
+                nsView.setSelectedRange(NSRange(location: location, length: length))
+            }
+        }
+        
+        // Ensure container width is correct on update
+        if let container = nsView.textContainer, container.containerSize.width != nsView.bounds.width {
+            container.containerSize = NSSize(width: nsView.bounds.width, height: .greatestFiniteMagnitude)
+        }
+
+        // FIX 1: Layout Loops
+        // We do NOT use DispatchQueue.main.async here for height calculation during updates,
+        // as it causes the "pop" effect. We calculate immediately.
+        context.coordinator.recalculateHeight(view: nsView)
+    }
+    
+    class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: MacTextView
+        
+        init(parent: MacTextView) {
+            self.parent = parent
+        }
+        
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            
+            // Update Binding
+            parent.text = textView.string
+            
+            // Calculate height synchronously to ensure the SwiftUI frame expands *as* you type,
+            // not one frame later.
+            recalculateHeight(view: textView)
+        }
+        
+        func recalculateHeight(view: NSTextView) {
+            guard let layoutManager = view.layoutManager,
+                  let textContainer = view.textContainer else { return }
+            
+            // Force layout calculation
+            layoutManager.ensureLayout(for: textContainer)
+            
+            let usedRect = layoutManager.usedRect(for: textContainer)
+            let newHeight = usedRect.height + view.textContainerInset.height * 2
+            
+            // Only update binding if the difference is significant to avoid infinite loops
+            if abs(parent.height - newHeight) > 0.5 {
+                DispatchQueue.main.async {
+                    self.parent.height = newHeight
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Custom NSTextView Subclass (The Fix)
+
+/// A custom NSTextView that claims clicks in its empty space.
+/// This fixes the issue where clicking the "padding" area of a tall text editor
+/// (minLines > 1) would otherwise be ignored by the text system.
+private class JournalClickableTextView: NSTextView {
+    
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // 1. Ask the system who should receive the click
+        let hitView = super.hitTest(point)
+        
+        // 2. If the system found a subview (like an attachment) or self, return it.
+        if hitView != nil {
+            return hitView
+        }
+        
+        // 3. If the system returned nil, but the click is physically inside our bounds,
+        // force return 'self'. This happens when clicking the empty space below the text.
+        // NSTextView will then handle the mouseDown and place the cursor at the end.
+        if self.bounds.contains(point) {
+            return self
+        }
+        
+        return nil
+    }
+}
+
+// MARK: - Intentions Edit Form
+
+private struct IntentionsEditForm: View {
+    @Binding var entry: JournalEntryData
+    var onCancel: () -> Void
+    var onSave: () -> Void
+
+    private let titleLeading: CGFloat = 5
+
+    var body: some View {
+        VStack(spacing: 10) {
+            editCard
+                .frame(maxWidth: 520)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 12)
+            
+            HStack(spacing: 12) {
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(.bordered)
+
+                Button("Save", action: onSave)
+                    .buttonStyle(JournalPillButtonStyle(horizontalPadding: 22, verticalPadding: 9))
+            }
+            .frame(height: 46)
+            .padding(.horizontal, 8)
+            .padding(.bottom, 10)
+        }
+    }
+
+    private var editCard: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 5) {
+                sectionIntentions
+                sectionNotes
+                sectionGoals
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 24)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .background(
+            LinearGradient(
+                stops: [
+                    .init(color: Color.white.opacity(0.3), location: 0.00),
+                    .init(color: Color.white.opacity(0.8), location: 0.50),
+                    .init(color: Color.white.opacity(0.3), location: 1.00)
+                ],
+                startPoint: UnitPoint(x: 1, y: 0.14),
+                endPoint: UnitPoint(x: 0, y: 0.78)
+            )
+        )
+        .cornerRadius(8)
+        .shadow(color: .black.opacity(0.1), radius: 6, x: 0, y: 0)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .inset(by: 0.5)
+                .stroke(Color.white, lineWidth: 1)
+        )
+    }
+
+    private var sectionIntentions: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Today’s intentions")
+                .font(.custom("InstrumentSerif-Regular", size: 22))
+                .foregroundStyle(JournalDayTokens.sectionHeader)
+                .padding(.leading, titleLeading)
+
+            JournalTextEditor(
+                text: $entry.intentionsText,
+                placeholder: "What do you intend on doing today?\nFor example, “complete the first draft of my new article”.",
+                minLines: 3
+            )
+        }
+    }
+
+    private var sectionNotes: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Text("Notes for today")
+                    .font(.custom("InstrumentSerif-Regular", size: 22))
+                    .foregroundStyle(JournalDayTokens.sectionHeader)
+                    .padding(.leading, titleLeading)
+            }
+
+            JournalTextEditor(
+                text: $entry.notesText,
+                placeholder: "What do you want to keep in mind for today?\nFor example. “Remember to take breaks,” or “don’t scroll on the phone too much”.",
+                minLines: 3
+            )
+        }
+    }
+
+    private var sectionGoals: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Text("Long term goals")
+                    .font(.custom("InstrumentSerif-Regular", size: 22))
+                    .foregroundStyle(JournalDayTokens.sectionHeader)
+                    .padding(.leading, titleLeading)
+            }
+
+            JournalTextEditor(
+                text: $entry.goalsText,
+                placeholder: "What are you working towards? Dayflow helps keep track of your long term goals for easy reference and edit any time.",
+                minLines: 3
+            )
+        }
+    }
+}
+
+// MARK: - Reflection Prompt & Edit
+
+private struct ReflectionPromptCard: View {
+    var onReflect: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Today’s reflections")
+                .font(.custom("InstrumentSerif-Regular", size: 22))
+                .foregroundStyle(JournalDayTokens.sectionHeader.opacity(0.4))
+
+            Text("Return near the end of your day to reflect on your intentions. Let Dayflow generate a narrative summary based on the activities on your Timeline.")
+                .font(.custom("Nunito-Regular", size: 15))
+                .foregroundStyle(JournalDayTokens.bodyText.opacity(0.65))
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+
+            HStack {
+                Spacer()
+                Button("Reflect on your day", action: onReflect)
+                    .buttonStyle(JournalPillButtonStyle(horizontalPadding: 20, verticalPadding: 10))
+            }
+        }
+    }
+}
+
+private struct ReflectionEditorCard: View {
+    @Binding var text: String
+    var onSave: () -> Void
+    var onSkip: () -> Void
+
+    private var isSaveDisabled: Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Your reflections")
+                .font(.custom("InstrumentSerif-Regular", size: 22))
+                .foregroundStyle(JournalDayTokens.sectionHeader)
+
+            JournalTextEditor(
+                text: $text,
+                placeholder: "How was your day? What did you do? How do you feel?",
+                minLines: 6
+            )
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 10) {
+                Button("Save", action: onSave)
+                    .buttonStyle(JournalPillButtonStyle(horizontalPadding: 18, verticalPadding: 8))
+                    .disabled(isSaveDisabled)
+                    .opacity(isSaveDisabled ? 0.55 : 1)
+
+                Button("Skip", action: onSkip)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(JournalDayTokens.bodyText.opacity(0.6))
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+}
+
+private struct ReflectionSavedCard: View {
+    var reflections: String
+    var onSummarize: () -> Void
+
+    private var hasReflections: Bool {
+        !reflections.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Your reflections")
+                .font(.custom("InstrumentSerif-Regular", size: 22))
+                .foregroundStyle(JournalDayTokens.sectionHeader)
+
+            if hasReflections {
+                ScrollView {
+                    Text(reflections)
+                        .font(.custom("Nunito-Regular", size: 15))
+                        .foregroundStyle(JournalDayTokens.bodyText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                Text("Return near the end of your day to reflect on your intentions.")
+                    .font(.custom("Nunito-Regular", size: 15))
+                    .foregroundStyle(JournalDayTokens.bodyText.opacity(0.65))
+            }
+
+            Spacer(minLength: 0)
+
+            HStack {
+                Spacer()
+                Button("Summarize with Dayflow", action: onSummarize)
+                    .buttonStyle(JournalPillButtonStyle(horizontalPadding: 24, verticalPadding: 11))
+            }
+        }
+    }
+}
+
+private struct SummaryCard: View {
+    var summary: String?
+    var reflections: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Dayflow summary")
+                    .font(.custom("InstrumentSerif-Regular", size: 22))
+                    .foregroundStyle(JournalDayTokens.sectionHeader)
+
+                if let summary {
+                    Text(summary)
+                        .font(.custom("Nunito-Regular", size: 15))
+                        .foregroundStyle(JournalDayTokens.bodyText)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Summarizing your day recorded on your timeline…")
+                        .font(.custom("Nunito-Regular", size: 15))
+                        .foregroundStyle(JournalDayTokens.bodyText.opacity(0.65))
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Your reflections")
+                    .font(.custom("InstrumentSerif-Regular", size: 22))
+                    .foregroundStyle(JournalDayTokens.sectionHeader)
+
+                if let reflections, !reflections.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(reflections)
+                        .font(.custom("Nunito-Regular", size: 15))
+                        .foregroundStyle(JournalDayTokens.bodyText)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Return near the end of your day to reflect on your intentions.")
+                        .font(.custom("Nunito-Regular", size: 15))
+                        .foregroundStyle(JournalDayTokens.bodyText.opacity(0.65))
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+// MARK: - Layout & Utility Components
+
+private struct JournalBoardLayout<RightContent: View>: View {
+    var intentions: [String]
+    var notes: String
+    var goals: [String]
+    var rightContent: RightContent
+
+    init(intentions: [String], notes: String, goals: [String], @ViewBuilder rightContent: () -> RightContent) {
+        self.intentions = intentions
+        self.notes = notes
+        self.goals = goals
+        self.rightContent = rightContent()
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            JournalLeftCardView(intentions: intentions, notes: notes, goals: goals)
+            JournalRightCard { rightContent }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+private struct JournalLeftCardView: View {
+    var intentions: [String]
+    var notes: String
+    var goals: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            section("Today’s intentions") {
+                JournalDayBulletList(items: intentions)
+            }
+
+            section("Notes for the day") {
+                Text(notes)
+                    .font(.custom("Nunito-Regular", size: 15))
+                    .foregroundStyle(JournalDayTokens.bodyText)
+            }
+
+            Divider()
+                .foregroundStyle(JournalDayTokens.divider)
+                .overlay(JournalDayTokens.divider)
+                .padding(.vertical, 6)
+
+            section("Long term goals") {
+                JournalDayBulletList(items: goals)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            LinearGradient(
+                stops: [
+                    .init(color: Color.white.opacity(0.3), location: 0.00),
+                    .init(color: Color.white.opacity(0.8), location: 0.51),
+                    .init(color: Color.white.opacity(0.3), location: 1.00)
+                ],
+                startPoint: UnitPoint(x: 1, y: 0.14),
+                endPoint: UnitPoint(x: 0, y: 0.78)
+            )
+        )
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.1), radius: 6, x: 0, y: 0)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .inset(by: 0.5)
+                .stroke(Color.white, lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func section(_ title: String, content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.custom("InstrumentSerif-Regular", size: 20))
+                .foregroundStyle(JournalDayTokens.sectionHeader)
+            content()
+        }
+    }
+}
+
+private struct JournalRightCard<Content: View>: View {
+    var content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            content
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.white.opacity(0.92))
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.1), radius: 6, x: 0, y: 0)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.white.opacity(0.8), lineWidth: 1)
+        )
+    }
+}
+
+private struct JournalDayBulletList: View {
+    let items: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(items, id: \.self) { item in
+                HStack(alignment: .top, spacing: 8) {
+                    Circle()
+                        .fill(JournalDayTokens.bullet)
+                        .frame(width: 6, height: 6)
+                        .padding(.top, 6)
+
+                    Text(item)
+                        .font(.custom("Nunito-Regular", size: 15))
+                        .foregroundStyle(JournalDayTokens.bodyText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+}
 
 private struct JournalDayCircleButton: View {
     enum Direction { case left, right }
@@ -231,145 +833,31 @@ private struct JournalDaySegmentedControl: View {
     }
 }
 
-// MARK: - Card content
-
-private struct JournalDayCard: View {
-    let sections: [JournalDaySection]
-
-    var body: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            VStack(alignment: .leading, spacing: 22) {
-                ForEach(sections) { section in
-                    JournalDaySectionView(section: section)
-
-                    if section.showsDividerAfter {
-                        Divider()
-                            .background(JournalDayTokens.divider)
-                            .overlay(JournalDayTokens.divider)
-                            .padding(.top, 6)
-                    }
-                }
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 32)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .background(
-            LinearGradient(
-                stops: [
-                    .init(color: Color.white.opacity(0.3), location: 0.00),
-                    .init(color: Color.white.opacity(0.8), location: 0.51),
-                    .init(color: Color.white.opacity(0.3), location: 1.00)
-                ],
-                startPoint: .init(x: 1, y: 0.14),
-                endPoint: .init(x: 0, y: 0.78)
-            )
-        )
-        .cornerRadius(8)
-        .shadow(color: Color.black.opacity(0.1), radius: 6, x: 0, y: 0)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .inset(by: 0.5)
-                .stroke(Color.white, lineWidth: 1)
-        )
-    }
-}
-
-private struct JournalDaySectionView: View {
-    let section: JournalDaySection
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(section.title)
-                .font(.custom("InstrumentSerif-Regular", size: 24))
-                .foregroundStyle(JournalDayTokens.sectionHeader)
-
-            switch section.content {
-            case let .list(items):
-                JournalDayBulletList(items: items)
-            case let .text(value):
-                Text(value)
-                    .font(.custom("Nunito-Regular", size: 15))
-                    .foregroundStyle(JournalDayTokens.bodyText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-}
-
-private struct JournalDayBulletList: View {
-    let items: [String]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(items, id: \.self) { item in
-                HStack(alignment: .top, spacing: 8) {
-                    Circle()
-                        .fill(JournalDayTokens.bullet)
-                        .frame(width: 6, height: 6)
-                        .padding(.top, 6)
-
-                    Text(item)
-                        .font(.custom("Nunito-Regular", size: 15))
-                        .foregroundStyle(JournalDayTokens.bodyText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Reflect Button Style
-
-private struct ReflectCapsuleStyle: ButtonStyle {
-    // Gradient stops from Figma
-    private let strokeStops: [Gradient.Stop] = [
-        .init(color: Color(red: 1.0, green: 0.66, blue: 0.38), location: 0.08), // Orange
-        .init(color: Color(red: 0.93, green: 0.92, blue: 0.92), location: 0.22), // White/Grey
-        .init(color: Color(red: 0.76, green: 0.69, blue: 0.65), location: 0.32), // Darker Grey
-        .init(color: Color(red: 1.0, green: 0.66, blue: 0.38), location: 0.57), // Orange
-        .init(color: Color(red: 0.93, green: 0.92, blue: 0.92), location: 0.71), // White/Grey
-        .init(color: Color(red: 0.76, green: 0.69, blue: 0.65), location: 0.83)  // Darker Grey
-    ]
+private struct JournalPillButtonStyle: ButtonStyle {
+    var horizontalPadding: CGFloat = 18
+    var verticalPadding: CGFloat = 9
+    var font: Font = .custom("Nunito-SemiBold", size: 16)
 
     func makeBody(configuration: Configuration) -> some View {
-        let borderGradient = AngularGradient(
-            gradient: Gradient(stops: strokeStops),
-            center: .center,
-            startAngle: .degrees(-30),
-            endAngle: .degrees(330)
-        )
-    
         configuration.label
-            .font(.custom("Nunito-SemiBold", size: 17))
-            .foregroundColor(Color(red: 0.52, green: 0.46, blue: 0.42)) // "84766C"
-            .padding(.horizontal, 34)
-            .padding(.vertical, 13)
+            .font(font)
+            .foregroundStyle(JournalDayTokens.primaryText.opacity(0.8))
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
             .background(
-                Capsule()
-                    .fill(
-                        RadialGradient(
-                            gradient: Gradient(colors: [
-                                Color.white.opacity(0.95),
-                                Color(red: 1.0, green: 0.92, blue: 0.83).opacity(0.4)
-                            ]),
-                            center: .center,
-                            startRadius: 20,
-                            endRadius: 200
-                        )
-                    )
+                Color(red: 1, green: 0.96, blue: 0.92)
+                    .opacity(configuration.isPressed ? 0.7 : 0.6)
             )
+            .cornerRadius(100)
             .overlay(
-                Capsule()
-                    .strokeBorder(borderGradient, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 100)
+                    .inset(by: 0.5)
+                    .stroke(Color(red: 0.95, green: 0.86, blue: 0.84), lineWidth: 1)
             )
-            .shadow(color: Color(red: 0.77, green: 0.36, blue: 0.02).opacity(0.12), radius: 4, x: 0, y: 2)
             .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.85), value: configuration.isPressed)
+            .animation(.spring(response: 0.25, dampingFraction: 0.85), value: configuration.isPressed)
     }
 }
-
-// MARK: - Demo Screen Building Blocks
 
 private struct IntroView: View {
     var ctaTitle: String
@@ -392,7 +880,7 @@ private struct IntroView: View {
                 Text(ctaTitle)
                     .font(.custom("Nunito-SemiBold", size: 17))
             }
-            .buttonStyle(ReflectCapsuleStyle())
+            .buttonStyle(JournalPillButtonStyle(horizontalPadding: 28, verticalPadding: 10))
             .padding(.top, 16)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -420,375 +908,22 @@ private struct SummaryView: View {
                 Text("Set today’s intentions")
                     .font(.custom("Nunito-SemiBold", size: 17))
             }
-            .buttonStyle(ReflectCapsuleStyle())
+            .buttonStyle(JournalPillButtonStyle(horizontalPadding: 28, verticalPadding: 10))
             .padding(.top, 16)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-private struct IntentionsEditForm: View {
-    @Binding var entry: JournalEntryData
-    var onCancel: () -> Void
-    var onSave: () -> Void
-
-    private let titleLeading: CGFloat = 5
-
-    var body: some View {
-        GeometryReader { proxy in
-            let availableHeight = proxy.size.height
-            let buttonRowHeight: CGFloat = 46
-            let spacing: CGFloat = 10
-            let bottomInset: CGFloat = 10
-            let cardHeight = max(0, availableHeight - buttonRowHeight - spacing - bottomInset)
-
-            VStack(spacing: spacing) {
-                editCard(maxHeight: cardHeight)
-                    .frame(maxWidth: 520)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 12)
-
-                HStack(spacing: 12) {
-                    Button("Cancel", action: onCancel)
-                        .buttonStyle(.bordered)
-
-                    Button("Save", action: onSave)
-                        .buttonStyle(ReflectCapsuleStyle())
-                }
-                .frame(height: buttonRowHeight)
-                .padding(.horizontal, 10)
-                .padding(.bottom, bottomInset)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        }
-    }
-
-    private func editCard(maxHeight: CGFloat) -> some View {
-        ScrollView(.vertical, showsIndicators: false) {
-        VStack(alignment: .leading, spacing: 5) {
-            sectionIntentions
-            sectionNotes
-            sectionGoals
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .top)
-        .background(Color.white)
-        .cornerRadius(8)
-        .shadow(color: .black.opacity(0.1), radius: 6, x: 0, y: 0)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .inset(by: 0.5)
-                .stroke(Color.white, lineWidth: 1)
-        )
-    }
-
-    private var sectionIntentions: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Today’s intentions")
-                .font(.custom("InstrumentSerif-Regular", size: 22))
-                .foregroundStyle(JournalDayTokens.sectionHeader)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, titleLeading)
-
-            labeledEditor(
-                text: $entry.intentionsText,
-                placeholder: "What do you intend on doing today?\nFor example, “complete the first draft of my new article”.",
-                minLines: 3
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private var sectionNotes: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text("Notes for today")
-                    .font(.custom("InstrumentSerif-Regular", size: 22))
-                    .foregroundStyle(JournalDayTokens.sectionHeader)
-                    .padding(.leading, titleLeading)
-                Text("Optional")
-                    .font(.custom("Nunito-Regular", size: 10))
-                    .foregroundStyle(Color(red: 0.72, green: 0.60, blue: 0.47))
-            }
-
-            labeledEditor(
-                text: $entry.notesText,
-                placeholder: "What do you want to keep in mind for today?\nFor example. “Remember to take breaks,” or “don’t scroll on the phone too much”.",
-                minLines: 3
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private var sectionGoals: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text("Long term goals")
-                    .font(.custom("InstrumentSerif-Regular", size: 22))
-                    .foregroundStyle(JournalDayTokens.sectionHeader)
-                    .padding(.leading, titleLeading)
-                Text("Optional")
-                    .font(.custom("Nunito-Regular", size: 10))
-                    .foregroundStyle(Color(red: 0.72, green: 0.60, blue: 0.47))
-            }
-
-            labeledEditor(
-                text: $entry.goalsText,
-                placeholder: "What are you working towards? Dayflow helps keep track of your long term goals for easy reference and edit any time.",
-                minLines: 3
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func labeledEditor(text: Binding<String>, placeholder: String, minLines: Int) -> some View {
-        GrowingTextEditor(
-            text: text,
-            placeholder: placeholder,
-            font: .custom("Nunito-Regular", size: 15),
-            placeholderFont: .custom("Nunito-Regular", size: 13),
-            placeholderColor: JournalDayTokens.bodyText.opacity(0.45),
-            minLines: minLines
-        )
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-}
-
-// MARK: - Growing Text Editor
-
-private struct GrowingTextEditor: View {
-    @Binding var text: String
-    var placeholder: String
-    var font: Font
-    var placeholderFont: Font
-    var placeholderColor: Color
-    var minLines: Int = 3
-
-    @State private var measuredHeight: CGFloat = 0
-    @State private var availableWidth: CGFloat = 0
-
-    private let horizontalPadding: CGFloat = 0
-    private let verticalPadding: CGFloat = 2
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            if text.isEmpty {
-                Text(placeholder)
-                    .font(placeholderFont)
-                    .foregroundColor(placeholderColor)
-                    .padding(.vertical, verticalPadding)
-            }
-
-            TextEditor(text: $text)
-                .font(font)
-                .foregroundColor(JournalDayTokens.bodyText)
-                .scrollContentBackground(.hidden)
-                .padding(.vertical, verticalPadding)
-                .padding(.horizontal, horizontalPadding)
-                .frame(height: max(measuredHeight, minHeight))
-                .background(
-                    GeometryReader { geo in
-                        Color.clear
-                            .onAppear { availableWidth = geo.size.width }
-                            .onChange(of: geo.size.width) { newValue in
-                                availableWidth = newValue
-                            }
-                    }
-                )
-        }
-        .background(Color.clear)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.clear, lineWidth: 0)
-        )
-        .background(
-            HiddenTextMeasurer(
-                text: text.isEmpty ? placeholder : text,
-                font: font,
-                width: availableWidth - horizontalPadding * 2,
-                verticalPadding: verticalPadding,
-                minHeight: minHeight
-            ) { h in
-                measuredHeight = h
-            }
-        )
-    }
-
-    private var minHeight: CGFloat {
-        // approximate line height from font size
-        let lineHeight = 18.0
-        return CGFloat(minLines) * lineHeight + verticalPadding * 2
-    }
-}
-
-private struct HiddenTextMeasurer: View {
-    var text: String
-    var font: Font
-    var width: CGFloat
-    var verticalPadding: CGFloat
-    var minHeight: CGFloat
-    var onMeasure: (CGFloat) -> Void
-
-    var body: some View {
-        Text(text + " ")
-            .font(font)
-            .lineLimit(nil)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(width: max(0, width), alignment: .leading)
-            .padding(.vertical, verticalPadding)
-            .background(
-                GeometryReader { geo in
-                    Color.clear
-                        .onAppear { onMeasure(max(minHeight, geo.size.height)) }
-                        .onChange(of: geo.size.height) { newHeight in
-                            onMeasure(max(minHeight, newHeight))
-                        }
-                }
-            )
-            .hidden()
-    }
-}
-
-private struct BoardViewLeftIntentionsRightSummary: View {
-    var intentions: [String]
-    var notes: String
-    var goals: [String]
-    var summary: String?
-    var reflections: String?
-    var showSummarizeButton: Bool
-    var onSummarize: () -> Void
-
-    var body: some View {
-        HStack(spacing: 0) {
-            // Left card with gradient treatment
-            VStack(alignment: .leading, spacing: 18) {
-                section("Today’s intentions", content: {
-                    bulletList(intentions)
-                })
-
-                section("Notes for the day", content: {
-                    Text(notes)
-                        .font(.custom("Nunito-Regular", size: 15))
-                        .foregroundStyle(JournalDayTokens.bodyText)
-                })
-
-                section("Long term goals", content: {
-                    bulletList(goals)
-                })
-
-                Spacer(minLength: 0)
-            }
-            .padding(22)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(
-                LinearGradient(
-                    stops: [
-                        .init(color: Color.white.opacity(0.3), location: 0.00),
-                        .init(color: Color.white.opacity(0.8), location: 0.51),
-                        .init(color: Color.white.opacity(0.3), location: 1.00)
-                    ],
-                    startPoint: UnitPoint(x: 1, y: 0.14),
-                    endPoint: UnitPoint(x: 0, y: 0.78)
-                )
-            )
-            .cornerRadius(12)
-            .shadow(color: Color.black.opacity(0.1), radius: 6, x: 0, y: 0)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .inset(by: 0.5)
-                    .stroke(Color.white, lineWidth: 1)
-            )
-
-            // Right card (keep vanilla fill/shadow)
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Dayflow summary")
-                    .font(.custom("InstrumentSerif-Regular", size: 22))
-                    .foregroundStyle(JournalDayTokens.sectionHeader)
-
-                if let summary {
-                    Text(summary)
-                        .font(.custom("Nunito-Regular", size: 15))
-                        .foregroundStyle(JournalDayTokens.bodyText)
-                } else {
-                    Text("Summarizing your day recorded on your timeline…")
-                        .font(.custom("Nunito-Regular", size: 15))
-                        .foregroundStyle(JournalDayTokens.bodyText.opacity(0.7))
-                }
-
-                Text("Your reflections")
-                    .font(.custom("InstrumentSerif-Regular", size: 22))
-                    .foregroundStyle(JournalDayTokens.sectionHeader)
-
-                if let reflections {
-                    Text(reflections)
-                        .font(.custom("Nunito-Regular", size: 15))
-                        .foregroundStyle(JournalDayTokens.bodyText)
-                } else {
-                    Text("Return near the end of your day to reflect on your intentions.")
-                        .font(.custom("Nunito-Regular", size: 15))
-                        .foregroundStyle(JournalDayTokens.bodyText.opacity(0.7))
-                }
-
-                Spacer(minLength: 0)
-
-                if showSummarizeButton {
-                    HStack {
-                        Spacer()
-                        Button("Summarize with Dayflow", action: onSummarize)
-                            .buttonStyle(ReflectCapsuleStyle())
-                    }
-                }
-            }
-            .padding(22)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(Color.white.opacity(0.92))
-            .cornerRadius(12)
-            .shadow(color: Color.black.opacity(0.1), radius: 6, x: 0, y: 0)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.white.opacity(0.8), lineWidth: 1)
-            )
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
-
-    @ViewBuilder
-    private func section(_ title: String, content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.custom("InstrumentSerif-Regular", size: 20))
-                .foregroundStyle(JournalDayTokens.sectionHeader)
-            content()
-        }
-    }
-
-    @ViewBuilder
-    private func bulletList(_ items: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(items, id: \.self) { item in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Circle()
-                        .fill(JournalDayTokens.bullet)
-                        .frame(width: 6, height: 6)
-                    Text(item)
-                        .font(.custom("Nunito-Regular", size: 15))
-                        .foregroundStyle(JournalDayTokens.bodyText)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Models
+// MARK: - Models & Tokens
 
 enum JournalFlowState: CaseIterable {
     case intro
     case summary
     case intentionsEdit
-    case boardPending
+    case reflectionPrompt
+    case reflectionEdit
+    case reflectionSaved
     case boardComplete
 
     var label: String {
@@ -796,7 +931,9 @@ enum JournalFlowState: CaseIterable {
         case .intro: return "Intro"
         case .summary: return "Summary"
         case .intentionsEdit: return "Intentions"
-        case .boardPending: return "Board pending"
+        case .reflectionPrompt: return "Reflect prompt"
+        case .reflectionEdit: return "Reflect edit"
+        case .reflectionSaved: return "Reflect saved"
         case .boardComplete: return "Board complete"
         }
     }
@@ -910,20 +1047,9 @@ enum JournalDayViewPeriod: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-// MARK: - Tokens
-
 private enum JournalDayTokens {
     static let primaryText = Color(red: 0.18, green: 0.09, blue: 0.03) // "2F1607"
     static let reminderText = Color(red: 0.35, green: 0.20, blue: 0.05) // "5A320E"
-    static let reminderBackground = LinearGradient(
-        stops: [
-            .init(color: Color.white.opacity(0.2), location: 0.0),
-            .init(color: Color(red: 1, green: 0.91, blue: 0.79), location: 1.0)
-        ],
-        startPoint: .top,
-        endPoint: .bottom
-    )
-    static let reminderBorder = Color(red: 1, green: 0.79, blue: 0.62)
     
     static let cardBackground = Color.white
     static let cardStroke = Color.white.opacity(0.8)
@@ -945,7 +1071,6 @@ private enum JournalDayTokens {
     static let segmentInactiveFill = Color(red: 0.95, green: 0.94, blue: 0.93) // #F2EFEE
     static let segmentInactiveText = Color(red: 0.80, green: 0.78, blue: 0.77) // #CDC8C4
     static let segmentContainerFill = Color(red: 1.0, green: 0.976, blue: 0.953) // #FFF9F3
-    
 }
 
 struct JournalDayView_Previews: PreviewProvider {
@@ -954,5 +1079,6 @@ struct JournalDayView_Previews: PreviewProvider {
             .background(Color(red: 0.96, green: 0.94, blue: 0.92))
             .previewLayout(.sizeThatFits)
             .preferredColorScheme(.light)
+            .frame(width: 800, height: 600)
     }
 }

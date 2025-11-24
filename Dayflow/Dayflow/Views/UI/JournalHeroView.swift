@@ -136,19 +136,29 @@ private struct ReflectButton: View {
         Button(action: action) {
             Text(title)
                 .font(.custom("Nunito-SemiBold", size: 15))
-                .foregroundStyle(JournalHeroTokens.ctaText)
-                .padding(.horizontal, 34)
-                .padding(.vertical, 12)
-                .frame(minWidth: 0)
         }
-        .buttonStyle(.plain)
-        .background(JournalHeroTokens.ctaBackground)
-        .clipShape(Capsule())
-        .overlay(
-            Capsule()
-                .stroke(JournalHeroTokens.ctaStroke, lineWidth: 1)
-        )
-        .shadow(color: JournalHeroTokens.ctaShadow, radius: 16, y: 10)
+        .buttonStyle(JournalHeroPillButtonStyle())
+    }
+}
+
+private struct JournalHeroPillButtonStyle: ButtonStyle {
+    var horizontalPadding: CGFloat = 24
+    var verticalPadding: CGFloat = 10
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(Color(red: 0.18, green: 0.11, blue: 0.06).opacity(0.8))
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
+            .background(Color(red: 1, green: 0.96, blue: 0.92).opacity(configuration.isPressed ? 0.7 : 0.6))
+            .cornerRadius(100)
+            .overlay(
+                RoundedRectangle(cornerRadius: 100)
+                    .inset(by: 0.5)
+                    .stroke(Color(red: 0.95, green: 0.86, blue: 0.84), lineWidth: 1)
+            )
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .animation(.spring(response: 0.25, dampingFraction: 0.85), value: configuration.isPressed)
     }
 }
 
