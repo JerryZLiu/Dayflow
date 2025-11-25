@@ -16,6 +16,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Default is false so Cmd+Q/Dock/App menu quit will be cancelled
     // and the app will continue running in the background.
     static var allowTermination: Bool = false
+
+    // Flag set when app is opened via notification tap - skips video intro
+    static var pendingNavigationToJournal: Bool = false
     private var statusBar: StatusBarController!
     private var recorder : ScreenRecorder!
     private var analyticsSub: AnyCancellable?
@@ -134,6 +137,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Start inactivity monitoring for idle reset
         InactivityMonitor.shared.start()
+
+        // Start notification service for journal reminders
+        NotificationService.shared.start()
 
         // Observe recording state
         analyticsSub = AppState.shared.$isRecording

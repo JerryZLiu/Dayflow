@@ -126,17 +126,33 @@ struct DayflowApp: App {
                                 contentOpacity = 1.0
                                 contentScale = 1.0
                             }
-                            
+
                             // Slightly delayed video exit for overlap
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 withAnimation(.easeIn(duration: 0.2)) {
                                     showVideoLaunch = false
                                 }
                             }
+
+                            // Handle pending navigation from notification tap
+                            if AppDelegate.pendingNavigationToJournal {
+                                AppDelegate.pendingNavigationToJournal = false
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    NotificationCenter.default.post(name: .navigateToJournal, object: nil)
+                                }
+                            }
                         }
                         .opacity(showVideoLaunch ? 1 : 0)
                         .scaleEffect(showVideoLaunch ? 1 : 1.02)
                         .animation(.easeIn(duration: 0.2), value: showVideoLaunch)
+                        .onAppear {
+                            // Skip video if opening via notification tap
+                            if AppDelegate.pendingNavigationToJournal {
+                                showVideoLaunch = false
+                                contentOpacity = 1.0
+                                contentScale = 1.0
+                            }
+                        }
                 }
             }
             // Inline background behind the main app UI only
@@ -202,4 +218,5 @@ struct DayflowApp: App {
 
 extension Notification.Name {
     static let showWhatsNew = Notification.Name("showWhatsNew")
+    static let navigateToJournal = Notification.Name("navigateToJournal")
 }

@@ -407,6 +407,11 @@ struct MainView: View {
             }
         }
         .onChange(of: selectedIcon) { newIcon in
+            // Clear journal notification badge when navigating to journal
+            if newIcon == .journal {
+                NotificationBadgeManager.shared.clearBadge()
+            }
+
             // tab selected + screen viewed
             let tabName: String
             switch newIcon {
@@ -438,6 +443,12 @@ struct MainView: View {
                 AnalyticsService.shared.withSampling(probability: 0.01) {
                     AnalyticsService.shared.capture("timeline_viewed", ["date_bucket": dayString(selectedDate)])
                 }
+            }
+        }
+        // Handle navigation from journal reminder notification tap
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToJournal)) { _ in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+                selectedIcon = .journal
             }
         }
         .onChange(of: selectedDate) { newDate in
@@ -792,13 +803,15 @@ enum SidebarIcon: CaseIterable {
 
 struct SidebarView: View {
     @Binding var selectedIcon: SidebarIcon
-    
+    @ObservedObject private var badgeManager = NotificationBadgeManager.shared
+
     var body: some View {
         VStack(alignment: .center, spacing: 10.501) {
             ForEach(SidebarIcon.allCases, id: \.self) { icon in
                 SidebarIconButton(
                     icon: icon,
                     isSelected: selectedIcon == icon,
+                    showBadge: icon == .journal && badgeManager.hasPendingReminder,
                     action: { selectedIcon = icon }
                 )
                 .frame(width: 40, height: 40)
@@ -811,8 +824,9 @@ struct SidebarView: View {
 struct SidebarIconButton: View {
     let icon: SidebarIcon
     let isSelected: Bool
+    var showBadge: Bool = false
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
             ZStack {
@@ -835,6 +849,14 @@ struct SidebarIconButton: View {
                     Image(systemName: sys)
                         .font(.system(size: 18))
                         .foregroundColor(isSelected ? Color(hex: "F96E00") : Color(red: 0.6, green: 0.4, blue: 0.3))
+                }
+
+                // Badge indicator (top-right orange dot)
+                if showBadge {
+                    Circle()
+                        .fill(Color(hex: "F96E00") ?? .orange)
+                        .frame(width: 8, height: 8)
+                        .offset(x: 12, y: -12)
                 }
             }
             .frame(width: 40, height: 40)
