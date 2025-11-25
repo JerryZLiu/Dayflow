@@ -97,8 +97,8 @@ private struct ChatCLIProcessRunner {
 
     private func promptWithImageHints(prompt: String, imagePaths: [String]) -> String {
         guard !imagePaths.isEmpty else { return prompt }
-        let hints = imagePaths.map { "- \($0)" }.joined(separator: "\n")
-        return "\(prompt)\nImages:\n\(hints)"
+        let hints = imagePaths.map { "- " + $0 }.joined(separator: "\n")
+        return prompt + "\nImages:\n" + hints
     }
     private static let searchPaths: [String] = {
         let home = NSHomeDirectory()
@@ -185,9 +185,10 @@ private struct ChatCLIProcessRunner {
     private func debugCommand(tool: ChatCLITool, model: String?, executable: String, args: [String], env: [String:String]) {
         let renderedArgs = args.map { $0.contains(" ") ? "\"\($0)\"" : $0 }.joined(separator: " ")
         let header = "[ChatCLI][\(tool.rawValue)][\(model ?? "")] command"
+        // Use explicit string concatenation to avoid GRDB SQL interpolation pollution
         let envBits = ["PATH": env["PATH"], "HOME": env["HOME"], "CLLI_CONFIG_HOME": env["CLLI_CONFIG_HOME"]].compactMap { key, value in
             guard let value else { return nil }
-            return "\(key)=\(value)"
+            return key + "=" + value
         }.joined(separator: " ")
         print("\(header): \(executable) \(renderedArgs)")
         if !envBits.isEmpty {
@@ -350,7 +351,22 @@ final class ChatCLIProvider: LLMProvider {
     }
 
     func generateActivityCards(observations: [Observation], context: ActivityGenerationContext, batchId: Int64?) async throws -> (cards: [ActivityCardData], log: LLMCall) {
-        enum CardParseError: Error { case empty, decodeFailure, validationFailed(String) }
+        enum CardParseError: LocalizedError {
+            case empty(rawOutput: String)
+            case decodeFailure(rawOutput: String)
+            case validationFailed(details: String, rawOutput: String)
+
+            var errorDescription: String? {
+                switch self {
+                case .empty(let rawOutput):
+                    return "No cards returned.\n\n📄 RAW OUTPUT:\n" + rawOutput
+                case .decodeFailure(let rawOutput):
+                    return "Failed to decode cards.\n\n📄 RAW OUTPUT:\n" + rawOutput
+                case .validationFailed(let details, let rawOutput):
+                    return details + "\n\n📄 RAW OUTPUT:\n" + rawOutput
+                }
+            }
+        }
 
         let callStart = Date()
         let basePrompt = buildCardsPrompt(observations: observations, context: context)
@@ -369,14 +385,16 @@ final class ChatCLIProvider: LLMProvider {
 
         var lastError: Error?
         var lastRun: ChatCLIRunResult?
+        var lastRawOutput: String = ""
         var parsedCards: [ActivityCardData] = []
 
         for attempt in 1...4 {
             do {
                 let run = try runner.run(tool: tool, prompt: actualPromptUsed, workingDirectory: config.baseDirectory, model: model, reasoningEffort: effort)
                 lastRun = run
+                lastRawOutput = run.stdout
                 let cards = try parseCards(from: run.stdout)
-                guard !cards.isEmpty else { throw CardParseError.empty }
+                guard !cards.isEmpty else { throw CardParseError.empty(rawOutput: run.stdout) }
 
                 let normalizedCards = normalizeCards(cards, descriptors: context.categories)
                 let (coverageValid, coverageError) = validateTimeCoverage(existingCards: context.existingCards, newCards: normalizedCards)
@@ -390,48 +408,35 @@ final class ChatCLIProvider: LLMProvider {
                     return (parsedCards, llmCall)
                 }
 
+                // Validation failed - prepare retry with error feedback
                 var errorMessages: [String] = []
                 if !coverageValid, let coverageError { errorMessages.append(coverageError) }
                 if !durationValid, let durationError { errorMessages.append(durationError) }
                 let combinedError = errorMessages.joined(separator: "\n\n")
-                lastError = CardParseError.validationFailed(combinedError)
-
-                if attempt < 2 {
-                    actualPromptUsed = basePrompt + """
-
-
-PREVIOUS ATTEMPT FAILED - CRITICAL REQUIREMENTS NOT MET:
-
-\(combinedError)
-
-Please fix these issues and ensure your output meets all requirements.
-"""
-                    print("[ChatCLI] generate_cards validation failed (attempt \(attempt)): \(combinedError)")
-                    continue
-                }
+                lastError = CardParseError.validationFailed(details: combinedError, rawOutput: run.stdout)
+                actualPromptUsed = basePrompt + "\n\nPREVIOUS ATTEMPT FAILED - CRITICAL REQUIREMENTS NOT MET:\n\n" + combinedError + "\n\nPlease fix these issues and ensure your output meets all requirements."
+                print("[ChatCLI] generate_cards validation failed (attempt " + String(attempt) + "): " + combinedError)
             } catch {
                 lastError = error
-                if attempt < 2 {
-                    print("[ChatCLI] generate_cards attempt \(attempt) failed: \(error.localizedDescription) — retrying")
-                    actualPromptUsed = basePrompt
-                    continue
-                }
+                print("[ChatCLI] generate_cards attempt " + String(attempt) + " failed: " + error.localizedDescription + " — retrying")
+                actualPromptUsed = basePrompt
             }
-            break
         }
 
         let finishedAt = lastRun?.finishedAt ?? Date()
-        logFailure(ctx: makeCtx(batchId: batchId, operation: "generate_cards", startedAt: callStart), finishedAt: finishedAt, error: lastError ?? CardParseError.decodeFailure)
-        throw lastError ?? CardParseError.decodeFailure
+        let finalError = lastError ?? CardParseError.decodeFailure(rawOutput: lastRawOutput)
+        logFailure(ctx: makeCtx(batchId: batchId, operation: "generate_cards", startedAt: callStart), finishedAt: finishedAt, error: finalError)
+        throw finalError
     }
 
     // MARK: - Prompt builders
 
     private func buildCardsPrompt(observations: [Observation], context: ActivityGenerationContext) -> String {
+        // Use explicit string concatenation to avoid GRDB SQL interpolation pollution
         let transcriptText = observations.map { obs in
             let startTime = formatTimestampForPrompt(obs.startTs)
             let endTime = formatTimestampForPrompt(obs.endTs)
-            return "[\(startTime) - \(endTime)]: \(obs.observation)"
+            return "[" + startTime + " - " + endTime + "]: " + obs.observation
         }.joined(separator: "\n")
 
         let encoder = JSONEncoder()
@@ -440,10 +445,13 @@ Please fix these issues and ensure your output meets all requirements.
         let existingCardsJSON = existingCardsData.flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
         let promptSections = GeminiPromptSections(overrides: GeminiPromptPreferences.load())
 
+        // Build prompt with explicit concatenation to avoid GRDB SQL interpolation pollution
+        let categoriesSectionText = categoriesSection(from: context.categories)
+
         return """
         You are a digital anthropologist, observing a user's raw activity log. Your goal is to synthesize this log into a high-level, human-readable story of their session, presented as a series of timeline cards.
         THE GOLDEN RULE:
-            Create cards that narrate one cohesive session, aiming for 15–60 minutes. Keep every card ≥10 minutes, split up any cards that are >60 minutes, and if a prospective card would be <10 minutes, merge it into the neighboring card that preserves the best story.
+            Create cards that narrate one cohesive session, aiming for 15–60 minutes. Keep every card ≥10 minutes, split up any cards that are >60 minutes, and if a prospective card would be <10 minutes, merge it into the neighboring card that preserves the best story. never do cards longer than an hour.
 
             CONTINUITY RULE:
             You may adjust boundaries for clarity, but never introduce new gaps or overlaps. Preserve any original gaps in the source timeline and keep adjacent covered spans meeting cleanly.
@@ -451,13 +459,17 @@ Please fix these issues and ensure your output meets all requirements.
             CORE DIRECTIVES:
             - Theme Test Before Extending: Extend the current card only when the new observations continue the same dominant activity. Shifts shorter than 10 minutes should be logged as distractions or merged into the adjacent segment that keeps the theme coherent; shifts ≥10 minutes become new cards.
 
-        \(promptSections.title)
+        """ + promptSections.title + """
 
-        \(promptSections.summary)
 
-        \(categoriesSection(from: context.categories))
+        """ + promptSections.summary + """
 
-        \(promptSections.detailedSummary)
+
+        """ + categoriesSectionText + """
+
+
+        """ + promptSections.detailedSummary + """
+
 
         APP SITES (Website Logos)
         Identify the main app or website used for each card and include an appSites object.
@@ -498,7 +510,7 @@ Please fix these issues and ensure your output meets all requirements.
         INPUTS:
         Previous cards: \(existingCardsJSON)
         New observations: \(transcriptText)
-        Return ONLY a JSON array with this EXACT structure:
+        Return ONLY a JSON array with this EXACT structure. Output must be raw JSON—no code fences, markdown, or extra commentary. Do not prefix with ```json or similar:
 
                 [
                   {
@@ -587,6 +599,42 @@ Please fix these issues and ensure your output meets all requirements.
         // Strategy 2: top-level array of cards (Gemini-style)
         if let arrayCards = try? decoder.decode([ActivityCardData].self, from: data) {
             return arrayCards
+        }
+
+        // Strategy 3: Claude often wraps valid JSON in code fences or adds prefix/suffix text.
+        // As a last resort, grab the substring between the first '[' and the last ']' and try again.
+        if let firstBracket = output.firstIndex(of: "["),
+           let lastBracket = output.lastIndex(of: "]"),
+           firstBracket < lastBracket {
+            let sliced = String(output[firstBracket...lastBracket])
+                .replacingOccurrences(of: "```json", with: "")
+                .replacingOccurrences(of: "```", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if let slicedData = sliced.data(using: .utf8) {
+                if let envelope = try? decoder.decode(ChatCLICardsEnvelope.self, from: slicedData) {
+                    let cards: [ActivityCardData?] = envelope.cards.map { item in
+                        guard let start = item.normalizedStart, let end = item.normalizedEnd else { return nil }
+                        return ActivityCardData(
+                            startTime: start,
+                            endTime: end,
+                            category: item.category,
+                            subcategory: item.subcategory,
+                            title: item.title,
+                            summary: item.summary,
+                            detailedSummary: item.detailedSummary ?? item.summary,
+                            distractions: item.distractions,
+                            appSites: item.appSites
+                        )
+                    }
+                    let filtered = cards.compactMap { $0 }
+                    if !filtered.isEmpty { return filtered }
+                }
+
+                if let arrayCards = try? decoder.decode([ActivityCardData].self, from: slicedData) {
+                    return arrayCards
+                }
+            }
         }
 
         throw NSError(domain: "ChatCLI", code: -32, userInfo: [NSLocalizedDescriptionKey: "Failed to decode activity cards"])
@@ -753,18 +801,15 @@ Please fix these issues and ensure your output meets all requirements.
         guard !frames.isEmpty else { return ([], nil) }
 
         let durationString = formatSeconds(videoDuration)
-        let lines = frames.map { "- \(formatSeconds($0.timestamp)): \($0.description)" }.joined(separator: "\n")
-        let prompt = """
-        You are given timestamped screen descriptions from a video (\(durationString)).
-        Produce 2-5 segments that cover the video. Respond ONLY with JSON:
-        {"segments":[{"start":"HH:MM:SS","end":"HH:MM:SS","description":"..."}]}
-        Rules:
-        - Segments must be in order, non-overlapping, within 00:00:00-\(durationString).
-        - Cover at least 80% of the timeline; merge short gaps.
-        - No text outside the JSON.
-        Snapshots:
-        \(lines)
-        """
+        let lines = frames.map { "- " + formatSeconds($0.timestamp) + ": " + $0.description }.joined(separator: "\n")
+        let prompt = "You are given timestamped screen descriptions from a video (" + durationString + ").\n" +
+            "Produce 2-5 segments that cover the video. Respond ONLY with JSON:\n" +
+            "{\"segments\":[{\"start\":\"HH:MM:SS\",\"end\":\"HH:MM:SS\",\"description\":\"...\"}]}\n" +
+            "Rules:\n" +
+            "- Segments must be in order, non-overlapping, within 00:00:00-" + durationString + ".\n" +
+            "- Cover at least 80% of the timeline; merge short gaps.\n" +
+            "- No text outside the JSON.\n" +
+            "Snapshots:\n" + lines
 
         let model: String
         let effort: String?
@@ -883,7 +928,8 @@ Please fix these issues and ensure your output meets all requirements.
             return "USER CATEGORIES: No categories configured. Use consistent labels based on the activity story."
         }
 
-        let allowed = descriptors.map { "\"\($0.name)\"" }.joined(separator: ", ")
+        // Use explicit string concatenation to avoid GRDB SQL interpolation pollution
+        let allowed = descriptors.map { "\"" + $0.name + "\"" }.joined(separator: ", ")
         var lines: [String] = ["USER CATEGORIES (choose exactly one label):"]
 
         for (index, descriptor) in descriptors.enumerated() {
@@ -891,15 +937,15 @@ Please fix these issues and ensure your output meets all requirements.
             if descriptor.isIdle && desc.isEmpty {
                 desc = "Use when the user is idle for most of this period."
             }
-            let suffix = desc.isEmpty ? "" : " — \(desc)"
-            lines.append("\(index + 1). \"\(descriptor.name)\"\(suffix)")
+            let suffix = desc.isEmpty ? "" : " — " + desc
+            lines.append(String(index + 1) + ". \"" + descriptor.name + "\"" + suffix)
         }
 
         if let idle = descriptors.first(where: { $0.isIdle }) {
-            lines.append("Only use \"\(idle.name)\" when the user is idle for more than half of the timeframe. Otherwise pick the closest non-idle label.")
+            lines.append("Only use \"" + idle.name + "\" when the user is idle for more than half of the timeframe. Otherwise pick the closest non-idle label.")
         }
 
-        lines.append("Return the category exactly as written. Allowed values: [\(allowed)].")
+        lines.append("Return the category exactly as written. Allowed values: [" + allowed + "].")
         return lines.joined(separator: "\n")
     }
 
@@ -1036,20 +1082,20 @@ Please fix these issues and ensure your output meets all requirements.
                 if duration > flexibility {
                     let startTime = minutesToTimeString(segment.start)
                     let endTime = minutesToTimeString(segment.end)
-                    uncoveredDesc.append("\(startTime)-\(endTime) (\(Int(duration)) min)")
+                    uncoveredDesc.append(startTime + "-" + endTime + " (" + String(Int(duration)) + " min)")
                 }
             }
 
             if !uncoveredDesc.isEmpty {
                 let missing = uncoveredDesc.joined(separator: ", ")
-                var errorMsg = "Missing coverage for time segments: \(missing)"
+                var errorMsg = "Missing coverage for time segments: " + missing
                 errorMsg += "\n\n📥 INPUT CARDS:"
                 for (i, card) in existingCards.enumerated() {
-                    errorMsg += "\n  \(i+1). \(card.startTime) - \(card.endTime): \(card.title)"
+                    errorMsg += "\n  " + String(i + 1) + ". " + card.startTime + " - " + card.endTime + ": " + card.title
                 }
                 errorMsg += "\n\n📤 OUTPUT CARDS:"
                 for (i, card) in newCards.enumerated() {
-                    errorMsg += "\n  \(i+1). \(card.startTime) - \(card.endTime): \(card.title)"
+                    errorMsg += "\n  " + String(i + 1) + ". " + card.startTime + " - " + card.endTime + ": " + card.title
                 }
                 return (false, errorMsg)
             }
