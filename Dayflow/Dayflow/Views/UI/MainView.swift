@@ -31,6 +31,10 @@ struct MainView: View {
     @State private var sidebarOffset: CGFloat = -30
     @State private var sidebarOpacity: Double = 0
     @State private var contentOpacity: Double = 0
+
+    // Hero animation for video expansion (Emil Kowalski: shared element transitions)
+    @Namespace private var videoHeroNamespace
+    @StateObject private var videoExpansionState = VideoExpansionState()
     
     // Track if we've performed the initial scroll to current time
     @State private var didInitialScroll = false
@@ -249,7 +253,9 @@ struct MainView: View {
                                         },
                                         onNavigateToCategoryEditor: {
                                             showCategoryEditor = true
-                                        }
+                                        },
+                                        videoNamespace: videoHeroNamespace,
+                                        videoExpansionState: videoExpansionState
                                     )
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                                     .animation(
@@ -334,6 +340,13 @@ struct MainView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.clear)
         .ignoresSafeArea()
+        // Hero animation overlay for video expansion (Emil Kowalski: shared element transitions)
+        .overlay {
+            VideoExpansionOverlay(
+                expansionState: videoExpansionState,
+                namespace: videoHeroNamespace
+            )
+        }
         .sheet(isPresented: $showDatePicker) {
             DatePickerSheet(
                 selectedDate: Binding(
@@ -1156,6 +1169,9 @@ struct ActivityCard: View {
     var hasAnyActivities: Bool = true
     var onCategoryChange: ((TimelineCategory, TimelineActivity) -> Void)? = nil
     var onNavigateToCategoryEditor: (() -> Void)? = nil
+    // Hero animation for video expansion
+    var videoNamespace: Namespace.ID? = nil
+    var videoExpansionState: VideoExpansionState? = nil
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var categoryStore: CategoryStore
 
@@ -1350,12 +1366,15 @@ struct ActivityCard: View {
             }
 
             // Video thumbnail (render only when available)
+            // Uses hero animation for smooth expansion (Emil Kowalski: shared element transitions)
             if let videoURL = activity.videoSummaryURL {
                 VideoThumbnailView(
                     videoURL: videoURL,
                     title: activity.title,
                     startTime: activity.startTime,
-                    endTime: activity.endTime
+                    endTime: activity.endTime,
+                    namespace: videoNamespace,
+                    expansionState: videoExpansionState
                 )
                     .id(videoURL)
                     .frame(height: 200)
