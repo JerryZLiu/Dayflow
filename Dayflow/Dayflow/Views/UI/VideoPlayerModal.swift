@@ -9,11 +9,346 @@ import SwiftUI
 import AVKit
 import AppKit
 
+// MARK: - Hero Animation State (Emil Kowalski: shared element transitions)
+
+/// Manages the hero animation state for video thumbnail-to-modal expansion
+final class VideoExpansionState: ObservableObject {
+    @Published var isExpanded: Bool = false
+    @Published var videoURL: String = ""
+    @Published var title: String? = nil
+    @Published var startTime: Date? = nil
+    @Published var endTime: Date? = nil
+    @Published var thumbnailFrame: CGRect = .zero
+    @Published var containerSize: CGSize = .zero
+
+    // Animation phase tracking for choreographed entrance
+    @Published var animationPhase: AnimationPhase = .collapsed
+
+    enum AnimationPhase {
+        case collapsed      // Thumbnail at rest
+        case lifting        // Thumbnail lifts (scale up, shadow)
+        case flying         // Moving to center, expanding
+        case expanded       // Fully open
+        case collapsing     // Reverse animation
+    }
+
+    func expand(
+        videoURL: String,
+        title: String?,
+        startTime: Date?,
+        endTime: Date?,
+        thumbnailFrame: CGRect,
+        containerSize: CGSize
+    ) {
+        self.videoURL = videoURL
+        self.title = title
+        self.startTime = startTime
+        self.endTime = endTime
+        self.thumbnailFrame = thumbnailFrame
+        self.containerSize = containerSize
+
+        // Immediate expansion with spring animation - no delays
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            self.isExpanded = true
+            self.animationPhase = .expanded
+        }
+    }
+
+    func collapse() {
+        // Instant close - no animation per user preference
+        self.animationPhase = .collapsed
+        self.isExpanded = false
+        self.videoURL = ""
+        self.title = nil
+        self.startTime = nil
+        self.endTime = nil
+    }
+}
+
+// MARK: - Video Expansion Overlay (Hero Animation Modal)
+
+struct VideoExpansionOverlay: View {
+    @ObservedObject var expansionState: VideoExpansionState
+    let namespace: Namespace.ID
+    @StateObject private var viewModel = VideoPlayerViewModel()
+    @State private var keyMonitor: Any?
+    @State private var didStartPlay = false
+
+    private var isVisible: Bool {
+        expansionState.isExpanded || expansionState.animationPhase == .collapsing
+    }
+
+    var body: some View {
+        if isVisible {
+            ZStack {
+                // Scrim/backdrop
+                Color.black
+                    .opacity(scrimOpacity)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        closeModal()
+                    }
+
+                // Modal content
+                modalContent
+            }
+            .onAppear {
+                setupPlayer()
+                setupKeyMonitor()
+                AnalyticsService.shared.capture("video_modal_opened", [
+                    "source": expansionState.title != nil ? "hero_animation" : "unknown",
+                    "animation_type": "hero"
+                ])
+            }
+            .onDisappear {
+                cleanupPlayer()
+                removeKeyMonitor()
+            }
+        }
+    }
+
+    private var scrimOpacity: Double {
+        switch expansionState.animationPhase {
+        case .collapsed: return 0
+        case .lifting: return 0.1
+        case .flying: return 0.5
+        case .expanded: return 0.7
+        case .collapsing: return 0
+        }
+    }
+
+    @ViewBuilder
+    private var modalContent: some View {
+        let targetWidth = (expansionState.containerSize.width) * 0.9
+        let targetHeight = (expansionState.containerSize.height) * 0.9
+
+        VStack(spacing: 0) {
+            // Header (fades in during expansion)
+            if expansionState.title != nil || (expansionState.startTime != nil && expansionState.endTime != nil) {
+                headerView
+                    .opacity(headerOpacity)
+                    .offset(y: headerOffset)
+            }
+
+            // Video area with matched geometry
+            GeometryReader { geo in
+                let a = max(0.1, viewModel.videoAspect)
+                let h = geo.size.height
+                let wFitHeight = h * a
+                let fitsWidth = wFitHeight <= geo.size.width
+                let vw = fitsWidth ? wFitHeight : geo.size.width
+                let vh = fitsWidth ? h : (geo.size.width / a)
+
+                ZStack {
+                    Color.white
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        videoPlayerView(width: vw, height: vh)
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { viewModel.togglePlayPause() }
+                }
+            }
+            .matchedGeometryEffect(id: "heroVideo_\(expansionState.videoURL)", in: namespace)
+
+            // Scrubber (slides up during expansion)
+            scrubberView
+                .opacity(scrubberOpacity)
+                .offset(y: scrubberOffset)
+        }
+        .frame(width: targetWidth, height: targetHeight)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.white)
+                .shadow(color: .black.opacity(0.25), radius: 30, x: 0, y: 10)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var headerView: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 4) {
+                if let title = expansionState.title {
+                    Text(title)
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                }
+                if let startTime = expansionState.startTime, let endTime = expansionState.endTime {
+                    Text("\(timeFormatter.string(from: startTime)) to \(timeFormatter.string(from: endTime))")
+                        .font(.caption)
+                        .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
+                }
+            }
+            Spacer()
+            Button(action: { closeModal() }) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(Color.black.opacity(0.5))
+            }
+            .buttonStyle(ScaleButtonStyle())
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color.white)
+        .overlay(
+            Rectangle().stroke(Color.gray.opacity(0.25), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func videoPlayerView(width: CGFloat, height: CGFloat) -> some View {
+        ZStack {
+            if viewModel.player != nil {
+                WhiteBGVideoPlayer(player: viewModel.player)
+                    .disabled(true)
+            } else {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .gray))
+            }
+
+            // Play button overlay
+            if !viewModel.isPlaying {
+                Button(action: { viewModel.togglePlayPause() }) {
+                    ZStack {
+                        Circle()
+                            .strokeBorder(Color.white.opacity(0.9), lineWidth: 2)
+                            .frame(width: 64, height: 64)
+                            .background(Circle().fill(Color.black.opacity(0.35)))
+                        Image(systemName: "play.fill")
+                            .foregroundColor(.white)
+                            .font(.system(size: 24, weight: .bold))
+                    }
+                }
+                .buttonStyle(ScaleButtonStyle())
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .frame(width: width, height: height)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.isPlaying)
+    }
+
+    @ViewBuilder
+    private var scrubberView: some View {
+        VStack(spacing: 12) {
+            if let url = scrubberURL {
+                ScrubberView(
+                    url: url,
+                    duration: max(0.001, viewModel.duration),
+                    currentTime: viewModel.currentTime,
+                    onSeek: { t in viewModel.seek(to: t) },
+                    onScrubStateChange: { dragging in viewModel.isDragging = dragging },
+                    absoluteStart: expansionState.startTime,
+                    absoluteEnd: expansionState.endTime
+                )
+                .padding(.horizontal)
+                .padding(.bottom, 12)
+            }
+        }
+        .background(Color.white)
+    }
+
+    // Animation helpers
+    private var headerOpacity: Double {
+        switch expansionState.animationPhase {
+        case .collapsed, .lifting, .collapsing: return 0
+        case .flying: return 0.5
+        case .expanded: return 1
+        }
+    }
+
+    private var headerOffset: CGFloat {
+        switch expansionState.animationPhase {
+        case .collapsed, .lifting, .collapsing: return -10
+        case .flying: return -5
+        case .expanded: return 0
+        }
+    }
+
+    private var scrubberOpacity: Double {
+        switch expansionState.animationPhase {
+        case .collapsed, .lifting, .collapsing: return 0
+        case .flying: return 0.3
+        case .expanded: return 1
+        }
+    }
+
+    private var scrubberOffset: CGFloat {
+        switch expansionState.animationPhase {
+        case .collapsed, .lifting, .collapsing: return 20
+        case .flying: return 10
+        case .expanded: return 0
+        }
+    }
+
+    // Player setup
+    private func setupPlayer() {
+        let processedURL = expansionState.videoURL.hasPrefix("file://") ? expansionState.videoURL : "file://" + expansionState.videoURL
+        guard let url = URL(string: processedURL) else { return }
+        if url.isFileURL {
+            let path = url.path
+            guard FileManager.default.fileExists(atPath: path) else { return }
+        }
+        viewModel.setupPlayer(url: url)
+    }
+
+    private var scrubberURL: URL? {
+        let processedURL = expansionState.videoURL.hasPrefix("file://") ? expansionState.videoURL : "file://" + expansionState.videoURL
+        return URL(string: processedURL)
+    }
+
+    private func cleanupPlayer() {
+        viewModel.cleanup()
+    }
+
+    private func setupKeyMonitor() {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if let responder = NSApp.keyWindow?.firstResponder {
+                if responder is NSTextField || responder is NSTextView || responder is NSText {
+                    return event
+                }
+            }
+
+            // Space to toggle play/pause
+            if event.keyCode == 49 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
+                viewModel.togglePlayPause()
+                return nil
+            }
+
+            // Escape to close
+            if event.keyCode == 53 {
+                closeModal()
+                return nil
+            }
+
+            return event
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
+        }
+    }
+
+    private func closeModal() {
+        expansionState.collapse()
+    }
+
+    private var timeFormatter: DateFormatter {
+        let f = DateFormatter()
+        f.dateFormat = "h:mm a"
+        return f
+    }
+}
+
 struct ScaleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-            .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
+            // Spring animation for more natural button feel (Emil Kowalski principle)
+            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
 
@@ -241,7 +576,7 @@ struct VideoPlayerModal: View {
                                     .progressViewStyle(CircularProgressViewStyle(tint: .gray))
                             }
 
-                            // Center play/pause overlay relative to video frame
+                            // Center play/pause overlay with animated entrance (Emil Kowalski: purposeful transitions)
                             if !viewModel.isPlaying {
                                 Button(action: { viewModel.togglePlayPause() }) {
                                     ZStack {
@@ -254,12 +589,19 @@ struct VideoPlayerModal: View {
                                             .font(.system(size: 24, weight: .bold))
                                     }
                                 }
-                                .buttonStyle(PlainButtonStyle())
+                                .buttonStyle(ScaleButtonStyle())
+                                .transition(
+                                    .asymmetric(
+                                        insertion: .opacity.combined(with: .scale(scale: 0.85)),
+                                        removal: .opacity.combined(with: .scale(scale: 1.1))
+                                    )
+                                )
                             }
                         }
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.isPlaying)
                         .frame(width: vw, height: vh)
                         .overlay(alignment: .bottomTrailing) {
-                            // Playback speed chip (bottom-right of the video frame)
+                            // Playback speed chip with animated appearance (Emil Kowalski: purposeful reveal)
                             if isHoveringVideo {
                                 Button(action: { viewModel.cycleSpeed() }) {
                                     Text("\(Int(viewModel.playbackSpeed * 20))x")
@@ -268,13 +610,20 @@ struct VideoPlayerModal: View {
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 6)
                                         .background(Color.black.opacity(0.85))
-                                        .cornerRadius(2)
+                                        .cornerRadius(4)
                                 }
-                                .buttonStyle(PlainButtonStyle())
+                                .buttonStyle(ScaleButtonStyle())
                                 .padding(12)
                                 .accessibilityLabel("Playback speed")
+                                .transition(
+                                    .asymmetric(
+                                        insertion: .opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)),
+                                        removal: .opacity
+                                    )
+                                )
                             }
                         }
+                        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isHoveringVideo)
                         .onHover { hovering in isHoveringVideo = hovering }
                         Spacer(minLength: 0)
                     }
