@@ -37,6 +37,9 @@ struct CanvasTimelineDataView: View {
     @State private var didInitialScrollInView: Bool = false
     @State private var isBreathing = false
     @State private var loadTask: Task<Void, Never>?
+    // Staggered entrance animation state (Emil Kowalski principle: sequential reveal)
+    @State private var cardEntranceProgress: [UUID: Bool] = [:]
+    @State private var entranceAnimationTrigger: Int = 0
     @EnvironmentObject private var categoryStore: CategoryStore
     @EnvironmentObject private var appState: AppState
 
@@ -188,7 +191,8 @@ struct CanvasTimelineDataView: View {
     private var cardsLayer: some View {
         ZStack(alignment: .topLeading) {
             Color.clear
-            ForEach(positionedActivities) { item in
+            ForEach(Array(positionedActivities.enumerated()), id: \.element.id) { index, item in
+                let isVisible = cardEntranceProgress[item.id] ?? false
                 CanvasActivityCard(
                     title: item.title,
                     time: item.timeLabel,
@@ -210,6 +214,14 @@ struct CanvasTimelineDataView: View {
                 )
                 .frame(height: item.height)
                 .offset(y: item.yPosition)
+                // Staggered entrance animation (Emil Kowalski: sequential reveal creates polish)
+                .opacity(isVisible ? 1 : 0)
+                .offset(x: isVisible ? 0 : 12)
+                .animation(
+                    .spring(response: 0.35, dampingFraction: 0.8)
+                        .delay(Double(index) * 0.03), // 30ms stagger between cards
+                    value: isVisible
+                )
             }
         }
         .clipped() // Prevent shadows/animations from affecting scroll geometry
@@ -345,8 +357,17 @@ struct CanvasTimelineDataView: View {
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
+                // Clear entrance progress for new activities (triggers stagger animation)
+                self.cardEntranceProgress = [:]
                 self.positionedActivities = positioned
                 self.hasAnyActivities = !positioned.isEmpty
+
+                // Trigger staggered entrance animation after a brief layout delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    for activity in positioned {
+                        self.cardEntranceProgress[activity.id] = true
+                    }
+                }
             }
         }
     }
