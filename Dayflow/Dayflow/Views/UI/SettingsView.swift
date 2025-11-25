@@ -36,7 +36,17 @@ struct SettingsView: View {
 
     // Tab + analytics state
     @State private var selectedTab: SettingsTab = .storage
+    @State private var previousTab: SettingsTab = .storage
+    @State private var tabTransitionDirection: TabTransitionDirection = .none
     @State private var analyticsEnabled: Bool = AnalyticsService.shared.isOptedIn
+
+    private enum TabTransitionDirection {
+        case none, leading, trailing
+    }
+
+    // Namespace for animated sidebar selection (Emil Kowalski: shared layout animations)
+    @Namespace private var sidebarSelectionNamespace
+
     @ObservedObject private var launchAtLoginManager = LaunchAtLoginManager.shared
 
     // Provider state
@@ -293,7 +303,15 @@ struct SettingsView: View {
 
     private func sidebarButton(for tab: SettingsTab) -> some View {
         Button {
-            withAnimation(.easeOut(duration: 0.15)) {
+            // Determine direction based on tab order (Emil Kowalski: direction-aware transitions)
+            let tabs = SettingsTab.allCases
+            let currentIndex = tabs.firstIndex(of: selectedTab) ?? 0
+            let newIndex = tabs.firstIndex(of: tab) ?? 0
+            let direction: TabTransitionDirection = newIndex > currentIndex ? .trailing : (newIndex < currentIndex ? .leading : .none)
+
+            previousTab = selectedTab
+            tabTransitionDirection = direction
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
                 selectedTab = tab
             }
         } label: {
@@ -309,29 +327,52 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 14)
             .padding(.horizontal, 16)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(selectedTab == tab ? Color.white.opacity(0.85) : Color.white.opacity(0.45))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(selectedTab == tab ? Color(hex: "FFE0A5") : Color.white.opacity(0.3), lineWidth: 1)
-                    )
-                    .shadow(color: selectedTab == tab ? Color.black.opacity(0.08) : Color.clear, radius: 10, x: 0, y: 6)
-            )
+            .background {
+                // Animated selection indicator (Emil Kowalski: traveling selection creates continuity)
+                if selectedTab == tab {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white.opacity(0.85))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color(hex: "FFE0A5") ?? Color.orange.opacity(0.3), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 6)
+                        .matchedGeometryEffect(id: "sidebarSelection", in: sidebarSelectionNamespace)
+                } else {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white.opacity(0.45))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                        )
+                }
+            }
         }
         .buttonStyle(PlainButtonStyle())
     }
 
     @ViewBuilder
     private var tabContent: some View {
-        switch selectedTab {
-        case .storage:
-            storageContent
-        case .providers:
-            providersContent
-        case .other:
-            otherContent
+        // Direction-aware content transition (Emil Kowalski: spatial context through motion)
+        let slideOffset: CGFloat = tabTransitionDirection == .trailing ? 20 : (tabTransitionDirection == .leading ? -20 : 0)
+
+        Group {
+            switch selectedTab {
+            case .storage:
+                storageContent
+            case .providers:
+                providersContent
+            case .other:
+                otherContent
+            }
         }
+        .id(selectedTab) // Forces view recreation for transition
+        .transition(
+            .asymmetric(
+                insertion: .opacity.combined(with: .offset(x: slideOffset)),
+                removal: .opacity.combined(with: .offset(x: -slideOffset))
+            )
+        )
     }
 
     // MARK: - Storage Tab
