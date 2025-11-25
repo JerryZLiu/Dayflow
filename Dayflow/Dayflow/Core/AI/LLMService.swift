@@ -17,6 +17,7 @@ struct ProcessedBatchResult {
 
 protocol LLMServicing {
     func processBatch(_ batchId: Int64, completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void)
+    func generateText(prompt: String) async throws -> String
 }
 
 final class LLMService: LLMServicing {
@@ -530,5 +531,16 @@ final class LLMService: LLMServicing {
             // For unknown errors, keep it simple
             return "An unexpected error occurred."
         }
+    }
+
+    // MARK: - Text Generation
+
+    func generateText(prompt: String) async throws -> String {
+        guard let provider = provider else {
+            throw NSError(domain: "LLMService", code: 1, userInfo: [NSLocalizedDescriptionKey: "No LLM provider configured. Please configure in settings."])
+        }
+
+        let (text, _) = try await provider.generateText(prompt: prompt)
+        return text
     }
 }
