@@ -1992,8 +1992,66 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         formatter.timeZone = TimeZone.current
         return formatter.string(from: date)
     }
-    
-    
+
+    // MARK: - Text Generation
+
+    func generateText(prompt: String) async throws -> (text: String, log: LLMCall) {
+        let callStart = Date()
+        let model = modelPreference.primary
+
+        let generationConfig: [String: Any] = [
+            "temperature": 0.7,
+            "maxOutputTokens": 8192
+        ]
+
+        let requestBody: [String: Any] = [
+            "contents": [["parts": [["text": prompt]]]],
+            "generationConfig": generationConfig
+        ]
+
+        let urlWithKey = endpointForModel(model) + "?key=\(apiKey)"
+        var request = URLRequest(url: URL(string: urlWithKey)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Non-HTTP response"])
+        }
+
+        if httpResponse.statusCode >= 400 {
+            var errorMessage = "HTTP \(httpResponse.statusCode) error"
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let error = json["error"] as? [String: Any],
+               let message = error["message"] as? String {
+                errorMessage = message
+            }
+            throw NSError(domain: "GeminiError", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMessage])
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let candidates = json["candidates"] as? [[String: Any]],
+              let firstCandidate = candidates.first,
+              let content = firstCandidate["content"] as? [String: Any],
+              let parts = content["parts"] as? [[String: Any]],
+              let text = parts.first?["text"] as? String else {
+            throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "Failed to parse response"])
+        }
+
+        let log = LLMCall(
+            timestamp: callStart,
+            latency: Date().timeIntervalSince(callStart),
+            input: prompt,
+            output: text
+        )
+
+        return (text.trimmingCharacters(in: .whitespacesAndNewlines), log)
+    }
+
+
     private struct GeminiFileMetadata: Codable {
         let file: GeminiFileInfo
     }
