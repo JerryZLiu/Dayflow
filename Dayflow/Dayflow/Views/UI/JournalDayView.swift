@@ -1,139 +1,108 @@
 import SwiftUI
 
 struct JournalDayView: View {
-    var summary: JournalDaySummary
     var onSetReminders: (() -> Void)?
-    var onNavigatePrevious: (() -> Void)?
-    var onNavigateNext: (() -> Void)?
-    var onReflect: (() -> Void)?
 
+    @StateObject private var manager = JournalDayManager()
     @State private var selectedPeriod: JournalDayViewPeriod = .day
-    @State private var flowState: JournalFlowState = .intro
-    @State private var entry = JournalEntryData()
 
-    init(
-        summary: JournalDaySummary = .placeholder,
-        onSetReminders: (() -> Void)? = nil,
-        onNavigatePrevious: (() -> Void)? = nil,
-        onNavigateNext: (() -> Void)? = nil,
-        onReflect: (() -> Void)? = nil
-    ) {
-        self.summary = summary
+    init(onSetReminders: (() -> Void)? = nil) {
         self.onSetReminders = onSetReminders
-        self.onNavigatePrevious = onNavigatePrevious
-        self.onNavigateNext = onNavigateNext
-        self.onReflect = onReflect
     }
 
     var body: some View {
         // Main container
-        ZStack(alignment: .bottomTrailing) {
-            VStack(spacing: 10) {
-                toolbar
+        VStack(spacing: 10) {
+            toolbar
 
-                Text(summary.headline)
-                    .font(.custom("InstrumentSerif-Regular", size: 36))
-                    .foregroundStyle(JournalDayTokens.primaryText)
+            Text(manager.headline)
+                .font(.custom("InstrumentSerif-Regular", size: 36))
+                .foregroundStyle(JournalDayTokens.primaryText)
 
-                // Main content area
-                contentForFlowState
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            // Main content area
+            contentForFlowState
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-                Spacer(minLength: 0)
-            }
-            .padding(.top, 10)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 10)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-
-            // Debug/Demo state switcher
-            Button("Next state: \(flowState.next.label)") {
-                withAnimation {
-                    flowState = flowState.next
-                }
-            }
-            .font(.custom("Nunito-SemiBold", size: 12))
-            .padding(10)
-            .background(Color.white.opacity(0.8))
-            .cornerRadius(12)
-            .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 1)
-            .padding(14)
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 10)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onAppear {
+            manager.loadCurrentDay()
         }
     }
 
     @ViewBuilder
     private var contentForFlowState: some View {
-        switch flowState {
+        switch manager.flowState {
         case .intro:
-            IntroView(ctaTitle: summary.ctaTitle) {
-                flowState = .intentionsEdit
+            IntroView(ctaTitle: manager.ctaTitle, isEnabled: manager.isToday) {
+                manager.startEditingIntentions()
             }
         case .summary:
-            SummaryView(copy: JournalDaySummary.placeholderSummaryText) {
-                flowState = .intentionsEdit
+            SummaryView(copy: manager.recentSummary?.summary ?? "") {
+                manager.startEditingIntentions()
             }
         case .intentionsEdit:
             IntentionsEditForm(
-                entry: $entry,
-                onCancel: { flowState = .intro },
-                onSave: {
-                    entry.normalizeLists()
-                    flowState = .reflectionPrompt
-                }
+                intentions: $manager.formIntentions,
+                notes: $manager.formNotes,
+                goals: $manager.formGoals,
+                onBack: { manager.cancelEditingIntentions() },
+                onSave: { manager.saveIntentions() }
             )
         case .reflectionPrompt:
             JournalBoardLayout(
-                intentions: entry.intentionsList,
-                notes: entry.notesText,
-                goals: entry.goalsList
+                intentions: manager.intentionsList,
+                notes: manager.formNotes,
+                goals: manager.goalsList,
+                onTapLeft: manager.isToday ? { manager.startEditingIntentions() } : nil
             ) {
-                ReflectionPromptCard {
-                    flowState = .reflectionEdit
+                ReflectionPromptCard(isEnabled: manager.isToday) {
+                    manager.startReflecting()
                 }
             }
         case .reflectionEdit:
             JournalBoardLayout(
-                intentions: entry.intentionsList,
-                notes: entry.notesText,
-                goals: entry.goalsList
+                intentions: manager.intentionsList,
+                notes: manager.formNotes,
+                goals: manager.goalsList,
+                onTapLeft: nil // Can't tap while editing
             ) {
                 ReflectionEditorCard(
-                    text: $entry.reflectionsText,
-                    onSave: {
-                        entry.reflectionsText = entry.reflectionsText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        flowState = .reflectionSaved
-                    },
-                    onSkip: {
-                        entry.reflectionsText = ""
-                        flowState = .reflectionSaved
-                    }
+                    text: $manager.formReflections,
+                    onSave: { manager.saveReflections() },
+                    onSkip: { manager.skipReflections() }
                 )
             }
         case .reflectionSaved:
             JournalBoardLayout(
-                intentions: entry.intentionsList,
-                notes: entry.notesText,
-                goals: entry.goalsList
+                intentions: manager.intentionsList,
+                notes: manager.formNotes,
+                goals: manager.goalsList,
+                onTapLeft: manager.isToday ? { manager.startEditingIntentions() } : nil
             ) {
                 ReflectionSavedCard(
-                    reflections: entry.reflectionsText,
+                    reflections: manager.formReflections,
+                    canSummarize: manager.canSummarize,
                     onSummarize: {
-                        if entry.summaryText.isEmpty {
-                            entry.summaryText = JournalDaySummary.placeholderSummaryText
-                        }
-                        flowState = .boardComplete
+                        // TODO: Will be replaced with LLM call in Step 4
+                        manager.saveSummary("Summary will be generated here...")
                     }
                 )
             }
         case .boardComplete:
             JournalBoardLayout(
-                intentions: entry.intentionsList,
-                notes: entry.notesText,
-                goals: entry.goalsList
+                intentions: manager.intentionsList,
+                notes: manager.formNotes,
+                goals: manager.goalsList,
+                onTapLeft: manager.isToday ? { manager.startEditingIntentions() } : nil
             ) {
                 SummaryCard(
-                    summary: entry.summaryText.isEmpty ? JournalDaySummary.placeholderSummaryText : entry.summaryText,
-                    reflections: entry.reflectionsText.isEmpty ? nil : entry.reflectionsText
+                    summary: manager.formSummary.isEmpty ? nil : manager.formSummary,
+                    reflections: manager.formReflections.isEmpty ? nil : manager.formReflections
                 )
             }
         }
@@ -144,14 +113,14 @@ struct JournalDayView: View {
             // Centered navigation + period selector
             HStack(spacing: 10) {
                 JournalDayCircleButton(direction: .left) {
-                    onNavigatePrevious?()
+                    manager.navigateToPreviousDay()
                 }
 
                 JournalDaySegmentedControl(selection: $selectedPeriod)
                     .fixedSize()
 
-                JournalDayCircleButton(direction: .right, isDisabled: summary.isForwardNavigationDisabled) {
-                    onNavigateNext?()
+                JournalDayCircleButton(direction: .right, isDisabled: !manager.canNavigateForward) {
+                    manager.navigateToNextDay()
                 }
             }
             .frame(maxWidth: .infinity, alignment: .center)
@@ -167,7 +136,7 @@ struct JournalDayView: View {
                             .foregroundStyle(JournalDayTokens.reminderText)
                             .frame(width: 16, height: 16)
 
-                        Text(summary.reminderTitle)
+                        Text("Set reminders")
                             .font(.custom("Nunito-SemiBold", size: 12))
                             .foregroundStyle(JournalDayTokens.reminderText)
                     }
@@ -382,23 +351,37 @@ private class JournalClickableTextView: NSTextView {
 // MARK: - Intentions Edit Form
 
 private struct IntentionsEditForm: View {
-    @Binding var entry: JournalEntryData
-    var onCancel: () -> Void
+    @Binding var intentions: String
+    @Binding var notes: String
+    @Binding var goals: String
+    var onBack: () -> Void
     var onSave: () -> Void
 
     private let titleLeading: CGFloat = 5
 
     var body: some View {
         VStack(spacing: 10) {
+            // Back arrow at top-left
+            HStack {
+                Button(action: onBack) {
+                    Image(systemName: "arrow.left")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(JournalDayTokens.bodyText.opacity(0.5))
+                        .frame(width: 32, height: 32)
+                        .background(Color.white.opacity(0.6))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+
             editCard
                 .frame(maxWidth: 520)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 12)
-            
-            HStack(spacing: 12) {
-                Button("Cancel", action: onCancel)
-                    .buttonStyle(.bordered)
 
+            HStack(spacing: 12) {
                 Button("Save", action: onSave)
                     .buttonStyle(JournalPillButtonStyle(horizontalPadding: 22, verticalPadding: 9))
             }
@@ -441,14 +424,14 @@ private struct IntentionsEditForm: View {
 
     private var sectionIntentions: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Today’s intentions")
+            Text("Today's intentions")
                 .font(.custom("InstrumentSerif-Regular", size: 22))
                 .foregroundStyle(JournalDayTokens.sectionHeader)
                 .padding(.leading, titleLeading)
 
             JournalTextEditor(
-                text: $entry.intentionsText,
-                placeholder: "What do you intend on doing today?\nFor example, “complete the first draft of my new article”.",
+                text: $intentions,
+                placeholder: "What do you intend on doing today?\nFor example, \"complete the first draft of my new article\".",
                 minLines: 3
             )
         }
@@ -464,8 +447,8 @@ private struct IntentionsEditForm: View {
             }
 
             JournalTextEditor(
-                text: $entry.notesText,
-                placeholder: "What do you want to keep in mind for today?\nFor example. “Remember to take breaks,” or “don’t scroll on the phone too much”.",
+                text: $notes,
+                placeholder: "What do you want to keep in mind for today?\nFor example. \"Remember to take breaks,\" or \"don't scroll on the phone too much\".",
                 minLines: 3
             )
         }
@@ -481,7 +464,7 @@ private struct IntentionsEditForm: View {
             }
 
             JournalTextEditor(
-                text: $entry.goalsText,
+                text: $goals,
                 placeholder: "What are you working towards? Dayflow helps keep track of your long term goals for easy reference and edit any time.",
                 minLines: 3
             )
@@ -492,11 +475,12 @@ private struct IntentionsEditForm: View {
 // MARK: - Reflection Prompt & Edit
 
 private struct ReflectionPromptCard: View {
+    var isEnabled: Bool = true
     var onReflect: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Today’s reflections")
+            Text("Today's reflections")
                 .font(.custom("InstrumentSerif-Regular", size: 22))
                 .foregroundStyle(JournalDayTokens.sectionHeader.opacity(0.4))
 
@@ -507,10 +491,12 @@ private struct ReflectionPromptCard: View {
 
             Spacer(minLength: 0)
 
-            HStack {
-                Spacer()
-                Button("Reflect on your day", action: onReflect)
-                    .buttonStyle(JournalPillButtonStyle(horizontalPadding: 20, verticalPadding: 10))
+            if isEnabled {
+                HStack {
+                    Spacer()
+                    Button("Reflect on your day", action: onReflect)
+                        .buttonStyle(JournalPillButtonStyle(horizontalPadding: 20, verticalPadding: 10))
+                }
             }
         }
     }
@@ -558,6 +544,7 @@ private struct ReflectionEditorCard: View {
 
 private struct ReflectionSavedCard: View {
     var reflections: String
+    var canSummarize: Bool = true
     var onSummarize: () -> Void
 
     private var hasReflections: Bool {
@@ -590,8 +577,14 @@ private struct ReflectionSavedCard: View {
 
             HStack {
                 Spacer()
-                Button("Summarize with Dayflow", action: onSummarize)
-                    .buttonStyle(JournalPillButtonStyle(horizontalPadding: 24, verticalPadding: 11))
+                if canSummarize {
+                    Button("Summarize with Dayflow", action: onSummarize)
+                        .buttonStyle(JournalPillButtonStyle(horizontalPadding: 24, verticalPadding: 11))
+                } else {
+                    Text("Need at least 1 hour of timeline activity to summarize")
+                        .font(.custom("Nunito-Regular", size: 13))
+                        .foregroundStyle(JournalDayTokens.bodyText.opacity(0.5))
+                }
             }
         }
     }
@@ -648,18 +641,20 @@ private struct JournalBoardLayout<RightContent: View>: View {
     var intentions: [String]
     var notes: String
     var goals: [String]
+    var onTapLeft: (() -> Void)?
     var rightContent: RightContent
 
-    init(intentions: [String], notes: String, goals: [String], @ViewBuilder rightContent: () -> RightContent) {
+    init(intentions: [String], notes: String, goals: [String], onTapLeft: (() -> Void)? = nil, @ViewBuilder rightContent: () -> RightContent) {
         self.intentions = intentions
         self.notes = notes
         self.goals = goals
+        self.onTapLeft = onTapLeft
         self.rightContent = rightContent()
     }
 
     var body: some View {
         HStack(spacing: 0) {
-            JournalLeftCardView(intentions: intentions, notes: notes, goals: goals)
+            JournalLeftCardView(intentions: intentions, notes: notes, goals: goals, onTap: onTapLeft)
             JournalRightCard { rightContent }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -670,17 +665,18 @@ private struct JournalLeftCardView: View {
     var intentions: [String]
     var notes: String
     var goals: [String]
+    var onTap: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            section("Today’s intentions") {
+            section("Today's intentions") {
                 JournalDayBulletList(items: intentions)
             }
 
             section("Notes for the day") {
-                Text(notes)
+                Text(notes.isEmpty ? "—" : notes)
                     .font(.custom("Nunito-Regular", size: 15))
-                    .foregroundStyle(JournalDayTokens.bodyText)
+                    .foregroundStyle(notes.isEmpty ? JournalDayTokens.bodyText.opacity(0.4) : JournalDayTokens.bodyText)
             }
 
             Divider()
@@ -714,6 +710,11 @@ private struct JournalLeftCardView: View {
                 .inset(by: 0.5)
                 .stroke(Color.white, lineWidth: 1)
         )
+        .contentShape(Rectangle()) // Make entire card tappable
+        .onTapGesture {
+            onTap?()
+        }
+        .opacity(onTap != nil ? 1.0 : 1.0) // Visual hint could be added here
     }
 
     @ViewBuilder
@@ -865,6 +866,7 @@ private struct JournalPillButtonStyle: ButtonStyle {
 
 private struct IntroView: View {
     var ctaTitle: String
+    var isEnabled: Bool = true
     var onTapCTA: () -> Void
 
     var body: some View {
@@ -874,18 +876,25 @@ private struct IntroView: View {
                 .foregroundStyle(JournalDayTokens.sectionHeader)
                 .multilineTextAlignment(.center)
 
-            Text("Some instructions here. Dayflow helps you track your daily and longer term pursuits, and gives you the space to reflect, and generates a summary of each day.")
+            Text("Dayflow helps you track your daily and longer term pursuits, gives you the space to reflect, and generates a summary of each day.")
                 .font(.custom("Nunito-Regular", size: 16))
                 .foregroundStyle(JournalDayTokens.bodyText)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 540)
 
-            Button(action: onTapCTA) {
-                Text(ctaTitle)
-                    .font(.custom("Nunito-SemiBold", size: 17))
+            if isEnabled {
+                Button(action: onTapCTA) {
+                    Text(ctaTitle)
+                        .font(.custom("Nunito-SemiBold", size: 17))
+                }
+                .buttonStyle(JournalPillButtonStyle(horizontalPadding: 28, verticalPadding: 10))
+                .padding(.top, 16)
+            } else {
+                Text("No journal entry for this day")
+                    .font(.custom("Nunito-Regular", size: 14))
+                    .foregroundStyle(JournalDayTokens.bodyText.opacity(0.5))
+                    .padding(.top, 16)
             }
-            .buttonStyle(JournalPillButtonStyle(horizontalPadding: 28, verticalPadding: 10))
-            .padding(.top, 16)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -1002,46 +1011,6 @@ struct JournalDaySummary {
         "Complete project A",
         "Publish article on Substack"
     ]
-}
-
-struct JournalEntryData {
-    var intentionsText: String = JournalDaySummary.placeholderIntentions.joined(separator: "\n")
-    var notesText: String = "Remember to take breaks and drink water."
-    var goalsText: String = JournalDaySummary.placeholderGoals.joined(separator: "\n")
-    var summaryText: String = ""
-    var reflectionsText: String = ""
-
-    var intentionsList: [String] {
-        splitLines(intentionsText)
-    }
-
-    var goalsList: [String] {
-        splitLines(goalsText)
-    }
-
-    mutating func normalizeLists() {
-        intentionsText = splitLines(intentionsText).joined(separator: "\n")
-        goalsText = splitLines(goalsText).joined(separator: "\n")
-    }
-
-    private func splitLines(_ text: String) -> [String] {
-        text
-            .split(whereSeparator: \ .isNewline)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-    }
-}
-
-struct JournalDaySection: Identifiable {
-    enum Content: Equatable {
-        case list([String])
-        case text(String)
-    }
-
-    let id = UUID()
-    var title: String
-    var content: Content
-    var showsDividerAfter: Bool
 }
 
 enum JournalDayViewPeriod: String, CaseIterable, Identifiable {
