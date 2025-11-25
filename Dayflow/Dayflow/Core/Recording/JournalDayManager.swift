@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import Combine
 
 /// ObservableObject that manages journal day state, data loading, and flow transitions
 @MainActor
@@ -105,6 +106,9 @@ final class JournalDayManager: ObservableObject {
 
     /// Navigate to the previous day
     func navigateToPreviousDay() {
+        // Block navigation while generating summary
+        guard !isLoading else { return }
+
         guard let date = dateFromDayString(currentDay),
               let previousDate = Calendar.current.date(byAdding: .day, value: -1, to: date) else {
             return
@@ -115,6 +119,9 @@ final class JournalDayManager: ObservableObject {
 
     /// Navigate to the next day (capped at today)
     func navigateToNextDay() {
+        // Block navigation while generating summary
+        guard !isLoading else { return }
+
         guard let date = dateFromDayString(currentDay),
               let nextDate = Calendar.current.date(byAdding: .day, value: 1, to: date) else {
             return
@@ -183,16 +190,20 @@ final class JournalDayManager: ObservableObject {
         flowState = .reflectionSaved
     }
 
-    /// Save the AI summary
+    /// Save the AI summary (public API uses currentDay)
     func saveSummary(_ summary: String) {
-        storage.updateJournalSummary(day: currentDay, summary: summary)
+        saveSummary(summary, forDay: currentDay)
+    }
 
-        // Reload entry
-        entry = storage.fetchJournalEntry(forDay: currentDay)
-        syncFormDataFromEntry()
+    /// Save the AI summary to a specific day (internal use for race-condition safety)
+    private func saveSummary(_ summary: String, forDay day: String) {
+        storage.updateJournalSummary(day: day, summary: summary)
 
-        // Transition to complete
-        flowState = .boardComplete
+        // Only reload entry and sync form if we're still on the same day
+        if currentDay == day {
+            entry = storage.fetchJournalEntry(forDay: day)
+            syncFormDataFromEntry()
+        }
     }
 
     /// Update summary text (for editing)
@@ -230,11 +241,14 @@ final class JournalDayManager: ObservableObject {
         }
 
         let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE, MMMM d"
 
         if isToday {
+            // "Today, November 24" - no day of week needed
+            formatter.dateFormat = "MMMM d"
             return "Today, \(formatter.string(from: date))"
         } else {
+            // "Monday, November 24" - day of week helps orient for past days
+            formatter.dateFormat = "EEEE, MMMM d"
             return formatter.string(from: date)
         }
     }
@@ -268,7 +282,9 @@ final class JournalDayManager: ObservableObject {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.timeZone = Calendar.current.timeZone
-        return formatter.date(from: day)
+        guard let date = formatter.date(from: day) else { return nil }
+        // Use noon to avoid 4AM boundary issues when doing date arithmetic
+        return Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: date)
     }
 
     private func syncFormDataFromEntry() {
@@ -345,6 +361,152 @@ final class JournalDayManager: ObservableObject {
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+    }
+
+    // MARK: - Summary Generation
+
+    /// Generate AI summary from timeline + journal data
+    func generateSummary() async {
+        // Capture day at start to prevent race condition if user navigates during generation
+        let dayToSave = currentDay
+        let capturedIntentions = formIntentions
+        let capturedNotes = formNotes
+        let capturedGoals = formGoals
+        let capturedReflections = formReflections
+
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            // 1. Fetch timeline cards for the captured day
+            let timelineCards = storage.fetchTimelineCards(forDay: dayToSave)
+
+            // 2. Fetch recent summaries for variety (exclude current day)
+            let recentSummaries = storage.fetchRecentJournalSummaries(count: 3, excludingDay: dayToSave)
+
+            // 3. Build prompt with captured context
+            let prompt = buildSummaryPrompt(
+                timelineCards: timelineCards,
+                intentions: capturedIntentions,
+                notes: capturedNotes,
+                goals: capturedGoals,
+                reflections: capturedReflections,
+                recentSummaries: recentSummaries
+            )
+
+            // 4. Call LLM
+            let rawResult = try await callLLMForSummary(prompt: prompt)
+
+            // 5. Parse summary from <summary> tags (strip tags before saving)
+            let cleanedSummary = parseSummaryFromTags(rawResult)
+
+            // 6. Save summary to the captured day (not currentDay which may have changed)
+            saveSummary(cleanedSummary, forDay: dayToSave)
+
+            // 7. Only update UI if we're still on the same day
+            if currentDay == dayToSave {
+                flowState = .boardComplete
+            }
+
+        } catch {
+            errorMessage = "Failed to generate summary: \(error.localizedDescription)"
+            print("❌ [JournalDayManager] Summary generation failed: \(error)")
+        }
+
+        isLoading = false
+    }
+
+    private func buildSummaryPrompt(
+        timelineCards: [TimelineCard],
+        intentions: String,
+        notes: String,
+        goals: String,
+        reflections: String,
+        recentSummaries: [(day: String, summary: String)]
+    ) -> String {
+        // Format timeline as readable text
+        let timelineText = timelineCards.map { card in
+            "\(card.startTimestamp)-\(card.endTimestamp): \(card.title) - \(card.summary)"
+        }.joined(separator: "\n")
+
+        // Format recent summaries for variety prompt
+        let recentSummariesText: String
+        if recentSummaries.isEmpty {
+            recentSummariesText = "(No recent summaries)"
+        } else {
+            recentSummariesText = recentSummaries.map { "[\($0.day)]\n\($0.summary)" }.joined(separator: "\n\n")
+        }
+
+        return """
+        You are writing a personal daily summary for a productivity app. Write in first person from the user's perspective.
+
+        FORMAT:
+        **Wins:** 2-3 key accomplishments from the day, one line
+        [Narrative paragraph: 3-5 sentences covering the arc of the day—morning, afternoon, evening—as relevant. Keep it warm and reflective, not robotic. Use varied sentence lengths. Be specific about what happened but don't over-explain.]
+        **To improve:** 1 honest observation about what could've gone better, one line
+
+        STYLE GUIDELINES:
+        - Warm and reflective, like you're journaling for yourself
+        - Punchy and scannable—no walls of text
+        - Judicious bolding: 1-3 bolded phrases max in the narrative paragraph, only for key activities or focus areas that anchor the day. Don't bold generic words or overdo it.
+        - Avoid corporate/productivity jargon ("deep work", "optimized", "leveraged")
+        - Vary your sentence openers—don't start every sentence with "I"
+        - Do NOT infer emotions or feelings—only reference how the user felt if they explicitly stated it in their intentions or reflections
+
+        EXAMPLE:
+        <summary>
+        **Wins:** Shipped the journal feature I set out to finish. Made real progress on video animations and started rethinking how timeline cards should feel.
+
+        The morning didn't have much direction—some scrolling, flight searches, a League video. Things clicked mid-afternoon when I got into **Swift animation work**, dialing in spring curves and reverse logic. Evening was a mix: Japan trip planning with friends, Duke interview prep, then back to **timeline card specs**. Ended the night playing with Opus 4.5.
+
+        **To improve:** Morning had too much drift. Would've felt better to batch distractions and start focused.
+        </summary>
+
+        IMPORTANT: Below are the user's recent summaries. Do NOT reuse the same phrases, sentence structures, or openers. Keep the format consistent but make the language feel fresh.
+
+        RECENT SUMMARIES:
+        \(recentSummariesText)
+
+        TODAY'S DATA:
+
+        TIMELINE ACTIVITY:
+        \(timelineText.isEmpty ? "No activity recorded" : timelineText)
+
+        MORNING INTENTIONS:
+        \(intentions.isEmpty ? "None set" : intentions)
+
+        NOTES FOR THE DAY:
+        \(notes.isEmpty ? "None" : notes)
+
+        LONG-TERM GOALS:
+        \(goals.isEmpty ? "None set" : goals)
+
+        EVENING REFLECTIONS:
+        \(reflections.isEmpty ? "None provided" : reflections)
+
+        Write the summary now, wrapped in <summary> tags:
+        """
+    }
+
+    /// Extract summary content from <summary> tags, handling malformed closing tags
+    private func parseSummaryFromTags(_ raw: String) -> String {
+        // Try to match <summary>content</summary> or <summary>content<summary (malformed)
+        // Pattern handles both proper and malformed closing tags
+        let pattern = #"<summary>([\s\S]*?)(?:</summary>|<summary|$)"#
+
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
+              let match = regex.firstMatch(in: raw, options: [], range: NSRange(raw.startIndex..., in: raw)),
+              let contentRange = Range(match.range(at: 1), in: raw) else {
+            // No tags found - return trimmed raw content as fallback
+            return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return String(raw[contentRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func callLLMForSummary(prompt: String) async throws -> String {
+        // Use LLMService which handles provider selection automatically
+        return try await LLMService.shared.generateText(prompt: prompt)
     }
 }
 

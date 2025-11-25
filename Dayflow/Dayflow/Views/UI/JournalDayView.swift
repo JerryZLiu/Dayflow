@@ -87,9 +87,11 @@ struct JournalDayView: View {
                 ReflectionSavedCard(
                     reflections: manager.formReflections,
                     canSummarize: manager.canSummarize,
+                    isLoading: manager.isLoading,
                     onSummarize: {
-                        // TODO: Will be replaced with LLM call in Step 4
-                        manager.saveSummary("Summary will be generated here...")
+                        Task {
+                            await manager.generateSummary()
+                        }
                     }
                 )
             }
@@ -102,7 +104,10 @@ struct JournalDayView: View {
             ) {
                 SummaryCard(
                     summary: manager.formSummary.isEmpty ? nil : manager.formSummary,
-                    reflections: manager.formReflections.isEmpty ? nil : manager.formReflections
+                    reflections: manager.formReflections.isEmpty ? nil : manager.formReflections,
+                    onRegenerate: {
+                        Task { await manager.generateSummary() }
+                    }
                 )
             }
         }
@@ -154,14 +159,15 @@ private struct JournalTextEditor: View {
     @Binding var text: String
     var placeholder: String
     var minLines: Int = 3
-    
+    var autoFocus: Bool = false
+
     // 1. Define the font and padding constants once so the math matches perfectly
     private let font = NSFont(name: "Nunito-Regular", size: 15) ?? .systemFont(ofSize: 15)
     private let verticalInset: CGFloat = 4 // Matches MacTextView.textContainerInset
-    
+
     // Initialize with a calculated default so it doesn't jump on load
     @State private var height: CGFloat = 0
-    
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             // Placeholder
@@ -174,12 +180,13 @@ private struct JournalTextEditor: View {
                     .padding(.leading, 4)
                     .allowsHitTesting(false)
             }
-            
+
             MacTextView(
                 text: $text,
                 height: $height,
                 minLines: minLines,
-                font: font
+                font: font,
+                autoFocus: autoFocus
             )
             // 3. FIX: Use calculated height instead of hardcoded * 22
             .frame(height: max(height, calculateMinHeight()))
@@ -212,15 +219,16 @@ private struct MacTextView: NSViewRepresentable {
     @Binding var height: CGFloat
     var minLines: Int
     var font: NSFont
-    
+    var autoFocus: Bool = false
+
     func makeCoordinator() -> Coordinator {
         return Coordinator(parent: self)
     }
-    
+
     func makeNSView(context: Context) -> JournalClickableTextView {
         let textView = JournalClickableTextView()
         textView.delegate = context.coordinator
-        
+
         // Appearance
         textView.font = font
         textView.textColor = NSColor(red: 0.18, green: 0.11, blue: 0.06, alpha: 1.0)
@@ -228,27 +236,34 @@ private struct MacTextView: NSViewRepresentable {
         textView.isRichText = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
-        
+
         // Layout Config
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
-        
+
         // Padding/Insets
         textView.textContainerInset = NSSize(width: 0, height: 4)
-        
+
         if let container = textView.textContainer {
             container.lineFragmentPadding = 4
             container.widthTracksTextView = true
             // Initialize with a massive height so it doesn't feel cramped immediately
             container.containerSize = NSSize(width: textView.bounds.width, height: .greatestFiniteMagnitude)
         }
-        
+
         textView.selectedTextAttributes = [
             .backgroundColor: NSColor(red: 1.0, green: 0.93, blue: 0.82, alpha: 1.0),
             .foregroundColor: NSColor(red: 0.18, green: 0.11, blue: 0.06, alpha: 1.0)
         ]
-        
+
+        // Auto-focus: make first responder after a brief delay to ensure view is in window
+        if autoFocus {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                textView.window?.makeFirstResponder(textView)
+            }
+        }
+
         return textView
     }
     
@@ -432,7 +447,8 @@ private struct IntentionsEditForm: View {
             JournalTextEditor(
                 text: $intentions,
                 placeholder: "What do you intend on doing today?\nFor example, \"complete the first draft of my new article\".",
-                minLines: 3
+                minLines: 3,
+                autoFocus: true
             )
         }
     }
@@ -545,6 +561,7 @@ private struct ReflectionEditorCard: View {
 private struct ReflectionSavedCard: View {
     var reflections: String
     var canSummarize: Bool = true
+    var isLoading: Bool = false
     var onSummarize: () -> Void
 
     private var hasReflections: Bool {
@@ -577,7 +594,15 @@ private struct ReflectionSavedCard: View {
 
             HStack {
                 Spacer()
-                if canSummarize {
+                if isLoading {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Generating summary...")
+                            .font(.custom("Nunito-Regular", size: 14))
+                            .foregroundStyle(JournalDayTokens.bodyText.opacity(0.7))
+                    }
+                } else if canSummarize {
                     Button("Summarize with Dayflow", action: onSummarize)
                         .buttonStyle(JournalPillButtonStyle(horizontalPadding: 24, verticalPadding: 11))
                 } else {
@@ -593,6 +618,7 @@ private struct ReflectionSavedCard: View {
 private struct SummaryCard: View {
     var summary: String?
     var reflections: String?
+    var onRegenerate: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -602,9 +628,7 @@ private struct SummaryCard: View {
                     .foregroundStyle(JournalDayTokens.sectionHeader)
 
                 if let summary {
-                    Text(summary)
-                        .font(.custom("Nunito-Regular", size: 15))
-                        .foregroundStyle(JournalDayTokens.bodyText)
+                    MarkdownText(content: summary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     Text("Summarizing your day recorded on your timeline…")
@@ -628,6 +652,16 @@ private struct SummaryCard: View {
                         .font(.custom("Nunito-Regular", size: 15))
                         .foregroundStyle(JournalDayTokens.bodyText.opacity(0.65))
                 }
+            }
+
+            // Temp: Regenerate summary button
+            if let onRegenerate {
+                Button(action: onRegenerate) {
+                    Text("Regenerate summary")
+                        .font(.custom("Nunito-Regular", size: 13))
+                        .foregroundStyle(JournalDayTokens.sectionHeader)
+                }
+                .buttonStyle(.plain)
             }
 
             Spacer(minLength: 0)
@@ -668,30 +702,33 @@ private struct JournalLeftCardView: View {
     var onTap: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            section("Today's intentions") {
-                JournalDayBulletList(items: intentions)
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                section("Today's intentions") {
+                    JournalDayBulletList(items: intentions)
+                }
+
+                section("Notes for the day") {
+                    Text(notes.isEmpty ? "—" : notes)
+                        .font(.custom("Nunito-Regular", size: 15))
+                        .foregroundStyle(notes.isEmpty ? JournalDayTokens.bodyText.opacity(0.4) : JournalDayTokens.bodyText)
+                }
+
+                Divider()
+                    .foregroundStyle(JournalDayTokens.divider)
+                    .overlay(JournalDayTokens.divider)
+                    .padding(.vertical, 6)
+
+                section("Long term goals") {
+                    JournalDayBulletList(items: goals)
+                }
+
+                Spacer(minLength: 0)
             }
-
-            section("Notes for the day") {
-                Text(notes.isEmpty ? "—" : notes)
-                    .font(.custom("Nunito-Regular", size: 15))
-                    .foregroundStyle(notes.isEmpty ? JournalDayTokens.bodyText.opacity(0.4) : JournalDayTokens.bodyText)
-            }
-
-            Divider()
-                .foregroundStyle(JournalDayTokens.divider)
-                .overlay(JournalDayTokens.divider)
-                .padding(.vertical, 6)
-
-            section("Long term goals") {
-                JournalDayBulletList(items: goals)
-            }
-
-            Spacer(minLength: 0)
+            .padding(22)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(22)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(
                 stops: [
@@ -714,7 +751,6 @@ private struct JournalLeftCardView: View {
         .onTapGesture {
             onTap?()
         }
-        .opacity(onTap != nil ? 1.0 : 1.0) // Visual hint could be added here
     }
 
     @ViewBuilder
@@ -736,11 +772,14 @@ private struct JournalRightCard<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            content
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                content
+            }
+            .padding(22)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(22)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.white.opacity(0.92))
         .cornerRadius(12)
         .shadow(color: Color.black.opacity(0.1), radius: 6, x: 0, y: 0)
@@ -909,16 +948,17 @@ private struct SummaryView: View {
             Text("Summary from yesterday")
                 .font(.custom("InstrumentSerif-Regular", size: 30))
                 .foregroundStyle(JournalDayTokens.sectionHeader)
-                .multilineTextAlignment(.center)
 
-            Text(copy)
-                .font(.custom("Nunito-Regular", size: 17))
-                .foregroundStyle(JournalDayTokens.bodyText)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 640)
+            // Summary text in ScrollView with max height so button doesn't get pushed off screen
+            ScrollView(.vertical, showsIndicators: false) {
+                MarkdownText(content: copy, font: .custom("Nunito-Regular", size: 17))
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: 640, alignment: .leading)
+            }
+            .frame(maxHeight: 300) // Cap height so button stays visible
 
             Button(action: onTapCTA) {
-                Text("Set today’s intentions")
+                Text("Set today's intentions")
                     .font(.custom("Nunito-SemiBold", size: 17))
             }
             .buttonStyle(JournalPillButtonStyle(horizontalPadding: 28, verticalPadding: 10))
@@ -959,65 +999,40 @@ enum JournalFlowState: CaseIterable {
     }
 }
 
-struct JournalDaySummary {
-    var headline: String
-    var reminderTitle: String
-    var ctaTitle: String
-    var sections: [JournalDaySection]
-    var isForwardNavigationDisabled: Bool
-
-    static let placeholder = JournalDaySummary(
-        headline: "Today, October 20",
-        reminderTitle: "Set reminders",
-        ctaTitle: "Reflect with Dayflow",
-        sections: [
-            JournalDaySection(
-                title: "Today’s intentions",
-                content: .list([
-                    "Work on designs for xyz",
-                    "Learn about abc",
-                    "Look into recent user research",
-                    "Share design directions with stakeholders"
-                ]),
-                showsDividerAfter: false
-            ),
-            JournalDaySection(
-                title: "Notes for today",
-                content: .text("Remember to take breaks and drink water."),
-                showsDividerAfter: true
-            ),
-            JournalDaySection(
-                title: "Long term goals",
-                content: .list([
-                    "Complete project A",
-                    "Publish article on Substack"
-                ]),
-                showsDividerAfter: false
-            )
-        ],
-        isForwardNavigationDisabled: true
-    )
-
-    static let placeholderSummaryText = "Started the day reviewing design discussions in Slack, then briefly organized the Notion workspace, checked email, and updated Dayflow tasks. Spent a long time working in Figma—refining layouts, documenting updates, and troubleshooting with teammates."
-
-    static let placeholderIntentions: [String] = [
-        "Work on designs for xyz",
-        "Learn about abc",
-        "Look into recent user research",
-        "Share design directions with stakeholders"
-    ]
-
-    static let placeholderGoals: [String] = [
-        "Complete project A",
-        "Publish article on Substack"
-    ]
-}
-
 enum JournalDayViewPeriod: String, CaseIterable, Identifiable {
     case day = "Day"
     case week = "Week"
 
     var id: String { rawValue }
+}
+
+// MARK: - Markdown Text Helper
+
+/// Renders markdown text (e.g. **bold**) with custom styling, preserving newlines
+private struct MarkdownText: View {
+    let content: String
+    var font: Font = .custom("Nunito-Regular", size: 15)
+    var color: Color = JournalDayTokens.bodyText
+
+    var body: some View {
+        if let attributed = parsedMarkdown {
+            Text(attributed)
+                .font(font)
+                .foregroundStyle(color)
+        } else {
+            Text(content)
+                .font(font)
+                .foregroundStyle(color)
+        }
+    }
+
+    /// Parse markdown while preserving whitespace (including newlines)
+    private var parsedMarkdown: AttributedString? {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        return try? AttributedString(markdown: content, options: options)
+    }
 }
 
 private enum JournalDayTokens {

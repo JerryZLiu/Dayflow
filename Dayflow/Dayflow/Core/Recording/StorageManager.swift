@@ -1946,6 +1946,34 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }
     }
 
+    /// Fetch the most recent N journal summaries, optionally excluding a specific day
+    /// Returns array of (day, summary) tuples ordered by most recent first
+    func fetchRecentJournalSummaries(count: Int, excludingDay: String? = nil) -> [(day: String, summary: String)] {
+        return (try? timedRead("fetchRecentJournalSummaries") { db in
+            var sql = """
+                SELECT day, summary FROM journal_entries
+                WHERE summary IS NOT NULL AND summary != ''
+            """
+            var arguments: [String] = []
+
+            if let excludeDay = excludingDay {
+                sql += " AND day != ?"
+                arguments.append(excludeDay)
+            }
+
+            sql += " ORDER BY day DESC LIMIT ?"
+            arguments.append(String(count))
+
+            let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(arguments))
+
+            return rows.compactMap { row -> (day: String, summary: String)? in
+                guard let day: String = row["day"],
+                      let summary: String = row["summary"] else { return nil }
+                return (day, summary)
+            }
+        }) ?? []
+    }
+
     /// Check if a day has intentions set (not just draft)
     func hasIntentionsForDay(_ day: String) -> Bool {
         return (try? timedRead("hasIntentionsForDay") { db in
