@@ -449,15 +449,21 @@ final class ChatCLIProvider: LLMProvider {
         let categoriesSectionText = categoriesSection(from: context.categories)
 
         return """
-        You are a digital anthropologist, observing a user's raw activity log. Your goal is to synthesize this log into a high-level, human-readable story of their session, presented as a series of timeline cards.
-        THE GOLDEN RULE:
-            Create cards that narrate one cohesive session, aiming for 15–60 minutes. Keep every card ≥10 minutes, split up any cards that are >60 minutes, and if a prospective card would be <10 minutes, merge it into the neighboring card that preserves the best story. never do cards longer than an hour.
+        You are synthesizing a user's activity log into timeline cards. Each card represents one main thing they did.
 
-            CONTINUITY RULE:
-            You may adjust boundaries for clarity, but never introduce new gaps or overlaps. Preserve any original gaps in the source timeline and keep adjacent covered spans meeting cleanly.
+        CORE PRINCIPLE:
+        Each card = one coherent activity. Time is a constraint (10-60 min), not a goal. Don't stuff unrelated activities into one card just to fill time.
 
-            CORE DIRECTIVES:
-            - Theme Test Before Extending: Extend the current card only when the new observations continue the same dominant activity. Shifts shorter than 10 minutes should be logged as distractions or merged into the adjacent segment that keeps the theme coherent; shifts ≥10 minutes become new cards.
+        SPLITTING RULES:
+        - Minimum card length: 10 minutes
+        - Maximum card length: 60 minutes
+        - If an activity clearly shifts focus, start a new card (even if current card is short)
+        - If you need "and" to connect two unrelated activities in a title, that's two cards
+        - Brief interruptions (<5 min) that don't change your focus = distractions within the card
+        - Sustained different activities (>10 min) = new card, not a distraction
+
+        CONTINUITY RULE:
+        Never introduce gaps or overlaps. Adjacent cards should meet cleanly. Preserve any original gaps from the source timeline.
 
         """ + promptSections.title + """
 
@@ -465,76 +471,69 @@ final class ChatCLIProvider: LLMProvider {
         """ + promptSections.summary + """
 
 
-        """ + categoriesSectionText + """
-
-
         """ + promptSections.detailedSummary + """
 
 
-        APP SITES (Website Logos)
-        Identify the main app or website used for each card and include an appSites object.
+        DISTRACTIONS
+
+        A distraction is a brief (<5 min) unrelated interruption that doesn't change the card's main focus.
+
+        NOT distractions:
+        - A 24-minute League game (that's its own card)
+        - A 10-minute Twitter scroll (new card or merge thoughtfully)
+        - Sub-tasks related to the main activity
+
+        """ + categoriesSectionText + """
+
+
+        APP SITES
+
+        Identify primary and secondary apps/sites used.
 
         Rules:
-        - primary: The canonical domain (or canonical product path) of the main app used in the card.
-        - secondary: Another meaningful app used during this session OR the enclosing app (e.g., browser), if relevant.
-        - Format: lower-case, no protocol, no query or fragments. Use product subdomains/paths when they are canonical (e.g., docs.google.com for Google Docs).
-        - Be specific: prefer product domains over generic ones (docs.google.com over google.com).
-        - If you cannot determine a secondary, omit it.
-        - Do not invent brands; rely on evidence from observations.
+        - primary: main app for the card
+        - secondary: another meaningful app OR the enclosing app (browser) if relevant
+        - Use canonical domains: figma.com, notion.so, docs.google.com, x.com, mail.google.com
+        - Be specific: docs.google.com not google.com
 
-        Canonical examples:
-        - Figma → figma.com
-        - Notion → notion.so
-        - Google Docs → docs.google.com
-        - Gmail → mail.google.com
-        - Google Sheets → sheets.google.com
-        - Zoom → zoom.us
-        - ChatGPT → chatgpt.com
-        - VS Code → code.visualstudio.com
-        - Xcode → developer.apple.com/xcode
-        - Chrome → google.com/chrome
-        - Safari → apple.com/safari
-        - Twitter/X → x.com
+        DECISION PROCESS
 
-        YOUR MENTAL MODEL (How to Decide):
-        Before making a decision, ask yourself these questions in order:
-
-        What is the dominant theme of the current card?
-        Do the new observations continue or relate to this theme? If yes, extend the card.
-        Is this a brief (<5 min) and unrelated pivot? If yes, add it as a distraction to the current card and continue extending.
-        Is this a sustained shift in focus (>15 min) that represents a different activity category or goal? If yes, create a new card regardless of the current card's length.
-
-        DISTRACTIONS:
-        A "distraction" is a brief (<5 min) and unrelated activity that interrupts the main theme of a card. Sustained activities (>5 min) are NOT distractions - they either belong to the current theme or warrant a new card. Don't label related sub-tasks as distractions.
+        Before finalizing a card, ask:
+        1. What's the one main thing in this card?
+        2. Can I title it without using "and" between unrelated things?
+        3. Are there any sustained (>10 min) activities that should be their own card?
+        4. Are the "distractions" actually brief interruptions, or separate activities?
 
         INPUTS:
         Previous cards: \(existingCardsJSON)
         New observations: \(transcriptText)
-        Return ONLY a JSON array with this EXACT structure. Output must be raw JSON—no code fences, markdown, or extra commentary. Do not prefix with ```json or similar:
 
-                [
-                  {
-                    "startTime": "1:12 AM",
-                    "endTime": "1:30 AM",
-                    "category": "",
-                    "subcategory": "",
-                    "title": "",
-                    "summary": "",
-                    "detailedSummary": "",
-                    "distractions": [
-                      {
-                        "startTime": "1:15 AM",
-                        "endTime": "1:18 AM",
-                        "title": "",
-                        "summary": ""
-                      }
-                    ],
-                    "appSites": {
-                      "primary": "",
-                      "secondary": ""
-                    }
-                  }
-                ]
+        OUTPUT:
+        Return ONLY a raw JSON array. No code fences, no markdown, no commentary.
+
+        [
+          {
+            "startTime": "1:12 AM",
+            "endTime": "1:30 AM",
+            "category": "",
+            "subcategory": "",
+            "title": "",
+            "summary": "",
+            "detailedSummary": "",
+            "distractions": [
+              {
+                "startTime": "1:15 AM",
+                "endTime": "1:18 AM",
+                "title": "",
+                "summary": ""
+              }
+            ],
+            "appSites": {
+              "primary": "",
+              "secondary": ""
+            }
+          }
+        ]
         """
     }
 
