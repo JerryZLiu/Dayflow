@@ -1463,3 +1463,22 @@ extension OllamaProvider {
         }
     }
 }
+
+// MARK: - Text Generation
+
+extension OllamaProvider {
+    func generateText(prompt: String) async throws -> (text: String, log: LLMCall) {
+        let callStart = Date()
+
+        let response = try await callTextAPI(prompt, operation: "generate_text", expectJSON: false, batchId: nil, maxRetries: 3)
+
+        let log = LLMCall(
+            timestamp: callStart,
+            latency: Date().timeIntervalSince(callStart),
+            input: prompt,
+            output: response
+        )
+
+        return (response.trimmingCharacters(in: .whitespacesAndNewlines), log)
+    }
+}
