@@ -471,6 +471,9 @@ struct MainView: View {
                 startDayChangeTimer()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
+            selectedIcon = .settings
+        }
         .overlay {
             if showCategoryEditor {
                 ColorOrganizerRoot(
