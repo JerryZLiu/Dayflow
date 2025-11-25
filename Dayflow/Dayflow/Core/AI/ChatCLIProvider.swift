@@ -1187,4 +1187,37 @@ final class ChatCLIProvider: LLMProvider {
     private func makeLLMCall(start: Date, end: Date, input: String?, output: String?) -> LLMCall {
         LLMCall(timestamp: end, latency: end.timeIntervalSince(start), input: input, output: output)
     }
+
+    // MARK: - Text Generation
+
+    func generateText(prompt: String) async throws -> (text: String, log: LLMCall) {
+        let callStart = Date()
+
+        let model: String
+        switch tool {
+        case .claude:
+            model = "sonnet"
+        case .codex:
+            model = "gpt-5.1-codex-max"
+        }
+
+        let run = try await Task.detached {
+            try self.runner.run(
+                tool: self.tool,
+                prompt: prompt,
+                workingDirectory: self.config.baseDirectory,
+                model: model,
+                reasoningEffort: nil
+            )
+        }.value
+
+        guard run.exitCode == 0 else {
+            let errorMessage = run.stderr.isEmpty ? "CLI exited with code \(run.exitCode)" : run.stderr
+            throw NSError(domain: "ChatCLI", code: Int(run.exitCode), userInfo: [NSLocalizedDescriptionKey: errorMessage])
+        }
+
+        let log = makeLLMCall(start: callStart, end: run.finishedAt, input: prompt, output: run.stdout)
+
+        return (run.stdout.trimmingCharacters(in: .whitespacesAndNewlines), log)
+    }
 }
