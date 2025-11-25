@@ -23,7 +23,10 @@ struct JournalView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .sheet(isPresented: $showRemindersSheet) {
-            JournalRemindersView()
+            JournalRemindersView(
+                onSave: { showRemindersSheet = false },
+                onCancel: { showRemindersSheet = false }
+            )
         }
     }
     

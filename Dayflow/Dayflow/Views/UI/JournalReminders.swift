@@ -1,7 +1,12 @@
 import SwiftUI
 import AppKit
+import UserNotifications
 
 struct JournalRemindersView: View {
+    // Callbacks for dismissal
+    var onSave: (() -> Void)?
+    var onCancel: (() -> Void)?
+
     @State private var intentionHour = "9"
     @State private var intentionMinute = "00"
     @State private var intentionPeriod: Period = .am
@@ -64,7 +69,20 @@ struct JournalRemindersView: View {
             )
 
             HStack(spacing: 12) {
-                Button("Cancel", action: {})
+                // Test button (fires notification in 3 seconds)
+                Button("Test", action: sendTestNotification)
+                    .buttonStyle(
+                        JournalReminderPillButtonStyle(
+                            background: JournalReminderTokens.inputBackground,
+                            foreground: JournalReminderTokens.primaryText,
+                            borderColor: JournalReminderTokens.cancelBorder
+                        )
+                    )
+                    .journalHoverable()
+
+                Spacer()
+
+                Button("Cancel", action: { onCancel?() })
                     .buttonStyle(
                         JournalReminderPillButtonStyle(
                             background: JournalReminderTokens.cancelFill,
@@ -74,7 +92,7 @@ struct JournalRemindersView: View {
                     )
                     .journalHoverable()
 
-                Button("Save", action: {})
+                Button("Save", action: saveReminders)
                     .buttonStyle(
                         JournalReminderPillButtonStyle(
                             background: JournalReminderTokens.saveFill,
@@ -96,6 +114,124 @@ struct JournalRemindersView: View {
                 )
         )
         .environment(\.colorScheme, .light)
+        .onAppear(perform: loadSavedPreferences)
+    }
+
+    // MARK: - Save/Load
+
+    private func loadSavedPreferences() {
+        // Load from NotificationPreferences if reminders were previously enabled
+        guard NotificationPreferences.isEnabled else { return }
+
+        let savedIntentionHour = NotificationPreferences.intentionHour
+        let savedIntentionMinute = NotificationPreferences.intentionMinute
+        let savedReflectionHour = NotificationPreferences.reflectionHour
+        let savedReflectionMinute = NotificationPreferences.reflectionMinute
+        let savedWeekdays = NotificationPreferences.weekdays
+
+        // Convert 24-hour to 12-hour format for intention
+        let (intHour12, intPeriod) = convert24to12(hour: savedIntentionHour)
+        intentionHour = "\(intHour12)"
+        intentionMinute = String(format: "%02d", savedIntentionMinute)
+        intentionPeriod = intPeriod
+
+        // Convert 24-hour to 12-hour format for reflection
+        let (refHour12, refPeriod) = convert24to12(hour: savedReflectionHour)
+        reflectionHour = "\(refHour12)"
+        reflectionMinute = String(format: "%02d", savedReflectionMinute)
+        reflectionPeriod = refPeriod
+
+        // Convert Calendar weekdays (1=Sun) to Weekday enum (0=Sun)
+        selectedDays = Set(savedWeekdays.compactMap { calWeekday in
+            Weekday(rawValue: NotificationPreferences.viewWeekday(from: calWeekday))
+        })
+    }
+
+    private func saveReminders() {
+        // Validate at least one day is selected
+        guard !selectedDays.isEmpty else { return }
+
+        // Convert 12-hour to 24-hour format
+        let intentionHour24 = convert12to24(hour: Int(intentionHour) ?? 9, period: intentionPeriod)
+        let reflectionHour24 = convert12to24(hour: Int(reflectionHour) ?? 5, period: reflectionPeriod)
+
+        // Save to preferences
+        NotificationPreferences.intentionHour = intentionHour24
+        NotificationPreferences.intentionMinute = Int(intentionMinute) ?? 0
+        NotificationPreferences.reflectionHour = reflectionHour24
+        NotificationPreferences.reflectionMinute = Int(reflectionMinute) ?? 0
+
+        // Convert Weekday enum (0=Sun) to Calendar weekdays (1=Sun)
+        NotificationPreferences.weekdays = Set(selectedDays.map { weekday in
+            NotificationPreferences.calendarWeekday(from: weekday.rawValue)
+        })
+
+        // Request permission and schedule notifications
+        Task {
+            await NotificationService.shared.requestPermission()
+            NotificationService.shared.scheduleReminders()
+        }
+
+        onSave?()
+    }
+
+    // MARK: - Time Conversion Helpers
+
+    private func convert12to24(hour: Int, period: Period) -> Int {
+        var hour24 = hour
+        if period == .am {
+            if hour == 12 { hour24 = 0 }
+        } else {
+            if hour != 12 { hour24 = hour + 12 }
+        }
+        return hour24
+    }
+
+    private func convert24to12(hour: Int) -> (Int, Period) {
+        if hour == 0 {
+            return (12, .am)
+        } else if hour < 12 {
+            return (hour, .am)
+        } else if hour == 12 {
+            return (12, .pm)
+        } else {
+            return (hour - 12, .pm)
+        }
+    }
+
+    private func sendTestNotification() {
+        Task {
+            // Request permission first if needed
+            await NotificationService.shared.requestPermission()
+
+            // Schedule a test notification in 3 seconds
+            let content = UNMutableNotificationContent()
+            content.title = "Test: Set your intentions"
+            content.body = "This is a test notification from Dayflow."
+            content.sound = .default
+            content.categoryIdentifier = "journal_reminder"
+
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 3, repeats: false)
+            let request = UNNotificationRequest(
+                identifier: "journal.test.\(Date().timeIntervalSince1970)",
+                content: content,
+                trigger: trigger
+            )
+
+            do {
+                try await UNUserNotificationCenter.current().add(request)
+                print("[JournalReminders] Test notification scheduled for 3 seconds")
+
+                // Also set badge directly after delay (for testing - delegate should also set it)
+                try await Task.sleep(nanoseconds: 3_500_000_000) // 3.5 seconds
+                await MainActor.run {
+                    NotificationBadgeManager.shared.showBadge()
+                    print("[JournalReminders] Badge set directly after test notification")
+                }
+            } catch {
+                print("[JournalReminders] Failed to schedule test notification: \(error)")
+            }
+        }
     }
 
     private func timeRow(
@@ -322,23 +458,12 @@ private struct ReminderField<Content: View>: View {
             .background(JournalReminderTokens.inputBackground)
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(
-                Group {
-                    if isActive {
-                        RoundedRectangle(cornerRadius: 10)
-                            .trim(from: 0.25, to: 0.75) // bottom edge
-                            .stroke(
-                                JournalReminderTokens.inputStroke,
-                                style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
-                            )
-                    }
-                },
-                alignment: .bottom
-            )
-            .overlay(
                 RoundedRectangle(cornerRadius: 10)
                     .inset(by: 0.5)
-                    .stroke(JournalReminderTokens.focusStroke, lineWidth: 1)
-                    .opacity(highlighted ? 1 : 0)
+                    .stroke(
+                        isActive ? JournalReminderTokens.inputStroke : (highlighted ? JournalReminderTokens.focusStroke : .clear),
+                        lineWidth: isActive ? 1.5 : 1
+                    )
             )
     }
 }
