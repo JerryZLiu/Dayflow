@@ -3,14 +3,22 @@ import CryptoKit
 import AVKit
 import AVFoundation
 
+// MARK: - Journal Coordinator
+
+/// Coordinates journal-level UI state that needs to be shared across the view hierarchy
+@MainActor
+final class JournalCoordinator: ObservableObject {
+    @Published var showOnboardingVideo = false
+}
+
 struct JournalView: View {
     // MARK: - Storage & State
     @AppStorage("isJournalUnlocked") private var isUnlocked: Bool = false
     @AppStorage("hasCompletedJournalOnboarding") private var hasCompletedOnboarding: Bool = false
+    @EnvironmentObject private var coordinator: JournalCoordinator
     @State private var accessCode: String = ""
     @State private var attempts: Int = 0
     @State private var showRemindersSheet: Bool = false
-    @State private var showOnboardingVideo: Bool = false
 
     // SHA256 hashed—nice try! But you're already in the source code...
     // so yes you can delete this function and build from source if you so desire.
@@ -78,119 +86,100 @@ struct JournalView: View {
             Spacer()
         }
         .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            Image("JournalPreview")
-                .resizable()
-                .scaledToFill()
-                .ignoresSafeArea()
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .background(
+            GeometryReader { geo in
+                Image("JournalPreview")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+            }
+        )
     }
 
     // MARK: - Access Code Card
+    // JournalLock is the entire card image (gradient bg + lock icon baked in)
     private var accessCodeCard: some View {
-        VStack(spacing: 16) {
-            // Lock icon
+        ZStack {
+            // Card background image (contains gradient + lock icon)
             Image("JournalLock")
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 56, height: 56)
 
-            // Title
-            Text("Enter access code")
-                .font(.custom("Nunito-SemiBold", size: 20))
-                .foregroundColor(Color(red: 0.85, green: 0.45, blue: 0.25))
+            // Overlay content: title, text field, button (positioned in lower portion)
+            VStack(spacing: 16) {
+                Spacer()
 
-            // Text field
-            TextField("", text: $accessCode)
-                .textFieldStyle(.plain)
-                .font(.custom("Nunito-Medium", size: 15))
-                .foregroundColor(Color(red: 0.25, green: 0.15, blue: 0.10))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.white)
-                )
-                .submitLabel(.go)
-                .onSubmit { validateCode() }
+                // Title
+                Text("Enter access code")
+                    .font(.custom("Nunito-SemiBold", size: 20))
+                    .foregroundColor(Color(red: 0.85, green: 0.45, blue: 0.25))
 
-            // Submit button
-            Button(action: validateCode) {
-                Text("Get early access")
-                    .font(.custom("Nunito-SemiBold", size: 15))
-                    .foregroundColor(Color(red: 0.35, green: 0.22, blue: 0.12))
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 10)
+                // Text field
+                TextField("", text: $accessCode)
+                    .textFieldStyle(.plain)
+                    .font(.custom("Nunito-Medium", size: 15))
+                    .foregroundColor(Color(red: 0.25, green: 0.15, blue: 0.10))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
                     .background(
-                        Capsule()
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color(red: 1.0, green: 0.92, blue: 0.82),
-                                        Color(red: 1.0, green: 0.85, blue: 0.70)
-                                    ],
-                                    startPoint: .top,
-                                    endPoint: .bottom
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.white)
+                    )
+                    .padding(.horizontal, 80)
+                    .submitLabel(.go)
+                    .onSubmit { validateCode() }
+
+                // Submit button
+                Button(action: validateCode) {
+                    Text("Get early access")
+                        .font(.custom("Nunito-SemiBold", size: 15))
+                        .foregroundColor(Color(red: 0.35, green: 0.22, blue: 0.12))
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 10)
+                        .background(
+                            Capsule()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            Color(red: 1.0, green: 0.92, blue: 0.82),
+                                            Color(red: 1.0, green: 0.85, blue: 0.70)
+                                        ],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
                                 )
-                            )
-                            .overlay(
-                                Capsule()
-                                    .stroke(Color(red: 0.90, green: 0.75, blue: 0.55), lineWidth: 1)
-                            )
-                    )
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color(red: 0.90, green: 0.75, blue: 0.55), lineWidth: 1)
+                                )
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(.bottom, 28)
             }
-            .buttonStyle(.plain)
         }
-        .padding(.horizontal, 32)
-        .padding(.vertical, 24)
-        .frame(width: 320)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(
-                    LinearGradient(
-                        stops: [
-                            .init(color: Color(red: 0.92, green: 0.88, blue: 0.96), location: 0),
-                            .init(color: Color(red: 0.96, green: 0.90, blue: 0.92), location: 0.5),
-                            .init(color: Color(red: 1.0, green: 0.90, blue: 0.82), location: 1)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .shadow(color: Color.black.opacity(0.08), radius: 16, x: 0, y: 6)
-        )
+        .frame(width: 380)
+        .shadow(color: Color.black.opacity(0.08), radius: 16, x: 0, y: 6)
     }
     
     // MARK: - Unlocked Content
+    @ViewBuilder
     var unlockedContent: some View {
-        ZStack {
-            if hasCompletedOnboarding {
-                // Main journal view
-                JournalDayView(
-                    onSetReminders: { showRemindersSheet = true }
-                )
-                .frame(maxWidth: 980, alignment: .center)
-                .padding(.horizontal, 12)
-            } else {
-                // Journal onboarding screen
-                JournalOnboardingView(onStartOnboarding: {
-                    showOnboardingVideo = true
-                })
-            }
-
-            // Full-screen video overlay
-            if showOnboardingVideo {
-                JournalOnboardingVideoView(onComplete: {
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        showOnboardingVideo = false
-                        hasCompletedOnboarding = true
-                    }
-                })
-                .transition(.opacity)
-                .zIndex(100)
-            }
+        if hasCompletedOnboarding {
+            // Main journal view
+            JournalDayView(
+                onSetReminders: { showRemindersSheet = true }
+            )
+            .frame(maxWidth: 980, alignment: .center)
+            .padding(.horizontal, 12)
+        } else {
+            // Journal onboarding screen
+            JournalOnboardingView(onStartOnboarding: {
+                coordinator.showOnboardingVideo = true
+            })
         }
     }
     
@@ -231,7 +220,7 @@ private struct JournalOnboardingView: View {
                 .multilineTextAlignment(.center)
 
             // Description
-            Text("Some instructions here. Dayflow helps you track your daily and longer term pursuits, and gives you the space to reflect, and generates a summary of each day.")
+            Text("Dayflow helps you track your daily and longer term goals, gives you the space to reflect, and generates a summary of each day.")
                 .font(.custom("Nunito-Regular", size: 16))
                 .foregroundColor(Color(red: 0.25, green: 0.15, blue: 0.10).opacity(0.8))
                 .multilineTextAlignment(.center)
@@ -275,7 +264,7 @@ private struct JournalOnboardingView: View {
 
 // MARK: - Journal Onboarding Video View
 
-private struct JournalOnboardingVideoView: View {
+struct JournalOnboardingVideoView: View {
     var onComplete: () -> Void
 
     @State private var player: AVPlayer?
@@ -304,8 +293,11 @@ private struct JournalOnboardingVideoView: View {
     }
 
     private func setupVideo() {
-        // Placeholder video name - replace with actual Journal onboarding video
-        guard let videoURL = Bundle.main.url(forResource: "JournalOnboarding", withExtension: "mp4") else {
+        // Try root, then Videos subfolder, then mov fallback
+        guard let videoURL = Bundle.main.url(forResource: "JournalOnboardingVideo", withExtension: "mp4")
+                ?? Bundle.main.url(forResource: "JournalOnboardingVideo", withExtension: "mp4", subdirectory: "Videos")
+                ?? Bundle.main.url(forResource: "JournalOnboardingVideo", withExtension: "mov")
+                ?? Bundle.main.url(forResource: "JournalOnboardingVideo", withExtension: "mov", subdirectory: "Videos") else {
             print("⚠️ [JournalOnboardingVideoView] Video not found in bundle, completing immediately")
             completeVideo()
             return
