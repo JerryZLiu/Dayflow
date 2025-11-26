@@ -11,31 +11,91 @@ struct JournalDayView: View {
     }
 
     var body: some View {
-        // Main container
-        VStack(spacing: 10) {
-            toolbar
+        ZStack(alignment: .bottomTrailing) {
+            // Main container
+            VStack(spacing: 10) {
+                toolbar
 
-            Text(manager.headline)
-                .font(.custom("InstrumentSerif-Regular", size: 36))
-                .foregroundStyle(JournalDayTokens.primaryText)
+                Text(manager.headline)
+                    .font(.custom("InstrumentSerif-Regular", size: 36))
+                    .foregroundStyle(JournalDayTokens.primaryText)
 
-            // Main content area
-            contentForFlowState
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                // Main content area
+                contentForFlowState
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 10)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+            // Debug panel
+            debugPanel
         }
-        .padding(.top, 10)
-        .padding(.horizontal, 20)
-        .padding(.bottom, 10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
             manager.loadCurrentDay()
         }
     }
 
+    private var debugPanel: some View {
+        DebugPanelView(manager: manager)
+    }
+}
+
+// Separate struct to access AppStorage
+private struct DebugPanelView: View {
+    @ObservedObject var manager: JournalDayManager
+    @AppStorage("isJournalUnlocked") private var isJournalUnlocked: Bool = false
+    @AppStorage("hasCompletedJournalOnboarding") private var hasCompletedOnboarding: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Debug")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white.opacity(0.7))
+
+            Button("🔒 Lock Journal") {
+                isJournalUnlocked = false
+            }
+            .font(.system(size: 10))
+
+            Button("🔄 Reset Onboarding") {
+                hasCompletedOnboarding = false
+                isJournalUnlocked = false
+            }
+            .font(.system(size: 10))
+
+            Divider().background(Color.white.opacity(0.3))
+
+            Button("→ Intro") {
+                manager.flowState = .intro
+            }
+            .font(.system(size: 10))
+
+            Button("→ Summary") {
+                manager.flowState = .summary
+            }
+            .font(.system(size: 10))
+
+            Button("→ Intentions Edit") {
+                manager.flowState = .intentionsEdit
+            }
+            .font(.system(size: 10))
+        }
+        .padding(8)
+        .background(Color.black.opacity(0.75))
+        .cornerRadius(6)
+        .padding(12)
+    }
+}
+
+// MARK: - JournalDayView Content & Toolbar
+
+extension JournalDayView {
     @ViewBuilder
-    private var contentForFlowState: some View {
+    var contentForFlowState: some View {
         switch manager.flowState {
         case .intro:
             IntroView(ctaTitle: manager.ctaTitle, isEnabled: manager.isToday) {
