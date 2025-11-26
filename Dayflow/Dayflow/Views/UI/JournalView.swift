@@ -94,6 +94,7 @@ struct JournalView: View {
                     .scaledToFill()
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
+                    .allowsHitTesting(false)
             }
         )
     }
