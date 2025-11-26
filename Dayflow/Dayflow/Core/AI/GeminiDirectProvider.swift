@@ -698,6 +698,13 @@ final class GeminiDirectProvider: LLMProvider {
         DISTRACTIONS:
         A "distraction" is a brief (<5 min) and unrelated activity that interrupts the main theme of a card. Sustained activities (>5 min) are NOT distractions - they either belong to the current theme or warrant a new card. Don't label related sub-tasks as distractions.
 
+        INPUT/OUTPUT CONTRACT:
+        Your output cards MUST cover the same total time range as the "Previous cards" plus any new time from observations.
+        - If Previous cards span 11:11 AM - 11:53 AM, your output must also cover 11:11 AM - 11:53 AM (you may restructure the cards, but don't drop time segments)
+        - If new observations extend beyond the previous cards' time range, create additional cards to cover that new time
+        - The only exception: if there's a genuine gap between previous cards (e.g., 11:27 AM to 11:33 AM with no activity), preserve that gap
+        - Think of "Previous cards" as a DRAFT that you're revising/extending, not as locked history
+
         INPUTS:
         Previous cards: \(existingCardsString)
         New observations: \(transcriptText)
