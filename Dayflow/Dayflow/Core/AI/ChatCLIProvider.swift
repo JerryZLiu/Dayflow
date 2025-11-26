@@ -504,6 +504,13 @@ final class ChatCLIProvider: LLMProvider {
         3. Are there any sustained (>10 min) activities that should be their own card?
         4. Are the "distractions" actually brief interruptions, or separate activities?
 
+        INPUT/OUTPUT CONTRACT:
+        Your output cards MUST cover the same total time range as the "Previous cards" plus any new time from observations.
+        - If Previous cards span 11:11 AM - 11:53 AM, your output must also cover 11:11 AM - 11:53 AM (you may restructure the cards, but don't drop time segments)
+        - If new observations extend beyond the previous cards' time range, create additional cards to cover that new time
+        - The only exception: if there's a genuine gap between previous cards (e.g., 11:27 AM to 11:33 AM with no activity), preserve that gap
+        - Think of "Previous cards" as a DRAFT that you're revising/extending, not as locked history
+
         INPUTS:
         Previous cards: \(existingCardsJSON)
         New observations: \(transcriptText)
