@@ -10,6 +10,8 @@ struct JournalDayView: View {
         self.onSetReminders = onSetReminders
     }
 
+    @AppStorage("showJournalDebugPanel") private var showDebugPanel = false
+
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             // Main container
@@ -31,8 +33,10 @@ struct JournalDayView: View {
             .padding(.bottom, 10)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            // Debug panel
-            debugPanel
+            // Debug panel (hidden by default, toggle in Settings)
+            if showDebugPanel {
+                debugPanel
+            }
         }
         .onAppear {
             manager.loadCurrentDay()
@@ -51,43 +55,44 @@ private struct DebugPanelView: View {
     @AppStorage("hasCompletedJournalOnboarding") private var hasCompletedOnboarding: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             Text("Debug")
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(.white.opacity(0.7))
 
-            Button("🔒 Lock Journal") {
+            Button("🔒 Lock") {
                 isJournalUnlocked = false
             }
-            .font(.system(size: 10))
+            .font(.system(size: 9))
 
-            Button("🔄 Reset Onboarding") {
+            Button("🔄 Reset") {
                 hasCompletedOnboarding = false
                 isJournalUnlocked = false
             }
-            .font(.system(size: 10))
+            .font(.system(size: 9))
 
             Divider().background(Color.white.opacity(0.3))
 
             Button("→ Intro") {
                 manager.flowState = .intro
             }
-            .font(.system(size: 10))
+            .font(.system(size: 9))
 
             Button("→ Summary") {
                 manager.flowState = .summary
             }
-            .font(.system(size: 10))
+            .font(.system(size: 9))
 
-            Button("→ Intentions Edit") {
+            Button("→ Intents") {
                 manager.flowState = .intentionsEdit
             }
-            .font(.system(size: 10))
+            .font(.system(size: 9))
         }
-        .padding(8)
+        .frame(maxWidth: 100)
+        .padding(6)
         .background(Color.black.opacity(0.75))
         .cornerRadius(6)
-        .padding(12)
+        .padding(8)
     }
 }
 
