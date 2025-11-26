@@ -81,11 +81,13 @@ struct DayflowApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @AppStorage("didOnboard") private var didOnboard = false
     @AppStorage("useBlankUI") private var useBlankUI = false
+    @AppStorage("hasCompletedJournalOnboarding") private var hasCompletedJournalOnboarding = false
     @State private var showVideoLaunch = true
     @State private var contentOpacity = 0.0
     @State private var contentScale = 0.98
     @StateObject private var categoryStore = CategoryStore()
-    
+    @StateObject private var journalCoordinator = JournalCoordinator()
+
     init() {
         // Comment out for production - only use for testing onboarding
         // UserDefaults.standard.set(false, forKey: "didOnboard")
@@ -104,6 +106,7 @@ struct DayflowApp: App {
                         AppRootView()
                             .environmentObject(categoryStore)
                             .environmentObject(updaterManager)
+                            .environmentObject(journalCoordinator)
                     } else {
                         OnboardingFlow()
                             .environmentObject(AppState.shared)
@@ -153,6 +156,18 @@ struct DayflowApp: App {
                                 contentScale = 1.0
                             }
                         }
+                }
+
+                // Journal onboarding video (full window coverage, above sidebar)
+                if journalCoordinator.showOnboardingVideo {
+                    JournalOnboardingVideoView(onComplete: {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            journalCoordinator.showOnboardingVideo = false
+                            hasCompletedJournalOnboarding = true
+                        }
+                    })
+                    .ignoresSafeArea()
+                    .transition(.opacity)
                 }
             }
             // Inline background behind the main app UI only
