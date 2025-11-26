@@ -374,6 +374,15 @@ struct CompletionView: View {
     @State private var referralSelection: ReferralOption? = nil
     @State private var referralDetail: String = ""
 
+    /// User must select a referral option (and provide detail if required) to proceed
+    private var canProceed: Bool {
+        guard let option = referralSelection else { return false }
+        if option.requiresDetail {
+            return !referralDetail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return true
+    }
+
     var body: some View {
         VStack(spacing: 16) {
             Image("DayflowLogoMainApp")
@@ -403,18 +412,20 @@ struct CompletionView: View {
                 customReferral: $referralDetail
             )
 
-            // Proceed button
+            // Proceed button (disabled until referral is selected)
             DayflowSurfaceButton(
                 action: {
                     submitReferralIfNeeded()
                     onFinish()
                 },
-                content: { 
+                content: {
                     Text("Start")
                         .font(.custom("Nunito", size: 16))
-                        .fontWeight(.semibold) 
+                        .fontWeight(.semibold)
                 },
-                background: Color(red: 0.25, green: 0.17, blue: 0),
+                background: canProceed
+                    ? Color(red: 0.25, green: 0.17, blue: 0)
+                    : Color(red: 0.88, green: 0.84, blue: 0.78),
                 foreground: .white,
                 borderColor: .clear,
                 cornerRadius: 8,
@@ -423,6 +434,7 @@ struct CompletionView: View {
                 minWidth: 200,
                 showOverlayStroke: true
             )
+            .disabled(!canProceed)
             .padding(.top, 16)
         }
         .padding(.horizontal, 48)
