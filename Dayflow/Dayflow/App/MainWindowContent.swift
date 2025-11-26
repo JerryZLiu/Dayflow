@@ -4,6 +4,8 @@ import SwiftUI
 struct MainWindowContent: View {
     @EnvironmentObject private var categoryStore: CategoryStore
     @AppStorage("didOnboard") private var didOnboard = false
+    @AppStorage("hasCompletedJournalOnboarding") private var hasCompletedJournalOnboarding = false
+    @StateObject private var journalCoordinator = JournalCoordinator()
     @State private var showVideoLaunch = true
     @State private var contentOpacity = 0.0
     @State private var contentScale = 0.98
@@ -16,6 +18,7 @@ struct MainWindowContent: View {
                     AppRootView()
                         .environmentObject(categoryStore)
                         .environmentObject(updaterManager)
+                        .environmentObject(journalCoordinator)
                 } else {
                     OnboardingFlow()
                         .environmentObject(AppState.shared)
@@ -45,6 +48,18 @@ struct MainWindowContent: View {
                     .opacity(showVideoLaunch ? 1 : 0)
                     .scaleEffect(showVideoLaunch ? 1 : 1.02)
                     .animation(.easeIn(duration: 0.2), value: showVideoLaunch)
+            }
+
+            // Journal onboarding video (full window coverage)
+            if journalCoordinator.showOnboardingVideo {
+                JournalOnboardingVideoView(onComplete: {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        journalCoordinator.showOnboardingVideo = false
+                        hasCompletedJournalOnboarding = true
+                    }
+                })
+                .ignoresSafeArea()
+                .transition(.opacity)
             }
         }
         .background {
