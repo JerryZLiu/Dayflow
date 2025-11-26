@@ -28,19 +28,19 @@ enum WhatsNewConfiguration {
     private static let seenKey = "lastSeenWhatsNewVersion"
 
     /// Override with the specific release number you want to show.
-    private static let versionOverride: String? = "1.2.0"
+    private static let versionOverride: String? = "1.3.0"
 
     /// Update this content before shipping each release. Return nil to disable the modal entirely.
     static var configuredRelease: ReleaseNote? {
         ReleaseNote(
             version: targetVersion,
-            title: "Huge upgrade to local mode quality + new recategorization & voting tools.",
+            title: "ChatGPT & Claude integration, timeline export, and smoother animations.",
             highlights: [
-                "Qwen3VL-4B is now the default local model - titles/summaries, fewer hallucinations, and better titles thanks to fresh prompt tuning. Upgrade from Settings → Providers if you're still on Qwen2.5VL.",
-                "Bring your own LLM provider with new integrations for custom endpoints like OpenRouter or LiteLLM.",
-                "Manually recategorize timeline cards whenever something lands in the wrong section.",
-                "Vote on timeline card quality inside the app so we can learn which generations are helpful (please keep the feedback coming!).",
-                "Fixed a bug where a small part of the screen could become unclickable."
+                "ChatGPT & Claude integration (beta): New inference provider that hooks up through their CLI tools. Find it in Settings → Providers.",
+                "Timeline export: Export a day's cards directly from the timeline, or export any time range through Settings. Useful for passing into AI for custom analysis.",
+                "Smoother animations on the timeline.",
+                "Local model users: If you're still on Qwen2.5VL, upgrade to Qwen3VL from Settings → Providers for greatly improved quality.",
+                "Journal (early preview): We're slowly rolling out as we work out the bugs. Keep an eye out!"
             ],
             imageName: nil
         )
