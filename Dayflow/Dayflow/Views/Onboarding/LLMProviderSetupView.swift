@@ -583,8 +583,8 @@ struct LLMProviderSetupView: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .multilineTextAlignment(.leading)
                             .lineLimit(nil)
-                        // Additional guidance for the local intro step
-                        if step.id == "intro" {
+                        // Additional guidance for the local intro step only
+                        if step.id == "intro" && providerType == "ollama" {
                             (
                                 Text("Advanced users can pick any ") +
                                 Text("vision-capable").fontWeight(.bold) +
@@ -1625,7 +1625,7 @@ enum CLITool: String, CaseIterable {
     var installURL: URL? {
         switch self {
         case .codex:
-            return URL(string: "https://github.com/a16z-infra/codex#installation")
+            return URL(string: "https://developers.openai.com/codex/cli/")
         case .claude:
             return URL(string: "https://docs.anthropic.com/en/docs/claude-code/setup")
         }
@@ -1774,7 +1774,7 @@ struct ChatCLIDetectionStepView<NextButton: View>: View {
                     .foregroundColor(.black.opacity(0.6))
             }
             
-            VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 14) {
                 ChatCLIToolStatusRow(
                     tool: .codex,
                     status: codexStatus,
@@ -1787,12 +1787,12 @@ struct ChatCLIDetectionStepView<NextButton: View>: View {
                 )
             }
             
-            Text("Tip: Once both are installed, you can choose which assistant Dayflow uses from Settings → AI Provider.")
+            Text("Tip: Once both are installed, you can choose which provider Dayflow uses from Settings → AI Provider.")
                 .font(.custom("Nunito", size: 12))
                 .foregroundColor(.black.opacity(0.5))
-            
+
             VStack(alignment: .leading, spacing: 10) {
-                Text("Choose which assistant Dayflow should control")
+                Text("Choose which provider Dayflow should use")
                     .font(.custom("Nunito", size: 13))
                     .fontWeight(.semibold)
                     .foregroundColor(.black.opacity(0.65))
@@ -1908,117 +1908,114 @@ struct ChatCLIToolStatusRow: View {
     let tool: CLITool
     let status: CLIDetectionState
     let onInstall: () -> Void
-    
+
     private let accentColor = Color(red: 0.25, green: 0.17, blue: 0)
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
+            // Icon and title row
+            HStack(spacing: 10) {
                 Image(systemName: tool.iconName)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.black.opacity(0.75))
-                    .frame(width: 34, height: 34)
+                    .frame(width: 30, height: 30)
                     .background(Color.white.opacity(0.7))
-                    .cornerRadius(8)
-                    .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(tool.displayName)
-                        .font(.custom("Nunito", size: 16))
-                        .fontWeight(.semibold)
-                        .foregroundColor(.black.opacity(0.9))
-                    Text(tool.subtitle)
-                        .font(.custom("Nunito", size: 12))
-                        .foregroundColor(.black.opacity(0.55))
-                }
-                
+                    .cornerRadius(6)
+
+                Text(tool.shortName)
+                    .font(.custom("Nunito", size: 15))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.black.opacity(0.9))
+
                 Spacer()
-                
+
                 statusView
             }
-            
+
+            // Version info if installed
             if let detail = status.detailMessage, !detail.isEmpty {
                 Text(detail)
-                    .font(.custom("Nunito", size: 12))
-                    .foregroundColor(.black.opacity(0.6))
-                    .padding(.leading, 48)
+                    .font(.custom("Nunito", size: 11))
+                    .foregroundColor(.black.opacity(0.55))
+                    .lineLimit(1)
             }
-            
+
+            // Install button if needed
             if shouldShowInstallButton {
                 DayflowSurfaceButton(
                     action: onInstall,
                     content: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "arrow.down.circle.fill").font(.system(size: 13, weight: .semibold))
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.down.circle.fill").font(.system(size: 11, weight: .semibold))
                             Text(installLabel)
-                                .font(.custom("Nunito", size: 13))
+                                .font(.custom("Nunito", size: 12))
                                 .fontWeight(.semibold)
                         }
                     },
                     background: .white.opacity(0.85),
                     foreground: accentColor,
                     borderColor: accentColor.opacity(0.35),
-                    cornerRadius: 8,
-                    horizontalPadding: 16,
-                    verticalPadding: 8,
+                    cornerRadius: 6,
+                    horizontalPadding: 12,
+                    verticalPadding: 6,
                     showOverlayStroke: true
                 )
-                .padding(.leading, 48)
             }
         }
-        .padding(16)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white.opacity(0.6))
-        .cornerRadius(14)
+        .cornerRadius(12)
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.black.opacity(0.05), lineWidth: 1)
         )
     }
-    
+
     @ViewBuilder
     private var statusView: some View {
         switch status {
         case .checking, .unknown:
-            HStack(spacing: 6) {
-                ProgressView().scaleEffect(0.55)
+            HStack(spacing: 5) {
+                ProgressView().scaleEffect(0.5)
                 Text(status.statusLabel)
-                    .font(.custom("Nunito", size: 12))
+                    .font(.custom("Nunito", size: 11))
                     .foregroundColor(accentColor)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
             .background(accentColor.opacity(0.12))
             .cornerRadius(999)
         case .installed:
             Text(status.statusLabel)
-                .font(.custom("Nunito", size: 12))
+                .font(.custom("Nunito", size: 11))
                 .fontWeight(.semibold)
                 .foregroundColor(Color(red: 0.13, green: 0.7, blue: 0.23))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
                 .background(Color(red: 0.13, green: 0.7, blue: 0.23).opacity(0.17))
                 .cornerRadius(999)
         case .notFound:
             Text(status.statusLabel)
-                .font(.custom("Nunito", size: 12))
+                .font(.custom("Nunito", size: 11))
                 .fontWeight(.semibold)
                 .foregroundColor(Color(hex: "E91515"))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
                 .background(Color(hex: "FFD1D1"))
                 .cornerRadius(999)
         case .failed:
             Text(status.statusLabel)
-                .font(.custom("Nunito", size: 12))
+                .font(.custom("Nunito", size: 11))
                 .fontWeight(.semibold)
                 .foregroundColor(Color(red: 0.91, green: 0.34, blue: 0.16))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
                 .background(Color(red: 0.91, green: 0.34, blue: 0.16).opacity(0.18))
                 .cornerRadius(999)
         }
     }
-    
+
     private var shouldShowInstallButton: Bool {
         switch status {
         case .notFound, .failed:
@@ -2027,13 +2024,13 @@ struct ChatCLIToolStatusRow: View {
             return false
         }
     }
-    
+
     private var installLabel: String {
         switch status {
         case .failed:
-            return "Open setup guide"
+            return "Setup guide"
         default:
-            return "Install \(tool.shortName)"
+            return "Install"
         }
     }
 }
