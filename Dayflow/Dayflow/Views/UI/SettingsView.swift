@@ -119,6 +119,9 @@ struct SettingsView: View {
     @State private var exportStatusMessage: String?
     @State private var exportErrorMessage: String?
 
+    // Debug options
+    @AppStorage("showJournalDebugPanel") private var showJournalDebugPanel = false
+
     // Providers – debug log copy feedback
 
     private let usageFormatter: ByteCountFormatter = {
@@ -684,14 +687,13 @@ struct SettingsView: View {
             }
 
             SettingsCard(title: "Provider options", subtitle: "Switch providers at any time") {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 20) {
-                        ForEach(providerCards, id: \.id) { card in
-                            card
-                                .frame(width: 340)
-                        }
+                VStack(spacing: 12) {
+                    ForEach(availableProviders, id: \.id) { provider in
+                        CompactProviderRow(
+                            provider: provider,
+                            onSwitch: { switchToProvider(provider.id) }
+                        )
                     }
-                    .padding(.horizontal, 4)
                 }
             }
 
@@ -957,6 +959,13 @@ struct SettingsView: View {
 
                     Toggle(isOn: $analyticsEnabled) {
                         Text("Share crash reports and anonymous usage data")
+                            .font(.custom("Nunito", size: 13))
+                            .foregroundColor(.black.opacity(0.7))
+                    }
+                    .toggleStyle(.switch)
+
+                    Toggle(isOn: $showJournalDebugPanel) {
+                        Text("Show Journal debug panel")
                             .font(.custom("Nunito", size: 13))
                             .foregroundColor(.black.opacity(0.7))
                     }
@@ -1572,63 +1581,33 @@ struct SettingsView: View {
         }
     }
 
-    private var providerCards: [FlexibleProviderCard] {
+    private var availableProviders: [CompactProviderInfo] {
         [
-            FlexibleProviderCard(
+            CompactProviderInfo(
                 id: "ollama",
                 title: "Use local AI",
+                summary: "Private & offline • 16GB+ RAM • less intelligent",
                 badgeText: "MOST PRIVATE",
                 badgeType: .green,
-                icon: "desktopcomputer",
-                features: [
-                    ("100% private - everything's processed on your computer", true),
-                    ("Works completely offline", true),
-                    ("Significantly less intelligence", false),
-                    ("Requires the most setup", false),
-                    ("16GB+ of RAM recommended", false),
-                    ("Can be battery-intensive", false)
-                ],
-                isSelected: currentProvider == "ollama",
-                buttonMode: .settings(onSwitch: { switchToProvider("ollama") }),
-                showCurrentlySelected: true,
-                customStatusText: statusText(for: "ollama")
+                icon: "desktopcomputer"
             ),
-            FlexibleProviderCard(
+            CompactProviderInfo(
                 id: "gemini",
                 title: "Bring your own API keys",
+                summary: "Gemini free tier • fast & accurate",
                 badgeText: "RECOMMENDED",
                 badgeType: .orange,
-                icon: "key.fill",
-                features: [
-                    ("Utilizes more intelligent AI via Google's Gemini models", true),
-                    ("Uses Gemini's generous free tier (no credit card needed)", true),
-                    ("Faster, more accurate than local models", true),
-                    ("Requires getting an API key (takes 2 clicks)", false)
-                ],
-                isSelected: currentProvider == "gemini",
-                buttonMode: .settings(onSwitch: { switchToProvider("gemini") }),
-                showCurrentlySelected: true,
-                customStatusText: statusText(for: "gemini")
+                icon: "key.fill"
             ),
-            FlexibleProviderCard(
+            CompactProviderInfo(
                 id: "chatgpt_claude",
                 title: "Use ChatGPT or Claude",
+                summary: "Free if you're already on a paid plan • hooks into their CLI tools",
                 badgeText: "NEW",
                 badgeType: .blue,
-                icon: "bolt.horizontal.circle",
-                features: [
-                    ("Drives ChatGPT (Codex CLI) or Claude Code directly on your Mac", true),
-                    ("Excellent reasoning with no API billing setup", true),
-                    ("Easy to switch between assistants anytime", true),
-                    ("Requires installing + signing into the CLI tools", false),
-                    ("Desktop app must stay open while Dayflow runs", false)
-                ],
-                isSelected: currentProvider == "chatgpt_claude",
-                buttonMode: .settings(onSwitch: { switchToProvider("chatgpt_claude") }),
-                showCurrentlySelected: true,
-                customStatusText: statusText(for: "chatgpt_claude")
+                icon: "bolt.horizontal.circle"
             )
-        ].filter { !$0.isSelected }
+        ].filter { $0.id != currentProvider }
     }
 
     private func statusText(for providerId: String) -> String? {
@@ -1682,6 +1661,74 @@ struct SettingsView: View {
 
 private struct ProviderSetupWrapper: Identifiable {
     let id: String
+}
+
+private struct CompactProviderInfo: Identifiable {
+    let id: String
+    let title: String
+    let summary: String
+    let badgeText: String
+    let badgeType: BadgeType
+    let icon: String
+}
+
+private struct CompactProviderRow: View {
+    let provider: CompactProviderInfo
+    let onSwitch: () -> Void
+
+    private let accentColor = Color(red: 0.25, green: 0.17, blue: 0)
+
+    var body: some View {
+        HStack(spacing: 14) {
+            // Icon
+            Image(systemName: provider.icon)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.black.opacity(0.7))
+                .frame(width: 36, height: 36)
+                .background(Color.white.opacity(0.7))
+                .cornerRadius(8)
+
+            // Title and summary
+            VStack(alignment: .leading, spacing: 4) {
+                Text(provider.title)
+                    .font(.custom("Nunito", size: 15))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.black.opacity(0.85))
+                Text(provider.summary)
+                    .font(.custom("Nunito", size: 12))
+                    .foregroundColor(.black.opacity(0.55))
+            }
+
+            Spacer()
+
+            // Badge
+            BadgeView(text: provider.badgeText, type: provider.badgeType)
+
+            // Switch button
+            DayflowSurfaceButton(
+                action: onSwitch,
+                content: {
+                    Text("Switch")
+                        .font(.custom("Nunito", size: 13))
+                        .fontWeight(.semibold)
+                },
+                background: accentColor,
+                foreground: .white,
+                borderColor: .clear,
+                cornerRadius: 8,
+                horizontalPadding: 16,
+                verticalPadding: 8,
+                showOverlayStroke: true
+            )
+        }
+        .padding(16)
+        .background(Color.white.opacity(0.5))
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+        )
+    }
 }
 
 private struct SettingsCard<Content: View>: View {
