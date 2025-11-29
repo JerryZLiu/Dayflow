@@ -393,6 +393,9 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         purgeIfNeeded()
         TimelapseStorageManager.shared.purgeIfNeeded()
         startPurgeScheduler()
+
+        // Schedule WAL checkpoints every 5 minutes to prevent data loss
+        startCheckpointScheduler()
     }
 
     // TEMPORARY DEBUG: Timing helpers for database operations
@@ -2050,6 +2053,38 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
     private let purgeQ = DispatchQueue(label: "com.dayflow.storage.purge", qos: .background)
     private var purgeTimer: DispatchSourceTimer?
+    private var checkpointTimer: DispatchSourceTimer?
+
+    // MARK: - WAL Checkpoint
+
+    /// Checkpoint the WAL file to merge changes into the main database.
+    /// This prevents WAL from growing unbounded and reduces data loss risk on crash.
+    /// - Parameter mode: .passive (non-blocking), .full, .restart, or .truncate (resets WAL to zero)
+    func checkpoint(mode: Database.CheckpointMode = .passive) {
+        do {
+            try db.writeWithoutTransaction { db in
+                try db.checkpoint(mode)
+            }
+            print("✅ [StorageManager] WAL checkpoint completed (mode: \(mode))")
+        } catch {
+            print("⚠️ [StorageManager] WAL checkpoint failed: \(error)")
+            // Log to Sentry for visibility
+            let breadcrumb = Breadcrumb(level: .warning, category: "database")
+            breadcrumb.message = "WAL checkpoint failed"
+            breadcrumb.data = ["mode": "\(mode)", "error": "\(error)"]
+            SentryHelper.addBreadcrumb(breadcrumb)
+        }
+    }
+
+    private func startCheckpointScheduler() {
+        let timer = DispatchSource.makeTimerSource(queue: dbWriteQueue)
+        timer.schedule(deadline: .now() + 300, repeating: 300) // Every 5 minutes
+        timer.setEventHandler { [weak self] in
+            self?.checkpoint(mode: .passive)
+        }
+        timer.resume()
+        checkpointTimer = timer
+    }
 
     private func startPurgeScheduler() {
         let timer = DispatchSource.makeTimerSource(queue: purgeQ)
