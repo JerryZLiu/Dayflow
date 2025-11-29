@@ -208,6 +208,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Checkpoint WAL to persist any pending database changes before quit
+        // Using .truncate to also reset the WAL file for a clean state
+        StorageManager.shared.checkpoint(mode: .truncate)
+
         if let observer = powerObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             powerObserver = nil
