@@ -65,10 +65,27 @@ Dayflow stands for ownership and privacy by default. You control the data, you c
 - **1 FPS recording** - minimal CPU/storage impact.
 - **15-minute analysis intervals** for timely updates.
 - **Watch timelapses of your day**.
-- **Auto storage cleanup** - removes old recordings after 3 days.
+- **Auto storage cleanup** - configurable storage limits.
 - **Distraction highlights** to see what pulled you off‑task.
+- **Timeline export** — export your timeline as Markdown for any date range.
 - **Native UX** built with **SwiftUI**.
 - **Auto‑updates** with **Sparkle** (daily check + background download).
+
+### Daily Journal `BETA`
+
+Set intentions, reflect on your day, and get AI-generated summaries of your activity.
+
+<div align="center">
+  <img src="docs/images/JournalPreview.png" alt="Dayflow journal preview" width="800">
+</div>
+
+- **Morning intentions** — plan what you want to accomplish.
+- **Evening reflections** — review how your day actually went.
+- **AI summaries** — get auto-generated insights from your timeline.
+- **Scheduled reminders** — configurable notifications for intentions and reflections.
+- **Weekly view** — see patterns across your week.
+
+> **Note:** Journal is currently in beta with limited access. Enter your access code in the app to unlock it.
 
 ### Coming soon
 
@@ -78,19 +95,13 @@ Dayflow stands for ownership and privacy by default. You control the data, you c
     <img src="docs/images/DashboardPreview.png" alt="Dayflow dashboard preview" width="800">
   </div>
 
-- **Daily journal** — review the highlights Dayflow captured, reflect with guided prompts, and drop screenshots or notes alongside your generated timeline.
-
-  <div align="center">
-    <img src="docs/images/JournalPreview.png" alt="Dayflow journal preview" width="800">
-  </div>
-
 ## How it works
 
 1) **Capture** — Records screen at 1 FPS in 15-second chunks.
 2) **Analyze** — Every 15 minutes, sends recent footage to AI.
 3) **Generate** — AI creates timeline cards with activity summaries.
 4) **Display** — Shows your day as a visual timeline.
-5) **Cleanup** — Auto-deletes recordings older than 3 days.
+5) **Cleanup** — Auto-manages storage based on your configured limits (1GB–20GB or unlimited).
 
 ### AI Processing Pipeline
 
@@ -199,15 +210,12 @@ This section explains **what Dayflow stores locally**, **what leaves your machin
 
 ### Data locations (on your Mac)
 
-The `Dayflow` folder that contains most of your information is likely in one of two places:
-1. `~/Library/Application Support/Dayflow/`
-2. `~Library/Containers/teleportlabs.com.Dayflow/Data/Library/Application Support/Dayflow/`
-
-The former is most likely, the latter is if the app has been installed in a "sandbox" of container, The below paths and files should be created when the app is first launched.
+All Dayflow data is stored in:
+`~/Library/Application Support/Dayflow/`
 
 - **Recordings (video chunks):** `Dayflow/recordings/` (or choose "Open Recordings..." from the Dayflow Taskbar Icon Menu)
 - **Local database:** `Dayflow/chunks.sqlite`
-- **Recording details:** 1 FPS capture, analyzed every 15 minutes, 3-day retention
+- **Recording details:** 1 FPS capture, analyzed every 15 minutes, configurable storage limits
 - **Purge / reset tip:** Quit Dayflow. Then delete the entire `Dayflow/` folder to remove recordings and analysis artifacts. Relaunch to start fresh.
 
 ### Processing modes & providers
@@ -259,8 +267,6 @@ Apple’s docs: https://support.apple.com/guide/mac-help/control-access-screen-s
   - For Claude: Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code), sign in with your **Claude Pro** account
 - **Capture settings**
   - Start/stop capture from the main UI. Use **Debug** to verify batch contents.
-- **Storage limits**
-  - Configure recording and timelapse storage caps (1GB–20GB or unlimited) in Settings.
 - **Data locations**
   - See **Data & Privacy** for exact paths and a purge tip.
 
@@ -316,8 +322,8 @@ Dayflow/
 ## Roadmap
 
 - [ ] V1 of the Dashboard (track answers to custom questions)
-- [ ] V1 of the daily journal
-- [ ] Fine tuning a small VLM 
+- [x] V1 of the daily journal — _now in beta!_
+- [ ] Fine-tuning a small VLM for improved local model quality 
 
 ---
 
