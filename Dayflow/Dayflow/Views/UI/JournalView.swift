@@ -179,6 +179,7 @@ struct JournalView: View {
         } else {
             // Journal onboarding screen
             JournalOnboardingView(onStartOnboarding: {
+                AnalyticsService.shared.capture("journal_onboarding_started")
                 coordinator.showOnboardingVideo = true
             })
         }
@@ -193,6 +194,7 @@ struct JournalView: View {
         let inputHashString = inputHash.compactMap { String(format: "%02x", $0) }.joined()
 
         if inputHashString == requiredCodeHash {
+            AnalyticsService.shared.capture("journal_unlocked")
             withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
                 isUnlocked = true
             }
@@ -368,6 +370,7 @@ struct JournalOnboardingVideoView: View {
         playbackTimer = nil
 
         player?.pause()
+        AnalyticsService.shared.capture("journal_onboarding_completed")
         onComplete()
     }
 
