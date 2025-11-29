@@ -114,6 +114,7 @@ final class JournalDayManager: ObservableObject {
             return
         }
         let (dayString, _, _) = previousDate.getDayInfoFor4AMBoundary()
+        AnalyticsService.shared.capture("journal_day_navigated", ["direction": "previous"])
         loadDay(dayString)
     }
 
@@ -132,6 +133,7 @@ final class JournalDayManager: ObservableObject {
         let (nextDayString, _, _) = nextDate.getDayInfoFor4AMBoundary()
 
         if nextDayString <= todayString {
+            AnalyticsService.shared.capture("journal_day_navigated", ["direction": "next"])
             loadDay(nextDayString)
         }
     }
@@ -159,6 +161,13 @@ final class JournalDayManager: ObservableObject {
             goals: normalizedGoals.isEmpty ? nil : normalizedGoals
         )
 
+        // Track analytics (character counts only, no content)
+        AnalyticsService.shared.capture("journal_intentions_saved", [
+            "intentions_chars": normalizedIntentions.count,
+            "notes_chars": trimmedNotes.count,
+            "goals_chars": normalizedGoals.count
+        ])
+
         // Reload entry
         entry = storage.fetchJournalEntry(forDay: currentDay)
         syncFormDataFromEntry()
@@ -176,6 +185,11 @@ final class JournalDayManager: ObservableObject {
             reflections: trimmedReflections.isEmpty ? nil : trimmedReflections
         )
 
+        // Track analytics (character count only, no content)
+        AnalyticsService.shared.capture("journal_reflections_saved", [
+            "reflections_chars": trimmedReflections.count
+        ])
+
         // Reload entry
         entry = storage.fetchJournalEntry(forDay: currentDay)
         syncFormDataFromEntry()
@@ -186,6 +200,7 @@ final class JournalDayManager: ObservableObject {
 
     /// Skip reflections
     func skipReflections() {
+        AnalyticsService.shared.capture("journal_reflections_skipped")
         formReflections = ""
         flowState = .reflectionSaved
     }
@@ -403,12 +418,23 @@ final class JournalDayManager: ObservableObject {
             // 6. Save summary to the captured day (not currentDay which may have changed)
             saveSummary(cleanedSummary, forDay: dayToSave)
 
+            // Track success (character count only, no content)
+            AnalyticsService.shared.capture("journal_summary_generated", [
+                "success": true,
+                "summary_chars": cleanedSummary.count
+            ])
+
             // 7. Only update UI if we're still on the same day
             if currentDay == dayToSave {
                 flowState = .boardComplete
             }
 
         } catch {
+            // Track failure
+            AnalyticsService.shared.capture("journal_summary_generated", [
+                "success": false,
+                "summary_chars": 0
+            ])
             errorMessage = "Failed to generate summary: \(error.localizedDescription)"
             print("❌ [JournalDayManager] Summary generation failed: \(error)")
         }
