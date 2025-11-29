@@ -198,7 +198,10 @@ extension JournalDayView {
             // Right-aligned reminder pill
             HStack {
                 Spacer()
-                Button(action: { onSetReminders?() }) {
+                Button(action: {
+                    AnalyticsService.shared.capture("journal_reminders_opened")
+                    onSetReminders?()
+                }) {
                     HStack(alignment: .center, spacing: 4) {
                         Image("JournalReminderIcon")
                             .resizable()
