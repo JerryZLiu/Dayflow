@@ -309,6 +309,9 @@ final class LLMService: LLMServicing {
                 // Mark batch as complete
                 StorageManager.shared.updateBatch(batchId, status: "analyzed")
 
+                // Checkpoint WAL after batch processing to ensure data is persisted
+                StorageManager.shared.checkpoint(mode: .passive)
+
                 // Track analysis batch completed
                 await AnalyticsService.shared.capture("analysis_batch_completed", [
                     "batch_id": batchId,
