@@ -74,6 +74,16 @@ struct SettingsView: View {
     @State private var ollamaTitlePromptText = OllamaPromptDefaults.titleBlock
     @State private var ollamaSummaryPromptText = OllamaPromptDefaults.summaryBlock
 
+    // ChatCLI prompt customization
+    @State private var chatCLIPromptOverridesLoaded = false
+    @State private var isUpdatingChatCLIPromptState = false
+    @State private var useCustomChatCLITitlePrompt = false
+    @State private var useCustomChatCLISummaryPrompt = false
+    @State private var useCustomChatCLIDetailedPrompt = false
+    @State private var chatCLITitlePromptText = ChatCLIPromptDefaults.titleBlock
+    @State private var chatCLISummaryPromptText = ChatCLIPromptDefaults.summaryBlock
+    @State private var chatCLIDetailedPromptText = ChatCLIPromptDefaults.detailedSummaryBlock
+
     // Local provider cached settings
     @State private var localEngine: LocalEngine = {
         let raw = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
@@ -98,6 +108,12 @@ struct SettingsView: View {
     @State private var showLocalModelUpgradeBanner = false
     @State private var isShowingLocalModelUpgradeSheet = false
     @State private var upgradeStatusMessage: String?
+
+    // ChatGPT/Claude CLI state
+    @State private var preferredCLITool: CLITool? = {
+        guard let raw = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") else { return nil }
+        return CLITool(rawValue: raw)
+    }()
 
     // Storage metrics
     @State private var isRefreshingStorage = false
@@ -160,6 +176,7 @@ struct SettingsView: View {
             refreshUpgradeBannerState()
             loadGeminiPromptOverridesIfNeeded()
             loadOllamaPromptOverridesIfNeeded()
+            loadChatCLIPromptOverridesIfNeeded()
             let recordingsLimit = StoragePreferences.recordingsLimitBytes
             recordingsLimitBytes = recordingsLimit
             recordingsLimitIndex = indexForLimit(recordingsLimit)
@@ -257,6 +274,12 @@ struct SettingsView: View {
         .onChange(of: useCustomOllamaSummaryPrompt) { _ in persistOllamaPromptOverridesIfReady() }
         .onChange(of: ollamaTitlePromptText) { _ in persistOllamaPromptOverridesIfReady() }
         .onChange(of: ollamaSummaryPromptText) { _ in persistOllamaPromptOverridesIfReady() }
+        .onChange(of: useCustomChatCLITitlePrompt) { _ in persistChatCLIPromptOverridesIfReady() }
+        .onChange(of: useCustomChatCLISummaryPrompt) { _ in persistChatCLIPromptOverridesIfReady() }
+        .onChange(of: useCustomChatCLIDetailedPrompt) { _ in persistChatCLIPromptOverridesIfReady() }
+        .onChange(of: chatCLITitlePromptText) { _ in persistChatCLIPromptOverridesIfReady() }
+        .onChange(of: chatCLISummaryPromptText) { _ in persistChatCLIPromptOverridesIfReady() }
+        .onChange(of: chatCLIDetailedPromptText) { _ in persistChatCLIPromptOverridesIfReady() }
     }
 
     private var sidebar: some View {
@@ -653,29 +676,11 @@ struct SettingsView: View {
                             }
                         )
                     case "chatgpt_claude":
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Use the CLI setup flow to re-check Codex or Claude installations and run sample prompts.")
-                                .font(.custom("Nunito", size: 13))
-                                .foregroundColor(.black.opacity(0.6))
-                            DayflowSurfaceButton(
-                                action: { setupModalProvider = "chatgpt_claude" },
-                                content: {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "terminal")
-                                        Text("Open CLI checker")
-                                            .font(.custom("Nunito", size: 13))
-                                            .fontWeight(.semibold)
-                                    }
-                                },
-                                background: Color(red: 0.25, green: 0.17, blue: 0),
-                                foreground: .white,
-                                borderColor: .clear,
-                                cornerRadius: 8,
-                                horizontalPadding: 18,
-                                verticalPadding: 9,
-                                showOverlayStroke: true
-                            )
-                        }
+                        ChatCLITestView(
+                            selectedTool: preferredCLITool,
+                            environment: [:],
+                            onTestComplete: { _ in }
+                        )
                     default:
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Dayflow Pro diagnostics coming soon")
@@ -710,6 +715,10 @@ struct SettingsView: View {
             } else if currentProvider == "ollama" {
                 SettingsCard(title: "Local prompt customization", subtitle: "Adjust the prompts used for local timeline summaries") {
                     ollamaPromptCustomizationView
+                }
+            } else if currentProvider == "chatgpt_claude" {
+                SettingsCard(title: "ChatGPT / Claude prompt customization", subtitle: "Override Dayflow's defaults to tailor card generation") {
+                    chatCLIPromptCustomizationView
                 }
             }
         }
@@ -797,6 +806,61 @@ struct SettingsView: View {
                 Spacer()
                 DayflowSurfaceButton(
                     action: resetOllamaPromptOverrides,
+                    content: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.counterclockwise")
+                            Text("Reset to Dayflow defaults")
+                                .font(.custom("Nunito", size: 13))
+                        }
+                        .padding(.horizontal, 2)
+                    },
+                    background: Color.white,
+                    foreground: Color(red: 0.25, green: 0.17, blue: 0),
+                    borderColor: Color(hex: "FFE0A5"),
+                    cornerRadius: 8,
+                    horizontalPadding: 18,
+                    verticalPadding: 9,
+                    showOverlayStroke: true
+                )
+            }
+        }
+    }
+
+    private var chatCLIPromptCustomizationView: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            Text("Overrides apply only when their toggle is on. Unchecked sections fall back to Dayflow's defaults.")
+                .font(.custom("Nunito", size: 12))
+                .foregroundColor(.black.opacity(0.55))
+                .fixedSize(horizontal: false, vertical: true)
+
+            promptSection(
+                heading: "Card titles",
+                description: "Shape how card titles read and tweak the example list.",
+                isEnabled: $useCustomChatCLITitlePrompt,
+                text: $chatCLITitlePromptText,
+                defaultText: ChatCLIPromptDefaults.titleBlock
+            )
+
+            promptSection(
+                heading: "Card summaries",
+                description: "Control tone and style for the summary field.",
+                isEnabled: $useCustomChatCLISummaryPrompt,
+                text: $chatCLISummaryPromptText,
+                defaultText: ChatCLIPromptDefaults.summaryBlock
+            )
+
+            promptSection(
+                heading: "Detailed summaries",
+                description: "Define the minute-by-minute breakdown format and examples.",
+                isEnabled: $useCustomChatCLIDetailedPrompt,
+                text: $chatCLIDetailedPromptText,
+                defaultText: ChatCLIPromptDefaults.detailedSummaryBlock
+            )
+
+            HStack {
+                Spacer()
+                DayflowSurfaceButton(
+                    action: resetChatCLIPromptOverrides,
                     content: {
                         HStack(spacing: 8) {
                             Image(systemName: "arrow.counterclockwise")
@@ -999,7 +1063,7 @@ struct SettingsView: View {
                         .accessibilityLabel(Text("Export end date"))
                 }
 
-                Text("Uses the same 4 AM boundary as the timeline; includes titles, summaries, and details for each card.")
+                Text("Includes titles, summaries, and details for each card.")
                     .font(.custom("Nunito", size: 11.5))
                     .foregroundColor(.black.opacity(0.55))
 
@@ -1319,6 +1383,59 @@ struct SettingsView: View {
         ollamaPromptOverridesLoaded = true
     }
 
+    private func loadChatCLIPromptOverridesIfNeeded(force: Bool = false) {
+        if chatCLIPromptOverridesLoaded && !force { return }
+        isUpdatingChatCLIPromptState = true
+        let overrides = ChatCLIPromptPreferences.load()
+
+        let trimmedTitle = overrides.titleBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSummary = overrides.summaryBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDetailed = overrides.detailedBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        useCustomChatCLITitlePrompt = trimmedTitle?.isEmpty == false
+        useCustomChatCLISummaryPrompt = trimmedSummary?.isEmpty == false
+        useCustomChatCLIDetailedPrompt = trimmedDetailed?.isEmpty == false
+
+        chatCLITitlePromptText = trimmedTitle ?? ChatCLIPromptDefaults.titleBlock
+        chatCLISummaryPromptText = trimmedSummary ?? ChatCLIPromptDefaults.summaryBlock
+        chatCLIDetailedPromptText = trimmedDetailed ?? ChatCLIPromptDefaults.detailedSummaryBlock
+
+        isUpdatingChatCLIPromptState = false
+        chatCLIPromptOverridesLoaded = true
+    }
+
+    private func persistChatCLIPromptOverridesIfReady() {
+        guard chatCLIPromptOverridesLoaded, !isUpdatingChatCLIPromptState else { return }
+        persistChatCLIPromptOverrides()
+    }
+
+    private func persistChatCLIPromptOverrides() {
+        let overrides = ChatCLIPromptOverrides(
+            titleBlock: normalizedOverride(text: chatCLITitlePromptText, enabled: useCustomChatCLITitlePrompt),
+            summaryBlock: normalizedOverride(text: chatCLISummaryPromptText, enabled: useCustomChatCLISummaryPrompt),
+            detailedBlock: normalizedOverride(text: chatCLIDetailedPromptText, enabled: useCustomChatCLIDetailedPrompt)
+        )
+
+        if overrides.isEmpty {
+            ChatCLIPromptPreferences.reset()
+        } else {
+            ChatCLIPromptPreferences.save(overrides)
+        }
+    }
+
+    private func resetChatCLIPromptOverrides() {
+        isUpdatingChatCLIPromptState = true
+        useCustomChatCLITitlePrompt = false
+        useCustomChatCLISummaryPrompt = false
+        useCustomChatCLIDetailedPrompt = false
+        chatCLITitlePromptText = ChatCLIPromptDefaults.titleBlock
+        chatCLISummaryPromptText = ChatCLIPromptDefaults.summaryBlock
+        chatCLIDetailedPromptText = ChatCLIPromptDefaults.detailedSummaryBlock
+        ChatCLIPromptPreferences.reset()
+        isUpdatingChatCLIPromptState = false
+        chatCLIPromptOverridesLoaded = true
+    }
+
     private func normalizedOverride(text: String, enabled: Bool) -> String? {
         guard enabled else { return nil }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1425,6 +1542,8 @@ struct SettingsView: View {
             loadGeminiPromptOverridesIfNeeded(force: true)
         } else if provider == "ollama" {
             loadOllamaPromptOverridesIfNeeded(force: true)
+        } else if provider == "chatgpt_claude" {
+            loadChatCLIPromptOverridesIfNeeded(force: true)
         }
         refreshUpgradeBannerState()
     }

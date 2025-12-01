@@ -609,6 +609,15 @@ struct LLMProviderSetupView: View {
                                         setupState.testSuccessful = success
                                     }
                                 )
+                            } else if providerType == "chatgpt_claude" {
+                                ChatCLITestView(
+                                    selectedTool: setupState.preferredCLITool,
+                                    environment: setupState.cliEnvironment(),
+                                    onTestComplete: { success in
+                                        setupState.hasTestedConnection = true
+                                        setupState.testSuccessful = success
+                                    }
+                                )
                             } else {
                                 // Engine selection: Ollama, LM Studio, Other
                                 VStack(alignment: .leading, spacing: 12) {
@@ -916,7 +925,12 @@ class ProviderSetupState: ObservableObject {
             return !apiKey.isEmpty && apiKey.count > 20
         case .cliDetection:
             return isSelectedCLIToolReady
-        case .terminalCommand(_), .modelDownload(_), .localChoice, .localModelInstall, .information(_, _), .apiKeyInstructions:
+        case .information(_, _):
+            if currentStep.id == "verify" || currentStep.id == "test" {
+                return testSuccessful
+            }
+            return true
+        case .terminalCommand(_), .modelDownload(_), .localChoice, .localModelInstall, .apiKeyInstructions:
             return true
         }
     }
@@ -957,6 +971,14 @@ class ProviderSetupState: ObservableObject {
                     id: "detect",
                     title: "Check installations",
                     contentType: .cliDetection
+                ),
+                SetupStep(
+                    id: "test",
+                    title: "Test connection",
+                    contentType: .information(
+                        "Test Connection",
+                        "Run a quick test to verify your CLI is working and signed in."
+                    )
                 ),
                 SetupStep(
                     id: "complete",
@@ -1116,7 +1138,7 @@ class ProviderSetupState: ObservableObject {
         }
     }
     
-    private func cliEnvironment(overrides: [String: String]? = nil) -> [String: String] {
+    func cliEnvironment(overrides: [String: String]? = nil) -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         var components = env["PATH"].map { $0.split(separator: ":").map { String($0) } } ?? []
         for raw in CLIDetector.searchPaths {
@@ -1192,7 +1214,7 @@ class ProviderSetupState: ObservableObject {
         isRunningCodexStream = true
         codexStreamer.run(
             command: path,
-            args: ["exec", "--json", prompt],
+            args: ["exec", "--skip-git-repo-check", "-c", "model_reasoning_effort=high", "-c", "mcp_servers={}", "-c", "rmcp_client=false", "-c", "features.web_search_request=false", "--", prompt],
             env: cliEnvironment(),
             onStdout: { [weak self] chunk in
                 self?.codexStreamOutput.append(chunk)
@@ -1227,7 +1249,7 @@ class ProviderSetupState: ObservableObject {
         isRunningClaudeStream = true
         claudeStreamer.run(
             command: path,
-            args: ["--print", "--output-format", "json", prompt],
+            args: ["--print", "--output-format", "json", "--strict-mcp-config", "--", prompt],
             env: cliEnvironment(),
             onStdout: { [weak self] chunk in
                 self?.claudeStreamOutput.append(chunk)
@@ -1582,6 +1604,168 @@ private struct LocalLLMChatContent: Codable {
 
 private struct LocalLLMChatImageURL: Codable {
     let url: String
+}
+
+struct ChatCLITestView: View {
+    let selectedTool: CLITool?
+    let environment: [String: String]
+    let onTestComplete: (Bool) -> Void
+
+    private let accentColor = Color(red: 0.25, green: 0.17, blue: 0)
+    private let successAccentColor = Color(red: 0.34, green: 1, blue: 0.45)
+
+    @State private var isTesting = false
+    @State private var success = false
+    @State private var resultMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("We'll ask your CLI to say hello to verify it's working and signed in.")
+                .font(.custom("Nunito", size: 13))
+                .foregroundColor(.black.opacity(0.6))
+                .fixedSize(horizontal: false, vertical: true)
+
+            DayflowSurfaceButton(
+                action: runTest,
+                content: {
+                    HStack(spacing: 8) {
+                        if isTesting {
+                            ProgressView().scaleEffect(0.8)
+                        } else {
+                            Image(systemName: success ? "checkmark.circle.fill" : "bolt.fill").font(.system(size: 14))
+                        }
+                        let idleLabel = success ? "Test Successful!" : "Test CLI"
+                        Text(isTesting ? "Testing..." : idleLabel)
+                            .font(.custom("Nunito", size: 14))
+                            .fontWeight(.semibold)
+                    }
+                },
+                background: success ? successAccentColor.opacity(0.2) : accentColor,
+                foreground: success ? .black : .white,
+                borderColor: success ? successAccentColor.opacity(0.3) : .clear,
+                cornerRadius: 8,
+                horizontalPadding: 24,
+                verticalPadding: 12,
+                showOverlayStroke: !success
+            )
+            .disabled(isTesting || selectedTool == nil)
+            .opacity(selectedTool == nil ? 0.5 : 1.0)
+
+            if selectedTool == nil {
+                Text("Select ChatGPT or Claude above before running the test.")
+                    .font(.custom("Nunito", size: 12))
+                    .foregroundColor(.black.opacity(0.6))
+            }
+
+            if let msg = resultMessage {
+                Text(msg)
+                    .font(.custom("Nunito", size: 13))
+                    .foregroundColor(success ? .black.opacity(0.7) : Color(hex: "E91515"))
+                    .padding(.vertical, 6)
+            }
+        }
+    }
+
+    private func runTest() {
+        guard !isTesting else { return }
+        guard let tool = selectedTool else {
+            resultMessage = "Pick ChatGPT or Claude first."
+            return
+        }
+
+        isTesting = true
+        success = false
+        resultMessage = nil
+
+        Task.detached {
+            let outcome: Result<(Bool, CLIResult), Error> = {
+                do {
+                    let cliResult = try performTest(for: tool)
+                    let passed = parseForHello(cliResult)
+                    return .success((passed, cliResult))
+                } catch {
+                    return .failure(error)
+                }
+            }()
+
+            await MainActor.run {
+                isTesting = false
+                switch outcome {
+                case .success(let (passed, cliResult)):
+                    success = passed
+                    if passed {
+                        resultMessage = "CLI is working!"
+                    } else {
+                        // Check for auth errors first (these can come with exit code 0)
+                        if let authError = detectAuthError(cliResult) {
+                            resultMessage = authError
+                        } else if cliResult.exitCode != 0 {
+                            let stderrTrimmed = cliResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if stderrTrimmed.isEmpty {
+                                // Exit code non-zero but no stderr - likely auth issue
+                                if selectedTool == .claude {
+                                    resultMessage = "Claude CLI returned an error. You may need to sign in — run 'claude login' in Terminal."
+                                } else {
+                                    resultMessage = "Codex CLI returned an error. You may need to sign in — run 'codex auth' in Terminal."
+                                }
+                            } else {
+                                resultMessage = "CLI error: \(stderrTrimmed.prefix(150))"
+                            }
+                        } else if cliResult.stdout.isEmpty {
+                            resultMessage = "CLI returned empty response. Make sure you're signed in."
+                        } else {
+                            let preview = cliResult.stdout.prefix(100)
+                            resultMessage = "Got: \"\(preview)\" — expected 'hello'"
+                        }
+                    }
+                    onTestComplete(passed)
+                case .failure(let error):
+                    success = false
+                    resultMessage = error.localizedDescription
+                    onTestComplete(false)
+                }
+            }
+        }
+    }
+
+    private func performTest(for tool: CLITool) throws -> CLIResult {
+        guard let path = CLIDetector.resolveExecutablePath(for: tool) else {
+            throw NSError(domain: "ChatCLITest", code: 1, userInfo: [NSLocalizedDescriptionKey: "CLI not found for \(tool.shortName)."])
+        }
+
+        let prompt = "Say hello. Respond with just the word 'hello' and nothing else."
+
+        switch tool {
+        case .codex:
+            // Explicitly set reasoning effort to override any invalid stored values
+            // --skip-git-repo-check needed because app runs from sandboxed directory
+            // Disable MCP servers to avoid connecting to user's configured servers during test
+            // -- separator ensures prompt isn't parsed as an option
+            return try runCLI(path, args: ["exec", "--skip-git-repo-check", "-c", "model_reasoning_effort=high", "-c", "mcp_servers={}", "-c", "rmcp_client=false", "-c", "features.web_search_request=false", "--", prompt], env: environment)
+        case .claude:
+            // --strict-mcp-config disables all user MCP servers
+            // -- separator ensures prompt isn't parsed as an option
+            return try runCLI(path, args: ["--print", "--output-format", "text", "--strict-mcp-config", "--", prompt], env: environment)
+        }
+    }
+
+    private func parseForHello(_ result: CLIResult) -> Bool {
+        let combined = (result.stdout + " " + result.stderr).lowercased()
+        return combined.contains("hello")
+    }
+
+    private func detectAuthError(_ result: CLIResult) -> String? {
+        let combined = (result.stdout + " " + result.stderr).lowercased()
+        // Claude CLI auth errors
+        if combined.contains("invalid api key") || combined.contains("please run /login") {
+            return "Claude CLI is not signed in. Run 'claude login' in Terminal to authenticate."
+        }
+        // Codex CLI auth errors (401 Unauthorized, not logged in, etc.)
+        if combined.contains("401 unauthorized") || combined.contains("not logged in") || combined.contains("codex auth") || combined.contains("authentication required") {
+            return "Codex CLI is not signed in. Run 'codex auth' in Terminal to authenticate."
+        }
+        return nil
+    }
 }
 
 enum CLITool: String, CaseIterable {
