@@ -2017,45 +2017,82 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         ]
 
         let urlWithKey = endpointForModel(model) + "?key=\(apiKey)"
-        var request = URLRequest(url: URL(string: urlWithKey)!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 120
-        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        // Retry loop for transient errors
+        let maxRetries = 3
+        var attempt = 0
+        var lastError: Error?
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Non-HTTP response"])
-        }
+        while attempt < maxRetries {
+            do {
+                print("🔄 generateText attempt \(attempt + 1)/\(maxRetries)")
 
-        if httpResponse.statusCode >= 400 {
-            var errorMessage = "HTTP \(httpResponse.statusCode) error"
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let error = json["error"] as? [String: Any],
-               let message = error["message"] as? String {
-                errorMessage = message
+                var request = URLRequest(url: URL(string: urlWithKey)!)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.timeoutInterval = 120
+                request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+                let (data, response) = try await URLSession.shared.data(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Non-HTTP response"])
+                }
+
+                if httpResponse.statusCode >= 400 {
+                    var errorMessage = "HTTP \(httpResponse.statusCode) error"
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let error = json["error"] as? [String: Any],
+                       let message = error["message"] as? String {
+                        errorMessage = message
+                    }
+                    throw NSError(domain: "GeminiError", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMessage])
+                }
+
+                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let candidates = json["candidates"] as? [[String: Any]],
+                      let firstCandidate = candidates.first,
+                      let content = firstCandidate["content"] as? [String: Any],
+                      let parts = content["parts"] as? [[String: Any]],
+                      let text = parts.first?["text"] as? String else {
+                    throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "Failed to parse response"])
+                }
+
+                // Success!
+                print("✅ generateText succeeded on attempt \(attempt + 1)")
+                let log = LLMCall(
+                    timestamp: callStart,
+                    latency: Date().timeIntervalSince(callStart),
+                    input: prompt,
+                    output: text
+                )
+                return (text.trimmingCharacters(in: .whitespacesAndNewlines), log)
+
+            } catch {
+                lastError = error
+                print("❌ generateText attempt \(attempt + 1) failed: \(error.localizedDescription)")
+
+                let strategy = classifyError(error)
+
+                // Check if we should retry
+                if strategy == .noRetry || attempt >= maxRetries - 1 {
+                    print("🚫 Not retrying generateText: strategy=\(strategy), attempt=\(attempt + 1)/\(maxRetries)")
+                    throw error
+                }
+
+                // Apply appropriate delay based on error type
+                let delay = delayForStrategy(strategy, attempt: attempt)
+                if delay > 0 {
+                    print("⏳ Waiting \(String(format: "%.1f", delay))s before retry (strategy: \(strategy))")
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                }
             }
-            throw NSError(domain: "GeminiError", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMessage])
+
+            attempt += 1
         }
 
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let candidates = json["candidates"] as? [[String: Any]],
-              let firstCandidate = candidates.first,
-              let content = firstCandidate["content"] as? [String: Any],
-              let parts = content["parts"] as? [[String: Any]],
-              let text = parts.first?["text"] as? String else {
-            throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "Failed to parse response"])
-        }
-
-        let log = LLMCall(
-            timestamp: callStart,
-            latency: Date().timeIntervalSince(callStart),
-            input: prompt,
-            output: text
-        )
-
-        return (text.trimmingCharacters(in: .whitespacesAndNewlines), log)
+        // Should never reach here, but just in case
+        throw lastError ?? NSError(domain: "GeminiError", code: 999, userInfo: [NSLocalizedDescriptionKey: "generateText failed after \(maxRetries) attempts"])
     }
 
 
