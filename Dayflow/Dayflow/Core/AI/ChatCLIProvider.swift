@@ -143,7 +143,7 @@ private struct ChatCLIProcessRunner {
             if let model = model { args.append(contentsOf: ["-m", model]) }
             if let effort = reasoningEffort { args.append(contentsOf: ["-c", "model_reasoning_effort=\(effort)"]) }
             // Disable MCP per call as belt and suspenders
-            args.append(contentsOf: ["-c", "mcp_servers={}", "-c", "experimental_use_rmcp_client=false", "-c", "features.web_search_request=false"])
+            args.append(contentsOf: ["-c", "mcp_servers={}", "-c", "rmcp_client=false", "-c", "features.web_search_request=false"])
             for path in imagePaths { args.append(contentsOf: ["--image", path]) }
             // Separator to ensure prompt is not parsed as an option
             args.append("--")
@@ -152,6 +152,8 @@ private struct ChatCLIProcessRunner {
             args = ["-p"]
             if let model = model { args.append(contentsOf: ["--model", model]) }
             args.append(contentsOf: ["--dangerously-skip-permissions", "--tools", "Read"])
+            // Disable user MCP servers to avoid loading unnecessary extensions
+            args.append("--strict-mcp-config")
             // Separator prevents the prompt from being consumed as another tools value
             args.append("--")
             args.append(promptWithImageHints(prompt: prompt, imagePaths: imagePaths))
@@ -172,7 +174,19 @@ private struct ChatCLIProcessRunner {
         process.standardError = stderrPipe
 
         try process.run()
-        process.waitUntilExit()
+
+        // 5-minute timeout to prevent indefinite hangs
+        let timeoutSeconds: TimeInterval = 300
+        let semaphore = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            process.waitUntilExit()
+            semaphore.signal()
+        }
+        let result = semaphore.wait(timeout: .now() + timeoutSeconds)
+        if result == .timedOut {
+            process.terminate()
+            throw NSError(domain: "ChatCLI", code: -3, userInfo: [NSLocalizedDescriptionKey: "CLI process timed out after \(Int(timeoutSeconds)) seconds"])
+        }
         let finished = Date()
 
         let rawOut = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
@@ -443,7 +457,7 @@ final class ChatCLIProvider: LLMProvider {
         encoder.outputFormatting = .prettyPrinted
         let existingCardsData = try? encoder.encode(context.existingCards)
         let existingCardsJSON = existingCardsData.flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        let promptSections = GeminiPromptSections(overrides: GeminiPromptPreferences.load())
+        let promptSections = ChatCLIPromptSections(overrides: ChatCLIPromptPreferences.load())
 
         // Build prompt with explicit concatenation to avoid GRDB SQL interpolation pollution
         let categoriesSectionText = categoriesSection(from: context.categories)
@@ -1199,6 +1213,7 @@ final class ChatCLIProvider: LLMProvider {
 
     func generateText(prompt: String) async throws -> (text: String, log: LLMCall) {
         let callStart = Date()
+        let ctx = makeCtx(batchId: nil, operation: "generateText", startedAt: callStart)
 
         let model: String
         switch tool {
@@ -1208,23 +1223,33 @@ final class ChatCLIProvider: LLMProvider {
             model = "gpt-5.1-codex-max"
         }
 
-        let run = try await Task.detached {
-            try self.runner.run(
-                tool: self.tool,
-                prompt: prompt,
-                workingDirectory: self.config.baseDirectory,
-                model: model,
-                reasoningEffort: nil
-            )
-        }.value
+        let run: ChatCLIRunResult
+        do {
+            run = try await Task.detached {
+                try self.runner.run(
+                    tool: self.tool,
+                    prompt: prompt,
+                    workingDirectory: self.config.baseDirectory,
+                    model: model,
+                    reasoningEffort: nil
+                )
+            }.value
+        } catch {
+            logFailure(ctx: ctx, finishedAt: Date(), error: error)
+            throw error
+        }
 
         guard run.exitCode == 0 else {
             let errorMessage = run.stderr.isEmpty ? "CLI exited with code \(run.exitCode)" : run.stderr
-            throw NSError(domain: "ChatCLI", code: Int(run.exitCode), userInfo: [NSLocalizedDescriptionKey: errorMessage])
+            let error = NSError(domain: "ChatCLI", code: Int(run.exitCode), userInfo: [NSLocalizedDescriptionKey: errorMessage])
+            logFailure(ctx: ctx, finishedAt: run.finishedAt, error: error)
+            throw error
         }
+
+        logSuccess(ctx: ctx, finishedAt: run.finishedAt, stdout: run.stdout, stderr: run.stderr)
 
         let log = makeLLMCall(start: callStart, end: run.finishedAt, input: prompt, output: run.stdout)
 
-        return (run.stdout.trimmingCharacters(in: .whitespacesAndNewlines), log)
+        return (run.stdout.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), log)
     }
 }
