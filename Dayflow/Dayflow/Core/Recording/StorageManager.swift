@@ -329,9 +329,10 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     static let shared = StorageManager()
 
     private let dbURL: URL
-    private let db: DatabasePool
+    private var db: DatabasePool!  // var to allow recovery reassignment
     private let fileMgr = FileManager.default
     private let root: URL
+    private let backupsDir: URL
     var recordingsRoot: URL { root }
 
     // TEMPORARY DEBUG: Remove after identifying slow queries
@@ -348,12 +349,15 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let appSupport = fileMgr.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let baseDir = appSupport.appendingPathComponent("Dayflow", isDirectory: true)
         let recordingsDir = baseDir.appendingPathComponent("recordings", isDirectory: true)
+        let backupDir = baseDir.appendingPathComponent("backups", isDirectory: true)
 
         // Ensure directories exist before opening database
         try? fileMgr.createDirectory(at: baseDir, withIntermediateDirectories: true)
         try? fileMgr.createDirectory(at: recordingsDir, withIntermediateDirectories: true)
+        try? fileMgr.createDirectory(at: backupDir, withIntermediateDirectories: true)
 
         root = recordingsDir
+        backupsDir = backupDir
         dbURL = baseDir.appendingPathComponent("chunks.sqlite")
 
         StorageManager.migrateDatabaseLocationIfNeeded(
@@ -373,7 +377,13 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             try db.execute(sql: "PRAGMA busy_timeout = 5000")
         }
 
-        db = try! DatabasePool(path: dbURL.path, configuration: config)
+        // Safe database initialization with automatic recovery from backup
+        db = Self.openDatabaseSafely(
+            at: dbURL,
+            backupsDir: backupDir,
+            config: config,
+            fileManager: fileMgr
+        )
 
         // TEMPORARY DEBUG: SQL statement tracing (via configuration)
         #if DEBUG
@@ -386,6 +396,9 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }
         #endif
 
+        // Run integrity check on launch (logs warning if issues found)
+        performIntegrityCheck()
+
         migrate()
         migrateLegacyChunkPathsIfNeeded()
 
@@ -396,6 +409,9 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
         // Schedule WAL checkpoints every 5 minutes to prevent data loss
         startCheckpointScheduler()
+
+        // Schedule daily backups
+        startBackupScheduler()
     }
 
     // TEMPORARY DEBUG: Timing helpers for database operations
@@ -1099,6 +1115,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 WHERE ((start_ts < ? AND end_ts > ?)
                    OR (start_ts >= ? AND start_ts < ?))
                   AND is_deleted = 0
+                  AND category != 'System'
                 ORDER BY start_ts ASC
             """, arguments: [toTs, fromTs, fromTs, toTs])
             .map { row in
@@ -1296,13 +1313,15 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
         try? timedWrite("replaceTimelineCardsInRange(\(newCards.count)_cards)") { db in
             // First, fetch the video paths that will be soft-deleted
+            // Note: We exclude error cards (category='System') from other batches to preserve them
             let videoRows = try Row.fetchAll(db, sql: """
                 SELECT video_summary_url FROM timeline_cards
                 WHERE ((start_ts < ? AND end_ts > ?)
                    OR (start_ts >= ? AND start_ts < ?))
                    AND video_summary_url IS NOT NULL
                    AND is_deleted = 0
-            """, arguments: [toTs, fromTs, fromTs, toTs])
+                   AND (category != 'System' OR batch_id = ?)
+            """, arguments: [toTs, fromTs, fromTs, toTs, batchId])
 
             videoPaths = videoRows.compactMap { $0["video_summary_url"] as? String }
 
@@ -1312,7 +1331,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 WHERE ((start_ts < ? AND end_ts > ?)
                    OR (start_ts >= ? AND start_ts < ?))
                    AND is_deleted = 0
-            """, arguments: [toTs, fromTs, fromTs, toTs])
+                   AND (category != 'System' OR batch_id = ?)
+            """, arguments: [toTs, fromTs, fromTs, toTs, batchId])
 
             for card in cardsToDelete {
                 let id: Int64 = card["id"]
@@ -1322,13 +1342,15 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             }
 
             // Soft delete existing cards in the range using timestamp columns
+            // Preserve error cards (category='System') from other batches so they remain visible
             try db.execute(sql: """
                 UPDATE timeline_cards
                 SET is_deleted = 1
                 WHERE ((start_ts < ? AND end_ts > ?)
                    OR (start_ts >= ? AND start_ts < ?))
                    AND is_deleted = 0
-            """, arguments: [toTs, fromTs, fromTs, toTs])
+                   AND (category != 'System' OR batch_id = ?)
+            """, arguments: [toTs, fromTs, fromTs, toTs, batchId])
 
             // Verify soft deletion (count remaining active cards)
             let remainingCount = try Int.fetchOne(db, sql: """
@@ -2084,6 +2106,222 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }
         timer.resume()
         checkpointTimer = timer
+    }
+
+    // MARK: - Safe Database Initialization
+
+    /// Opens the database with automatic recovery from backup if corrupted.
+    /// Order of attempts: 1) Normal open, 2) Restore from most recent backup, 3) Fresh database
+    private static func openDatabaseSafely(
+        at dbURL: URL,
+        backupsDir: URL,
+        config: Configuration,
+        fileManager: FileManager
+    ) -> DatabasePool {
+        // Attempt 1: Normal open
+        do {
+            let pool = try DatabasePool(path: dbURL.path, configuration: config)
+            print("✅ [StorageManager] Database opened successfully")
+            return pool
+        } catch {
+            print("⚠️ [StorageManager] Failed to open database: \(error)")
+
+            let breadcrumb = Breadcrumb(level: .error, category: "database")
+            breadcrumb.message = "Database open failed, attempting recovery"
+            breadcrumb.data = ["error": "\(error)"]
+            SentryHelper.addBreadcrumb(breadcrumb)
+
+            // Attempt 2: Restore from most recent backup
+            if let backupURL = findMostRecentBackup(in: backupsDir, fileManager: fileManager) {
+                print("🔄 [StorageManager] Attempting recovery from backup: \(backupURL.lastPathComponent)")
+
+                // Remove corrupted database files
+                let walURL = URL(fileURLWithPath: dbURL.path + "-wal")
+                let shmURL = URL(fileURLWithPath: dbURL.path + "-shm")
+                try? fileManager.removeItem(at: dbURL)
+                try? fileManager.removeItem(at: walURL)
+                try? fileManager.removeItem(at: shmURL)
+
+                // Copy backup to database location
+                do {
+                    try fileManager.copyItem(at: backupURL, to: dbURL)
+                    let pool = try DatabasePool(path: dbURL.path, configuration: config)
+                    print("✅ [StorageManager] Successfully recovered from backup")
+
+                    let recoveryBreadcrumb = Breadcrumb(level: .info, category: "database")
+                    recoveryBreadcrumb.message = "Database recovered from backup"
+                    recoveryBreadcrumb.data = ["backup": backupURL.lastPathComponent]
+                    SentryHelper.addBreadcrumb(recoveryBreadcrumb)
+
+                    return pool
+                } catch {
+                    print("❌ [StorageManager] Backup recovery failed: \(error)")
+                }
+            }
+
+            // Attempt 3: Start fresh (last resort)
+            print("🆕 [StorageManager] Starting with fresh database")
+            let walURL = URL(fileURLWithPath: dbURL.path + "-wal")
+            let shmURL = URL(fileURLWithPath: dbURL.path + "-shm")
+            try? fileManager.removeItem(at: dbURL)
+            try? fileManager.removeItem(at: walURL)
+            try? fileManager.removeItem(at: shmURL)
+
+            do {
+                let pool = try DatabasePool(path: dbURL.path, configuration: config)
+
+                let freshBreadcrumb = Breadcrumb(level: .warning, category: "database")
+                freshBreadcrumb.message = "Started with fresh database after all recovery attempts failed"
+                SentryHelper.addBreadcrumb(freshBreadcrumb)
+
+                return pool
+            } catch {
+                // This is truly fatal - can't even create a fresh database
+                fatalError("[StorageManager] Cannot create database: \(error)")
+            }
+        }
+    }
+
+    /// Finds the most recent backup file in the backups directory
+    private static func findMostRecentBackup(in backupsDir: URL, fileManager: FileManager) -> URL? {
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: backupsDir,
+            includingPropertiesForKeys: [.creationDateKey],
+            options: .skipsHiddenFiles
+        ) else {
+            return nil
+        }
+
+        let sqliteBackups = contents.filter { $0.pathExtension == "sqlite" }
+
+        // Sort by creation date, newest first
+        let sorted = sqliteBackups.sorted { url1, url2 in
+            let date1 = (try? url1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            let date2 = (try? url2.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            return date1 > date2
+        }
+
+        return sorted.first
+    }
+
+    // MARK: - Integrity Check
+
+    /// Performs a quick integrity check on the database.
+    /// Logs a warning if issues are found but doesn't stop app launch.
+    private func performIntegrityCheck() {
+        do {
+            let result = try db.read { db -> String? in
+                try String.fetchOne(db, sql: "PRAGMA quick_check")
+            }
+
+            if result == "ok" {
+                print("✅ [StorageManager] Database integrity check passed")
+            } else {
+                print("⚠️ [StorageManager] Database integrity issues: \(result ?? "unknown")")
+
+                let breadcrumb = Breadcrumb(level: .warning, category: "database")
+                breadcrumb.message = "Database integrity check found issues"
+                breadcrumb.data = ["result": result ?? "unknown"]
+                SentryHelper.addBreadcrumb(breadcrumb)
+            }
+        } catch {
+            print("⚠️ [StorageManager] Integrity check failed: \(error)")
+
+            let breadcrumb = Breadcrumb(level: .error, category: "database")
+            breadcrumb.message = "Database integrity check error"
+            breadcrumb.data = ["error": "\(error)"]
+            SentryHelper.addBreadcrumb(breadcrumb)
+        }
+    }
+
+    // MARK: - Backup System
+
+    private var backupTimer: DispatchSourceTimer?
+
+    /// Creates a backup of the database using GRDB's native backup API.
+    /// Backups are stored with timestamp in filename and old backups are pruned.
+    func createBackup() {
+        dbWriteQueue.async { [weak self] in
+            guard let self = self else { return }
+
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd_HHmmss"
+            let timestamp = formatter.string(from: Date())
+            let backupName = "chunks-\(timestamp).sqlite"
+            let backupURL = self.backupsDir.appendingPathComponent(backupName)
+
+            do {
+                // Create destination database for backup
+                let destination = try DatabaseQueue(path: backupURL.path)
+
+                // Use GRDB's native backup API
+                try self.db.backup(to: destination)
+
+                print("✅ [StorageManager] Backup created: \(backupName)")
+
+                let breadcrumb = Breadcrumb(level: .info, category: "database")
+                breadcrumb.message = "Database backup created"
+                breadcrumb.data = ["filename": backupName]
+                SentryHelper.addBreadcrumb(breadcrumb)
+
+                // Prune old backups, keeping last 3
+                self.pruneOldBackups(keeping: 3)
+
+            } catch {
+                print("❌ [StorageManager] Backup failed: \(error)")
+
+                let breadcrumb = Breadcrumb(level: .error, category: "database")
+                breadcrumb.message = "Database backup failed"
+                breadcrumb.data = ["error": "\(error)"]
+                SentryHelper.addBreadcrumb(breadcrumb)
+            }
+        }
+    }
+
+    /// Removes old backups, keeping only the most recent `count` backups.
+    private func pruneOldBackups(keeping count: Int) {
+        guard let contents = try? fileMgr.contentsOfDirectory(
+            at: backupsDir,
+            includingPropertiesForKeys: [.creationDateKey],
+            options: .skipsHiddenFiles
+        ) else {
+            return
+        }
+
+        let sqliteBackups = contents.filter { $0.pathExtension == "sqlite" }
+
+        // Sort by creation date, newest first
+        let sorted = sqliteBackups.sorted { url1, url2 in
+            let date1 = (try? url1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            let date2 = (try? url2.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            return date1 > date2
+        }
+
+        // Remove all but the newest `count` backups
+        if sorted.count > count {
+            let toDelete = sorted.dropFirst(count)
+            for url in toDelete {
+                try? fileMgr.removeItem(at: url)
+                print("🗑️ [StorageManager] Pruned old backup: \(url.lastPathComponent)")
+            }
+        }
+    }
+
+    /// Schedules daily backups (every 24 hours, starting 1 hour after launch)
+    private func startBackupScheduler() {
+        let timer = DispatchSource.makeTimerSource(queue: dbWriteQueue)
+        // First backup 1 hour after launch, then every 24 hours
+        timer.schedule(deadline: .now() + 3600, repeating: 86400)
+        timer.setEventHandler { [weak self] in
+            self?.createBackup()
+        }
+        timer.resume()
+        backupTimer = timer
+
+        // Also create an immediate backup on first launch if none exists
+        if Self.findMostRecentBackup(in: backupsDir, fileManager: fileMgr) == nil {
+            createBackup()
+        }
     }
 
     private func startPurgeScheduler() {
