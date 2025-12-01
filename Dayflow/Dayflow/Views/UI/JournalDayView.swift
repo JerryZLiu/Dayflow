@@ -153,10 +153,14 @@ extension JournalDayView {
                     reflections: manager.formReflections,
                     canSummarize: manager.canSummarize,
                     isLoading: manager.isLoading,
+                    errorMessage: manager.errorMessage,
                     onSummarize: {
                         Task {
                             await manager.generateSummary()
                         }
+                    },
+                    onDismissError: {
+                        manager.errorMessage = nil
                     }
                 )
             }
@@ -630,7 +634,9 @@ private struct ReflectionSavedCard: View {
     var reflections: String
     var canSummarize: Bool = true
     var isLoading: Bool = false
+    var errorMessage: String? = nil
     var onSummarize: () -> Void
+    var onDismissError: (() -> Void)? = nil
 
     private var hasReflections: Bool {
         !reflections.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -669,6 +675,25 @@ private struct ReflectionSavedCard: View {
                         Text("Generating summary...")
                             .font(.custom("Nunito-Regular", size: 14))
                             .foregroundStyle(JournalDayTokens.bodyText.opacity(0.7))
+                    }
+                } else if let error = errorMessage {
+                    VStack(alignment: .trailing, spacing: 8) {
+                        Text(error)
+                            .font(.custom("Nunito-Regular", size: 13))
+                            .foregroundStyle(Color.red.opacity(0.8))
+                            .multilineTextAlignment(.trailing)
+
+                        HStack(spacing: 12) {
+                            Button("Dismiss") {
+                                onDismissError?()
+                            }
+                            .buttonStyle(.plain)
+                            .font(.custom("Nunito-Regular", size: 13))
+                            .foregroundStyle(JournalDayTokens.bodyText.opacity(0.6))
+
+                            Button("Try again", action: onSummarize)
+                                .buttonStyle(JournalPillButtonStyle(horizontalPadding: 18, verticalPadding: 8))
+                        }
                     }
                 } else if canSummarize {
                     Button("Summarize with Dayflow", action: onSummarize)
