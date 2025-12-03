@@ -217,20 +217,12 @@ final class AnalysisManager: AnalysisManaging {
                 completion(.failure(NSError(domain: "AnalysisManager", code: 3, userInfo: [NSLocalizedDescriptionKey: "Could not find batch information"])))
                 return
             }
-            
-            DispatchQueue.main.async { progressHandler("Removing timeline cards for selected batches...") }
-            let videoPaths = self.store.deleteTimelineCards(forBatchIds: orderedBatchIds)
 
+            // Delete observations so they can be regenerated
+            // Note: We don't delete timeline cards here - LLMService.processBatch's
+            // replaceTimelineCardsInRange() handles atomic card replacement, keeping
+            // the old card visible until new cards are ready
             self.store.deleteObservations(forBatchIds: orderedBatchIds)
-
-            for path in videoPaths {
-                if let url = URL(string: path), url.scheme != nil {
-                    try? FileManager.default.removeItem(at: url)
-                } else {
-                    let fileURL = URL(fileURLWithPath: path)
-                    try? FileManager.default.removeItem(at: fileURL)
-                }
-            }
 
             let resetBatchIdSet = Set(self.store.resetBatchStatuses(forBatchIds: orderedBatchIds))
             let batchesToProcess = orderedBatchIds.filter { resetBatchIdSet.contains($0) }
