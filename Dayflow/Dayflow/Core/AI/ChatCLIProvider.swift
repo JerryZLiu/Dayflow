@@ -88,6 +88,9 @@ private struct TokenUsage: Sendable {
 }
 
 private struct ChatCLIProcessRunner {
+    // Cache resolved executable paths so we only run `which` once per tool
+    private static var resolvedPaths: [ChatCLITool: String] = [:]
+
     // Extract final assistant text and usage from CLI JSONL so higher layers can parse domain JSON.
     private func parseAssistant(tool: ChatCLITool, raw: String) -> (text: String, usage: TokenUsage?) {
         // Without CLI JSON envelopes, treat stdout as final message.
@@ -100,25 +103,38 @@ private struct ChatCLIProcessRunner {
         let hints = imagePaths.map { "- " + $0 }.joined(separator: "\n")
         return prompt + "\nImages:\n" + hints
     }
+
+    // Paths to search for CLI executables (claude, codex)
     private static let searchPaths: [String] = {
         let home = NSHomeDirectory()
-        return [
-            "/usr/local/bin",
+        var paths = [
+            // System paths (Homebrew, manual installs)
             "/opt/homebrew/bin",
+            "/usr/local/bin",
             "/usr/bin",
             "/bin",
-            "/usr/sbin",
-            "/sbin",
-            "\(home)/.npm-global/bin",
+
+            // Claude CLI locations
             "\(home)/.local/bin",
-            "\(home)/.cargo/bin",
+            "\(home)/.claude/bin",
+
+            // Codex CLI / npm / bun locations
             "\(home)/.bun/bin",
-            "\(home)/.pyenv/bin",
-            "\(home)/.pyenv/shims",
-            "\(home)/.npm-global/lib/node_modules/@openai/codex/vendor/aarch64-apple-darwin/path",
-            "\(home)/.codeium/windsurf/bin",
-            "\(home)/.lmstudio/bin"
+            "\(home)/.npm-global/bin",
+
+            // Rust builds (if someone compiles from source)
+            "\(home)/.cargo/bin",
         ]
+
+        // Add nvm paths if nvm is installed (handles dynamic node versions)
+        let nvmBase = "\(home)/.nvm/versions/node"
+        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmBase) {
+            for version in versions {
+                paths.append("\(nvmBase)/\(version)/bin")
+            }
+        }
+
+        return paths
     }()
 
     func run(tool: ChatCLITool, prompt: String, workingDirectory: URL, imagePaths: [String] = [], model: String? = nil, reasoningEffort: String? = nil) throws -> ChatCLIRunResult {
@@ -236,15 +252,44 @@ private struct ChatCLIProcessRunner {
     }
 
     private func resolveExecutable(tool: ChatCLITool) -> String? {
-        let name: String = (tool == .codex) ? "codex" : "claude"
-        let fm = FileManager.default
-        let paths = mergedPATH(existing: ProcessInfo.processInfo.environment["PATH"]).split(separator: ":").map { String($0) }
-        for dir in paths {
-            let candidate = (dir as NSString).appendingPathComponent(name)
-            if fm.isExecutableFile(atPath: candidate) {
+        // Return cached path if still valid
+        if let cached = Self.resolvedPaths[tool] {
+            if FileManager.default.isExecutableFile(atPath: cached) {
+                return cached
+            }
+            // Cached path is stale (CLI moved/uninstalled), clear and re-scan
+            Self.resolvedPaths[tool] = nil
+        }
+
+        let name = tool == .codex ? "codex" : "claude"
+        let fileManager = FileManager.default
+
+        // Direct path checking - same approach as CLIDetector in onboarding
+        // This avoids shell issues (aliases, PATH not loaded from .zshrc, etc.)
+        var searchDirectories: [String] = []
+
+        // Include current process PATH first
+        if let envPath = ProcessInfo.processInfo.environment["PATH"] {
+            searchDirectories.append(contentsOf: envPath.split(separator: ":").map { String($0) })
+        }
+
+        // Add our known CLI installation paths
+        searchDirectories.append(contentsOf: Self.searchPaths)
+
+        // Deduplicate while preserving order
+        var seen = Set<String>()
+        for directory in searchDirectories {
+            let expanded = (directory as NSString).expandingTildeInPath
+            if !seen.insert(expanded).inserted {
+                continue
+            }
+            let candidate = (expanded as NSString).appendingPathComponent(name)
+            if fileManager.isExecutableFile(atPath: candidate) {
+                Self.resolvedPaths[tool] = candidate
                 return candidate
             }
         }
+
         return nil
     }
 }
