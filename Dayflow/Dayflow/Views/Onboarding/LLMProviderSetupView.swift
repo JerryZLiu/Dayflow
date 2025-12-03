@@ -1678,11 +1678,9 @@ struct ChatCLITestView: View {
         resultMessage = nil
 
         Task.detached {
-            let outcome: Result<(Bool, CLIResult), Error> = {
+            let outcome: Result<CLIResult, Error> = {
                 do {
-                    let cliResult = try performTest(for: tool)
-                    let passed = parseForHello(cliResult)
-                    return .success((passed, cliResult))
+                    return .success(try performTest(for: tool))
                 } catch {
                     return .failure(error)
                 }
@@ -1691,18 +1689,15 @@ struct ChatCLITestView: View {
             await MainActor.run {
                 isTesting = false
                 switch outcome {
-                case .success(let (passed, cliResult)):
-                    success = passed
-                    if passed {
-                        resultMessage = "CLI is working!"
-                    } else {
-                        // Check for auth errors first (these can come with exit code 0)
+                case .success(let cliResult):
+                    // Check exit code FIRST - non-zero means failure
+                    if cliResult.exitCode != 0 {
+                        success = false
                         if let authError = detectAuthError(cliResult) {
                             resultMessage = authError
-                        } else if cliResult.exitCode != 0 {
+                        } else {
                             let stderrTrimmed = cliResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
                             if stderrTrimmed.isEmpty {
-                                // Exit code non-zero but no stderr - likely auth issue
                                 if selectedTool == .claude {
                                     resultMessage = "Claude CLI returned an error. You may need to sign in — run 'claude login' in Terminal."
                                 } else {
@@ -1711,12 +1706,21 @@ struct ChatCLITestView: View {
                             } else {
                                 resultMessage = "CLI error: \(stderrTrimmed.prefix(150))"
                             }
-                        } else if cliResult.stdout.isEmpty {
-                            resultMessage = "CLI returned empty response. Make sure you're signed in."
-                        } else {
-                            let preview = cliResult.stdout.prefix(100)
-                            resultMessage = "Got: \"\(preview)\" — expected 'hello'"
                         }
+                        onTestComplete(false)
+                        return
+                    }
+
+                    // Exit code is 0, now check for "hello" in response
+                    let passed = parseForHello(cliResult)
+                    success = passed
+                    if passed {
+                        resultMessage = "CLI is working!"
+                    } else if cliResult.stdout.isEmpty {
+                        resultMessage = "CLI returned empty response. Make sure you're signed in."
+                    } else {
+                        let preview = cliResult.stdout.prefix(100)
+                        resultMessage = "Got: \"\(preview)\" — expected 'hello'"
                     }
                     onTestComplete(passed)
                 case .failure(let error):
@@ -1734,6 +1738,8 @@ struct ChatCLITestView: View {
         }
 
         let prompt = "Say hello. Respond with just the word 'hello' and nothing else."
+        // Use a sandboxed directory to avoid permission prompts for Downloads/Desktop
+        let safeWorkingDir = FileManager.default.temporaryDirectory
 
         switch tool {
         case .codex:
@@ -1741,11 +1747,11 @@ struct ChatCLITestView: View {
             // --skip-git-repo-check needed because app runs from sandboxed directory
             // Disable MCP servers to avoid connecting to user's configured servers during test
             // -- separator ensures prompt isn't parsed as an option
-            return try runCLI(path, args: ["exec", "--skip-git-repo-check", "-c", "model_reasoning_effort=high", "-c", "mcp_servers={}", "-c", "rmcp_client=false", "-c", "features.web_search_request=false", "--", prompt], env: environment)
+            return try runCLI(path, args: ["exec", "--skip-git-repo-check", "-c", "model_reasoning_effort=high", "-c", "mcp_servers={}", "-c", "rmcp_client=false", "-c", "features.web_search_request=false", "--", prompt], env: environment, cwd: safeWorkingDir)
         case .claude:
             // --strict-mcp-config disables all user MCP servers
             // -- separator ensures prompt isn't parsed as an option
-            return try runCLI(path, args: ["--print", "--output-format", "text", "--strict-mcp-config", "--", prompt], env: environment)
+            return try runCLI(path, args: ["--print", "--output-format", "text", "--strict-mcp-config", "--", prompt], env: environment, cwd: safeWorkingDir)
         }
     }
 
@@ -1953,7 +1959,7 @@ struct ChatCLIDetectionStepView<NextButton: View>: View {
                     .font(.custom("Nunito", size: 24))
                     .fontWeight(.semibold)
                     .foregroundColor(.black.opacity(0.9))
-                Text("Dayflow can talk to ChatGPT (via the Codex CLI) or Claude Code. You only need one installed and signed in on this Mac.")
+                Text("Dayflow can talk to ChatGPT (via the Codex CLI) or Claude Code. You only need one installed and signed in on this Mac. After installing, run `codex auth` or `claude login` in Terminal to connect it to your account.")
                     .font(.custom("Nunito", size: 14))
                     .foregroundColor(.black.opacity(0.6))
             }
