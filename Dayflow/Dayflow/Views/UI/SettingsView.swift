@@ -147,7 +147,7 @@ struct SettingsView: View {
         return formatter
     }()
 
-    var body: some View {
+    private var mainContent: some View {
         HStack(alignment: .top, spacing: 32) {
             sidebar
 
@@ -166,120 +166,131 @@ struct SettingsView: View {
         }
         .padding(.trailing, 40)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear {
-            loadCurrentProvider()
-            analyticsEnabled = AnalyticsService.shared.isOptedIn
-            refreshStorageIfNeeded()
-            // Refresh cached local settings for provider test view
-            reloadLocalProviderSettings()
-            LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
-            refreshUpgradeBannerState()
-            loadGeminiPromptOverridesIfNeeded()
-            loadOllamaPromptOverridesIfNeeded()
-            loadChatCLIPromptOverridesIfNeeded()
-            let recordingsLimit = StoragePreferences.recordingsLimitBytes
-            recordingsLimitBytes = recordingsLimit
-            recordingsLimitIndex = indexForLimit(recordingsLimit)
-            let timelapseLimit = StoragePreferences.timelapsesLimitBytes
-            timelapsesLimitBytes = timelapseLimit
-            timelapsesLimitIndex = indexForLimit(timelapseLimit)
-            AnalyticsService.shared.capture("settings_opened")
-            launchAtLoginManager.refreshStatus()
-        }
-        .onChange(of: analyticsEnabled) { enabled in
-            AnalyticsService.shared.setOptIn(enabled)
-        }
-        .onChange(of: currentProvider) { newProvider in
-            applyProviderChangeSideEffects(for: newProvider)
-        }
-        .onChange(of: selectedTab) { newValue in
-            if newValue == .storage {
-                refreshStorageIfNeeded()
-            }
-        }
-        .onChange(of: localEngine) { newValue in
-            UserDefaults.standard.set(newValue.rawValue, forKey: "llmLocalEngine")
-            LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
-            refreshUpgradeBannerState()
-        }
-        .onChange(of: localModelId) { newValue in
-            UserDefaults.standard.set(newValue, forKey: "llmLocalModelId")
-            LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
-            refreshUpgradeBannerState()
-        }
-        .onChange(of: localBaseURL) { newValue in
-            UserDefaults.standard.set(newValue, forKey: "llmLocalBaseURL")
-        }
-        .onChange(of: localAPIKey) { newValue in
-            persistLocalAPIKey(newValue)
-        }
-        .sheet(item: Binding(
-            get: { setupModalProvider.map { ProviderSetupWrapper(id: $0) } },
-            set: { setupModalProvider = $0?.id }
-        )) { wrapper in
-            LLMProviderSetupView(
-                providerType: wrapper.id,
-                onBack: { setupModalProvider = nil },
-                onComplete: {
-                    completeProviderSwitch(wrapper.id)
-                    setupModalProvider = nil
-                }
-            )
-            .frame(minWidth: 900, minHeight: 650)
-        }
-        .sheet(isPresented: $isShowingLocalModelUpgradeSheet) {
-            LocalModelUpgradeSheet(
-                preset: .qwen3VL4B,
-                initialEngine: localEngine,
-                initialBaseURL: localBaseURL,
-                initialModelId: localModelId,
-                initialAPIKey: localAPIKey,
-                onCancel: { isShowingLocalModelUpgradeSheet = false },
-                onUpgradeSuccess: { engine, baseURL, modelId, apiKey in
-                    handleUpgradeSuccess(engine: engine, baseURL: baseURL, modelId: modelId, apiKey: apiKey)
-                    isShowingLocalModelUpgradeSheet = false
-                }
-            )
-            .frame(minWidth: 720, minHeight: 560)
-        }
-        .alert(isPresented: $showLimitConfirmation) {
-            guard let pending = pendingLimit,
-                  Self.storageOptions.indices.contains(pending.index) else {
-                return Alert(title: Text("Adjust storage limit"), dismissButton: .default(Text("OK")))
-            }
+    }
 
-            let option = Self.storageOptions[pending.index]
-            let categoryName = pending.category.displayName
-            return Alert(
-                title: Text("Lower \(categoryName) limit?"),
-                message: Text("Reducing the \(categoryName) limit to \(option.label) will immediately delete the oldest \(categoryName) data to stay under the new cap."),
-                primaryButton: .destructive(Text("Confirm")) {
-                    applyLimit(for: pending.category, index: pending.index)
-                },
-                secondaryButton: .cancel {
-                    pendingLimit = nil
-                    showLimitConfirmation = false
+    private var contentWithLifecycle: some View {
+        mainContent
+            .onAppear {
+                loadCurrentProvider()
+                analyticsEnabled = AnalyticsService.shared.isOptedIn
+                refreshStorageIfNeeded()
+                reloadLocalProviderSettings()
+                LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
+                refreshUpgradeBannerState()
+                loadGeminiPromptOverridesIfNeeded()
+                loadOllamaPromptOverridesIfNeeded()
+                loadChatCLIPromptOverridesIfNeeded()
+                let recordingsLimit = StoragePreferences.recordingsLimitBytes
+                recordingsLimitBytes = recordingsLimit
+                recordingsLimitIndex = indexForLimit(recordingsLimit)
+                let timelapseLimit = StoragePreferences.timelapsesLimitBytes
+                timelapsesLimitBytes = timelapseLimit
+                timelapsesLimitIndex = indexForLimit(timelapseLimit)
+                AnalyticsService.shared.capture("settings_opened")
+                launchAtLoginManager.refreshStatus()
+            }
+            .onChange(of: analyticsEnabled) { enabled in
+                AnalyticsService.shared.setOptIn(enabled)
+            }
+            .onChange(of: currentProvider) { newProvider in
+                applyProviderChangeSideEffects(for: newProvider)
+            }
+            .onChange(of: selectedTab) { newValue in
+                if newValue == .storage {
+                    refreshStorageIfNeeded()
                 }
-            )
-        }
-        // The settings palette is tailored for light mode; keep it consistent even when the app runs in Dark Mode.
-        .preferredColorScheme(.light)
-        .onChange(of: useCustomGeminiTitlePrompt) { _ in persistGeminiPromptOverridesIfReady() }
-        .onChange(of: useCustomGeminiSummaryPrompt) { _ in persistGeminiPromptOverridesIfReady() }
-        .onChange(of: useCustomGeminiDetailedPrompt) { _ in persistGeminiPromptOverridesIfReady() }
-        .onChange(of: geminiTitlePromptText) { _ in persistGeminiPromptOverridesIfReady() }
-        .onChange(of: geminiSummaryPromptText) { _ in persistGeminiPromptOverridesIfReady() }
-        .onChange(of: geminiDetailedPromptText) { _ in persistGeminiPromptOverridesIfReady() }
-        .onChange(of: useCustomOllamaTitlePrompt) { _ in persistOllamaPromptOverridesIfReady() }
-        .onChange(of: useCustomOllamaSummaryPrompt) { _ in persistOllamaPromptOverridesIfReady() }
-        .onChange(of: ollamaTitlePromptText) { _ in persistOllamaPromptOverridesIfReady() }
-        .onChange(of: ollamaSummaryPromptText) { _ in persistOllamaPromptOverridesIfReady() }
-        .onChange(of: useCustomChatCLITitlePrompt) { _ in persistChatCLIPromptOverridesIfReady() }
-        .onChange(of: useCustomChatCLISummaryPrompt) { _ in persistChatCLIPromptOverridesIfReady() }
-        .onChange(of: useCustomChatCLIDetailedPrompt) { _ in persistChatCLIPromptOverridesIfReady() }
-        .onChange(of: chatCLITitlePromptText) { _ in persistChatCLIPromptOverridesIfReady() }
-        .onChange(of: chatCLISummaryPromptText) { _ in persistChatCLIPromptOverridesIfReady() }
-        .onChange(of: chatCLIDetailedPromptText) { _ in persistChatCLIPromptOverridesIfReady() }
+            }
+            .onChange(of: localEngine) { newValue in
+                UserDefaults.standard.set(newValue.rawValue, forKey: "llmLocalEngine")
+                LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
+                refreshUpgradeBannerState()
+            }
+            .onChange(of: localModelId) { newValue in
+                UserDefaults.standard.set(newValue, forKey: "llmLocalModelId")
+                LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
+                refreshUpgradeBannerState()
+            }
+            .onChange(of: localBaseURL) { newValue in
+                UserDefaults.standard.set(newValue, forKey: "llmLocalBaseURL")
+            }
+            .onChange(of: localAPIKey) { newValue in
+                persistLocalAPIKey(newValue)
+            }
+    }
+
+    private var contentWithSheets: some View {
+        contentWithLifecycle
+            .sheet(item: Binding(
+                get: { setupModalProvider.map { ProviderSetupWrapper(id: $0) } },
+                set: { setupModalProvider = $0?.id }
+            )) { wrapper in
+                LLMProviderSetupView(
+                    providerType: wrapper.id,
+                    onBack: { setupModalProvider = nil },
+                    onComplete: {
+                        completeProviderSwitch(wrapper.id)
+                        setupModalProvider = nil
+                    }
+                )
+                .frame(minWidth: 900, minHeight: 650)
+            }
+            .sheet(isPresented: $isShowingLocalModelUpgradeSheet) {
+                LocalModelUpgradeSheet(
+                    preset: .qwen3VL4B,
+                    initialEngine: localEngine,
+                    initialBaseURL: localBaseURL,
+                    initialModelId: localModelId,
+                    initialAPIKey: localAPIKey,
+                    onCancel: { isShowingLocalModelUpgradeSheet = false },
+                    onUpgradeSuccess: { engine, baseURL, modelId, apiKey in
+                        handleUpgradeSuccess(engine: engine, baseURL: baseURL, modelId: modelId, apiKey: apiKey)
+                        isShowingLocalModelUpgradeSheet = false
+                    }
+                )
+                .frame(minWidth: 720, minHeight: 560)
+            }
+            .alert(isPresented: $showLimitConfirmation) {
+                guard let pending = pendingLimit,
+                      Self.storageOptions.indices.contains(pending.index) else {
+                    return Alert(title: Text("Adjust storage limit"), dismissButton: .default(Text("OK")))
+                }
+
+                let option = Self.storageOptions[pending.index]
+                let categoryName = pending.category.displayName
+                return Alert(
+                    title: Text("Lower \(categoryName) limit?"),
+                    message: Text("Reducing the \(categoryName) limit to \(option.label) will immediately delete the oldest \(categoryName) data to stay under the new cap."),
+                    primaryButton: .destructive(Text("Confirm")) {
+                        applyLimit(for: pending.category, index: pending.index)
+                    },
+                    secondaryButton: .cancel {
+                        pendingLimit = nil
+                        showLimitConfirmation = false
+                    }
+                )
+            }
+            // The settings palette is tailored for light mode
+            .preferredColorScheme(.light)
+    }
+
+    var body: some View {
+        contentWithSheets
+            .onChange(of: useCustomGeminiTitlePrompt) { _ in persistGeminiPromptOverridesIfReady() }
+            .onChange(of: useCustomGeminiSummaryPrompt) { _ in persistGeminiPromptOverridesIfReady() }
+            .onChange(of: useCustomGeminiDetailedPrompt) { _ in persistGeminiPromptOverridesIfReady() }
+            .onChange(of: geminiTitlePromptText) { _ in persistGeminiPromptOverridesIfReady() }
+            .onChange(of: geminiSummaryPromptText) { _ in persistGeminiPromptOverridesIfReady() }
+            .onChange(of: geminiDetailedPromptText) { _ in persistGeminiPromptOverridesIfReady() }
+            .onChange(of: useCustomOllamaTitlePrompt) { _ in persistOllamaPromptOverridesIfReady() }
+            .onChange(of: useCustomOllamaSummaryPrompt) { _ in persistOllamaPromptOverridesIfReady() }
+            .onChange(of: ollamaTitlePromptText) { _ in persistOllamaPromptOverridesIfReady() }
+            .onChange(of: ollamaSummaryPromptText) { _ in persistOllamaPromptOverridesIfReady() }
+            .onChange(of: useCustomChatCLITitlePrompt) { _ in persistChatCLIPromptOverridesIfReady() }
+            .onChange(of: useCustomChatCLISummaryPrompt) { _ in persistChatCLIPromptOverridesIfReady() }
+            .onChange(of: useCustomChatCLIDetailedPrompt) { _ in persistChatCLIPromptOverridesIfReady() }
+            .onChange(of: chatCLITitlePromptText) { _ in persistChatCLIPromptOverridesIfReady() }
+            .onChange(of: chatCLISummaryPromptText) { _ in persistChatCLIPromptOverridesIfReady() }
+            .onChange(of: chatCLIDetailedPromptText) { _ in persistChatCLIPromptOverridesIfReady() }
     }
 
     private var sidebar: some View {
@@ -1771,6 +1782,9 @@ struct SettingsView: View {
         case "ollama":
             return "Local API"
         case "chatgpt_claude":
+            if let tool = preferredCLITool {
+                return "\(tool.shortName) CLI"
+            }
             return "ChatGPT / Claude CLI"
         default:
             return "Diagnostics"
