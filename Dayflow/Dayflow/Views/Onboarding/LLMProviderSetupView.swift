@@ -11,7 +11,7 @@ import AppKit
 
 private let cliSearchPaths: [String] = {
     let home = NSHomeDirectory()
-    return [
+    var paths = [
         "/usr/local/bin",
         "/opt/homebrew/bin",
         "/usr/bin",
@@ -28,6 +28,16 @@ private let cliSearchPaths: [String] = {
         "\(home)/.codeium/windsurf/bin",
         "\(home)/.lmstudio/bin"
     ]
+
+    // Add nvm paths if nvm is installed (handles dynamic node versions)
+    let nvmBase = "\(home)/.nvm/versions/node"
+    if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmBase) {
+        for version in versions {
+            paths.append("\(nvmBase)/\(version)/bin")
+        }
+    }
+
+    return paths
 }()
 
 struct CLIResult {
