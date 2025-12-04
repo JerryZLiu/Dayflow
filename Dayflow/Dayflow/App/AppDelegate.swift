@@ -26,6 +26,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var deepLinkRouter: AppDeepLinkRouter?
     private var pendingDeepLinkURLs: [URL] = []
     private var pendingRecordingAnalyticsReason: String?
+    private var heartbeatTimer: Timer?
+    private var appLaunchDate: Date?
 
     override init() {
         UserDefaultsMigrator.migrateIfNeeded()
@@ -74,6 +76,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // App opened (cold start)
         AnalyticsService.shared.capture("app_opened", ["cold_start": true])
+
+        // Start heartbeat for DAU tracking
+        appLaunchDate = Date()
+        startHeartbeat()
 
         // App updated check
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
@@ -212,6 +218,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Using .truncate to also reset the WAL file for a clean state
         StorageManager.shared.checkpoint(mode: .truncate)
 
+        heartbeatTimer?.invalidate()
+        heartbeatTimer = nil
+
         if let observer = powerObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             powerObserver = nil
@@ -244,6 +253,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         for url in urls {
             _ = router.handle(url)
         }
+    }
+
+    // MARK: - Heartbeat
+
+    private func startHeartbeat() {
+        // Send initial heartbeat
+        sendHeartbeat()
+
+        // Schedule repeating timer every 12 hours
+        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 12 * 60 * 60, repeats: true) { [weak self] _ in
+            self?.sendHeartbeat()
+        }
+    }
+
+    private func sendHeartbeat() {
+        var props: [String: Any] = [:]
+        if let launch = appLaunchDate {
+            let sessionHours = Date().timeIntervalSince(launch) / 3600
+            props["session_hours"] = round(sessionHours * 10) / 10  // 1 decimal place
+        }
+        AnalyticsService.shared.capture("app_heartbeat", props)
     }
 }
 
