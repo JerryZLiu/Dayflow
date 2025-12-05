@@ -14,10 +14,13 @@ import Combine
 final class ActiveDisplayTracker: ObservableObject {
     @Published private(set) var activeDisplayID: CGDirectDisplayID?
 
-    private var timer: Timer?
+    private var timerSource: DispatchSourceTimer?
+    private var screensObserver: Any?
+
+    // Debounce state (accessed only from background queue)
+    private let stateQueue = DispatchQueue(label: "com.dayflow.ActiveDisplayTracker.state")
     private var candidateID: CGDirectDisplayID?
     private var candidateSince: Date?
-    private var screensObserver: Any?
 
     // Tunables
     private let pollHz: Double
@@ -35,54 +38,82 @@ final class ActiveDisplayTracker: ObservableObject {
             object: NSApplication.shared,
             queue: .main
         ) { [weak self] _ in
-            self?.resetCandidateDueToDisplayChange()
-            self?.tick()
+            self?.handleDisplayChange()
         }
 
         start()
     }
 
     deinit {
-        // Avoid calling main-actor methods from deinit
-        timer?.invalidate()
-        timer = nil
+        timerSource?.cancel()
+        timerSource = nil
         if let obs = screensObserver { NotificationCenter.default.removeObserver(obs) }
+    }
+
+    private func handleDisplayChange() {
+        stateQueue.async { [weak self] in
+            self?.candidateID = nil
+            self?.candidateSince = nil
+        }
+        // Trigger an immediate poll
+        stateQueue.async { [weak self] in
+            self?.pollDisplayOnBackground()
+        }
     }
 
     private func start() {
         stop()
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / pollHz, repeats: true) { [weak self] _ in
-            self?.tick()
+
+        let interval = 1.0 / pollHz
+        let source = DispatchSource.makeTimerSource(queue: stateQueue)
+        source.schedule(deadline: .now() + interval, repeating: interval)
+        source.setEventHandler { [weak self] in
+            self?.pollDisplayOnBackground()
         }
-        RunLoop.current.add(timer!, forMode: .common)
+        source.resume()
+        timerSource = source
     }
 
-    private func stop() { timer?.invalidate(); timer = nil }
-
-    private func resetCandidateDueToDisplayChange() {
-        candidateID = nil
-        candidateSince = nil
+    private func stop() {
+        timerSource?.cancel()
+        timerSource = nil
     }
 
-    private func tick() {
+    /// Called on stateQueue (background) - does the heavy lifting off the main thread
+    private func pollDisplayOnBackground() {
+        // Get mouse location - this can occasionally block, so we do it off main
         let loc = NSEvent.mouseLocation
-        guard let screen = NSScreen.screens.first(where: { $0.frame.insetBy(dx: hysteresisInset, dy: hysteresisInset).contains(loc) })
-                ?? NSScreen.screens.first(where: { $0.frame.contains(loc) })
+        let inset = hysteresisInset
+
+        // Get screens snapshot
+        let screens = NSScreen.screens
+
+        // Find screen under cursor with hysteresis
+        guard let screen = screens.first(where: { $0.frame.insetBy(dx: inset, dy: inset).contains(loc) })
+                ?? screens.first(where: { $0.frame.contains(loc) })
         else { return }
 
         let newID = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
         guard let id = newID else { return }
 
         let now = Date()
+
+        // Debounce logic
         if candidateID != id {
             candidateID = id
             candidateSince = now
             return
         }
 
-        // Candidate is stable long enough
-        if activeDisplayID != id, let since = candidateSince, now.timeIntervalSince(since) >= debounceSeconds {
-            activeDisplayID = id
+        // Candidate is stable long enough - update the published property on main actor
+        if let since = candidateSince, now.timeIntervalSince(since) >= debounceSeconds {
+            let stableID = id
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                if self.activeDisplayID != stableID {
+                    self.activeDisplayID = stableID
+                }
+            }
         }
     }
 }
