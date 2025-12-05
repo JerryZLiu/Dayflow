@@ -974,7 +974,7 @@ class ProviderSetupState: ObservableObject {
                     title: "Before you begin",
                     contentType: .information(
                         "Install Codex CLI (ChatGPT) or Claude Code",
-                        "If you have a paid ChatGPT/Claude account, you can have Dayflow tap into your existing usage limits. Everything flows through your current account—no extra charges—and you can opt out of training for privacy. You only need one CLI installed and signed in on this Mac; we'll verify it automatically next."
+                        "If you have a paid ChatGPT/Claude account, you can have Dayflow tap into your existing usage limits. Everything flows through your current account - no extra charges - and you can opt out of training for privacy. You only need one CLI installed and signed in on this Mac; we'll verify it automatically next."
                     )
                 ),
                 SetupStep(
@@ -1627,6 +1627,7 @@ struct ChatCLITestView: View {
     @State private var isTesting = false
     @State private var success = false
     @State private var resultMessage: String?
+    @State private var debugOutput: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1673,6 +1674,28 @@ struct ChatCLITestView: View {
                     .foregroundColor(success ? .black.opacity(0.7) : Color(hex: "E91515"))
                     .padding(.vertical, 6)
             }
+
+            // Debug output - shows raw CLI response for troubleshooting
+            if let debug = debugOutput, !success {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Debug output:")
+                        .font(.custom("Nunito", size: 11))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.black.opacity(0.5))
+                    ScrollView {
+                        Text(debug)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.black.opacity(0.6))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 120)
+                    .padding(8)
+                    .background(Color.black.opacity(0.03))
+                    .cornerRadius(6)
+                }
+                .padding(.top, 4)
+            }
         }
     }
 
@@ -1686,6 +1709,7 @@ struct ChatCLITestView: View {
         isTesting = true
         success = false
         resultMessage = nil
+        debugOutput = nil
 
         Task.detached {
             let outcome: Result<CLIResult, Error> = {
@@ -1700,15 +1724,27 @@ struct ChatCLITestView: View {
                 isTesting = false
                 switch outcome {
                 case .success(let cliResult):
+                    // Build debug output for troubleshooting
+                    var debugParts: [String] = []
+                    debugParts.append("Tool: \(tool.shortName)")
+                    debugParts.append("Exit code: \(cliResult.exitCode)")
+                    if !cliResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        debugParts.append("stdout:\n\(cliResult.stdout)")
+                    }
+                    if !cliResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        debugParts.append("stderr:\n\(cliResult.stderr)")
+                    }
+                    debugOutput = debugParts.joined(separator: "\n")
+
                     // Check exit code FIRST - non-zero means failure
                     if cliResult.exitCode != 0 {
                         success = false
-                        if let authError = detectAuthError(cliResult) {
+                        if let authError = detectAuthError(cliResult, for: tool) {
                             resultMessage = authError
                         } else {
                             let stderrTrimmed = cliResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
                             if stderrTrimmed.isEmpty {
-                                if selectedTool == .claude {
+                                if tool == .claude {
                                     resultMessage = "Claude CLI returned an error. You may need to sign in — run 'claude login' in Terminal."
                                 } else {
                                     resultMessage = "Codex CLI returned an error. You may need to sign in — run 'codex auth' in Terminal."
@@ -1726,6 +1762,7 @@ struct ChatCLITestView: View {
                     success = passed
                     if passed {
                         resultMessage = "CLI is working!"
+                        debugOutput = nil // Clear debug output on success
                     } else if cliResult.stdout.isEmpty {
                         resultMessage = "CLI returned empty response. Make sure you're signed in."
                     } else {
@@ -1736,6 +1773,7 @@ struct ChatCLITestView: View {
                 case .failure(let error):
                     success = false
                     resultMessage = error.localizedDescription
+                    debugOutput = "Tool: \(tool.shortName)\nError: \(error.localizedDescription)"
                     onTestComplete(false)
                 }
             }
@@ -1770,17 +1808,28 @@ struct ChatCLITestView: View {
         return combined.contains("hello")
     }
 
-    private func detectAuthError(_ result: CLIResult) -> String? {
+    private func detectAuthError(_ result: CLIResult, for tool: CLITool) -> String? {
         let combined = (result.stdout + " " + result.stderr).lowercased()
-        // Claude CLI auth errors
-        if combined.contains("invalid api key") || combined.contains("please run /login") {
+
+        // Check for common auth failure patterns
+        let isAuthError = combined.contains("invalid api key")
+            || combined.contains("please run /login")
+            || combined.contains("401 unauthorized")
+            || combined.contains("not logged in")
+            || combined.contains("codex auth")
+            || combined.contains("claude login")
+            || combined.contains("authentication required")
+            || combined.contains("unauthorized")
+
+        guard isAuthError else { return nil }
+
+        // Return the correct message based on which tool we're actually testing
+        switch tool {
+        case .claude:
             return "Claude CLI is not signed in. Run 'claude login' in Terminal to authenticate."
-        }
-        // Codex CLI auth errors (401 Unauthorized, not logged in, etc.)
-        if combined.contains("401 unauthorized") || combined.contains("not logged in") || combined.contains("codex auth") || combined.contains("authentication required") {
+        case .codex:
             return "Codex CLI is not signed in. Run 'codex auth' in Terminal to authenticate."
         }
-        return nil
     }
 }
 
@@ -1964,15 +2013,9 @@ struct ChatCLIDetectionStepView<NextButton: View>: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Check ChatGPT or Claude")
-                    .font(.custom("Nunito", size: 24))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.black.opacity(0.9))
-                Text("Dayflow can talk to ChatGPT (via the Codex CLI) or Claude Code. You only need one installed and signed in on this Mac. After installing, run `codex auth` or `claude login` in Terminal to connect it to your account.")
-                    .font(.custom("Nunito", size: 14))
-                    .foregroundColor(.black.opacity(0.6))
-            }
+            Text("Dayflow can talk to ChatGPT (via the Codex CLI) or Claude Code. You only need one installed and signed in on this Mac. After installing, run `codex auth` or `claude login` in Terminal to connect it to your account.")
+                .font(.custom("Nunito", size: 14))
+                .foregroundColor(.black.opacity(0.6))
             
             HStack(alignment: .top, spacing: 14) {
                 ChatCLIToolStatusRow(
