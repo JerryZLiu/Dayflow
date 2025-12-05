@@ -21,3 +21,6 @@ claude.md
 # Tauri migration (WIP)
 dayflow-tauri/
 agents.md
+
+# Internal tools
+tools/
