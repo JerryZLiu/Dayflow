@@ -18,6 +18,7 @@ struct OnboardingLLMSelectionView: View {
     @State private var cardsOpacity: Double = 0
     @State private var bottomTextOpacity: Double = 0
     @State private var hasAppeared: Bool = false
+    @State private var cliDetected: Bool = false
     
     var body: some View {
         GeometryReader { geometry in
@@ -54,6 +55,7 @@ struct OnboardingLLMSelectionView: View {
                     .onAppear {
                         guard !hasAppeared else { return }
                         hasAppeared = true
+                        detectCLIInstallation()
                         withAnimation(.easeOut(duration: 0.6)) { titleOpacity = 1 }
                         animateContent()
                     }
@@ -75,13 +77,23 @@ struct OnboardingLLMSelectionView: View {
                 // Footer
                 HStack(spacing: 0) {
                     Group {
-                        Text("Not sure which to choose? ")
-                            .foregroundColor(.black.opacity(0.6))
-                        + Text("Bring your own keys is the easiest setup (30s).")
-                            .fontWeight(.semibold)
-                            .foregroundColor(.black.opacity(0.8))
-                        + Text(" You can switch at any time in the settings.")
-                            .foregroundColor(.black.opacity(0.6))
+                        if cliDetected {
+                            Text("You have Codex/Claude CLI installed! ")
+                                .foregroundColor(.black.opacity(0.6))
+                            + Text("We recommend using it for the best experience.")
+                                .fontWeight(.semibold)
+                                .foregroundColor(.black.opacity(0.8))
+                            + Text(" You can switch at any time in the settings.")
+                                .foregroundColor(.black.opacity(0.6))
+                        } else {
+                            Text("Not sure which to choose? ")
+                                .foregroundColor(.black.opacity(0.6))
+                            + Text("Bring your own keys is the easiest setup (30s).")
+                                .fontWeight(.semibold)
+                                .foregroundColor(.black.opacity(0.8))
+                            + Text(" You can switch at any time in the settings.")
+                                .foregroundColor(.black.opacity(0.6))
+                        }
                     }
                     .font(.custom("Nunito", size: 14))
                     .multilineTextAlignment(.center)
@@ -137,8 +149,8 @@ struct OnboardingLLMSelectionView: View {
             FlexibleProviderCard(
                 id: "gemini",
                 title: "Bring your own API keys",
-                badgeText: "RECOMMENDED",
-                badgeType: .orange,
+                badgeText: cliDetected ? "NEW" : "RECOMMENDED",
+                badgeType: cliDetected ? .blue : .orange,
                 icon: "key.fill",
                 features: [
                     ("Utilizes more intelligent AI via Google's Gemini models", true),
@@ -170,15 +182,15 @@ struct OnboardingLLMSelectionView: View {
             FlexibleProviderCard(
                 id: "chatgpt_claude",
                 title: "Use ChatGPT or Claude",
-                badgeText: "NEW",
-                badgeType: .blue,
+                badgeText: cliDetected ? "RECOMMENDED" : "NEW",
+                badgeType: cliDetected ? .orange : .blue,
                 icon: "bolt.horizontal.circle",
                 features: [
-                    ("Drives ChatGPT (Codex CLI) or Claude Code directly on your Mac", true),
-                    ("Best-in-class reasoning quality for narratives", true),
-                    ("No API key setup needed once CLI is installed", true),
-                    ("Requires installing the Codex or Claude CLI and staying signed in", false),
-                    ("Needs the desktop app + internet connection", false)
+                    ("Perfect for existing ChatGPT Plus or Claude Pro subscribers", true),
+                    ("Superior intelligence and reliability", true),
+                    ("Minimal impact - uses <1% of your daily limit", true),
+                    ("Requires installing Codex or Claude CLI", false),
+                    ("Requires a paid ChatGPT or Claude subscription", false)
                 ],
                 isSelected: selectedProvider == "chatgpt_claude",
                 buttonMode: .onboarding(onProceed: {
@@ -265,11 +277,25 @@ struct OnboardingLLMSelectionView: View {
                 cardsOpacity = 1
             }
         }
-        
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             withAnimation(.easeOut(duration: 0.4)) {
                 bottomTextOpacity = 1
             }
+        }
+    }
+
+    private func detectCLIInstallation() {
+        // Check if either Codex or Claude CLI is installed
+        let codexPath = CLIDetector.resolveExecutablePath(for: .codex)
+        let claudePath = CLIDetector.resolveExecutablePath(for: .claude)
+        cliDetected = (codexPath != nil || claudePath != nil)
+
+        // Default select the recommended option
+        if cliDetected {
+            selectedProvider = "chatgpt_claude"
+        } else {
+            selectedProvider = "gemini"
         }
     }
 }
