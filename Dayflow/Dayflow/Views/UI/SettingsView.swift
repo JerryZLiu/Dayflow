@@ -1003,8 +1003,8 @@ struct SettingsView: View {
     private func providerDisplayName(_ id: String) -> String {
         switch id {
         case "ollama": return "Use local AI"
-        case "gemini": return "Bring your own API keys"
-        case "chatgpt_claude": return "Use ChatGPT or Claude"
+        case "gemini": return "Gemini"
+        case "chatgpt_claude": return "ChatGPT or Claude"
         case "dayflow": return "Dayflow Pro"
         default: return id.capitalized
         }
@@ -1723,11 +1723,11 @@ struct SettingsView: View {
             ),
             CompactProviderInfo(
                 id: "gemini",
-                title: "Bring your own API keys",
+                title: "Gemini",
                 summary: "Gemini free tier • fast & accurate",
                 badgeText: "RECOMMENDED",
                 badgeType: .orange,
-                icon: "key.fill"
+                icon: "gemini_asset"
             ),
             CompactProviderInfo(
                 id: "chatgpt_claude",
@@ -1735,7 +1735,7 @@ struct SettingsView: View {
                 summary: "Free if you're already on a paid plan • hooks into their CLI tools",
                 badgeText: "NEW",
                 badgeType: .blue,
-                icon: "bolt.horizontal.circle"
+                icon: "chatgpt_claude_asset"
             )
         ].filter { $0.id != currentProvider }
     }
@@ -1814,12 +1814,8 @@ private struct CompactProviderRow: View {
     var body: some View {
         HStack(spacing: 14) {
             // Icon
-            Image(systemName: provider.icon)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.black.opacity(0.7))
-                .frame(width: 36, height: 36)
-                .background(Color.white.opacity(0.7))
-                .cornerRadius(8)
+            iconView
+                .frame(width: iconContainerWidth, height: 36)
 
             // Title and summary
             VStack(alignment: .leading, spacing: 4) {
@@ -1861,6 +1857,46 @@ private struct CompactProviderRow: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.black.opacity(0.06), lineWidth: 1)
         )
+    }
+
+    @ViewBuilder
+    private var iconView: some View {
+        switch provider.icon {
+        case "gemini_asset":
+            logoBox(name: "GeminiLogo")
+        case "chatgpt_claude_asset":
+            HStack(spacing: 6) {
+                logoBox(name: "ChatGPTLogo")
+                logoBox(name: "ClaudeLogo")
+            }
+        default:
+            Image(systemName: provider.icon)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.black.opacity(0.7))
+        }
+    }
+
+    private var iconContainerWidth: CGFloat {
+        provider.icon == "chatgpt_claude_asset" ? 80 : 36
+    }
+
+    @ViewBuilder
+    private func logoBox(name: String) -> some View {
+        Image(name)
+            .resizable()
+            .renderingMode(.original)
+            .interpolation(.high)
+            .antialiased(true)
+            .scaledToFit()
+            .frame(width: 22, height: 22)
+            .padding(6)
+            .background(Color.white.opacity(0.9))
+            .cornerRadius(6)
+            .shadow(color: Color.black.opacity(0.05), radius: 1.5, x: 0, y: 1.5)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.black.opacity(0.05), lineWidth: 0.5)
+            )
     }
 }
 

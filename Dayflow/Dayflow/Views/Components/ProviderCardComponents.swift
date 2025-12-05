@@ -407,7 +407,51 @@ struct ProviderIconView: View {
     let icon: String
     
     var body: some View {
-        Image(systemName: icon)
+        iconContent
+            .frame(width: containerWidth, height: 40)
+    }
+
+    private var containerWidth: CGFloat {
+        icon == "chatgpt_claude_asset" ? 104 : 40
+    }
+
+    @ViewBuilder
+    private var iconContent: some View {
+        switch icon {
+        case "gemini_asset":
+            logoBox(name: "GeminiLogo")
+        case "chatgpt_claude_asset":
+            HStack(spacing: 8) {
+                logoBox(name: "ChatGPTLogo")
+                logoBox(name: "ClaudeLogo")
+            }
+        default:
+            logoBox(systemName: icon)
+        }
+    }
+
+    @ViewBuilder
+    private func logoBox(name: String) -> some View {
+        Image(name)
+            .resizable()
+            .renderingMode(.original)
+            .interpolation(.high)
+            .antialiased(true)
+            .scaledToFit()
+            .frame(width: 28, height: 28)
+            .padding(6)
+            .background(.white.opacity(0.9))
+            .cornerRadius(6)
+            .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 2)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.black.opacity(0.05), lineWidth: 0.5)
+            )
+    }
+
+    @ViewBuilder
+    private func logoBox(systemName: String) -> some View {
+        Image(systemName: systemName)
             .font(.system(size: 20, weight: .medium))
             .foregroundColor(.black.opacity(0.7))
             .frame(width: 40, height: 40)

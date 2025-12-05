@@ -148,10 +148,10 @@ struct OnboardingLLMSelectionView: View {
             // Bring your own API card (selected by default)
             FlexibleProviderCard(
                 id: "gemini",
-                title: "Bring your own API keys",
+                title: "Gemini",
                 badgeText: cliDetected ? "NEW" : "RECOMMENDED",
                 badgeType: cliDetected ? .blue : .orange,
-                icon: "key.fill",
+                icon: "gemini_asset",
                 features: [
                     ("Utilizes more intelligent AI via Google's Gemini models", true),
                     ("Uses Gemini's generous free tier (no credit card needed)", true),
@@ -181,10 +181,10 @@ struct OnboardingLLMSelectionView: View {
             // ChatGPT/Claude CLI card
             FlexibleProviderCard(
                 id: "chatgpt_claude",
-                title: "Use ChatGPT or Claude",
+                title: "ChatGPT or Claude",
                 badgeText: cliDetected ? "RECOMMENDED" : "NEW",
                 badgeType: cliDetected ? .orange : .blue,
-                icon: "bolt.horizontal.circle",
+                icon: "chatgpt_claude_asset",
                 features: [
                     ("Perfect for existing ChatGPT Plus or Claude Pro subscribers", true),
                     ("Superior intelligence and reliability", true),
