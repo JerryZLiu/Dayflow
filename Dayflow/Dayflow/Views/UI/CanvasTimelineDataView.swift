@@ -123,10 +123,14 @@ struct CanvasTimelineDataView: View {
             loadActivities()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            loadActivities()
+            loadActivities(animate: false)
             if refreshTimer == nil {
                 startRefreshTimer()
             }
+            AnalyticsService.shared.capture("app_became_active", [
+                "screen": "timeline",
+                "selected_date_is_today": timelineIsToday(selectedDate)
+            ])
         }
     }
 
@@ -298,7 +302,7 @@ struct CanvasTimelineDataView: View {
     }
 
 
-    private func loadActivities() {
+    private func loadActivities(animate: Bool = true) {
         // Cancel any in-flight database read to prevent query pileup
         loadTask?.cancel()
 
@@ -357,13 +361,22 @@ struct CanvasTimelineDataView: View {
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
-                // Clear entrance progress for new activities (triggers stagger animation)
-                self.cardEntranceProgress = [:]
+                if animate {
+                    // Clear entrance progress for new activities (triggers stagger animation)
+                    self.cardEntranceProgress = [:]
+                }
                 self.positionedActivities = positioned
                 self.hasAnyActivities = !positioned.isEmpty
 
-                // Trigger staggered entrance animation after a brief layout delay
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                if animate {
+                    // Trigger staggered entrance animation after a brief layout delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        for activity in positioned {
+                            self.cardEntranceProgress[activity.id] = true
+                        }
+                    }
+                } else {
+                    // Silent refresh: ensure all cards are visible immediately (no animation)
                     for activity in positioned {
                         self.cardEntranceProgress[activity.id] = true
                     }
@@ -551,7 +564,7 @@ struct CanvasTimelineDataView: View {
     private func startRefreshTimer() {
         stopRefreshTimer()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { _ in
-            loadActivities()
+            loadActivities(animate: false)
         }
     }
 
