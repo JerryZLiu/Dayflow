@@ -8,6 +8,15 @@ final class FaviconService {
     private var inFlight: [String: Task<NSImage?, Never>] = [:]
     private let inFlightLock = NSLock()
 
+    // MARK: - Hardcoded Favicon Overrides
+    // Maps domains/app names to asset image names (checked before network fetch)
+    private let hardcodedFavicons: [String: String] = [
+        "dayflow.so": "DayflowFavicon",
+        // Add more overrides here as needed, e.g.:
+        // "ghostty": "GhosttyIcon",
+        // "terminal": "TerminalIcon",
+    ]
+
     private init() {
         cache.countLimit = 256
     }
@@ -19,6 +28,12 @@ final class FaviconService {
     }
 
     private func fetchHost(_ host: String) async -> NSImage? {
+        // Check hardcoded overrides first
+        if let assetName = hardcodedFavicons[host.lowercased()],
+           let img = NSImage(named: assetName) {
+            return img
+        }
+
         let key = host as NSString
         if let cached = cache.object(forKey: key) {
             return cached
