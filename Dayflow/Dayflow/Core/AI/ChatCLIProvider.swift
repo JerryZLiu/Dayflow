@@ -359,54 +359,106 @@ final class ChatCLIProvider: LLMProvider {
         frames = try extractFrames(from: tempVideoURL, durationHint: videoDuration)
         defer { cleanupFrames(frames) }
 
-        // 2) Per-frame descriptions via CLI
-        var frameDescriptions: [(timestamp: TimeInterval, description: String)] = []
-        // Batch frames to avoid truncation from Codex mini; chunk to 10
-        let batchSize = 10
-        for chunk in stride(from: 0, to: frames.count, by: batchSize) {
-            let slice = Array(frames[chunk..<min(chunk+batchSize, frames.count)])
-            let (initialPairs, initialUsage) = try describeFramesBatch(slice)
-            var localPairs = initialPairs
-            var localUsage = initialUsage
+        // Retry loop for entire transcription pipeline
+        let maxTranscribeAttempts = 2
+        for transcribeAttempt in 1...maxTranscribeAttempts {
+            // 2) Per-frame descriptions via CLI
+            var frameDescriptions: [(timestamp: TimeInterval, description: String)] = []
+            // Batch frames to avoid truncation from Codex mini; chunk to 10
+            let batchSize = 10
+            for chunk in stride(from: 0, to: frames.count, by: batchSize) {
+                let slice = Array(frames[chunk..<min(chunk+batchSize, frames.count)])
 
-            // Retry fallback with codex-max if mini returns nothing
-            if localPairs.isEmpty && tool == .codex {
-                let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "gpt-5.1-codex-max", overrideEffort: "high")
-                if !retryPairs.isEmpty {
-                    localPairs = retryPairs
-                    localUsage = retryUsage ?? localUsage
+                var localPairs: [(FrameData, String)] = []
+                var localUsage: TokenUsage? = nil
+                var lastError: Error? = nil
+
+                // Try initial call
+                do {
+                    let (initialPairs, initialUsage) = try describeFramesBatch(slice)
+                    localPairs = initialPairs
+                    localUsage = initialUsage
+                } catch {
+                    lastError = error
+                    // Retry with more powerful model
+                    if tool == .codex {
+                        do {
+                            let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "gpt-5.1-codex-max", overrideEffort: "high")
+                            localPairs = retryPairs
+                            localUsage = retryUsage
+                            lastError = nil // Retry succeeded
+                        } catch {
+                            lastError = error // Keep the retry error (has more context)
+                        }
+                    } else if tool == .claude {
+                        do {
+                            let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "sonnet")
+                            localPairs = retryPairs
+                            localUsage = retryUsage
+                            lastError = nil // Retry succeeded
+                        } catch {
+                            lastError = error // Keep the retry error (has more context)
+                        }
+                    }
+                }
+
+                // If both attempts failed, log and re-throw
+                if let error = lastError {
+                    logFailure(ctx: makeCtx(batchId: batchId, operation: "describe_frames", startedAt: callStart), finishedAt: Date(), error: error)
+                    throw error
+                }
+
+                if let localUsage { usageTotal = usageTotal.adding(localUsage); sawUsage = true }
+                for (frame, desc) in localPairs {
+                    frameDescriptions.append((timestamp: frame.timestamp, description: desc))
                 }
             }
 
-            if let localUsage { usageTotal = usageTotal.adding(localUsage); sawUsage = true }
-            for (frame, desc) in localPairs {
-                frameDescriptions.append((timestamp: frame.timestamp, description: desc))
+            // 3) Merge descriptions into observations via CLI text prompt
+            let (observations, mergeUsage) = try mergeFrameDescriptionsWithCLI(
+                frameDescriptions,
+                batchStartTime: batchStartTime,
+                videoDuration: videoDuration,
+                batchId: batchId,
+                callStart: callStart
+            )
+
+            if let mergeUsage { usageTotal = usageTotal.adding(mergeUsage); sawUsage = true }
+
+            // Check if we got observations
+            if !observations.isEmpty {
+                let finishedAt = Date()
+                let headers = sawUsage ? tokenHeaders(from: usageTotal) : nil
+                logSuccess(ctx: makeCtx(batchId: batchId, operation: "transcribe", startedAt: callStart), finishedAt: finishedAt, stdout: "frames:\(frames.count) obs:\(observations.count)", stderr: "", responseHeaders: headers)
+                let llmCall = makeLLMCall(start: callStart, end: finishedAt, input: "frames \(frames.count)", output: "obs \(observations.count)")
+                return (observations, llmCall)
             }
 
-            if localPairs.isEmpty {
-                logFailure(ctx: makeCtx(batchId: batchId, operation: "describe_frames", startedAt: callStart), finishedAt: Date(), error: NSError(domain: "ChatCLI", code: -99, userInfo: [NSLocalizedDescriptionKey: "Empty frame descriptions for chunk even after fallback"]))
+            // Empty observations - log and maybe retry
+            if transcribeAttempt < maxTranscribeAttempts {
+                print("[ChatCLI] Transcribe attempt \(transcribeAttempt) returned 0 observations from \(frames.count) frames, retrying...")
+                Task { @MainActor in
+                    AnalyticsService.shared.capture("transcribe_empty_retry", [
+                        "batch_id": batchId as Any,
+                        "attempt": transcribeAttempt,
+                        "frame_count": frames.count,
+                        "frame_descriptions_count": frameDescriptions.count,
+                        "tool": tool.rawValue
+                    ])
+                }
+                // Reset usage for next attempt
+                usageTotal = TokenUsage.zero
+                sawUsage = false
             }
         }
 
-        // 3) Merge descriptions into observations via CLI text prompt
-        let (observations, mergeUsage) = try mergeFrameDescriptionsWithCLI(
-            frameDescriptions,
-            batchStartTime: batchStartTime,
-            videoDuration: videoDuration,
-            batchId: batchId,
-            callStart: callStart
-        )
-
-        if let mergeUsage { usageTotal = usageTotal.adding(mergeUsage); sawUsage = true }
-
-        cleanupFrames(frames)
-
+        // All attempts returned empty observations - log failure and throw
         let finishedAt = Date()
-        let headers = sawUsage ? tokenHeaders(from: usageTotal) : nil
-        logSuccess(ctx: makeCtx(batchId: batchId, operation: "transcribe", startedAt: callStart), finishedAt: finishedAt, stdout: "frames:\(frames.count) obs:\(observations.count)", stderr: "", responseHeaders: headers)
-
-        let llmCall = makeLLMCall(start: callStart, end: finishedAt, input: "frames \(frames.count)", output: "obs \(observations.count)")
-        return (observations, llmCall)
+        let emptyError = NSError(domain: "ChatCLI", code: -99, userInfo: [
+            NSLocalizedDescriptionKey: "Transcription produced 0 observations after \(maxTranscribeAttempts) attempts from \(frames.count) frames"
+        ])
+        logFailure(ctx: makeCtx(batchId: batchId, operation: "transcribe", startedAt: callStart), finishedAt: finishedAt, error: emptyError)
+        throw emptyError
     }
 
     func generateActivityCards(observations: [Observation], context: ActivityGenerationContext, batchId: Int64?) async throws -> (cards: [ActivityCardData], log: LLMCall) {
@@ -815,7 +867,13 @@ final class ChatCLIProvider: LLMProvider {
         }
 
         let run = try runner.run(tool: tool, prompt: prompt, workingDirectory: config.baseDirectory, imagePaths: frames.map { $0.path }, model: model, reasoningEffort: effort)
-        guard run.exitCode == 0 else { return ([], run.usage) }
+        guard run.exitCode == 0 else {
+            let preview = String(run.stdout.prefix(1000))
+            let stderrPreview = String(run.stderr.prefix(500))
+            throw NSError(domain: "ChatCLI", code: Int(run.exitCode), userInfo: [
+                NSLocalizedDescriptionKey: "CLI exited with code \(run.exitCode). stdout: \(preview) | stderr: \(stderrPreview)"
+            ])
+        }
 
         // Try strict JSON decode first
         if let data = run.stdout.data(using: .utf8),
@@ -855,6 +913,36 @@ final class ChatCLIProvider: LLMProvider {
                 if !desc.isEmpty { results.append((frame, desc)) }
             }
         }
+
+        // If we still have no results after all parsing attempts, throw with the raw output
+        guard !results.isEmpty else {
+            // Capture richer diagnostics to PostHog so we can debug Codex vs Claude failures
+            let fullStdout = run.stdout
+            let fullStderr = run.stderr
+
+            // Emit a debug event (trimmed to avoid huge payloads)
+            let maxLen = 8000
+            let stdoutPreview = fullStdout.count > maxLen ? String(fullStdout.prefix(maxLen)) + "…(truncated)" : fullStdout
+            let stderrPreview = fullStderr.count > maxLen ? String(fullStderr.prefix(maxLen)) + "…(truncated)" : fullStderr
+
+            Task { @MainActor in
+                AnalyticsService.shared.capture("llm_cli_failure", [
+                    "provider": "chat_cli",
+                    "model": tool.rawValue,
+                    "operation": "describe_frames",
+                    "error_message": "Failed to parse frame descriptions",
+                    "stdout_preview": stdoutPreview,
+                    "stderr_preview": stderrPreview
+                ])
+            }
+
+            // Keep throwing with a concise error to the caller, but include a short preview
+            let preview = String(fullStdout.prefix(1000))
+            throw NSError(domain: "ChatCLI", code: -98, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to parse frame descriptions. Raw output: \(preview)"
+            ])
+        }
+
         return (results, run.usage)
     }
 
