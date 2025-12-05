@@ -992,7 +992,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let encoder = JSONEncoder()
         let meta = TimelineMetadata(
             distractions: nil,
-            appSites: AppSites(primary: "Dayflow", secondary: nil)
+            appSites: AppSites(primary: "dayflow.so", secondary: nil)
         )
         let metadataString: String? = (try? encoder.encode(meta)).flatMap { String(data: $0, encoding: .utf8) }
 
