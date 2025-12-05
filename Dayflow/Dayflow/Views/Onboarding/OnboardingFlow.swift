@@ -126,10 +126,13 @@ struct OnboardingFlow: View {
             case .completion:
                 CompletionView(
                     onFinish: {
+                        // Create sample card BEFORE switching views (sync write)
+                        StorageManager.shared.createOnboardingCard()
+
                         didOnboard = true
                         savedStepRawValue = 0
                         AnalyticsService.shared.capture("onboarding_completed")
-                        AnalyticsService.shared.setPersonProperties(["onboarding_status": "completed"]) 
+                        AnalyticsService.shared.setPersonProperties(["onboarding_status": "completed"])
                     }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

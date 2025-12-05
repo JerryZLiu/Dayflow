@@ -959,6 +959,97 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }
     }
 
+    // MARK: - Onboarding Card
+
+    /// Creates a dummy "Installed Dayflow!" card when onboarding completes.
+    /// This gives users an immediate example of what cards look like.
+    func createOnboardingCard() {
+        let now = Date()
+        let startTime = now.addingTimeInterval(-13 * 60)  // 13 minute card
+
+        // Format times as "h:mm a" (e.g., "2:30 PM")
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "h:mm a"
+        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+
+        let startTimeString = timeFormatter.string(from: startTime)
+        let endTimeString = timeFormatter.string(from: now)
+
+        let startTs = Int(startTime.timeIntervalSince1970)
+        let endTs = Int(now.timeIntervalSince1970)
+
+        // Calculate day using 4AM boundary
+        let (dayString, _, _) = startTime.getDayInfoFor4AMBoundary()
+
+        // Get the first non-idle category, fallback to "Work"
+        let categories = CategoryPersistence.loadPersistedCategories()
+        let category = categories.first(where: { !$0.isIdle })?.name ?? "Work"
+
+        // Build summary based on selected LLM provider
+        let summary = buildOnboardingSummary()
+
+        // Build metadata with appSites
+        let encoder = JSONEncoder()
+        let meta = TimelineMetadata(
+            distractions: nil,
+            appSites: AppSites(primary: "Dayflow", secondary: nil)
+        )
+        let metadataString: String? = (try? encoder.encode(meta)).flatMap { String(data: $0, encoding: .utf8) }
+
+        try? timedWrite("createOnboardingCard") { db in
+            try db.execute(sql: """
+                INSERT INTO timeline_cards(
+                    batch_id, start, end, start_ts, end_ts, day, title,
+                    summary, category, subcategory, detailed_summary, metadata
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, arguments: [
+                nil,  // batch_id is NULL for onboarding card
+                startTimeString,
+                endTimeString,
+                startTs,
+                endTs,
+                dayString,
+                "Installed Dayflow!",
+                summary,
+                category,
+                "Setup",
+                "",  // detailed_summary - empty string (not NULL, as GRDB decode expects non-optional)
+                metadataString
+            ])
+        }
+    }
+
+    private func buildOnboardingSummary() -> String {
+        let selectedProvider = UserDefaults.standard.string(forKey: "selectedLLMProvider") ?? "gemini"
+
+        switch selectedProvider {
+        case "gemini":
+            return "You successfully installed Dayflow and configured it with Gemini AI. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
+
+        case "chatgpt_claude":
+            // Check which CLI tool they picked
+            let cliTool = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "claude"
+            if cliTool == "codex" {
+                return "You successfully installed Dayflow with ChatGPT. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
+            } else {
+                return "You successfully installed Dayflow with Claude. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
+            }
+
+        case "ollama":
+            // Check which local engine they picked
+            let localEngine = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
+            if localEngine == "lmstudio" {
+                return "You successfully installed Dayflow with LM Studio — your data stays 100% on your device. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
+            } else {
+                return "You successfully installed Dayflow with Ollama — your data stays 100% on your device. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
+            }
+
+        default:
+            return "You successfully installed Dayflow. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
+        }
+    }
+
     func fetchTimelineCards(forBatch batchId: Int64) -> [TimelineCard] {
         let decoder = JSONDecoder()
         return (try? timedRead("fetchTimelineCards(forBatch)") { db in
