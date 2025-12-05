@@ -203,7 +203,7 @@ struct LLMProviderSetupView: View {
         case "chatgpt_claude":
             return "Connect ChatGPT or Claude"
         default:
-            return "Bring your own API keys"
+            return "Gemini"
         }
     }
     
@@ -958,7 +958,7 @@ class ProviderSetupState: ObservableObject {
                     title: "Before you begin",
                     contentType: .information(
                         "For experienced users",
-                        "This path is recommended only if you're comfortable running LLMs locally and debugging technical issues. If terms like vLLM or API endpoint don't ring a bell, we recommend going back and picking 'Bring your own API keys'. It's non-technical and takes about 30 seconds.\n\nFor local mode, Dayflow recommends Qwen3-VL 4B as the core vision-language model (Qwen2.5-VL 3B remains available if you need a smaller download)."
+                        "This path is recommended only if you're comfortable running LLMs locally and debugging technical issues. If terms like vLLM or API endpoint don't ring a bell, we recommend going back and picking 'Gemini'. It's non-technical and takes about 30 seconds.\n\nFor local mode, Dayflow recommends Qwen3-VL 4B as the core vision-language model (Qwen2.5-VL 3B remains available if you need a smaller download)."
                     )
                 ),
                 SetupStep(id: "choose", title: "Choose engine", contentType: .localChoice),
