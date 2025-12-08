@@ -9,12 +9,87 @@ final class FaviconService {
     private let inFlightLock = NSLock()
 
     // MARK: - Hardcoded Favicon Overrides
-    // Maps domains/app names to asset image names (checked before network fetch)
-    private let hardcodedFavicons: [String: String] = [
-        "dayflow.so": "DayflowFavicon",
-        // Add more overrides here as needed, e.g.:
-        // "ghostty": "GhosttyIcon",
-        // "terminal": "TerminalIcon",
+    // Pattern-based matching (uses contains) - checked before network fetch
+    // Order matters: first match wins (more specific patterns go first)
+    private let faviconPatterns: [(pattern: String, asset: String)] = [
+        // Dayflow
+        ("dayflow", "DayflowFavicon"),
+
+        // Apple services - specific patterns first
+        ("imessage", "iMessageFavicon"),
+        ("messages", "MessagesFavicon"),
+        ("facetime", "FaceTimeFavicon"),
+        ("findmy", "FindMyFavicon"),
+        ("find my", "FindMyFavicon"),
+        ("icloud.com/mail", "MailFavicon"),
+        ("icloud.com/calendar", "CalendarFavicon"),
+        ("icloud.com/notes", "NotesFavicon"),
+        ("icloud.com/reminders", "RemindersFavicon"),
+        ("icloud.com/photos", "PhotosFavicon"),
+        ("music.apple", "MusicFavicon"),
+        ("tv.apple", "TVFavicon"),
+        ("news.apple", "NewsFavicon"),
+        ("books.apple", "BooksFavicon"),
+        ("podcasts.apple", "PodcastsFavicon"),
+        ("maps.apple", "MapsFavicon"),
+        ("weather.apple", "WeatherFavicon"),
+        ("fitness.apple", "FitnessFavicon"),
+        ("health.apple", "HealthFavicon"),
+        ("wallet.apple", "WalletFavicon"),
+        ("freeform.apple", "FreeformFavicon"),
+        ("shortcuts.apple", "ShortcutsFavicon"),
+        ("translate.apple", "TranslateFavicon"),
+        ("passwords.apple", "PasswordsFavicon"),
+        ("apps.apple", "AppStoreFavicon"),
+
+        // Apple iWork suite
+        ("keynote", "KeynoteFavicon"),
+        ("numbers", "NumbersFavicon"),
+        ("pages.apple", "PagesFavicon"),
+
+        // macOS apps (app name matching for LLM-generated hosts)
+        ("mail", "MailFavicon"),
+        ("calendar", "CalendarFavicon"),
+        ("notes", "NotesFavicon"),
+        ("reminders", "RemindersFavicon"),
+        ("photos", "PhotosFavicon"),
+        ("safari", "SafariFavicon"),
+        ("finder", "FinderFavicon"),
+        ("settings", "SettingsFavicon"),
+        ("system preferences", "SettingsFavicon"),
+        ("system settings", "SettingsFavicon"),
+        ("calculator", "CalculatorFavicon"),
+        ("preview", "PreviewFavicon"),
+        ("contacts", "ContactsFavicon"),
+        ("voice memos", "VoiceMemosFavicon"),
+        ("voicememos", "VoiceMemosFavicon"),
+        ("clock", "ClockFavicon"),
+        ("files", "FilesFavicon"),
+        ("home", "HomeFavicon"),
+        ("stocks", "StocksFavicon"),
+        ("weather", "WeatherFavicon"),
+        ("translate", "TranslateFavicon"),
+        ("podcasts", "PodcastsFavicon"),
+        ("news", "NewsFavicon"),
+        ("books", "BooksFavicon"),
+        ("music", "MusicFavicon"),
+        ("tv", "TVFavicon"),
+        ("app store", "AppStoreFavicon"),
+        ("appstore", "AppStoreFavicon"),
+
+        // Terminal apps
+        ("ghostty", "GhosttyFavicon"),
+        ("terminal", "TerminalFavicon"),
+        ("iterm", "iTerm2Favicon"),
+
+        // Code editors
+        ("vs code", "VSCodeFavicon"),
+        ("vscode", "VSCodeFavicon"),
+        ("visual studio code", "VSCodeFavicon"),
+
+        // Browsers
+        ("google chrome", "ChromeFavicon"),
+        ("chrome", "ChromeFavicon"),
     ]
 
     private init() {
@@ -28,10 +103,12 @@ final class FaviconService {
     }
 
     private func fetchHost(_ host: String) async -> NSImage? {
-        // Check hardcoded overrides first
-        if let assetName = hardcodedFavicons[host.lowercased()],
-           let img = NSImage(named: assetName) {
-            return img
+        // Check hardcoded overrides first (pattern-based contains matching)
+        let hostLower = host.lowercased()
+        for (pattern, assetName) in faviconPatterns {
+            if hostLower.contains(pattern), let img = NSImage(named: assetName) {
+                return img
+            }
         }
 
         let key = host as NSString
