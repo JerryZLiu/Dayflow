@@ -867,6 +867,13 @@ final class ChatCLIProvider: LLMProvider {
         }
 
         let run = try runner.run(tool: tool, prompt: prompt, workingDirectory: config.baseDirectory, imagePaths: frames.map { $0.path }, model: model, reasoningEffort: effort)
+
+        // Full, untrimmed logs for debugging
+        print("\n[ChatCLI][describeFramesBatch] model=\(model) effort=\(effort ?? "default") frames=\(frames.count)")
+        print("[ChatCLI][describeFramesBatch] stdout:\n\(run.stdout)")
+        if !run.stderr.isEmpty {
+            print("[ChatCLI][describeFramesBatch] stderr:\n\(run.stderr)")
+        }
         guard run.exitCode == 0 else {
             let preview = String(run.stdout.prefix(1000))
             let stderrPreview = String(run.stderr.prefix(500))
@@ -976,6 +983,13 @@ final class ChatCLIProvider: LLMProvider {
         }
 
         let run = try runner.run(tool: tool, prompt: prompt, workingDirectory: config.baseDirectory, model: model, reasoningEffort: effort)
+
+        // Full, untrimmed logs for debugging
+        print("\n[ChatCLI][mergeFrameDescriptionsWithCLI] model=\(model) effort=\(effort ?? "default") frames=\(frames.count) videoDuration=\(videoDuration)")
+        print("[ChatCLI][mergeFrameDescriptionsWithCLI] stdout:\n\(run.stdout)")
+        if !run.stderr.isEmpty {
+            print("[ChatCLI][mergeFrameDescriptionsWithCLI] stderr:\n\(run.stderr)")
+        }
         guard run.exitCode == 0,
               let data = run.stdout.data(using: .utf8),
               let parsed = try? JSONDecoder().decode(SegmentMergeResponse.self, from: data),
