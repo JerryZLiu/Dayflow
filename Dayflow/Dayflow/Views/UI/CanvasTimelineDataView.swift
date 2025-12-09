@@ -20,6 +20,10 @@ private struct CanvasPositionedActivity: Identifiable {
     let title: String
     let timeLabel: String
     let categoryName: String
+    // Raw values for pattern matching (may contain paths like "developer.apple.com/xcode")
+    let faviconPrimaryRaw: String?
+    let faviconSecondaryRaw: String?
+    // Normalized hosts for network fetch (just domain)
     let faviconPrimaryHost: String?
     let faviconSecondaryHost: String?
 }
@@ -213,6 +217,8 @@ struct CanvasTimelineDataView: View {
                             selectedActivity = item.activity
                         }
                     },
+                    faviconPrimaryRaw: item.faviconPrimaryRaw,
+                    faviconSecondaryRaw: item.faviconSecondaryRaw,
                     faviconPrimaryHost: item.faviconPrimaryHost,
                     faviconSecondaryHost: item.faviconSecondaryHost
                 )
@@ -340,8 +346,11 @@ struct CanvasTimelineDataView: View {
                 let durationMinutes = max(0, seg.end.timeIntervalSince(seg.start) / 60)
                 let rawHeight = CGFloat(durationMinutes) * CanvasConfig.pixelsPerMinute
                 let height = max(10, rawHeight - 2)
-                let primaryHost = self.normalizeHost(seg.activity.appSites?.primary)
-                let secondaryHost = self.normalizeHost(seg.activity.appSites?.secondary)
+                // Raw values for pattern matching, normalized for network fetch
+                let primaryRaw = seg.activity.appSites?.primary
+                let secondaryRaw = seg.activity.appSites?.secondary
+                let primaryHost = self.normalizeHost(primaryRaw)
+                let secondaryHost = self.normalizeHost(secondaryRaw)
 
                 return CanvasPositionedActivity(
                     id: seg.activity.id,
@@ -352,6 +361,8 @@ struct CanvasTimelineDataView: View {
                     title: seg.activity.title,
                     timeLabel: self.formatRange(start: seg.start, end: seg.end),
                     categoryName: seg.activity.category,
+                    faviconPrimaryRaw: primaryRaw,
+                    faviconSecondaryRaw: secondaryRaw,
                     faviconPrimaryHost: primaryHost,
                     faviconSecondaryHost: secondaryHost
                 )
@@ -687,6 +698,10 @@ struct CanvasActivityCard: View {
     let style: CanvasActivityCardStyle
     let isSelected: Bool
     let onTap: () -> Void
+    // Raw values for pattern matching (may contain paths)
+    let faviconPrimaryRaw: String?
+    let faviconSecondaryRaw: String?
+    // Normalized hosts for network fetch
     let faviconPrimaryHost: String?
     let faviconSecondaryHost: String?
 
@@ -703,9 +718,14 @@ struct CanvasActivityCard: View {
             HStack(alignment: .top, spacing: isFailedCard ? 10 : 8) {
                 if durationMinutes >= 10 {
                     if !isFailedCard {
-                        if faviconPrimaryHost != nil || faviconSecondaryHost != nil {
-                            FaviconOrSparkleView(primaryHost: faviconPrimaryHost, secondaryHost: faviconSecondaryHost)
-                                .frame(width: 16, height: 16)
+                        if faviconPrimaryRaw != nil || faviconSecondaryRaw != nil {
+                            FaviconOrSparkleView(
+                                primaryRaw: faviconPrimaryRaw,
+                                secondaryRaw: faviconSecondaryRaw,
+                                primaryHost: faviconPrimaryHost,
+                                secondaryHost: faviconSecondaryHost
+                            )
+                            .frame(width: 16, height: 16)
                         }
                     }
 
@@ -800,6 +820,10 @@ struct CanvasCardButtonStyle: ButtonStyle {
 }
 
 private struct FaviconOrSparkleView: View {
+    // Raw values for pattern matching (may contain paths like "developer.apple.com/xcode")
+    let primaryRaw: String?
+    let secondaryRaw: String?
+    // Normalized hosts for network fetch
     let primaryHost: String?
     let secondaryHost: String?
     @State private var image: NSImage? = nil
@@ -821,9 +845,14 @@ private struct FaviconOrSparkleView: View {
         .onAppear {
             guard !didStart else { return }
             didStart = true
-            guard primaryHost != nil || secondaryHost != nil else { return }
+            guard primaryRaw != nil || secondaryRaw != nil else { return }
             Task { @MainActor in
-                if let img = await FaviconService.shared.fetchFavicon(primary: primaryHost, secondary: secondaryHost) {
+                if let img = await FaviconService.shared.fetchFavicon(
+                    primaryRaw: primaryRaw,
+                    secondaryRaw: secondaryRaw,
+                    primaryHost: primaryHost,
+                    secondaryHost: secondaryHost
+                ) {
                     self.image = img
                 }
             }

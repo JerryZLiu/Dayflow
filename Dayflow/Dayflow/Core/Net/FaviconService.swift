@@ -83,6 +83,7 @@ final class FaviconService {
         ("iterm", "iTerm2Favicon"),
 
         // Code editors
+        ("xcode", "XCodeFavicon"),
         ("vs code", "VSCodeFavicon"),
         ("vscode", "VSCodeFavicon"),
         ("visual studio code", "VSCodeFavicon"),
@@ -96,21 +97,43 @@ final class FaviconService {
         cache.countLimit = 256
     }
 
-    func fetchFavicon(primary: String?, secondary: String?) async -> NSImage? {
-        if let host = primary, let img = await fetchHost(host) { return img }
-        if let host = secondary, let img = await fetchHost(host) { return img }
+    /// Fetches favicon using raw strings for pattern matching, normalized hosts for network fetch.
+    /// - Parameters:
+    ///   - primaryRaw: Raw primary string (may contain paths like "developer.apple.com/xcode")
+    ///   - secondaryRaw: Raw secondary string
+    ///   - primaryHost: Normalized host for network fetch (just domain)
+    ///   - secondaryHost: Normalized host for network fetch
+    func fetchFavicon(primaryRaw: String?, secondaryRaw: String?, primaryHost: String?, secondaryHost: String?) async -> NSImage? {
+        print("[FaviconService] 🔍 Fetching favicon - primaryRaw: '\(primaryRaw ?? "nil")' primaryHost: '\(primaryHost ?? "nil")'")
+
+        // First, try pattern matching against raw strings (preserves paths like /xcode)
+        if let raw = primaryRaw, let img = matchPattern(raw) { return img }
+        if let raw = secondaryRaw, let img = matchPattern(raw) { return img }
+
+        // Fall back to network fetch using normalized hosts
+        if let host = primaryHost, let img = await fetchHost(host) { return img }
+        if let host = secondaryHost, let img = await fetchHost(host) { return img }
+        return nil
+    }
+
+    /// Check raw string against hardcoded patterns (no network fetch)
+    private func matchPattern(_ raw: String) -> NSImage? {
+        let rawLower = raw.lowercased()
+        for (pattern, assetName) in faviconPatterns {
+            if rawLower.contains(pattern) {
+                if let img = NSImage(named: assetName) {
+                    print("[FaviconService] ✅ Pattern matched '\(raw)' → '\(pattern)' → asset '\(assetName)'")
+                    return img
+                } else {
+                    print("[FaviconService] ⚠️ Pattern matched but asset NOT FOUND: '\(raw)' → '\(pattern)' → '\(assetName)'")
+                }
+            }
+        }
         return nil
     }
 
     private func fetchHost(_ host: String) async -> NSImage? {
-        // Check hardcoded overrides first (pattern-based contains matching)
-        let hostLower = host.lowercased()
-        for (pattern, assetName) in faviconPatterns {
-            if hostLower.contains(pattern), let img = NSImage(named: assetName) {
-                return img
-            }
-        }
-
+        // Pattern matching already done in fetchFavicon() — go straight to cache/network
         let key = host as NSString
         if let cached = cache.object(forKey: key) {
             return cached
