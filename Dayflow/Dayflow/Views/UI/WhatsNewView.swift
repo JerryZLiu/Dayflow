@@ -28,19 +28,21 @@ enum WhatsNewConfiguration {
     private static let seenKey = "lastSeenWhatsNewVersion"
 
     /// Override with the specific release number you want to show.
-    private static let versionOverride: String? = "1.3.1"
+    private static let versionOverride: String? = "1.4.0"
 
     /// Update this content before shipping each release. Return nil to disable the modal entirely.
     static var configuredRelease: ReleaseNote? {
         ReleaseNote(
             version: targetVersion,
-            title: "ChatGPT & Claude integration, timeline export, and smoother animations.",
+            title: "Huge rearchitecture of the recording system + new Gemini limits (read carefully!)",
             highlights: [
-                "ChatGPT & Claude integration (beta): New inference provider that hooks up through their CLI tools. Find it in Settings → Providers.",
-                "Timeline export: Export a day's cards directly from the timeline, or export any time range through Settings. Useful for passing into AI for custom analysis.",
-                "Smoother animations on the timeline.",
-                "Local model users: If you're still on Qwen2.5VL, upgrade to Qwen3VL from Settings → Providers for greatly improved quality.",
-                "Journal (early preview): We're slowly rolling out as we work out the bugs. Keep an eye out!"
+                "Previously, Dayflow used the native macOS screen recording APIs. This maintained a constant screen recording of the screen. You may have noticed a persistent purple screen recording menu bar item when Dayflow was recording.",
+                "We have now migrated to using the native Screenshot recording APIs. Since we take screenshots once every 10s (soon configurable), this creates many efficiency gains that will reduce the resources that Dayflow uses. Since technically Dayflow is no longer recording, you will no longer see the purple screen recording icon in your menu bar.",
+                "Instead, to quickly see if Dayflow is recording, we've added a small dot to the top right of the Dayflow menu bar icon when Dayflow is on.",
+                "IMPORTANT NOTE TO THOSE RUNNING DAYFLOW WITH GEMINI/GOOGLE: Over the weekend, Google heavily tightened the limits on the Gemini free tier. This means that a lot of you probably ran into rate limit issues recently.",
+                "Thanks to the recording rearchitecture, we've gotten much more efficient with token usage. However, in an effort to increase how efficiently we're using the current rate limits, I have adjusted Gemini to run analysis every 30 minutes instead of 15.",
+                "This means that your data might have an extra 15 minute delay before showing up, but doubles how long you can run Dayflow without getting rate limited. In theory you should be able to get 10 hours of usage per day within the free tier limits.",
+                "Please let me know if you run into rate limit issues - I may bump it up to an hour if necessary."
             ],
             imageName: nil
         )
