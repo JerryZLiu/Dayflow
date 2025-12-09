@@ -20,6 +20,7 @@ final class VideoExpansionState: ObservableObject {
     @Published var endTime: Date? = nil
     @Published var thumbnailFrame: CGRect = .zero
     @Published var containerSize: CGSize = .zero
+    @Published var isHoveringVideo: Bool = false
 
     // Animation phase tracking for choreographed entrance
     @Published var animationPhase: AnimationPhase = .collapsed
@@ -225,6 +226,31 @@ struct VideoExpansionOverlay: View {
             }
         }
         .frame(width: width, height: height)
+        .overlay(alignment: .bottomTrailing) {
+            // Playback speed chip (20x, 40x, 60x)
+            if expansionState.isHoveringVideo {
+                Button(action: { viewModel.cycleSpeed() }) {
+                    Text("\(Int(viewModel.playbackSpeed * 20))x")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.black.opacity(0.85))
+                        .cornerRadius(4)
+                }
+                .buttonStyle(ScaleButtonStyle())
+                .padding(12)
+                .accessibilityLabel("Playback speed")
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)),
+                        removal: .opacity
+                    )
+                )
+            }
+        }
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: expansionState.isHoveringVideo)
+        .onHover { hovering in expansionState.isHoveringVideo = hovering }
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.isPlaying)
     }
 
