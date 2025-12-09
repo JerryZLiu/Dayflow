@@ -9,7 +9,6 @@
 
 import Foundation
 import AppKit
-import AVFoundation
 
 enum ChatCLITool: String, Codable {
     case codex
@@ -30,6 +29,21 @@ private struct ChatCLIConfigManager {
         claudeSettingsDirectory = baseDirectory.appendingPathComponent(".claude", isDirectory: true)
         claudeSettingsFile = claudeSettingsDirectory.appendingPathComponent("settings.local.json")
         codexConfigFile = baseDirectory.appendingPathComponent("config.toml")
+    }
+
+    /// Remove Codex/Claude local session artifacts (rollouts, history) from the sandbox.
+    /// We keep auth and config so the user stays signed in.
+    func clearPersistentCLIData() {
+        let fm = FileManager.default
+        let paths = [
+            baseDirectory.appendingPathComponent("sessions", isDirectory: true),
+            baseDirectory.appendingPathComponent("archived_sessions", isDirectory: true),
+            baseDirectory.appendingPathComponent("history.jsonl", isDirectory: false)
+        ]
+        for url in paths where fm.fileExists(atPath: url.path) {
+            // Ignore errors — best-effort cleanup only.
+            try? fm.removeItem(at: url)
+        }
     }
 
     func ensureSandbox() {
@@ -227,14 +241,10 @@ private struct ChatCLIProcessRunner {
     }
 
     private func debugLog(tool: ChatCLITool, model: String?, phase: String, prompt: String, stdout: String, stderr: String, usage: TokenUsage?) {
-        func trim(_ s: String, limit: Int = 2000) -> String {
-            if s.count > limit { return String(s.prefix(limit)) + "…(truncated)" }
-            return s
-        }
         let header = "[ChatCLI][\(tool.rawValue)][\(model ?? "")] \(phase)"
-        print("\(header) prompt:\n\(trim(prompt))")
-        if !stdout.isEmpty { print("\(header) stdout:\n\(trim(stdout))") }
-        if !stderr.isEmpty { print("\(header) stderr:\n\(trim(stderr))") }
+        print("\(header) prompt:\n\(prompt)")
+        if !stdout.isEmpty { print("\(header) stdout:\n\(stdout)") }
+        if !stderr.isEmpty { print("\(header) stderr:\n\(stderr)") }
         if let u = usage {
             print("\(header) usage in=\(u.input) cached=\(u.cachedInput) out=\(u.output)")
         }
@@ -327,139 +337,22 @@ final class ChatCLIProvider: LLMProvider {
     private let tool: ChatCLITool
     private let runner = ChatCLIProcessRunner()
     private let config = ChatCLIConfigManager.shared
-    private let frameExtractionInterval: TimeInterval = 60.0
+    /// Screenshot interval used for fallback observation duration calculation
+    private let screenshotInterval: TimeInterval = 10.0
 
     init(tool: ChatCLITool) {
         self.tool = tool
         config.ensureSandbox()
     }
 
-    // MARK: - Public
-
-    func transcribeVideo(videoData: Data, mimeType: String, prompt: String, batchStartTime: Date, videoDuration: TimeInterval, batchId: Int64?) async throws -> (observations: [Observation], log: LLMCall) {
-        let callStart = Date()
-        _ = prompt
-        _ = mimeType
-        // Persist video to a temp file inside sandbox so CLI can see it if tools are enabled.
-        let tempVideoURL = config.baseDirectory.appendingPathComponent("\(UUID().uuidString).mp4")
-        do {
-            try videoData.write(to: tempVideoURL, options: .atomic)
-        } catch {
-            let finishedAt = Date()
-            logFailure(ctx: makeCtx(batchId: batchId, operation: "transcribe", startedAt: callStart), finishedAt: finishedAt, error: error)
-            throw error
-        }
-
-        defer { try? FileManager.default.removeItem(at: tempVideoURL) }
-
-        var frames: [FrameData] = []
-        var usageTotal = TokenUsage.zero
-        var sawUsage = false
-        // 1) Extract frames
-        frames = try extractFrames(from: tempVideoURL, durationHint: videoDuration)
-        defer { cleanupFrames(frames) }
-
-        // Retry loop for entire transcription pipeline
-        let maxTranscribeAttempts = 2
-        for transcribeAttempt in 1...maxTranscribeAttempts {
-            // 2) Per-frame descriptions via CLI
-            var frameDescriptions: [(timestamp: TimeInterval, description: String)] = []
-            // Batch frames to avoid truncation from Codex mini; chunk to 10
-            let batchSize = 10
-            for chunk in stride(from: 0, to: frames.count, by: batchSize) {
-                let slice = Array(frames[chunk..<min(chunk+batchSize, frames.count)])
-
-                var localPairs: [(FrameData, String)] = []
-                var localUsage: TokenUsage? = nil
-                var lastError: Error? = nil
-
-                // Try initial call
-                do {
-                    let (initialPairs, initialUsage) = try describeFramesBatch(slice)
-                    localPairs = initialPairs
-                    localUsage = initialUsage
-                } catch {
-                    lastError = error
-                    // Retry with more powerful model
-                    if tool == .codex {
-                        do {
-                            let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "gpt-5.1-codex-max", overrideEffort: "high")
-                            localPairs = retryPairs
-                            localUsage = retryUsage
-                            lastError = nil // Retry succeeded
-                        } catch {
-                            lastError = error // Keep the retry error (has more context)
-                        }
-                    } else if tool == .claude {
-                        do {
-                            let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "sonnet")
-                            localPairs = retryPairs
-                            localUsage = retryUsage
-                            lastError = nil // Retry succeeded
-                        } catch {
-                            lastError = error // Keep the retry error (has more context)
-                        }
-                    }
-                }
-
-                // If both attempts failed, log and re-throw
-                if let error = lastError {
-                    logFailure(ctx: makeCtx(batchId: batchId, operation: "describe_frames", startedAt: callStart), finishedAt: Date(), error: error)
-                    throw error
-                }
-
-                if let localUsage { usageTotal = usageTotal.adding(localUsage); sawUsage = true }
-                for (frame, desc) in localPairs {
-                    frameDescriptions.append((timestamp: frame.timestamp, description: desc))
-                }
-            }
-
-            // 3) Merge descriptions into observations via CLI text prompt
-            let (observations, mergeUsage) = try mergeFrameDescriptionsWithCLI(
-                frameDescriptions,
-                batchStartTime: batchStartTime,
-                videoDuration: videoDuration,
-                batchId: batchId,
-                callStart: callStart
-            )
-
-            if let mergeUsage { usageTotal = usageTotal.adding(mergeUsage); sawUsage = true }
-
-            // Check if we got observations
-            if !observations.isEmpty {
-                let finishedAt = Date()
-                let headers = sawUsage ? tokenHeaders(from: usageTotal) : nil
-                logSuccess(ctx: makeCtx(batchId: batchId, operation: "transcribe", startedAt: callStart), finishedAt: finishedAt, stdout: "frames:\(frames.count) obs:\(observations.count)", stderr: "", responseHeaders: headers)
-                let llmCall = makeLLMCall(start: callStart, end: finishedAt, input: "frames \(frames.count)", output: "obs \(observations.count)")
-                return (observations, llmCall)
-            }
-
-            // Empty observations - log and maybe retry
-            if transcribeAttempt < maxTranscribeAttempts {
-                print("[ChatCLI] Transcribe attempt \(transcribeAttempt) returned 0 observations from \(frames.count) frames, retrying...")
-                Task { @MainActor in
-                    AnalyticsService.shared.capture("transcribe_empty_retry", [
-                        "batch_id": batchId as Any,
-                        "attempt": transcribeAttempt,
-                        "frame_count": frames.count,
-                        "frame_descriptions_count": frameDescriptions.count,
-                        "tool": tool.rawValue
-                    ])
-                }
-                // Reset usage for next attempt
-                usageTotal = TokenUsage.zero
-                sawUsage = false
-            }
-        }
-
-        // All attempts returned empty observations - log failure and throw
-        let finishedAt = Date()
-        let emptyError = NSError(domain: "ChatCLI", code: -99, userInfo: [
-            NSLocalizedDescriptionKey: "Transcription produced 0 observations after \(maxTranscribeAttempts) attempts from \(frames.count) frames"
-        ])
-        logFailure(ctx: makeCtx(batchId: batchId, operation: "transcribe", startedAt: callStart), finishedAt: finishedAt, error: emptyError)
-        throw emptyError
+    /// Run the CLI with a clean sandbox and delete any session rollouts/history after.
+    private func runAndScrub(prompt: String, imagePaths: [String] = [], model: String? = nil, reasoningEffort: String? = nil) throws -> ChatCLIRunResult {
+        config.clearPersistentCLIData()          // start clean (no past rollouts)
+        defer { config.clearPersistentCLIData() } // remove any new rollouts/history
+        return try runner.run(tool: tool, prompt: prompt, workingDirectory: config.baseDirectory, imagePaths: imagePaths, model: model, reasoningEffort: reasoningEffort)
     }
+
+    // MARK: - Activity Cards
 
     func generateActivityCards(observations: [Observation], context: ActivityGenerationContext, batchId: Int64?) async throws -> (cards: [ActivityCardData], log: LLMCall) {
         enum CardParseError: LocalizedError {
@@ -501,7 +394,7 @@ final class ChatCLIProvider: LLMProvider {
 
         for attempt in 1...4 {
             do {
-                let run = try runner.run(tool: tool, prompt: actualPromptUsed, workingDirectory: config.baseDirectory, model: model, reasoningEffort: effort)
+                let run = try runAndScrub(prompt: actualPromptUsed, model: model, reasoningEffort: effort)
                 lastRun = run
                 lastRawOutput = run.stdout
                 let cards = try parseCards(from: run.stdout)
@@ -782,51 +675,6 @@ final class ChatCLIProvider: LLMProvider {
         let segments: [Segment]
     }
 
-    private func extractFrames(from videoURL: URL, durationHint: TimeInterval) throws -> [FrameData] {
-        let asset = AVAsset(url: videoURL)
-        let duration = CMTimeGetSeconds(asset.duration)
-        let total = duration > 0 ? duration : max(1, durationHint)
-
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.requestedTimeToleranceBefore = .zero
-        generator.requestedTimeToleranceAfter = .zero
-        generator.appliesPreferredTrackTransform = true
-        // Keep the smallest side at most 600px to accommodate ultrawide without over-downscaling.
-        if let track = asset.tracks(withMediaType: .video).first {
-            let size = track.naturalSize.applying(track.preferredTransform)
-            let w = abs(size.width)
-            let h = abs(size.height)
-            if w >= h {
-                generator.maximumSize = CGSize(width: 6000, height: 600) // landscape: cap height to 600
-            } else {
-                generator.maximumSize = CGSize(width: 600, height: 6000) // portrait: cap width to 600
-            }
-        } else {
-            generator.maximumSize = CGSize(width: 600, height: 600)
-        }
-
-        var frames: [FrameData] = []
-        var t: TimeInterval = 0
-
-        while t <= total {
-            let cm = CMTime(seconds: t, preferredTimescale: 600)
-            if let cg = try? generator.copyCGImage(at: cm, actualTime: nil),
-               let path = try? writeImage(cgImage: cg) {
-                frames.append(FrameData(timestamp: t, path: path))
-            }
-            t += frameExtractionInterval
-        }
-
-        // Ensure last frame
-        if let cg = try? generator.copyCGImage(at: CMTime(seconds: total, preferredTimescale: 600), actualTime: nil),
-           let path = try? writeImage(cgImage: cg) {
-            if !frames.contains(where: { abs($0.timestamp - total) < 1.0 }) {
-                frames.append(FrameData(timestamp: total, path: path))
-            }
-        }
-        return frames
-    }
-
     private func describeFramesBatch(_ frames: [FrameData], overrideModel: String? = nil, overrideEffort: String? = nil) throws -> ([(FrameData, String)], TokenUsage?) {
         guard !frames.isEmpty else { return ([], nil) }
 
@@ -866,7 +714,7 @@ final class ChatCLIProvider: LLMProvider {
             }
         }
 
-        let run = try runner.run(tool: tool, prompt: prompt, workingDirectory: config.baseDirectory, imagePaths: frames.map { $0.path }, model: model, reasoningEffort: effort)
+        let run = try runAndScrub(prompt: prompt, imagePaths: frames.map { $0.path }, model: model, reasoningEffort: effort)
 
         // Full, untrimmed logs for debugging
         print("\n[ChatCLI][describeFramesBatch] model=\(model) effort=\(effort ?? "default") frames=\(frames.count)")
@@ -927,26 +775,19 @@ final class ChatCLIProvider: LLMProvider {
             let fullStdout = run.stdout
             let fullStderr = run.stderr
 
-            // Emit a debug event (trimmed to avoid huge payloads)
-            let maxLen = 8000
-            let stdoutPreview = fullStdout.count > maxLen ? String(fullStdout.prefix(maxLen)) + "…(truncated)" : fullStdout
-            let stderrPreview = fullStderr.count > maxLen ? String(fullStderr.prefix(maxLen)) + "…(truncated)" : fullStderr
-
             Task { @MainActor in
                 AnalyticsService.shared.capture("llm_cli_failure", [
                     "provider": "chat_cli",
                     "model": tool.rawValue,
                     "operation": "describe_frames",
                     "error_message": "Failed to parse frame descriptions",
-                    "stdout_preview": stdoutPreview,
-                    "stderr_preview": stderrPreview
+                    "stdout_preview": fullStdout,
+                    "stderr_preview": fullStderr
                 ])
             }
 
-            // Keep throwing with a concise error to the caller, but include a short preview
-            let preview = String(fullStdout.prefix(1000))
             throw NSError(domain: "ChatCLI", code: -98, userInfo: [
-                NSLocalizedDescriptionKey: "Failed to parse frame descriptions. Raw output: \(preview)"
+                NSLocalizedDescriptionKey: "Failed to parse frame descriptions. Raw stdout: \(fullStdout)\nRaw stderr: \(fullStderr)"
             ])
         }
 
@@ -982,7 +823,7 @@ final class ChatCLIProvider: LLMProvider {
             effort = "high"
         }
 
-        let run = try runner.run(tool: tool, prompt: prompt, workingDirectory: config.baseDirectory, model: model, reasoningEffort: effort)
+        let run = try runAndScrub(prompt: prompt, model: model, reasoningEffort: effort)
 
         // Full, untrimmed logs for debugging
         print("\n[ChatCLI][mergeFrameDescriptionsWithCLI] model=\(model) effort=\(effort ?? "default") frames=\(frames.count) videoDuration=\(videoDuration)")
@@ -1037,7 +878,7 @@ final class ChatCLIProvider: LLMProvider {
         var result: [Observation] = []
         for item in sorted.prefix(5) {
             let startSeconds = max(0.0, item.timestamp)
-            let endSeconds = startSeconds + frameExtractionInterval
+            let endSeconds = startSeconds + screenshotInterval
             let clampedEndSeconds = videoDuration > 0 ? min(videoDuration, endSeconds) : endSeconds
 
             let startDate = batchStartTime.addingTimeInterval(startSeconds)
@@ -1061,33 +902,12 @@ final class ChatCLIProvider: LLMProvider {
         return result
     }
 
-    private func writeImage(cgImage: CGImage) throws -> String {
-        let rep = NSBitmapImageRep(cgImage: cgImage)
-        guard let data = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) else {
-            throw NSError(domain: "ChatCLIProvider", code: -11, userInfo: [NSLocalizedDescriptionKey: "Failed to encode frame"])
-        }
-        let dir = config.baseDirectory.appendingPathComponent("frames", isDirectory: true)
-        if !FileManager.default.fileExists(atPath: dir.path) {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
-        let path = dir.appendingPathComponent("\(UUID().uuidString).jpg")
-        try data.write(to: path, options: .atomic)
-        return path.path
-    }
-
     private func formatSeconds(_ seconds: TimeInterval) -> String {
         let s = Int(seconds.rounded())
         let h = s / 3600
         let m = (s % 3600) / 60
         let sec = s % 60
         return String(format: "%02d:%02d:%02d", h, m, sec)
-    }
-
-    private func cleanupFrames(_ frames: [FrameData]) {
-        let fm = FileManager.default
-        for frame in frames {
-            try? fm.removeItem(atPath: frame.path)
-        }
     }
 
     private func categoriesSection(from descriptors: [LLMCategoryDescriptor]) -> String {
@@ -1344,7 +1164,9 @@ final class ChatCLIProvider: LLMProvider {
     }
 
     private func logSuccess(ctx: LLMCallContext, finishedAt: Date, stdout: String, stderr: String, responseHeaders: [String:String]? = nil) {
-        let http = LLMHTTPInfo(httpStatus: nil, responseHeaders: responseHeaders, responseBody: stdout.data(using: .utf8))
+        let separator = stdout.isEmpty || stderr.isEmpty ? "" : "\n\n[stderr]\n"
+        let combined = stdout + separator + stderr
+        let http = LLMHTTPInfo(httpStatus: nil, responseHeaders: responseHeaders, responseBody: combined.data(using: .utf8))
         LLMLogger.logSuccess(ctx: ctx, http: http, finishedAt: finishedAt)
     }
 
@@ -1354,6 +1176,148 @@ final class ChatCLIProvider: LLMProvider {
 
     private func makeLLMCall(start: Date, end: Date, input: String?, output: String?) -> LLMCall {
         LLMCall(timestamp: end, latency: end.timeIntervalSince(start), input: input, output: output)
+    }
+
+    // MARK: - Screenshot Transcription
+
+    /// Transcribe observations from screenshots.
+    func transcribeScreenshots(_ screenshots: [Screenshot], batchStartTime: Date, batchId: Int64?) async throws -> (observations: [Observation], log: LLMCall) {
+        guard !screenshots.isEmpty else {
+            throw NSError(domain: "ChatCLI", code: -96, userInfo: [NSLocalizedDescriptionKey: "No screenshots to transcribe"])
+        }
+
+        let callStart = Date()
+        let sortedScreenshots = screenshots.sorted { $0.capturedAt < $1.capturedAt }
+
+        // Calculate "video duration" from timestamp range
+        let firstTs = sortedScreenshots.first!.capturedAt
+        let lastTs = sortedScreenshots.last!.capturedAt
+        let videoDuration = TimeInterval(lastTs - firstTs)
+
+        // Convert screenshots to FrameData (reuse existing paths — no need to copy files)
+        let frames: [FrameData] = sortedScreenshots.compactMap { screenshot in
+            // Calculate timestamp relative to batch start (like video frames)
+            let relativeTimestamp = TimeInterval(screenshot.capturedAt - firstTs)
+
+            // Verify the file exists
+            guard FileManager.default.fileExists(atPath: screenshot.filePath) else {
+                print("[ChatCLI] ⚠️ Screenshot file not found: \(screenshot.filePath)")
+                return nil
+            }
+
+            return FrameData(timestamp: relativeTimestamp, path: screenshot.filePath)
+        }
+
+        guard !frames.isEmpty else {
+            throw NSError(
+                domain: "ChatCLI",
+                code: -97,
+                userInfo: [NSLocalizedDescriptionKey: "No valid screenshot files found"]
+            )
+        }
+
+        // Note: Don't cleanup these frames since they're the original screenshot files, not temp copies!
+
+        var usageTotal = TokenUsage.zero
+        var sawUsage = false
+
+        // Retry loop for entire transcription pipeline
+        let maxTranscribeAttempts = 2
+        for transcribeAttempt in 1...maxTranscribeAttempts {
+            // Per-frame descriptions via CLI (reuse existing batching logic)
+            var frameDescriptions: [(timestamp: TimeInterval, description: String)] = []
+            let batchSize = 10
+            for chunk in stride(from: 0, to: frames.count, by: batchSize) {
+                let slice = Array(frames[chunk..<min(chunk+batchSize, frames.count)])
+
+                var localPairs: [(FrameData, String)] = []
+                var localUsage: TokenUsage? = nil
+                var lastError: Error? = nil
+
+                // Try initial call
+                do {
+                    let (initialPairs, initialUsage) = try describeFramesBatch(slice)
+                    localPairs = initialPairs
+                    localUsage = initialUsage
+                } catch {
+                    lastError = error
+                    // Retry with more powerful model
+                    if tool == .codex {
+                        do {
+                            let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "gpt-5.1-codex-max", overrideEffort: "high")
+                            localPairs = retryPairs
+                            localUsage = retryUsage
+                            lastError = nil
+                        } catch {
+                            lastError = error
+                        }
+                    } else if tool == .claude {
+                        do {
+                            let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "sonnet")
+                            localPairs = retryPairs
+                            localUsage = retryUsage
+                            lastError = nil
+                        } catch {
+                            lastError = error
+                        }
+                    }
+                }
+
+                if let error = lastError {
+                    logFailure(ctx: makeCtx(batchId: batchId, operation: "describe_screenshots", startedAt: callStart), finishedAt: Date(), error: error)
+                    throw error
+                }
+
+                if let localUsage { usageTotal = usageTotal.adding(localUsage); sawUsage = true }
+                for (frame, desc) in localPairs {
+                    frameDescriptions.append((timestamp: frame.timestamp, description: desc))
+                }
+            }
+
+            // Merge descriptions into observations via CLI text prompt
+            let (observations, mergeUsage) = try mergeFrameDescriptionsWithCLI(
+                frameDescriptions,
+                batchStartTime: batchStartTime,
+                videoDuration: videoDuration,
+                batchId: batchId,
+                callStart: callStart
+            )
+
+            if let mergeUsage { usageTotal = usageTotal.adding(mergeUsage); sawUsage = true }
+
+            // Check if we got observations
+            if !observations.isEmpty {
+                let finishedAt = Date()
+                let headers = sawUsage ? tokenHeaders(from: usageTotal) : nil
+                logSuccess(ctx: makeCtx(batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart), finishedAt: finishedAt, stdout: "screenshots:\(screenshots.count) obs:\(observations.count)", stderr: "", responseHeaders: headers)
+                let llmCall = makeLLMCall(start: callStart, end: finishedAt, input: "screenshots \(screenshots.count)", output: "obs \(observations.count)")
+                return (observations, llmCall)
+            }
+
+            // Empty observations - log and maybe retry
+            if transcribeAttempt < maxTranscribeAttempts {
+                print("[ChatCLI] Screenshot transcribe attempt \(transcribeAttempt) returned 0 observations from \(frames.count) screenshots, retrying...")
+                Task { @MainActor in
+                    AnalyticsService.shared.capture("transcribe_screenshots_empty_retry", [
+                        "batch_id": batchId as Any,
+                        "attempt": transcribeAttempt,
+                        "screenshot_count": screenshots.count,
+                        "frame_descriptions_count": frameDescriptions.count,
+                        "tool": tool.rawValue
+                    ])
+                }
+                usageTotal = TokenUsage.zero
+                sawUsage = false
+            }
+        }
+
+        // All attempts returned empty observations
+        let finishedAt = Date()
+        let emptyError = NSError(domain: "ChatCLI", code: -99, userInfo: [
+            NSLocalizedDescriptionKey: "Screenshot transcription produced 0 observations after \(maxTranscribeAttempts) attempts from \(screenshots.count) screenshots"
+        ])
+        logFailure(ctx: makeCtx(batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart), finishedAt: finishedAt, error: emptyError)
+        throw emptyError
     }
 
     // MARK: - Text Generation
@@ -1373,13 +1337,7 @@ final class ChatCLIProvider: LLMProvider {
         let run: ChatCLIRunResult
         do {
             run = try await Task.detached {
-                try self.runner.run(
-                    tool: self.tool,
-                    prompt: prompt,
-                    workingDirectory: self.config.baseDirectory,
-                    model: model,
-                    reasoningEffort: nil
-                )
+                try self.runAndScrub(prompt: prompt, model: model, reasoningEffort: nil)
             }.value
         } catch {
             logFailure(ctx: ctx, finishedAt: Date(), error: error)
