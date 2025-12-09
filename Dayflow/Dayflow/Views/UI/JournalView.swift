@@ -102,16 +102,14 @@ struct JournalView: View {
     // MARK: - Access Code Card
     // JournalLock is the entire card image (gradient bg + lock icon baked in)
     private var accessCodeCard: some View {
-        ZStack {
+        ZStack(alignment: .bottom) {
             // Card background image (contains gradient + lock icon)
             Image("JournalLock")
                 .resizable()
                 .aspectRatio(contentMode: .fit)
 
-            // Overlay content: title, text field, button (positioned in lower portion)
+            // Overlay content: title, text field, button (anchored to bottom)
             VStack(spacing: 16) {
-                Spacer()
-
                 // Title
                 Text("Enter access code")
                     .font(.custom("Nunito-SemiBold", size: 20))
@@ -159,8 +157,8 @@ struct JournalView: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .padding(.bottom, 28)
             }
+            .padding(.bottom, 28)
         }
         .frame(width: 380)
         .shadow(color: Color.black.opacity(0.08), radius: 16, x: 0, y: 6)
