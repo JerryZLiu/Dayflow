@@ -6,7 +6,6 @@
 import Foundation
 import Combine
 import AppKit
-import AVFoundation
 import SwiftUI
 import GRDB
 
@@ -18,6 +17,7 @@ struct ProcessedBatchResult {
 protocol LLMServicing {
     func processBatch(_ batchId: Int64, completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void)
     func generateText(prompt: String) async throws -> String
+    var batchingConfig: BatchingConfig { get }
 }
 
 final class LLMService: LLMServicing {
@@ -90,6 +90,15 @@ final class LLMService: LLMServicing {
         case .chatGPTClaude: return "chat_cli"
         }
     }
+
+    var batchingConfig: BatchingConfig {
+        switch providerType {
+        case .geminiDirect:
+            return .gemini    // 30 min batches, 5 min gap (rate limited)
+        default:
+            return .standard  // 15 min batches, 2 min gap
+        }
+    }
     
     // Keep the existing processBatch implementation for backward compatibility
     func processBatch(_ batchId: Int64, completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void) {
@@ -122,75 +131,26 @@ final class LLMService: LLMServicing {
                 
                 // Mark batch as processing
                 StorageManager.shared.updateBatch(batchId, status: "processing")
-                
-                // Get chunk file paths for this batch
-                let chunkFiles = StorageManager.shared.getChunkFilesForBatch(batchId: batchId)
-                
-                guard !chunkFiles.isEmpty else {
-                    throw NSError(domain: "LLMService", code: 3, userInfo: [NSLocalizedDescriptionKey: "No recordings in batch"])
-                }
-                
-                // Combine all video files
-                
-                // Create a combined video for transcription
-                let composition = AVMutableComposition()
-                var compositionTime = CMTime.zero
-                
-                // Combining video chunks
-                
-                // Create a single video track for all chunks
-                guard let compositionTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
-                    throw NSError(domain: "LLMService", code: 6, userInfo: [NSLocalizedDescriptionKey: "Failed to create composition track"])
-                }
-                
-                for (index, filePath) in chunkFiles.enumerated() {
-                    let url = URL(fileURLWithPath: filePath)
-                    
-                    let asset = AVAsset(url: url)
-                    let duration = try await asset.load(.duration)
-                    let durationSeconds = CMTimeGetSeconds(duration)
-                    
-        
-                    if let track = try await asset.loadTracks(withMediaType: .video).first {
-                        try compositionTrack.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: track, at: compositionTime)
-                    }
-                    
-                    compositionTime = CMTimeAdd(compositionTime, duration)
-                }
-                
-                let totalDuration = CMTimeGetSeconds(compositionTime)
-                // Export combined video to temporary file
-                let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).mp4")
-                
-                guard let exporter = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
-                    throw NSError(domain: "LLMService", code: 4, userInfo: [NSLocalizedDescriptionKey: "Failed to create video exporter"])
-                }
-                
-                exporter.outputURL = tempURL
-                exporter.outputFileType = .mp4
-                
-                await exporter.export()
-                
-                guard exporter.status == .completed else {
-                    throw NSError(domain: "LLMService", code: 5, userInfo: [NSLocalizedDescriptionKey: "Failed to export combined video"])
-                }
-                
-                let videoData = try Data(contentsOf: tempURL)
-                let mimeType = "video/mp4"
+
                 // Get batch start time for timestamp conversion
                 let batchStartDate = Date(timeIntervalSince1970: TimeInterval(batchStartTs))
-                
-                let (observations, transcribeLog) = try await provider.transcribeVideo(
-                    videoData: videoData,
-                    mimeType: mimeType,
-                    prompt: "Transcribe this video", // Provider will use its own prompt
-                    batchStartTime: batchStartDate,
-                    videoDuration: totalDuration,
-                    batchId: batchId
-                )
-                
-                // Clean up temp file after transcription is complete
-                try? FileManager.default.removeItem(at: tempURL)
+
+                // Try screenshot-based transcription first (new system)
+                let screenshots = StorageManager.shared.screenshotsForBatch(batchId)
+                var observations: [Observation]
+                var transcribeLog: LLMCall
+
+                guard !screenshots.isEmpty else {
+                    throw NSError(domain: "LLMService", code: 3, userInfo: [NSLocalizedDescriptionKey: "No screenshots in batch"])
+                }
+
+                print("📸 [LLMService] Transcribing \(screenshots.count) screenshots")
+
+                // Transcribe screenshots using provider
+                let result = try await provider.transcribeScreenshots(screenshots, batchStartTime: batchStartDate, batchId: batchId)
+                observations = result.observations
+                transcribeLog = result.log
+                print("📸 [LLMService] Transcribed → \(observations.count) observations")
                 
                 StorageManager.shared.saveObservations(batchId: batchId, observations: observations)
                 

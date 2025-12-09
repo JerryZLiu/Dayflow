@@ -6,7 +6,8 @@
 import Foundation
 
 protocol LLMProvider {
-    func transcribeVideo(videoData: Data, mimeType: String, prompt: String, batchStartTime: Date, videoDuration: TimeInterval, batchId: Int64?) async throws -> (observations: [Observation], log: LLMCall)
+    /// Transcribe observations from screenshots.
+    func transcribeScreenshots(_ screenshots: [Screenshot], batchStartTime: Date, batchId: Int64?) async throws -> (observations: [Observation], log: LLMCall)
     func generateActivityCards(observations: [Observation], context: ActivityGenerationContext, batchId: Int64?) async throws -> (cards: [ActivityCardData], log: LLMCall)
     func generateText(prompt: String) async throws -> (text: String, log: LLMCall)
 }
@@ -23,6 +24,14 @@ enum LLMProviderType: Codable {
     case dayflowBackend(endpoint: String = "https://api.dayflow.app")
     case ollamaLocal(endpoint: String = "http://localhost:11434")
     case chatGPTClaude
+}
+
+struct BatchingConfig {
+    let targetDuration: TimeInterval
+    let maxGap: TimeInterval
+
+    static let gemini = BatchingConfig(targetDuration: 30 * 60, maxGap: 5 * 60)   // 30 min batches, 5 min gap
+    static let standard = BatchingConfig(targetDuration: 15 * 60, maxGap: 2 * 60) // 15 min batches, 2 min gap
 }
 
 
