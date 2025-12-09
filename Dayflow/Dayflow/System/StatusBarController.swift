@@ -1,10 +1,12 @@
 import AppKit
 import SwiftUI
+import Combine
 
 @MainActor
 final class StatusBarController: NSObject {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let popover = NSPopover()
+    private var cancellable: AnyCancellable?
 
     override init() {
         super.init()
@@ -12,11 +14,24 @@ final class StatusBarController: NSObject {
         popover.animates = true
 
         if let button = statusItem.button {
-            button.image = NSImage(named: "MenuBarIcon")
+            // Set initial icon based on current recording state
+            let isRecording = AppState.shared.isRecording
+            button.image = NSImage(named: isRecording ? "MenuBarOnIcon" : "MenuBarOffIcon")
             button.imagePosition = .imageOnly
             button.target = self
             button.action = #selector(togglePopover(_:))
         }
+
+        // Observe recording state changes and update icon
+        cancellable = AppState.shared.$isRecording
+            .removeDuplicates()
+            .sink { [weak self] isRecording in
+                self?.updateIcon(isRecording: isRecording)
+            }
+    }
+
+    private func updateIcon(isRecording: Bool) {
+        statusItem.button?.image = NSImage(named: isRecording ? "MenuBarOnIcon" : "MenuBarOffIcon")
     }
 
     @objc private func togglePopover(_ sender: Any?) {
