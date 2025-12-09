@@ -104,9 +104,29 @@ protocol StorageManaging: Sendable {
 
     /// Chunks that belong to one batch, already sorted.
     func chunksForBatch(_ batchId: Int64) -> [RecordingChunk]
-    
+
     /// All batches, newest first
     func allBatches() -> [(id: Int64, start: Int, end: Int, status: String)]
+
+    // MARK: - Screenshot Management (new - replaces video chunks)
+
+    /// Returns the next screenshot file URL (.jpg)
+    func nextScreenshotURL() -> URL
+
+    /// Save a screenshot to the database, returns the screenshot ID
+    func saveScreenshot(url: URL, capturedAt: Date) -> Int64?
+
+    /// Fetch screenshots that haven't been assigned to a batch yet
+    func fetchUnprocessedScreenshots(since oldestTimestamp: Int) -> [Screenshot]
+
+    /// Create a batch from screenshots, returns batch ID
+    func saveBatchWithScreenshots(startTs: Int, endTs: Int, screenshotIds: [Int64]) -> Int64?
+
+    /// Screenshots that belong to one batch, sorted by capture time
+    func screenshotsForBatch(_ batchId: Int64) -> [Screenshot]
+
+    /// Fetch screenshots within a time range (for timelapse generation)
+    func fetchScreenshotsInTimeRange(startTs: Int, endTs: Int) -> [Screenshot]
 }
 
 
@@ -605,6 +625,25 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 CREATE INDEX IF NOT EXISTS idx_observations_batch_id ON observations(batch_id);
                 CREATE INDEX IF NOT EXISTS idx_observations_start_ts ON observations(start_ts);
                 CREATE INDEX IF NOT EXISTS idx_observations_time_range ON observations(start_ts, end_ts);
+
+                -- Screenshots table: stores periodic screen captures (replaces video chunks)
+                CREATE TABLE IF NOT EXISTS screenshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    captured_at INTEGER NOT NULL,
+                    file_path TEXT NOT NULL,
+                    file_size INTEGER,
+                    is_deleted INTEGER DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_screenshots_captured_at ON screenshots(captured_at);
+
+                -- Junction table linking batches to screenshots
+                CREATE TABLE IF NOT EXISTS batch_screenshots (
+                    batch_id INTEGER NOT NULL REFERENCES analysis_batches(id) ON DELETE CASCADE,
+                    screenshot_id INTEGER NOT NULL REFERENCES screenshots(id) ON DELETE RESTRICT,
+                    PRIMARY KEY (batch_id, screenshot_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_batch_screenshots_screenshot ON batch_screenshots(screenshot_id);
             """)
 
             // Journal entries table: stores daily intentions, reflections, and summaries
@@ -841,6 +880,118 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }) ?? []
     }
 
+    // MARK: - Screenshot Management (new - replaces video chunks)
+
+    func nextScreenshotURL() -> URL {
+        let df = DateFormatter()
+        df.dateFormat = "yyyyMMdd_HHmmssSSS"
+        return root.appendingPathComponent("\(df.string(from: Date())).jpg")
+    }
+
+    func saveScreenshot(url: URL, capturedAt: Date) -> Int64? {
+        let timestamp = Int(capturedAt.timeIntervalSince1970)
+        let path = url.path
+        let fileSize: Int64? = {
+            if let attrs = try? fileMgr.attributesOfItem(atPath: path),
+               let size = attrs[.size] as? NSNumber {
+                return size.int64Value
+            }
+            return nil
+        }()
+
+        var screenshotId: Int64?
+        try? timedWrite("saveScreenshot") { db in
+            try db.execute(sql: """
+                INSERT INTO screenshots(captured_at, file_path, file_size)
+                VALUES (?, ?, ?)
+            """, arguments: [timestamp, path, fileSize])
+            screenshotId = db.lastInsertedRowID
+        }
+        return screenshotId
+    }
+
+    func fetchUnprocessedScreenshots(since oldestTimestamp: Int) -> [Screenshot] {
+        (try? timedRead("fetchUnprocessedScreenshots") { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM screenshots
+                WHERE captured_at >= ?
+                  AND is_deleted = 0
+                  AND id NOT IN (SELECT screenshot_id FROM batch_screenshots)
+                ORDER BY captured_at ASC
+            """, arguments: [oldestTimestamp])
+            .map { row in
+                Screenshot(
+                    id: row["id"],
+                    capturedAt: row["captured_at"],
+                    filePath: row["file_path"],
+                    fileSize: row["file_size"],
+                    isDeleted: (row["is_deleted"] as? Int ?? 0) != 0
+                )
+            }
+        }) ?? []
+    }
+
+    func saveBatchWithScreenshots(startTs: Int, endTs: Int, screenshotIds: [Int64]) -> Int64? {
+        guard !screenshotIds.isEmpty else { return nil }
+        var batchId: Int64 = 0
+
+        try? timedWrite("saveBatchWithScreenshots(\(screenshotIds.count))") { db in
+            try db.execute(sql: """
+                INSERT INTO analysis_batches(batch_start_ts, batch_end_ts)
+                VALUES (?, ?)
+            """, arguments: [startTs, endTs])
+            batchId = db.lastInsertedRowID
+
+            for id in screenshotIds {
+                try db.execute(sql: """
+                    INSERT INTO batch_screenshots(batch_id, screenshot_id)
+                    VALUES (?, ?)
+                """, arguments: [batchId, id])
+            }
+        }
+        return batchId == 0 ? nil : batchId
+    }
+
+    func screenshotsForBatch(_ batchId: Int64) -> [Screenshot] {
+        (try? timedRead("screenshotsForBatch") { db in
+            try Row.fetchAll(db, sql: """
+                SELECT s.* FROM batch_screenshots bs
+                JOIN screenshots s ON s.id = bs.screenshot_id
+                WHERE bs.batch_id = ?
+                  AND s.is_deleted = 0
+                ORDER BY s.captured_at ASC
+            """, arguments: [batchId])
+            .map { row in
+                Screenshot(
+                    id: row["id"],
+                    capturedAt: row["captured_at"],
+                    filePath: row["file_path"],
+                    fileSize: row["file_size"],
+                    isDeleted: (row["is_deleted"] as? Int ?? 0) != 0
+                )
+            }
+        }) ?? []
+    }
+
+    func fetchScreenshotsInTimeRange(startTs: Int, endTs: Int) -> [Screenshot] {
+        (try? timedRead("fetchScreenshotsInTimeRange") { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM screenshots
+                WHERE captured_at >= ? AND captured_at <= ?
+                  AND is_deleted = 0
+                ORDER BY captured_at ASC
+            """, arguments: [startTs, endTs])
+            .map { row in
+                Screenshot(
+                    id: row["id"],
+                    capturedAt: row["captured_at"],
+                    filePath: row["file_path"],
+                    fileSize: row["file_size"],
+                    isDeleted: (row["is_deleted"] as? Int ?? 0) != 0
+                )
+            }
+        }) ?? []
+    }
 
     func saveTimelineCardShell(batchId: Int64, card: TimelineCardShell) -> Int64? {
         let encoder = JSONEncoder()
