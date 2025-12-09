@@ -261,20 +261,43 @@ final class GeminiDirectProvider: LLMProvider {
         return text
     }
     
-    func transcribeVideo(videoData: Data, mimeType: String, prompt: String, batchStartTime: Date, videoDuration: TimeInterval, batchId: Int64?) async throws -> (observations: [Observation], log: LLMCall) {
+    /// Internal method to transcribe video data after compositing from screenshots.
+    ///
+    /// - Parameters:
+    ///   - videoData: The video file data
+    ///   - mimeType: MIME type of the video
+    ///   - batchStartTime: When this batch started (for absolute timestamp calculation)
+    ///   - videoDuration: Duration of the compressed video (in seconds)
+    ///   - realDuration: Actual real-world duration this video represents (in seconds)
+    ///   - compressionFactor: How much the timeline is compressed (e.g., 10 = 10x faster)
+    ///   - batchId: Optional batch ID for logging
+    private func transcribeVideoData(
+        _ videoData: Data,
+        mimeType: String,
+        batchStartTime: Date,
+        videoDuration: TimeInterval,
+        realDuration: TimeInterval,
+        compressionFactor: TimeInterval,
+        batchId: Int64?
+    ) async throws -> (observations: [Observation], log: LLMCall) {
         let callStart = Date()
-        
+
         // First, save video data to a temporary file
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).mp4")
         try videoData.write(to: tempURL)
         defer { try? FileManager.default.removeItem(at: tempURL) }
-        
+
         let fileURI = try await uploadAndAwait(tempURL, mimeType: mimeType, key: apiKey).1
-        
-        // Format duration for display
+
+        // Format compressed video duration for the prompt
         let durationMinutes = Int(videoDuration / 60)
         let durationSeconds = Int(videoDuration.truncatingRemainder(dividingBy: 60))
         let durationString = String(format: "%02d:%02d", durationMinutes, durationSeconds)
+
+        // Format real duration for context
+        let realDurationMinutes = Int(realDuration / 60)
+        let realDurationSeconds = Int(realDuration.truncatingRemainder(dividingBy: 60))
+        let realDurationString = String(format: "%02d:%02d", realDurationMinutes, realDurationSeconds)
         
         let finalTranscriptionPrompt = """
         # Video Transcription Prompt
@@ -283,18 +306,23 @@ final class GeminiDirectProvider: LLMProvider {
 
         ## CRITICAL: This video is exactly \(durationString) long. ALL timestamps MUST be within 00:00 to \(durationString).
 
-        ## Golden Rule: Aim for 3-5 segments per 15-minute video (fewer is better than more)
+        ## Golden Rule: Aim for 3-8 segments for this video (fewer is better than more)
+
+        ## Segment Length Guidelines:
+        - **Minimum segment length:** 12 seconds
+        - **Maximum segment length:** ~1 minute
+        - If an activity is less than 12 seconds, fold it into an adjacent segment as a brief mention
 
         ## Core Principles:
         1. **Group by purpose, not by platform** - If someone is planning a trip across 5 websites, that's ONE segment
         2. **Include interruptions in the description** - Don't create segments for brief distractions
-        3. **Only split when context changes for 2-3+ minutes** - Quick checks don't count as context switches
+        3. **Only split when context changes for 12+ seconds** - Quick checks don't count as context switches
         4. **Combine related activities** - Multiple videos on the same topic = one segment
         5. **Think in terms of "sessions"** - What would you tell a friend you spent time doing?
-        6. **Idle detection** - if the screen stays exactly the same for 5+ minutes, make sure to note that within the observation that the user was idle during that period and not performing and actions, but still be specific about what's currently on the screen.
+        6. **Idle detection** - If the screen stays exactly the same for 30+ seconds, note that the user was idle during that period, but still be specific about what's currently on the screen.
 
         ## When to create a new segment:
-        Only when the user switches to a COMPLETELY different purpose for MORE than 2-3 minutes:
+        Only when the user switches to a COMPLETELY different purpose for MORE than 12 seconds:
         - Entertainment → Work
         - Learning → Shopping  
         - Project A → Project B
@@ -318,17 +346,17 @@ final class GeminiDirectProvider: LLMProvider {
         [
           {
             "startTimestamp": "00:00",
-            "endTimestamp": "06:45",
+            "endTimestamp": "01:15",
             "description": "User plans a trip to Japan, researching flights on multiple booking sites, reading hotel reviews, and watching YouTube videos about Tokyo neighborhoods. They briefly check email twice and respond to a text message during their research."
           },
           {
-            "startTimestamp": "06:45", 
-            "endTimestamp": "10:30",
+            "startTimestamp": "01:15", 
+            "endTimestamp": "02:10",
             "description": "User takes an online Spanish course, completing lesson exercises and watching grammar explanation videos. They use Google Translate to verify some phrases and briefly check Reddit when they get stuck on a difficult concept."
           },
           {
-            "startTimestamp": "10:30",
-            "endTimestamp": "14:58",
+            "startTimestamp": "02:10",
+            "endTimestamp": "03:00",
             "description": "User shops for home gym equipment, comparing prices across Amazon, fitness retailer sites, and watching product review videos. They check their banking app to verify their budget midway through."
           }
         ]
@@ -339,22 +367,22 @@ final class GeminiDirectProvider: LLMProvider {
         [
           {
             "startTimestamp": "00:00",
-            "endTimestamp": "02:00",
+            "endTimestamp": "00:25",
             "description": "User searches for flights to Tokyo"
           },
           {
-            "startTimestamp": "02:00",
-            "endTimestamp": "02:30", 
+            "startTimestamp": "00:25",
+            "endTimestamp": "00:30", 
             "description": "User checks email"
           },
           {
-            "startTimestamp": "02:30",
-            "endTimestamp": "04:00",
+            "startTimestamp": "00:30",
+            "endTimestamp": "00:55",
             "description": "User looks at hotels in Tokyo"
           },
           {
-            "startTimestamp": "04:00",
-            "endTimestamp": "05:00",
+            "startTimestamp": "00:55",
+            "endTimestamp": "01:15",
             "description": "User watches a Tokyo travel video"
           }
         ]
@@ -365,17 +393,17 @@ final class GeminiDirectProvider: LLMProvider {
         [
           {
             "startTimestamp": "00:00",
-            "endTimestamp": "05:00",
+            "endTimestamp": "01:20",
             "description": "User shops for gym equipment"
           },
           {
-            "startTimestamp": "05:00",
-            "endTimestamp": "05:45",
+            "startTimestamp": "01:20",
+            "endTimestamp": "01:28",
             "description": "User checks their bank balance"
           },
           {
-            "startTimestamp": "05:45",
-            "endTimestamp": "10:00",
+            "startTimestamp": "01:28",
+            "endTimestamp": "03:00",
             "description": "User continues shopping for gym equipment"
           }
         ]
@@ -386,17 +414,17 @@ final class GeminiDirectProvider: LLMProvider {
         [
           {
             "startTimestamp": "00:00",
-            "endTimestamp": "10:00",
-            "description": "User shops for home gym equipment across multiple retailers, comparing dumbbells, benches, and resistance bands. They briefly check their bank balance around the 5-minute mark to confirm their budget before continuing."
+            "endTimestamp": "03:00",
+            "description": "User shops for home gym equipment across multiple retailers, comparing dumbbells, benches, and resistance bands. They briefly check their bank balance around the halfway point to confirm their budget before continuing."
           }
         ]
         ```
 
-        Remember: The goal is to tell the story of what someone accomplished, not log every click. Group aggressively and only split when they truly change what they're doing for an extended period. If an activity is less than 2-3 minutes, it almost never deserves its own segment.
+        Remember: The goal is to tell the story of what someone accomplished, not log every click. Group aggressively and only split when they truly change what they're doing for an extended period.
         """
 
         // UNIFIED RETRY LOOP - Handles ALL errors comprehensively
-        let maxRetries = 6
+        let maxRetries = 2
         var attempt = 0
         var lastError: Error?
         var finalResponse = ""
@@ -423,21 +451,29 @@ final class GeminiDirectProvider: LLMProvider {
                 let videoTranscripts = try parseTranscripts(response)
 
                 // Convert video transcripts to observations with proper Unix timestamps
-                // Validate and process observations
+                // Timestamps from Gemini are in compressed video time, so we expand them
+                // by the compression factor to get real-world timestamps.
                 var hasValidationErrors = false
                 let observations = videoTranscripts.compactMap { chunk -> Observation? in
-                    let startSeconds = parseVideoTimestamp(chunk.startTimestamp)
-                    let endSeconds = parseVideoTimestamp(chunk.endTimestamp)
+                    let compressedStartSeconds = parseVideoTimestamp(chunk.startTimestamp)
+                    let compressedEndSeconds = parseVideoTimestamp(chunk.endTimestamp)
 
-                    // Validate timestamps are within video duration (with 2 minute tolerance)
-                    let tolerance: TimeInterval = 120.0 // 2 minutes
-                    if Double(startSeconds) < -tolerance || Double(endSeconds) > videoDuration + tolerance {
-                        print("❌ VALIDATION ERROR: Observation timestamps exceed video duration!")
+                    // Validate timestamps are within compressed video duration (with small tolerance)
+                    let tolerance: TimeInterval = 10.0 // 10 seconds tolerance in compressed time
+                    if Double(compressedStartSeconds) < -tolerance || Double(compressedEndSeconds) > videoDuration + tolerance {
+                        print("❌ VALIDATION ERROR: Observation timestamps (\(chunk.startTimestamp) - \(chunk.endTimestamp)) exceed video duration \(durationString)!")
                         hasValidationErrors = true
                         return nil
                     }
-                    let startDate = batchStartTime.addingTimeInterval(TimeInterval(startSeconds))
-                    let endDate = batchStartTime.addingTimeInterval(TimeInterval(endSeconds))
+
+                    // Expand timestamps by compression factor to get real-world time
+                    let realStartSeconds = TimeInterval(compressedStartSeconds) * compressionFactor
+                    let realEndSeconds = TimeInterval(compressedEndSeconds) * compressionFactor
+
+                    let startDate = batchStartTime.addingTimeInterval(realStartSeconds)
+                    let endDate = batchStartTime.addingTimeInterval(realEndSeconds)
+
+                    print("📐 Timestamp expansion: \(chunk.startTimestamp)-\(chunk.endTimestamp) → \(Int(realStartSeconds))s-\(Int(realEndSeconds))s real")
 
                     return Observation(
                         id: nil,
@@ -736,7 +772,7 @@ final class GeminiDirectProvider: LLMProvider {
         """
 
         // UNIFIED RETRY LOOP - Handles ALL errors comprehensively
-        let maxRetries = 6
+        let maxRetries = 2
         var attempt = 0
         var lastError: Error?
         var actualPromptUsed = basePrompt
@@ -2099,12 +2135,82 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
     private struct GeminiFileMetadata: Codable {
         let file: GeminiFileInfo
     }
-    
+
     private struct GeminiFileInfo: Codable {
         let displayName: String
-        
+
         enum CodingKeys: String, CodingKey {
             case displayName = "display_name"
         }
+    }
+
+    // MARK: - Screenshot Transcription
+
+    /// Transcribe observations from screenshots by first compositing them into a video.
+    /// Gemini's API expects video files, so we composite screenshots → video → upload → transcribe.
+    ///
+    /// We use a compressed timeline: each screenshot = 1 second of video.
+    /// This reduces a 15-minute batch (90 screenshots) to a 90-second video.
+    /// Timestamps returned by Gemini are then expanded by the screenshot interval.
+    func transcribeScreenshots(_ screenshots: [Screenshot], batchStartTime: Date, batchId: Int64?) async throws -> (observations: [Observation], log: LLMCall) {
+        guard !screenshots.isEmpty else {
+            throw NSError(domain: "GeminiDirectProvider", code: 11, userInfo: [NSLocalizedDescriptionKey: "No screenshots to transcribe"])
+        }
+
+        let sortedScreenshots = screenshots.sorted { $0.capturedAt < $1.capturedAt }
+
+        // Calculate real duration from timestamp range (for timestamp expansion later)
+        let firstTs = sortedScreenshots.first!.capturedAt
+        let lastTs = sortedScreenshots.last!.capturedAt
+        let realDuration = TimeInterval(lastTs - firstTs)
+
+        // Compressed video duration: 1 second per screenshot
+        let compressedVideoDuration = TimeInterval(sortedScreenshots.count)
+
+        // Compression factor = screenshot interval (e.g., 10s screenshots → 10x compression)
+        let compressionFactor = ScreenshotConfig.interval
+
+        print("[Gemini] 📊 Timeline compression: \(Int(realDuration))s real → \(Int(compressedVideoDuration))s video (\(Int(compressionFactor))x)")
+
+        // Create temp video file
+        let tempVideoURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("gemini_batch_\(batchId ?? 0)_\(UUID().uuidString).mp4")
+
+        defer {
+            try? FileManager.default.removeItem(at: tempVideoURL)
+        }
+
+        // Composite screenshots into compressed video (1fps)
+        let videoService = VideoProcessingService()
+        do {
+            try await videoService.generateVideoFromScreenshots(
+                screenshots: sortedScreenshots,
+                outputURL: tempVideoURL,
+                fps: 1,
+                useCompressedTimeline: true  // Each frame = 1 second
+            )
+        } catch {
+            print("[Gemini] ❌ Failed to composite screenshots into video: \(error.localizedDescription)")
+            throw NSError(
+                domain: "GeminiDirectProvider",
+                code: 10,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to composite screenshots into video: \(error.localizedDescription)"]
+            )
+        }
+
+        // Load video data
+        let videoData = try Data(contentsOf: tempVideoURL)
+        print("[Gemini] 📹 Composited \(screenshots.count) screenshots into compressed video (\(videoData.count / 1024)KB)")
+
+        // Transcribe the composited video with compression info
+        return try await transcribeVideoData(
+            videoData,
+            mimeType: "video/mp4",
+            batchStartTime: batchStartTime,
+            videoDuration: compressedVideoDuration,
+            realDuration: realDuration,
+            compressionFactor: compressionFactor,
+            batchId: batchId
+        )
     }
 }
