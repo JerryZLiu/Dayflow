@@ -1,30 +1,186 @@
 import SwiftUI
+import Combine
+
+// MARK: - Motion Modifiers & Transitions
+
+struct BookFlipModifier: ViewModifier {
+    let angle: Double
+    let anchor: UnitPoint
+
+    func body(content: Content) -> some View {
+        content
+            .rotation3DEffect(
+                .degrees(angle),
+                axis: (x: 0, y: 1, z: 0),
+                anchor: anchor,
+                anchorZ: 0,
+                perspective: 0.5
+            )
+            .opacity(abs(angle) > 89 ? 0 : 1)
+            .overlay(
+                Color.black
+                    .opacity(calculateShadowOpacity(angle: angle))
+                    .allowsHitTesting(false)
+            )
+    }
+    
+    private func calculateShadowOpacity(angle: Double) -> Double {
+        let progress = abs(angle) / 90.0
+        return progress * 0.15
+    }
+}
+
+extension AnyTransition {
+    static var bookFlipNext: AnyTransition {
+        .asymmetric(
+            insertion: .modifier(
+                active: BookFlipModifier(angle: 90, anchor: .leading),
+                identity: BookFlipModifier(angle: 0, anchor: .leading)
+            ),
+            removal: .modifier(
+                active: BookFlipModifier(angle: -90, anchor: .trailing),
+                identity: BookFlipModifier(angle: 0, anchor: .trailing)
+            )
+        )
+    }
+
+    static var bookFlipPrev: AnyTransition {
+        .asymmetric(
+            insertion: .modifier(
+                active: BookFlipModifier(angle: -90, anchor: .trailing),
+                identity: BookFlipModifier(angle: 0, anchor: .trailing)
+            ),
+            removal: .modifier(
+                active: BookFlipModifier(angle: 90, anchor: .leading),
+                identity: BookFlipModifier(angle: 0, anchor: .leading)
+            )
+        )
+    }
+}
+
+struct WetInkText: View {
+    let text: String
+    var font: Font = .custom("Nunito-Regular", size: 15)
+    var color: Color = Color(red: 0.18, green: 0.11, blue: 0.06)
+    var lineHeight: CGFloat = 5
+    
+    @State private var displayedText: String = ""
+    @State private var isComplete: Bool = false
+    
+    var body: some View {
+        Text(displayedText)
+            .font(font)
+            .foregroundStyle(color.opacity(isComplete ? 1.0 : 0.8))
+            .lineSpacing(lineHeight)
+            .blur(radius: isComplete ? 0 : 0.2)
+            .animation(.easeOut(duration: 0.5), value: isComplete)
+            .onAppear {
+                typewriterEffect()
+            }
+            .onChange(of: text) { _ in
+                typewriterEffect()
+            }
+    }
+    
+    private func typewriterEffect() {
+        displayedText = ""
+        isComplete = false
+        
+        let chars = Array(text)
+        var currentIndex = 0
+        
+        func nextChar() {
+            guard currentIndex < chars.count else {
+                isComplete = true
+                return
+            }
+            
+            displayedText.append(chars[currentIndex])
+            currentIndex += 1
+            
+            let char = chars[currentIndex - 1]
+            var delay: Double = Double.random(in: 0.01...0.03)
+            
+            if char == "." || char == "," || char == "\n" {
+                delay += 0.15
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                nextChar()
+            }
+        }
+        
+        nextChar()
+    }
+}
+
+struct JournalPillButtonStyle: ButtonStyle {
+    var horizontalPadding: CGFloat = 18
+    var verticalPadding: CGFloat = 9
+    var font: Font = .custom("Nunito-SemiBold", size: 16)
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(font)
+            .foregroundStyle(JournalDayTokens.primaryText.opacity(0.8))
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
+            .background(
+                ZStack {
+                    Color(red: 1, green: 0.96, blue: 0.92)
+                        .opacity(configuration.isPressed ? 0.9 : 0.6)
+                    
+                    if configuration.isPressed {
+                        Color.white.opacity(0.2)
+                    }
+                }
+            )
+            .cornerRadius(100)
+            .overlay(
+                RoundedRectangle(cornerRadius: 100)
+                    .inset(by: 0.5)
+                    .stroke(Color(red: 0.95, green: 0.86, blue: 0.84), lineWidth: 1)
+            )
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+
+
+// MARK: - Main View
 
 struct JournalDayView: View {
     var onSetReminders: (() -> Void)?
 
     @StateObject private var manager = JournalDayManager()
     @State private var selectedPeriod: JournalDayViewPeriod = .day
+    
+    @Namespace private var layoutNamespace
+    @State private var transitionDirection: AnyTransition = .identity
+    @State private var pageId = UUID()
+    
+    @AppStorage("showJournalDebugPanel") private var showDebugPanel = false
 
     init(onSetReminders: (() -> Void)? = nil) {
         self.onSetReminders = onSetReminders
     }
 
-    @AppStorage("showJournalDebugPanel") private var showDebugPanel = false
-
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            // Main container
             VStack(spacing: 10) {
                 toolbar
 
                 Text(manager.headline)
                     .font(.custom("InstrumentSerif-Regular", size: 36))
                     .foregroundStyle(JournalDayTokens.primaryText)
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
 
-                // Main content area
                 contentForFlowState
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .id(pageId)
+                    .transition(transitionDirection)
 
                 Spacer(minLength: 0)
             }
@@ -33,70 +189,17 @@ struct JournalDayView: View {
             .padding(.bottom, 10)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            // Debug panel (hidden by default, toggle in Settings)
             if showDebugPanel {
-                debugPanel
+                DebugPanelView(manager: manager)
             }
         }
         .onAppear {
             manager.loadCurrentDay()
         }
     }
-
-    private var debugPanel: some View {
-        DebugPanelView(manager: manager)
-    }
 }
 
-// Separate struct to access AppStorage
-private struct DebugPanelView: View {
-    @ObservedObject var manager: JournalDayManager
-    @AppStorage("isJournalUnlocked") private var isJournalUnlocked: Bool = false
-    @AppStorage("hasCompletedJournalOnboarding") private var hasCompletedOnboarding: Bool = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Debug")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(.white.opacity(0.7))
-
-            Button("🔒 Lock") {
-                isJournalUnlocked = false
-            }
-            .font(.system(size: 9))
-
-            Button("🔄 Reset") {
-                hasCompletedOnboarding = false
-                isJournalUnlocked = false
-            }
-            .font(.system(size: 9))
-
-            Divider().background(Color.white.opacity(0.3))
-
-            Button("→ Intro") {
-                manager.flowState = .intro
-            }
-            .font(.system(size: 9))
-
-            Button("→ Summary") {
-                manager.flowState = .summary
-            }
-            .font(.system(size: 9))
-
-            Button("→ Intents") {
-                manager.flowState = .intentionsEdit
-            }
-            .font(.system(size: 9))
-        }
-        .frame(maxWidth: 100)
-        .padding(6)
-        .background(Color.black.opacity(0.75))
-        .cornerRadius(6)
-        .padding(8)
-    }
-}
-
-// MARK: - JournalDayView Content & Toolbar
+// MARK: - Content Switcher
 
 extension JournalDayView {
     @ViewBuilder
@@ -104,11 +207,15 @@ extension JournalDayView {
         switch manager.flowState {
         case .intro:
             IntroView(ctaTitle: manager.ctaTitle, isEnabled: manager.isToday) {
-                manager.startEditingIntentions()
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                    manager.startEditingIntentions()
+                }
             }
         case .summary:
             SummaryView(copy: manager.recentSummary?.summary ?? "") {
-                manager.startEditingIntentions()
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                    manager.startEditingIntentions()
+                }
             }
         case .intentionsEdit:
             IntentionsEditForm(
@@ -116,25 +223,40 @@ extension JournalDayView {
                 notes: $manager.formNotes,
                 goals: $manager.formGoals,
                 onBack: { manager.cancelEditingIntentions() },
-                onSave: { manager.saveIntentions() }
+                onSave: {
+                    withAnimation(.spring(response: 0.6, dampingFraction: 0.75)) {
+                        manager.saveIntentions()
+                    }
+                },
+                namespace: layoutNamespace
             )
+            .zIndex(10)
+            
         case .reflectionPrompt:
             JournalBoardLayout(
                 intentions: manager.intentionsList,
                 notes: manager.formNotes,
                 goals: manager.goalsList,
-                onTapLeft: manager.isToday ? { manager.startEditingIntentions() } : nil
+                onTapLeft: manager.isToday ? {
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                        manager.startEditingIntentions()
+                    }
+                } : nil,
+                isUnfolding: true,
+                namespace: layoutNamespace
             ) {
                 ReflectionPromptCard(isEnabled: manager.isToday) {
-                    manager.startReflecting()
+                    withAnimation { manager.startReflecting() }
                 }
             }
+            .zIndex(1)
+            
         case .reflectionEdit:
             JournalBoardLayout(
                 intentions: manager.intentionsList,
                 notes: manager.formNotes,
                 goals: manager.goalsList,
-                onTapLeft: nil // Can't tap while editing
+                onTapLeft: nil
             ) {
                 ReflectionEditorCard(
                     text: $manager.formReflections,
@@ -155,13 +277,9 @@ extension JournalDayView {
                     isLoading: manager.isLoading,
                     errorMessage: manager.errorMessage,
                     onSummarize: {
-                        Task {
-                            await manager.generateSummary()
-                        }
+                        Task { await manager.generateSummary() }
                     },
-                    onDismissError: {
-                        manager.errorMessage = nil
-                    }
+                    onDismissError: { manager.errorMessage = nil }
                 )
             }
         case .boardComplete:
@@ -184,22 +302,28 @@ extension JournalDayView {
 
     private var toolbar: some View {
         ZStack {
-            // Centered navigation + period selector
             HStack(spacing: 10) {
                 JournalDayCircleButton(direction: .left) {
-                    manager.navigateToPreviousDay()
+                    transitionDirection = .bookFlipPrev
+                    withAnimation(.easeInOut(duration: 0.6)) {
+                        manager.navigateToPreviousDay()
+                        pageId = UUID()
+                    }
                 }
 
                 JournalDaySegmentedControl(selection: $selectedPeriod)
                     .fixedSize()
 
                 JournalDayCircleButton(direction: .right, isDisabled: !manager.canNavigateForward) {
-                    manager.navigateToNextDay()
+                    transitionDirection = .bookFlipNext
+                    withAnimation(.easeInOut(duration: 0.6)) {
+                        manager.navigateToNextDay()
+                        pageId = UUID()
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .center)
 
-            // Right-aligned reminder pill
             HStack {
                 Spacer()
                 Button(action: {
@@ -225,6 +349,33 @@ extension JournalDayView {
     }
 }
 
+// MARK: - Debug Panel
+private struct DebugPanelView: View {
+    @ObservedObject var manager: JournalDayManager
+    @AppStorage("isJournalUnlocked") private var isJournalUnlocked: Bool = false
+    @AppStorage("hasCompletedJournalOnboarding") private var hasCompletedOnboarding: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Debug")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.white.opacity(0.7))
+            Button("🔒 Lock") { isJournalUnlocked = false }.font(.system(size: 9))
+            Button("🔄 Reset") { hasCompletedOnboarding = false; isJournalUnlocked = false }.font(.system(size: 9))
+            Divider().background(Color.white.opacity(0.3))
+            Button("→ Intro") { manager.flowState = .intro }.font(.system(size: 9))
+            Button("→ Summary") { manager.flowState = .summary }.font(.system(size: 9))
+            Button("→ Intents") { manager.flowState = .intentionsEdit }.font(.system(size: 9))
+            Button("→ Prompt") { manager.flowState = .reflectionPrompt }.font(.system(size: 9))
+        }
+        .frame(maxWidth: 100)
+        .padding(6)
+        .background(Color.black.opacity(0.75))
+        .cornerRadius(6)
+        .padding(8)
+    }
+}
+
 // MARK: - Reusable Modern Text Editor
 
 private struct JournalTextEditor: View {
@@ -233,22 +384,17 @@ private struct JournalTextEditor: View {
     var minLines: Int = 3
     var autoFocus: Bool = false
 
-    // 1. Define the font and padding constants once so the math matches perfectly
     private let font = NSFont(name: "Nunito-Regular", size: 15) ?? .systemFont(ofSize: 15)
-    private let verticalInset: CGFloat = 4 // Matches MacTextView.textContainerInset
-
-    // Initialize with a calculated default so it doesn't jump on load
+    private let verticalInset: CGFloat = 4
     @State private var height: CGFloat = 0
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            // Placeholder
             if text.isEmpty {
                 Text(placeholder)
                     .font(.custom("Nunito-Regular", size: 15))
                     .foregroundStyle(JournalDayTokens.bodyText.opacity(0.45))
                     .padding(.top, verticalInset)
-                    // 2. Adjust placeholder to match cursor position (LineFragmentPadding is 4 inside MacTextView)
                     .padding(.leading, 4)
                     .allowsHitTesting(false)
             }
@@ -260,31 +406,22 @@ private struct JournalTextEditor: View {
                 font: font,
                 autoFocus: autoFocus
             )
-            // 3. FIX: Use calculated height instead of hardcoded * 22
             .frame(height: max(height, calculateMinHeight()))
         }
         .padding(.vertical, 2)
-        // 4. FIX: Removed .padding(.horizontal, 4) to shift the box left
-        // We keep trailing padding if you want the right edge to stay indented,
-        // or remove it entirely to widen the box.
         .padding(.horizontal, 2)
     }
     
-    // Calculates the exact height 3 lines of this specific font will take up
     private func calculateMinHeight() -> CGFloat {
-        // Get the real line height (Ascender + Descender + Leading)
-        // For Nunito 15, this is usually around 20.5pt, not 22pt.
         guard let layoutManager = NSLayoutManager() as? NSLayoutManager else {
-            return CGFloat(minLines * 22) // Fallback if something weird happens
+            return CGFloat(minLines * 22)
         }
         let lineHeight = layoutManager.defaultLineHeight(for: font)
-        
-        // (LineHeight * Lines) + (Top Padding + Bottom Padding)
         return (lineHeight * CGFloat(minLines)) + (verticalInset * 2)
     }
 }
 
-// MARK: - The AppKit Wrapper (Fixes Enter Key & Layout Loops & Clicks)
+// MARK: - AppKit Wrappers
 
 private struct MacTextView: NSViewRepresentable {
     @Binding var text: String
@@ -293,34 +430,25 @@ private struct MacTextView: NSViewRepresentable {
     var font: NSFont
     var autoFocus: Bool = false
 
-    func makeCoordinator() -> Coordinator {
-        return Coordinator(parent: self)
-    }
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
     func makeNSView(context: Context) -> JournalClickableTextView {
         let textView = JournalClickableTextView()
         textView.delegate = context.coordinator
-
-        // Appearance
         textView.font = font
         textView.textColor = NSColor(red: 0.18, green: 0.11, blue: 0.06, alpha: 1.0)
         textView.drawsBackground = false
         textView.isRichText = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
-
-        // Layout Config
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
-
-        // Padding/Insets
         textView.textContainerInset = NSSize(width: 0, height: 4)
 
         if let container = textView.textContainer {
             container.lineFragmentPadding = 4
             container.widthTracksTextView = true
-            // Initialize with a massive height so it doesn't feel cramped immediately
             container.containerSize = NSSize(width: textView.bounds.width, height: .greatestFiniteMagnitude)
         }
 
@@ -329,108 +457,56 @@ private struct MacTextView: NSViewRepresentable {
             .foregroundColor: NSColor(red: 0.18, green: 0.11, blue: 0.06, alpha: 1.0)
         ]
 
-        // Auto-focus: make first responder after a brief delay to ensure view is in window
         if autoFocus {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 textView.window?.makeFirstResponder(textView)
             }
         }
-
         return textView
     }
     
     func updateNSView(_ nsView: JournalClickableTextView, context: Context) {
-        // FIX 2: Handle Cursor Jump on Enter
-        // Only update if the text is actually different
         if nsView.string != text {
-            // 1. Capture current selection
             let selectedRange = nsView.selectedRange()
-            
-            // 2. Update text
             nsView.string = text
-            
-            // 3. Restore selection (clamped to safety in case text length changed drastically)
             let newLength = (text as NSString).length
             let location = min(selectedRange.location, newLength)
             let length = min(selectedRange.length, newLength - location)
-            
             if location >= 0 {
                 nsView.setSelectedRange(NSRange(location: location, length: length))
             }
         }
-        
-        // Ensure container width is correct on update
         if let container = nsView.textContainer, container.containerSize.width != nsView.bounds.width {
             container.containerSize = NSSize(width: nsView.bounds.width, height: .greatestFiniteMagnitude)
         }
-
-        // FIX 1: Layout Loops
-        // We do NOT use DispatchQueue.main.async here for height calculation during updates,
-        // as it causes the "pop" effect. We calculate immediately.
         context.coordinator.recalculateHeight(view: nsView)
     }
     
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: MacTextView
-        
-        init(parent: MacTextView) {
-            self.parent = parent
-        }
-        
+        init(parent: MacTextView) { self.parent = parent }
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            
-            // Update Binding
             parent.text = textView.string
-            
-            // Calculate height synchronously to ensure the SwiftUI frame expands *as* you type,
-            // not one frame later.
             recalculateHeight(view: textView)
         }
-        
         func recalculateHeight(view: NSTextView) {
-            guard let layoutManager = view.layoutManager,
-                  let textContainer = view.textContainer else { return }
-            
-            // Force layout calculation
+            guard let layoutManager = view.layoutManager, let textContainer = view.textContainer else { return }
             layoutManager.ensureLayout(for: textContainer)
-            
             let usedRect = layoutManager.usedRect(for: textContainer)
             let newHeight = usedRect.height + view.textContainerInset.height * 2
-            
-            // Only update binding if the difference is significant to avoid infinite loops
             if abs(parent.height - newHeight) > 0.5 {
-                DispatchQueue.main.async {
-                    self.parent.height = newHeight
-                }
+                DispatchQueue.main.async { self.parent.height = newHeight }
             }
         }
     }
 }
 
-// MARK: - Custom NSTextView Subclass (The Fix)
-
-/// A custom NSTextView that claims clicks in its empty space.
-/// This fixes the issue where clicking the "padding" area of a tall text editor
-/// (minLines > 1) would otherwise be ignored by the text system.
 private class JournalClickableTextView: NSTextView {
-    
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // 1. Ask the system who should receive the click
         let hitView = super.hitTest(point)
-        
-        // 2. If the system found a subview (like an attachment) or self, return it.
-        if hitView != nil {
-            return hitView
-        }
-        
-        // 3. If the system returned nil, but the click is physically inside our bounds,
-        // force return 'self'. This happens when clicking the empty space below the text.
-        // NSTextView will then handle the mouseDown and place the cursor at the end.
-        if self.bounds.contains(point) {
-            return self
-        }
-        
+        if hitView != nil { return hitView }
+        if self.bounds.contains(point) { return self }
         return nil
     }
 }
@@ -443,12 +519,12 @@ private struct IntentionsEditForm: View {
     @Binding var goals: String
     var onBack: () -> Void
     var onSave: () -> Void
+    var namespace: Namespace.ID
 
     private let titleLeading: CGFloat = 5
 
     var body: some View {
         VStack(spacing: 10) {
-            // Back arrow at top-left
             HStack {
                 Button(action: onBack) {
                     Image(systemName: "arrow.left")
@@ -467,6 +543,7 @@ private struct IntentionsEditForm: View {
                 .frame(maxWidth: 520)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 12)
+                .matchedGeometryEffect(id: "card_bg", in: namespace)
 
             HStack(spacing: 12) {
                 Button("Save", action: onSave)
@@ -476,6 +553,7 @@ private struct IntentionsEditForm: View {
             .padding(.horizontal, 8)
             .padding(.bottom, 10)
         }
+        .transition(.opacity.animation(.easeInOut(duration: 0.2)))
     }
 
     private var editCard: some View {
@@ -509,6 +587,13 @@ private struct IntentionsEditForm: View {
         )
     }
 
+    private static let intentionsPlaceholders = [
+        "What does a good day look like?",
+        "If today goes well, what will you have done?"
+    ]
+
+    @State private var intentionsPlaceholder: String = intentionsPlaceholders.randomElement()!
+
     private var sectionIntentions: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Today's intentions")
@@ -518,7 +603,7 @@ private struct IntentionsEditForm: View {
 
             JournalTextEditor(
                 text: $intentions,
-                placeholder: "What do you intend on doing today?\nFor example, \"complete the first draft of my new article\".",
+                placeholder: intentionsPlaceholder,
                 minLines: 3,
                 autoFocus: true
             )
@@ -536,7 +621,7 @@ private struct IntentionsEditForm: View {
 
             JournalTextEditor(
                 text: $notes,
-                placeholder: "What do you want to keep in mind for today?\nFor example. \"Remember to take breaks,\" or \"don't scroll on the phone too much\".",
+                placeholder: "What mindset do you want to carry today?",
                 minLines: 3
             )
         }
@@ -553,14 +638,198 @@ private struct IntentionsEditForm: View {
 
             JournalTextEditor(
                 text: $goals,
-                placeholder: "What are you working towards? Dayflow helps keep track of your long term goals for easy reference and edit any time.",
+                placeholder: "What are you working towards?",
                 minLines: 3
             )
         }
     }
 }
 
-// MARK: - Reflection Prompt & Edit
+// MARK: - Layout & Utility Components
+
+private struct JournalBoardLayout<RightContent: View>: View {
+    var intentions: [String]
+    var notes: String
+    var goals: [String]
+    var onTapLeft: (() -> Void)?
+    
+    var isUnfolding: Bool
+    var namespace: Namespace.ID?
+    @State private var rotationAngle: Double
+    @State private var opacity: Double
+    
+    var rightContent: RightContent
+
+    init(
+        intentions: [String],
+        notes: String,
+        goals: [String],
+        onTapLeft: (() -> Void)? = nil,
+        isUnfolding: Bool = false,
+        namespace: Namespace.ID? = nil,
+        @ViewBuilder rightContent: () -> RightContent
+    ) {
+        self.intentions = intentions
+        self.notes = notes
+        self.goals = goals
+        self.onTapLeft = onTapLeft
+        self.isUnfolding = isUnfolding
+        self.namespace = namespace
+        self.rightContent = rightContent()
+        
+        _rotationAngle = State(initialValue: isUnfolding ? -90 : 0)
+        _opacity = State(initialValue: isUnfolding ? 0 : 1)
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            JournalLeftCardView(intentions: intentions, notes: notes, goals: goals, onTap: onTapLeft, namespace: namespace)
+                .zIndex(1)
+            
+            JournalRightCard { rightContent }
+                .opacity(opacity)
+                .rotation3DEffect(
+                    .degrees(rotationAngle),
+                    axis: (x: 0, y: 1, z: 0),
+                    anchor: .leading,
+                    anchorZ: 0,
+                    perspective: 0.5
+                )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onAppear {
+            if isUnfolding {
+                withAnimation(.spring(response: 0.7, dampingFraction: 0.7).delay(0.6)) {
+                    rotationAngle = 0
+                    opacity = 1
+                }
+            }
+        }
+    }
+}
+
+struct PaperHoverEffect: ViewModifier {
+    @State private var isHovered = false
+    var isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(isHovered && isEnabled ? 1.01 : 1.0)
+            .shadow(
+                color: Color.black.opacity(isHovered && isEnabled ? 0.12 : 0.0),
+                radius: isHovered && isEnabled ? 12 : 0,
+                x: 0,
+                y: isHovered && isEnabled ? 4 : 0
+            )
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+    }
+}
+
+private struct JournalLeftCardView: View {
+    var intentions: [String]
+    var notes: String
+    var goals: [String]
+    var onTap: (() -> Void)?
+    var namespace: Namespace.ID?
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                section("Today's intentions") {
+                    JournalDayBulletList(items: intentions)
+                }
+                section("Notes for the day") {
+                    Text(notes.isEmpty ? "—" : notes)
+                        .font(.custom("Nunito-Regular", size: 15))
+                        .foregroundStyle(notes.isEmpty ? JournalDayTokens.bodyText.opacity(0.4) : JournalDayTokens.bodyText)
+                }
+                Divider()
+                    .foregroundStyle(JournalDayTokens.divider)
+                    .overlay(JournalDayTokens.divider)
+                    .padding(.vertical, 6)
+                section("Long term goals") {
+                    JournalDayBulletList(items: goals)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(22)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            LinearGradient(
+                stops: [
+                    .init(color: Color.white.opacity(0.3), location: 0.00),
+                    .init(color: Color.white.opacity(0.8), location: 0.51),
+                    .init(color: Color.white.opacity(0.3), location: 1.00)
+                ],
+                startPoint: UnitPoint(x: 1, y: 0.14),
+                endPoint: UnitPoint(x: 0, y: 0.78)
+            )
+        )
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.1), radius: 6, x: 0, y: 0)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .inset(by: 0.5)
+                .stroke(Color.white, lineWidth: 1)
+        )
+        .applyIf(namespace != nil) { view in
+             view.matchedGeometryEffect(id: "card_bg", in: namespace!)
+        }
+        .modifier(PaperHoverEffect(isEnabled: onTap != nil))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap?()
+        }
+    }
+
+    @ViewBuilder
+    private func section(_ title: String, content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.custom("InstrumentSerif-Regular", size: 20))
+                .foregroundStyle(JournalDayTokens.sectionHeader)
+            content()
+        }
+    }
+}
+
+extension View {
+    @ViewBuilder func applyIf<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
+    }
+}
+
+private struct JournalRightCard<Content: View>: View {
+    var content: Content
+    init(@ViewBuilder content: () -> Content) { self.content = content() }
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) { content }
+            .padding(22)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.white.opacity(0.92))
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.1), radius: 6, x: 0, y: 0)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.white.opacity(0.8), lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Reflection Prompt & Edit Components
 
 private struct ReflectionPromptCard: View {
     var isEnabled: Bool = true
@@ -594,10 +863,7 @@ private struct ReflectionEditorCard: View {
     @Binding var text: String
     var onSave: () -> Void
     var onSkip: () -> Void
-
-    private var isSaveDisabled: Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    private var isSaveDisabled: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -620,6 +886,7 @@ private struct ReflectionEditorCard: View {
                     .buttonStyle(JournalPillButtonStyle(horizontalPadding: 18, verticalPadding: 8))
                     .disabled(isSaveDisabled)
                     .opacity(isSaveDisabled ? 0.55 : 1)
+                    .animation(.easeInOut(duration: 0.2), value: isSaveDisabled)
 
                 Button("Skip", action: onSkip)
                     .buttonStyle(.plain)
@@ -637,10 +904,7 @@ private struct ReflectionSavedCard: View {
     var errorMessage: String? = nil
     var onSummarize: () -> Void
     var onDismissError: (() -> Void)? = nil
-
-    private var hasReflections: Bool {
-        !reflections.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    private var hasReflections: Bool { !reflections.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -655,7 +919,6 @@ private struct ReflectionSavedCard: View {
                         .foregroundStyle(JournalDayTokens.bodyText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 6)
-                        .padding(.leading, 0)
                         .padding(.horizontal, 2)
                 }
             } else {
@@ -670,27 +933,15 @@ private struct ReflectionSavedCard: View {
                 Spacer()
                 if isLoading {
                     HStack(spacing: 8) {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                        Text("Generating summary...")
-                            .font(.custom("Nunito-Regular", size: 14))
-                            .foregroundStyle(JournalDayTokens.bodyText.opacity(0.7))
+                        ProgressView().scaleEffect(0.8)
+                        Text("Generating summary...").font(.custom("Nunito-Regular", size: 14)).foregroundStyle(JournalDayTokens.bodyText.opacity(0.7))
                     }
                 } else if let error = errorMessage {
                     VStack(alignment: .trailing, spacing: 8) {
-                        Text(error)
-                            .font(.custom("Nunito-Regular", size: 13))
-                            .foregroundStyle(Color.red.opacity(0.8))
-                            .multilineTextAlignment(.trailing)
-
+                        Text(error).font(.custom("Nunito-Regular", size: 13)).foregroundStyle(Color.red.opacity(0.8)).multilineTextAlignment(.trailing)
                         HStack(spacing: 12) {
-                            Button("Dismiss") {
-                                onDismissError?()
-                            }
-                            .buttonStyle(.plain)
-                            .font(.custom("Nunito-Regular", size: 13))
-                            .foregroundStyle(JournalDayTokens.bodyText.opacity(0.6))
-
+                            Button("Dismiss") { onDismissError?() }
+                                .buttonStyle(.plain).font(.custom("Nunito-Regular", size: 13)).foregroundStyle(JournalDayTokens.bodyText.opacity(0.6))
                             Button("Try again", action: onSummarize)
                                 .buttonStyle(JournalPillButtonStyle(horizontalPadding: 18, verticalPadding: 8))
                         }
@@ -721,7 +972,7 @@ private struct SummaryCard: View {
                     .foregroundStyle(JournalDayTokens.sectionHeader)
 
                 if let summary {
-                    MarkdownText(content: summary)
+                    WetInkText(text: summary, font: .custom("Nunito-Regular", size: 17))
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     Text("Summarizing your day recorded on your timeline…")
@@ -747,7 +998,6 @@ private struct SummaryCard: View {
                 }
             }
 
-            // Temp: Regenerate summary button
             if let onRegenerate {
                 Button(action: onRegenerate) {
                     Text("Regenerate summary")
@@ -756,245 +1006,12 @@ private struct SummaryCard: View {
                 }
                 .buttonStyle(.plain)
             }
-
             Spacer(minLength: 0)
         }
     }
 }
 
-// MARK: - Layout & Utility Components
-
-private struct JournalBoardLayout<RightContent: View>: View {
-    var intentions: [String]
-    var notes: String
-    var goals: [String]
-    var onTapLeft: (() -> Void)?
-    var rightContent: RightContent
-
-    init(intentions: [String], notes: String, goals: [String], onTapLeft: (() -> Void)? = nil, @ViewBuilder rightContent: () -> RightContent) {
-        self.intentions = intentions
-        self.notes = notes
-        self.goals = goals
-        self.onTapLeft = onTapLeft
-        self.rightContent = rightContent()
-    }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            JournalLeftCardView(intentions: intentions, notes: notes, goals: goals, onTap: onTapLeft)
-            JournalRightCard { rightContent }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
-}
-
-private struct JournalLeftCardView: View {
-    var intentions: [String]
-    var notes: String
-    var goals: [String]
-    var onTap: (() -> Void)?
-
-    var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                section("Today's intentions") {
-                    JournalDayBulletList(items: intentions)
-                }
-
-                section("Notes for the day") {
-                    Text(notes.isEmpty ? "—" : notes)
-                        .font(.custom("Nunito-Regular", size: 15))
-                        .foregroundStyle(notes.isEmpty ? JournalDayTokens.bodyText.opacity(0.4) : JournalDayTokens.bodyText)
-                }
-
-                Divider()
-                    .foregroundStyle(JournalDayTokens.divider)
-                    .overlay(JournalDayTokens.divider)
-                    .padding(.vertical, 6)
-
-                section("Long term goals") {
-                    JournalDayBulletList(items: goals)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(22)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            LinearGradient(
-                stops: [
-                    .init(color: Color.white.opacity(0.3), location: 0.00),
-                    .init(color: Color.white.opacity(0.8), location: 0.51),
-                    .init(color: Color.white.opacity(0.3), location: 1.00)
-                ],
-                startPoint: UnitPoint(x: 1, y: 0.14),
-                endPoint: UnitPoint(x: 0, y: 0.78)
-            )
-        )
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 6, x: 0, y: 0)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .inset(by: 0.5)
-                .stroke(Color.white, lineWidth: 1)
-        )
-        .contentShape(Rectangle()) // Make entire card tappable
-        .onTapGesture {
-            onTap?()
-        }
-    }
-
-    @ViewBuilder
-    private func section(_ title: String, content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.custom("InstrumentSerif-Regular", size: 20))
-                .foregroundStyle(JournalDayTokens.sectionHeader)
-            content()
-        }
-    }
-}
-
-private struct JournalRightCard<Content: View>: View {
-    var content: Content
-
-    init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
-
-    var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                content
-            }
-            .padding(22)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.white.opacity(0.92))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 6, x: 0, y: 0)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.white.opacity(0.8), lineWidth: 1)
-        )
-    }
-}
-
-private struct JournalDayBulletList: View {
-    let items: [String]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(items, id: \.self) { item in
-                HStack(alignment: .top, spacing: 8) {
-                    Circle()
-                        .fill(JournalDayTokens.bullet)
-                        .frame(width: 6, height: 6)
-                        .padding(.top, 6)
-
-                    Text(item)
-                        .font(.custom("Nunito-Regular", size: 15))
-                        .foregroundStyle(JournalDayTokens.bodyText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-    }
-}
-
-private struct JournalDayCircleButton: View {
-    enum Direction { case left, right }
-    var direction: Direction
-    var isDisabled: Bool = false
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            ZStack {
-                Circle()
-                    .fill(JournalDayTokens.navCircleFill)
-                Circle()
-                    .stroke(JournalDayTokens.navCircleStroke, lineWidth: 1)
-
-                Image("JournalArrow")
-                    .renderingMode(.template)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 9, height: 9)
-                    .foregroundStyle(JournalDayTokens.navArrow.opacity(isDisabled ? 0.35 : 1))
-                    .scaleEffect(x: direction == .right ? -1 : 1, y: 1)
-            }
-            .frame(width: 26, height: 26)
-            .shadow(color: JournalDayTokens.navCircleShadow, radius: 2, x: 0, y: 0)
-            .opacity(isDisabled ? 0.55 : 1)
-        }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
-    }
-}
-
-private struct JournalDaySegmentedControl: View {
-    @Binding var selection: JournalDayViewPeriod
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 2) {
-            ForEach(JournalDayViewPeriod.allCases) { option in
-                Button(action: { selection = option }) {
-                    Text(option.rawValue)
-                        .font(.custom("Nunito-Regular", size: 12))
-                        .tracking(-0.12)
-                        .foregroundStyle(selection == option ? Color.white : JournalDayTokens.segmentInactiveText)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 4)
-                        .frame(width: 64, alignment: .center)
-                        .background(selection == option ? JournalDayTokens.segmentActiveFill : JournalDayTokens.segmentInactiveFill)
-                        .cornerRadius(200)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(2)
-        .background(
-            Capsule()
-                .fill(JournalDayTokens.segmentContainerFill)
-                .overlay(
-                    Capsule()
-                        .inset(by: 0.5)
-                        .stroke(Color.white.opacity(0.6), lineWidth: 1)
-                )
-        )
-        .shadow(color: Color.black.opacity(0.10), radius: 2, x: 0, y: 1)
-    }
-}
-
-private struct JournalPillButtonStyle: ButtonStyle {
-    var horizontalPadding: CGFloat = 18
-    var verticalPadding: CGFloat = 9
-    var font: Font = .custom("Nunito-SemiBold", size: 16)
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(font)
-            .foregroundStyle(JournalDayTokens.primaryText.opacity(0.8))
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, verticalPadding)
-            .background(
-                Color(red: 1, green: 0.96, blue: 0.92)
-                    .opacity(configuration.isPressed ? 0.7 : 0.6)
-            )
-            .cornerRadius(100)
-            .overlay(
-                RoundedRectangle(cornerRadius: 100)
-                    .inset(by: 0.5)
-                    .stroke(Color(red: 0.95, green: 0.86, blue: 0.84), lineWidth: 1)
-            )
-            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.85), value: configuration.isPressed)
-    }
-}
+// MARK: - Intro & Summary Views (Simple)
 
 private struct IntroView: View {
     var ctaTitle: String
@@ -1007,7 +1024,6 @@ private struct IntroView: View {
                 .font(.custom("InstrumentSerif-Regular", size: 34))
                 .foregroundStyle(JournalDayTokens.sectionHeader)
                 .multilineTextAlignment(.center)
-
             Text("Dayflow helps you track your daily and longer term pursuits, gives you the space to reflect, and generates a summary of each day.")
                 .font(.custom("Nunito-Regular", size: 16))
                 .foregroundStyle(JournalDayTokens.bodyText)
@@ -1016,8 +1032,7 @@ private struct IntroView: View {
 
             if isEnabled {
                 Button(action: onTapCTA) {
-                    Text(ctaTitle)
-                        .font(.custom("Nunito-SemiBold", size: 17))
+                    Text(ctaTitle).font(.custom("Nunito-SemiBold", size: 17))
                 }
                 .buttonStyle(JournalPillButtonStyle(horizontalPadding: 28, verticalPadding: 10))
                 .padding(.top, 16)
@@ -1042,13 +1057,12 @@ private struct SummaryView: View {
                 .font(.custom("InstrumentSerif-Regular", size: 30))
                 .foregroundStyle(JournalDayTokens.sectionHeader)
 
-            // Summary text in ScrollView with max height so button doesn't get pushed off screen
             ScrollView(.vertical, showsIndicators: false) {
-                MarkdownText(content: copy, font: .custom("Nunito-Regular", size: 17))
+                WetInkText(text: copy, font: .custom("Nunito-Regular", size: 17))
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: 640, alignment: .leading)
             }
-            .frame(maxHeight: 300) // Cap height so button stays visible
+            .frame(maxHeight: 300)
 
             Button(action: onTapCTA) {
                 Text("Set today's intentions")
@@ -1061,97 +1075,99 @@ private struct SummaryView: View {
     }
 }
 
-// MARK: - Models & Tokens
+// MARK: - Utilities & Tokens
 
-enum JournalFlowState: CaseIterable {
-    case intro
-    case summary
-    case intentionsEdit
-    case reflectionPrompt
-    case reflectionEdit
-    case reflectionSaved
-    case boardComplete
-
-    var label: String {
-        switch self {
-        case .intro: return "Intro"
-        case .summary: return "Summary"
-        case .intentionsEdit: return "Intentions"
-        case .reflectionPrompt: return "Reflect prompt"
-        case .reflectionEdit: return "Reflect edit"
-        case .reflectionSaved: return "Reflect saved"
-        case .boardComplete: return "Board complete"
+private struct JournalDayBulletList: View {
+    let items: [String]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(items, id: \.self) { item in
+                HStack(alignment: .top, spacing: 8) {
+                    Circle().fill(JournalDayTokens.bullet).frame(width: 6, height: 6).padding(.top, 6)
+                    Text(item).font(.custom("Nunito-Regular", size: 15)).foregroundStyle(JournalDayTokens.bodyText).fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
     }
+}
 
-    var next: JournalFlowState {
-        let all = JournalFlowState.allCases
-        guard let idx = all.firstIndex(of: self) else { return .intro }
-        let nextIdx = all.index(after: idx)
-        return nextIdx < all.endIndex ? all[nextIdx] : all.first ?? .intro
+private struct JournalDayCircleButton: View {
+    enum Direction { case left, right }
+    var direction: Direction
+    var isDisabled: Bool = false
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle().fill(JournalDayTokens.navCircleFill)
+                Circle().stroke(JournalDayTokens.navCircleStroke, lineWidth: 1)
+                Image("JournalArrow")
+                    .renderingMode(.template).resizable().aspectRatio(contentMode: .fit)
+                    .frame(width: 9, height: 9)
+                    .foregroundStyle(JournalDayTokens.navArrow.opacity(isDisabled ? 0.35 : 1))
+                    .scaleEffect(x: direction == .right ? -1 : 1, y: 1)
+            }
+            .frame(width: 26, height: 26)
+            .shadow(color: JournalDayTokens.navCircleShadow, radius: 2, x: 0, y: 0)
+            .opacity(isDisabled ? 0.55 : 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
     }
+}
+
+private struct JournalDaySegmentedControl: View {
+    @Binding var selection: JournalDayViewPeriod
+    var body: some View {
+        HStack(alignment: .center, spacing: 2) {
+            ForEach(JournalDayViewPeriod.allCases) { option in
+                Button(action: { selection = option }) {
+                    Text(option.rawValue)
+                        .font(.custom("Nunito-Regular", size: 12))
+                        .tracking(-0.12)
+                        .foregroundStyle(selection == option ? Color.white : JournalDayTokens.segmentInactiveText)
+                        .padding(.horizontal, 14).padding(.vertical, 4)
+                        .frame(width: 64, alignment: .center)
+                        .background(selection == option ? JournalDayTokens.segmentActiveFill : JournalDayTokens.segmentInactiveFill)
+                        .cornerRadius(200)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(2)
+        .background(
+            Capsule().fill(JournalDayTokens.segmentContainerFill).overlay(Capsule().inset(by: 0.5).stroke(Color.white.opacity(0.6), lineWidth: 1))
+        )
+        .shadow(color: Color.black.opacity(0.10), radius: 2, x: 0, y: 1)
+    }
+}
+
+enum JournalFlowState: CaseIterable {
+    case intro, summary, intentionsEdit, reflectionPrompt, reflectionEdit, reflectionSaved, boardComplete
+    var label: String { "" }
 }
 
 enum JournalDayViewPeriod: String, CaseIterable, Identifiable {
-    case day = "Day"
-    case week = "Week"
-
+    case day = "Day", week = "Week"
     var id: String { rawValue }
 }
 
-// MARK: - Markdown Text Helper
-
-/// Renders markdown text (e.g. **bold**) with custom styling, preserving newlines
-private struct MarkdownText: View {
-    let content: String
-    var font: Font = .custom("Nunito-Regular", size: 15)
-    var color: Color = JournalDayTokens.bodyText
-
-    var body: some View {
-        if let attributed = parsedMarkdown {
-            Text(attributed)
-                .font(font)
-                .foregroundStyle(color)
-        } else {
-            Text(content)
-                .font(font)
-                .foregroundStyle(color)
-        }
-    }
-
-    /// Parse markdown while preserving whitespace (including newlines)
-    private var parsedMarkdown: AttributedString? {
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-        return try? AttributedString(markdown: content, options: options)
-    }
-}
-
 private enum JournalDayTokens {
-    static let primaryText = Color(red: 0.18, green: 0.09, blue: 0.03) // "2F1607"
-    static let reminderText = Color(red: 0.35, green: 0.20, blue: 0.05) // "5A320E"
-    
-    static let cardBackground = Color.white
-    static let cardStroke = Color.white.opacity(0.8)
-    static let cardShadow = Color.black.opacity(0.06)
-    
-    static let bodyText = Color(red: 0.18, green: 0.11, blue: 0.06) // "2D1B10"
-    static let bullet = Color(red: 0.96, green: 0.57, blue: 0.24) // "F4923C"
-    static let sectionHeader = Color(red: 0.85, green: 0.44, blue: 0.04) // "D96F0A"
-    static let divider = Color(red: 0.90, green: 0.85, blue: 0.80) // "E6D8CB"
-
-    // Navigation arrows
-    static let navCircleFill = Color(red: 0.996, green: 0.976, blue: 0.953) // #FEF9F3
+    static let primaryText = Color(red: 0.18, green: 0.09, blue: 0.03)
+    static let reminderText = Color(red: 0.35, green: 0.20, blue: 0.05)
+    static let bodyText = Color(red: 0.18, green: 0.11, blue: 0.06)
+    static let bullet = Color(red: 0.96, green: 0.57, blue: 0.24)
+    static let sectionHeader = Color(red: 0.85, green: 0.44, blue: 0.04)
+    static let divider = Color(red: 0.90, green: 0.85, blue: 0.80)
+    static let navCircleFill = Color(red: 0.996, green: 0.976, blue: 0.953)
     static let navCircleStroke = Color.white
     static let navCircleShadow = Color.black.opacity(0.04)
     static let navArrow = Color(red: 1.0, green: 0.74, blue: 0.35)
-    
-    // Segmented control specifics
-    static let segmentActiveFill = Color(red: 1, green: 0.72, blue: 0.35) // #FFB859
-    static let segmentInactiveFill = Color(red: 0.95, green: 0.94, blue: 0.93) // #F2EFEE
-    static let segmentInactiveText = Color(red: 0.80, green: 0.78, blue: 0.77) // #CDC8C4
-    static let segmentContainerFill = Color(red: 1.0, green: 0.976, blue: 0.953) // #FFF9F3
+    static let segmentActiveFill = Color(red: 1, green: 0.72, blue: 0.35)
+    static let segmentInactiveFill = Color(red: 0.95, green: 0.94, blue: 0.93)
+    static let segmentInactiveText = Color(red: 0.80, green: 0.78, blue: 0.77)
+    static let segmentContainerFill = Color(red: 1.0, green: 0.976, blue: 0.953)
 }
 
 struct JournalDayView_Previews: PreviewProvider {
