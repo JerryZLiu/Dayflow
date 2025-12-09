@@ -4,14 +4,11 @@
 //
 
 import Foundation
-import AVFoundation
 import AppKit
-import CoreImage
-import ImageIO
-import UniformTypeIdentifiers
 
 final class OllamaProvider: LLMProvider {
     private let endpoint: String
+    private let screenshotInterval: TimeInterval = 10  // seconds between screenshots
     // Read persisted local settings
     private var savedModelId: String {
         if let m = UserDefaults.standard.string(forKey: "llmLocalModelId"), !m.isEmpty {
@@ -37,8 +34,6 @@ final class OllamaProvider: LLMProvider {
         UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
     }
 
-    private let frameExtractionInterval: TimeInterval = 60.0 // Extract frame every 60 seconds
-    
     init(endpoint: String = "http://localhost:1234") {
         self.endpoint = endpoint
     }
@@ -53,54 +48,7 @@ final class OllamaProvider: LLMProvider {
             .replacingOccurrences(of: "The user", with: "", options: .caseInsensitive)
             .replacingOccurrences(of: "A user", with: "", options: .caseInsensitive)
     }
-    
-    func transcribeVideo(videoData: Data, mimeType: String, prompt: String, batchStartTime: Date, videoDuration: TimeInterval, batchId: Int64?) async throws -> (observations: [Observation], log: LLMCall) {
-        let callStart = Date()
-        
-        // Save video to temporary file for processing
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).mp4")
-        try videoData.write(to: tempURL)
-        defer { try? FileManager.default.removeItem(at: tempURL) }
-        
-        // Step 1: Extract frames at intervals
-        let extractionStart = Date()
-        let frames = try await extractFrames(from: tempURL)
-        let extractionTime = Date().timeIntervalSince(extractionStart)
-        
-        
-        // Step 2: Get simple descriptions for each frame
-        var frameDescriptions: [(timestamp: TimeInterval, description: String)] = []
-        
-        for frame in frames {
-            if let description = await getSimpleFrameDescription(frame, batchId: batchId) {
-                frameDescriptions.append((timestamp: frame.timestamp, description: description))
-            }
-        }
-        
-        // Step 3: Merge frame descriptions into coherent observations
-        let mergeStart = Date()
-        let observations = try await mergeFrameDescriptions(
-            frameDescriptions,
-            batchStartTime: batchStartTime,
-            videoDuration: videoDuration,
-            batchId: batchId
-        )
-        let mergeTime = Date().timeIntervalSince(mergeStart)
-        
-        
-        let totalTime = Date().timeIntervalSince(callStart)
-        let durationStr = String(format: "%.2f", totalTime)
-        
-        let log = LLMCall(
-            timestamp: callStart,
-            latency: totalTime,
-            input: "Two-stage processing: \(frames.count) frames → \(observations.count) observations",
-            output: "Extracted \(frames.count) frames, merged into \(observations.count) observations in \(durationStr)s"
-        )
-        
-        return (observations, log)
-    }
-    
+
     func generateActivityCards(observations: [Observation], context: ActivityGenerationContext, batchId: Int64?) async throws -> (cards: [ActivityCardData], log: LLMCall) {
         let callStart = Date()
         var logs: [String] = []
@@ -283,99 +231,9 @@ final class OllamaProvider: LLMProvider {
     
     private struct FrameData {
         let image: Data  // Base64 encoded image
-        let timestamp: TimeInterval  // Seconds from video start
+        let timestamp: TimeInterval  // Seconds from batch start
     }
-    
-    private func extractFrames(from videoURL: URL) async throws -> [FrameData] {
-        let asset = AVAsset(url: videoURL)
-        let duration = try await asset.load(.duration)
-        let durationSeconds = CMTimeGetSeconds(duration)
-        
-        
-        guard durationSeconds > 0 else {
-            throw NSError(domain: "OllamaProvider", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid video duration"])
-        }
-        
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.requestedTimeToleranceBefore = .zero
-        generator.requestedTimeToleranceAfter = .zero
-        generator.appliesPreferredTrackTransform = true
-        
-        var frames: [FrameData] = []
-        var currentTime: TimeInterval = 0
-        
-        while currentTime < durationSeconds {
-            let cmTime = CMTime(seconds: currentTime, preferredTimescale: 600)
-            
-            do {
-                let cgImage = try generator.copyCGImage(at: cmTime, actualTime: nil)
-                
-                // Convert CGImage to JPEG data
-                // Downscale by 2/3 for optimal quality/size balance
-                if let scaledImage = downscaleImage(cgImage: cgImage, scale: 2.0/3.0) {
-                    if let imageData = cgImageToJPEGData(scaledImage) {
-                        // Convert to base64
-                        let base64String = imageData.base64EncodedString()
-                        let base64Data = Data(base64String.utf8)
-                        
-                        frames.append(FrameData(image: base64Data, timestamp: currentTime))
-                    }
-                }
-            } catch {
-                print("[OLLAMA] WARNING: Failed to extract frame at \(currentTime)s: \(error)")
-            }
-            
-            currentTime += frameExtractionInterval
-        }
-        
-        return frames
-    }
-    
-    private func downscaleImage(cgImage: CGImage, scale: CGFloat) -> CGImage? {
-        
-        // Create CIImage and apply Lanczos scaling
-        let ciImage = CIImage(cgImage: cgImage)
-        
-        guard let filter = CIFilter(name: "CILanczosScaleTransform") else { return nil }
-        filter.setValue(ciImage, forKey: kCIInputImageKey)
-        filter.setValue(scale, forKey: kCIInputScaleKey)
-        filter.setValue(1.0, forKey: kCIInputAspectRatioKey)
-        
-        guard var outputImage = filter.outputImage else { return nil }
-        
-        // Apply slight sharpening for text clarity
-        if let sharpen = CIFilter(name: "CISharpenLuminance") {
-            sharpen.setValue(outputImage, forKey: kCIInputImageKey)
-            sharpen.setValue(0.3, forKey: "inputSharpness")
-            outputImage = sharpen.outputImage ?? outputImage
-        }
-        
-        // Render with high quality
-        let context = CIContext(options: [
-            .highQualityDownsample: true
-        ])
-        
-        return context.createCGImage(outputImage, from: outputImage.extent)
-    }
-    
-    private func cgImageToJPEGData(_ cgImage: CGImage) -> Data? {
-        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-        
-        guard let tiffData = nsImage.tiffRepresentation,
-              let bitmapRep = NSBitmapImageRep(data: tiffData) else {
-            return nil
-        }
-        
-        // Higher quality JPEG for better text
-        let jpegData = bitmapRep.representation(using: .jpeg, properties: [
-            NSBitmapImageRep.PropertyKey.compressionFactor: 0.95
-        ])
-        
-        
-        return jpegData
-    }
-    
-    
+
     private struct ChatRequest: Codable {
         let model: String
         let messages: [ChatMessage]
@@ -1287,7 +1145,7 @@ final class OllamaProvider: LLMProvider {
 
         for (index, frame) in sortedFrames.enumerated() {
             let startSeconds = max(0, frame.timestamp)
-            var endSeconds = startSeconds + frameExtractionInterval
+            var endSeconds = startSeconds + screenshotInterval
 
             if index + 1 < sortedFrames.count {
                 endSeconds = min(endSeconds, sortedFrames[index + 1].timestamp)
@@ -1298,7 +1156,7 @@ final class OllamaProvider: LLMProvider {
             }
 
             if endSeconds <= startSeconds {
-                endSeconds = startSeconds + max(1, frameExtractionInterval)
+                endSeconds = startSeconds + max(1, screenshotInterval)
                 if let cap = durationCap {
                     endSeconds = min(endSeconds, cap)
                 }
@@ -1480,5 +1338,79 @@ extension OllamaProvider {
         )
 
         return (response.trimmingCharacters(in: .whitespacesAndNewlines), log)
+    }
+}
+
+// MARK: - Screenshot Transcription
+
+extension OllamaProvider {
+    /// Transcribe observations from screenshots.
+    func transcribeScreenshots(_ screenshots: [Screenshot], batchStartTime: Date, batchId: Int64?) async throws -> (observations: [Observation], log: LLMCall) {
+        guard !screenshots.isEmpty else {
+            throw NSError(domain: "OllamaProvider", code: 12, userInfo: [NSLocalizedDescriptionKey: "No screenshots to transcribe"])
+        }
+
+        let callStart = Date()
+        let sortedScreenshots = screenshots.sorted { $0.capturedAt < $1.capturedAt }
+
+        // Calculate duration from timestamp range
+        let firstTs = sortedScreenshots.first!.capturedAt
+        let lastTs = sortedScreenshots.last!.capturedAt
+        let durationSeconds = TimeInterval(lastTs - firstTs)
+
+        // Describe each screenshot
+        var frameDescriptions: [(timestamp: TimeInterval, description: String)] = []
+
+        for screenshot in sortedScreenshots {
+            guard let frameData = loadScreenshotAsFrameData(screenshot, relativeTo: firstTs) else {
+                print("[OLLAMA] ⚠️ Failed to load screenshot: \(screenshot.filePath)")
+                continue
+            }
+
+            if let description = await getSimpleFrameDescription(frameData, batchId: batchId) {
+                frameDescriptions.append((timestamp: frameData.timestamp, description: description))
+            }
+        }
+
+        guard !frameDescriptions.isEmpty else {
+            throw NSError(
+                domain: "OllamaProvider",
+                code: 11,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to describe any screenshots. Please check that Ollama/LMStudio is running."]
+            )
+        }
+
+        // Merge frame descriptions into coherent observations
+        let observations = try await mergeFrameDescriptions(
+            frameDescriptions,
+            batchStartTime: batchStartTime,
+            videoDuration: durationSeconds,
+            batchId: batchId
+        )
+
+        let totalTime = Date().timeIntervalSince(callStart)
+        let log = LLMCall(
+            timestamp: callStart,
+            latency: totalTime,
+            input: "Screenshot transcription: \(screenshots.count) screenshots → \(observations.count) observations",
+            output: "Processed \(screenshots.count) screenshots in \(String(format: "%.2f", totalTime))s"
+        )
+
+        return (observations, log)
+    }
+
+    /// Load a screenshot file and convert it to FrameData for description
+    private func loadScreenshotAsFrameData(_ screenshot: Screenshot, relativeTo baseTimestamp: Int) -> FrameData? {
+        let url = URL(fileURLWithPath: screenshot.filePath)
+
+        guard let imageData = try? Data(contentsOf: url) else {
+            return nil
+        }
+
+        let base64String = imageData.base64EncodedString()
+        let base64Data = Data(base64String.utf8)
+        let relativeTimestamp = TimeInterval(screenshot.capturedAt - baseTimestamp)
+
+        return FrameData(image: base64Data, timestamp: relativeTimestamp)
     }
 }
