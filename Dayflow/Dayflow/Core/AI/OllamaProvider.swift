@@ -54,8 +54,16 @@ final class OllamaProvider: LLMProvider {
         var logs: [String] = []
         
         let sortedObservations = context.batchObservations.sorted { $0.startTs < $1.startTs }
-        
-        
+
+        guard let firstObservation = sortedObservations.first,
+              let lastObservation = sortedObservations.last else {
+            throw NSError(
+                domain: "OllamaProvider",
+                code: 16,
+                userInfo: [NSLocalizedDescriptionKey: "Cannot generate activity cards: no observations provided"]
+            )
+        }
+
         // Generate initial activity card for these observations
         let (titleSummary, firstLog) = try await generateTitleAndSummary(
             observations: sortedObservations,
@@ -67,8 +75,8 @@ final class OllamaProvider: LLMProvider {
         let normalizedCategory = normalizeCategory(titleSummary.category, categories: context.categories)
 
         let initialCard = ActivityCardData(
-            startTime: formatTimestampForPrompt(sortedObservations.first!.startTs),
-            endTime: formatTimestampForPrompt(sortedObservations.last!.endTs),
+            startTime: formatTimestampForPrompt(firstObservation.startTs),
+            endTime: formatTimestampForPrompt(lastObservation.endTs),
             category: normalizedCategory,
             subcategory: "",
             title: titleSummary.title,
