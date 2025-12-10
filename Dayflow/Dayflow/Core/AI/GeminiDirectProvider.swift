@@ -424,7 +424,7 @@ final class GeminiDirectProvider: LLMProvider {
         """
 
         // UNIFIED RETRY LOOP - Handles ALL errors comprehensively
-        let maxRetries = 2
+        let maxRetries = 4
         var attempt = 0
         var lastError: Error?
         var finalResponse = ""
@@ -772,7 +772,7 @@ final class GeminiDirectProvider: LLMProvider {
         """
 
         // UNIFIED RETRY LOOP - Handles ALL errors comprehensively
-        let maxRetries = 2
+        let maxRetries = 4
         var attempt = 0
         var lastError: Error?
         var actualPromptUsed = basePrompt
@@ -2055,7 +2055,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         let urlWithKey = endpointForModel(model) + "?key=\(apiKey)"
 
         // Retry loop for transient errors
-        let maxRetries = 3
+        let maxRetries = 4
         var attempt = 0
         var lastError: Error?
 
