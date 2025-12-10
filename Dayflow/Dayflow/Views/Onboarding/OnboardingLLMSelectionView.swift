@@ -286,10 +286,11 @@ struct OnboardingLLMSelectionView: View {
     }
 
     private func detectCLIInstallation() {
-        // Check if either Codex or Claude CLI is installed
-        let codexPath = CLIDetector.resolveExecutablePath(for: .codex)
-        let claudePath = CLIDetector.resolveExecutablePath(for: .claude)
-        cliDetected = (codexPath != nil || claudePath != nil)
+        // Check if either Codex or Claude CLI is installed via login shell
+        // This replicates Terminal.app behavior - if user can run it there, it works here
+        let codexInstalled = CLIDetector.isInstalled(.codex)
+        let claudeInstalled = CLIDetector.isInstalled(.claude)
+        cliDetected = codexInstalled || claudeInstalled
 
         // Default select the recommended option
         if cliDetected {

@@ -689,7 +689,6 @@ struct SettingsView: View {
                     case "chatgpt_claude":
                         ChatCLITestView(
                             selectedTool: preferredCLITool,
-                            environment: [:],
                             onTestComplete: { _ in }
                         )
                     default:

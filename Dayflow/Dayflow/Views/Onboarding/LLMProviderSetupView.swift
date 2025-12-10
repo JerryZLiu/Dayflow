@@ -9,43 +9,14 @@ import SwiftUI
 import Foundation
 import AppKit
 
-private let cliSearchPaths: [String] = {
-    let home = NSHomeDirectory()
-    var paths = [
-        "/usr/local/bin",
-        "/opt/homebrew/bin",
-        "/usr/bin",
-        "/bin",
-        "/usr/sbin",
-        "/sbin",
-        "\(home)/.npm-global/bin",
-        "\(home)/.local/bin",
-        "\(home)/.cargo/bin",
-        "\(home)/.bun/bin",
-        "\(home)/.pyenv/bin",
-        "\(home)/.pyenv/shims",
-        "\(home)/.npm-global/lib/node_modules/@openai/codex/vendor/aarch64-apple-darwin/path",
-        "\(home)/.codeium/windsurf/bin",
-        "\(home)/.lmstudio/bin"
-    ]
-
-    // Add nvm paths if nvm is installed (handles dynamic node versions)
-    let nvmBase = "\(home)/.nvm/versions/node"
-    if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmBase) {
-        for version in versions {
-            paths.append("\(nvmBase)/\(version)/bin")
-        }
-    }
-
-    return paths
-}()
-
 struct CLIResult {
     let stdout: String
     let stderr: String
     let exitCode: Int32
 }
 
+/// Run a CLI command via login shell.
+/// This replicates Terminal.app behavior - if user can run it in Terminal, it works here.
 @discardableResult
 func runCLI(
     _ command: String,
@@ -53,60 +24,46 @@ func runCLI(
     env: [String: String]? = nil,
     cwd: URL? = nil
 ) throws -> CLIResult {
-    let process = Process()
-    let expandedCommand = (command as NSString).expandingTildeInPath
-    if expandedCommand.hasPrefix("/") {
-        guard FileManager.default.isExecutableFile(atPath: expandedCommand) else {
-            throw NSError(domain: "StreamingCLI", code: -1, userInfo: [NSLocalizedDescriptionKey: "Executable not found: \(expandedCommand)"])
-        }
-        process.executableURL = URL(fileURLWithPath: expandedCommand)
-        process.arguments = args
-    } else {
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [expandedCommand] + args
+    // Build the full command with args
+    var cmdParts = [command] + args.map { LoginShellRunner.shellEscape($0) }
+    var fullCommand = cmdParts.joined(separator: " ")
+
+    // Add environment variable exports if provided
+    if let env = env, !env.isEmpty {
+        let envExports = env.map { key, value in
+            "\(key)=\(LoginShellRunner.shellEscape(value))"
+        }.joined(separator: " ")
+        fullCommand = "\(envExports) \(fullCommand)"
     }
-    process.currentDirectoryURL = cwd
-    
-    var environment = ProcessInfo.processInfo.environment
-    if let overrides = env {
-        environment.merge(overrides, uniquingKeysWith: { _, new in new })
+
+    // Add cd if working directory specified
+    if let cwd = cwd {
+        fullCommand = "cd \(LoginShellRunner.shellEscape(cwd.path)) && \(fullCommand)"
     }
-    
-    var pathComponents: [String] = environment["PATH"]
-        .map { $0.split(separator: ":").map { String($0) } } ?? []
-    for rawPath in cliSearchPaths {
-        let expanded = (rawPath as NSString).expandingTildeInPath
-        if !pathComponents.contains(expanded) {
-            pathComponents.append(expanded)
-        }
-    }
-    environment["PATH"] = pathComponents.joined(separator: ":")
-    environment["HOME"] = environment["HOME"] ?? NSHomeDirectory()
-    process.environment = environment
-    
-    let stdoutPipe = Pipe()
-    let stderrPipe = Pipe()
-    process.standardOutput = stdoutPipe
-    process.standardError = stderrPipe
-    
-    try process.run()
-    process.waitUntilExit()
-    
-    let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-    let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-    
-    return CLIResult(stdout: stdout, stderr: stderr, exitCode: process.terminationStatus)
+
+    let result = LoginShellRunner.run(fullCommand, timeout: 60)
+    return CLIResult(stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode)
 }
 
+/// Streaming CLI runner that uses login shell for Terminal.app-like behavior.
 final class StreamingCLI {
     private var process: Process?
     private let stdoutPipe = Pipe()
     private let stderrPipe = Pipe()
-    
+
     func cancel() {
         process?.terminate()
     }
-    
+
+    /// Run a command via login shell with streaming output.
+    /// - Parameters:
+    ///   - command: The command name (e.g., "codex", "claude") - no path needed
+    ///   - args: Arguments to pass to the command
+    ///   - env: Optional environment variable overrides
+    ///   - cwd: Optional working directory
+    ///   - onStdout: Callback for stdout chunks
+    ///   - onStderr: Callback for stderr chunks
+    ///   - onFinish: Callback when process exits with exit code
     func run(
         command: String,
         args: [String],
@@ -118,43 +75,33 @@ final class StreamingCLI {
     ) {
         let proc = Process()
         process = proc
-        
-        let expandedCommand = (command as NSString).expandingTildeInPath
-        if expandedCommand.hasPrefix("/") {
-            guard FileManager.default.isExecutableFile(atPath: expandedCommand) else {
-                DispatchQueue.main.async {
-                    onStderr("Executable not found or not executable: \(expandedCommand)\n")
-                    onFinish(-1)
-                }
-                return
-            }
-            proc.executableURL = URL(fileURLWithPath: expandedCommand)
-            proc.arguments = args
-        } else {
-            proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            proc.arguments = [expandedCommand] + args
+
+        // Build shell command from command + args
+        var cmdParts = [command] + args.map { LoginShellRunner.shellEscape($0) }
+        var shellCommand = cmdParts.joined(separator: " ")
+
+        // Add environment exports if provided
+        if let env = env, !env.isEmpty {
+            let envExports = env.map { key, value in
+                "\(key)=\(LoginShellRunner.shellEscape(value))"
+            }.joined(separator: " ")
+            shellCommand = "\(envExports) \(shellCommand)"
         }
-        proc.currentDirectoryURL = cwd
-        
-        var environment = ProcessInfo.processInfo.environment
-        if let overrides = env {
-            environment.merge(overrides, uniquingKeysWith: { _, new in new })
+
+        // Add cd if working directory specified
+        if let cwd = cwd {
+            shellCommand = "cd \(LoginShellRunner.shellEscape(cwd.path)) && \(shellCommand)"
         }
-        var pathComponents: [String] = environment["PATH"]
-            .map { $0.split(separator: ":").map { String($0) } } ?? []
-        for rawPath in cliSearchPaths {
-            let expanded = (rawPath as NSString).expandingTildeInPath
-            if !pathComponents.contains(expanded) {
-                pathComponents.append(expanded)
-            }
-        }
-        environment["PATH"] = pathComponents.joined(separator: ":")
-        environment["HOME"] = environment["HOME"] ?? NSHomeDirectory()
-        proc.environment = environment
-        
+
+        proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        // -l = login shell (sources .zprofile), -i = interactive (sources .zshrc)
+        // Both are needed because PATH setup can be in either file
+        proc.arguments = ["-l", "-i", "-c", shellCommand]
+        proc.standardInput = FileHandle.nullDevice
+
         proc.standardOutput = stdoutPipe
         proc.standardError = stderrPipe
-        
+
         stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else { return }
@@ -162,7 +109,7 @@ final class StreamingCLI {
                 onStdout(chunk)
             }
         }
-        
+
         stderrPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else { return }
@@ -170,7 +117,7 @@ final class StreamingCLI {
                 onStderr(chunk)
             }
         }
-        
+
         do {
             try proc.run()
             proc.terminationHandler = { process in
@@ -622,7 +569,6 @@ struct LLMProviderSetupView: View {
                             } else if providerType == "chatgpt_claude" {
                                 ChatCLITestView(
                                     selectedTool: setupState.preferredCLITool,
-                                    environment: setupState.cliEnvironment(),
                                     onTestComplete: { success in
                                         setupState.hasTestedConnection = true
                                         setupState.testSuccessful = success
@@ -1148,23 +1094,6 @@ class ProviderSetupState: ObservableObject {
         }
     }
     
-    func cliEnvironment(overrides: [String: String]? = nil) -> [String: String] {
-        var env = ProcessInfo.processInfo.environment
-        var components = env["PATH"].map { $0.split(separator: ":").map { String($0) } } ?? []
-        for raw in CLIDetector.searchPaths {
-            let expanded = (raw as NSString).expandingTildeInPath
-            if !components.contains(expanded) {
-                components.append(expanded)
-            }
-        }
-        env["PATH"] = components.joined(separator: ":")
-        env["HOME"] = env["HOME"] ?? NSHomeDirectory()
-        if let overrides = overrides {
-            env.merge(overrides, uniquingKeysWith: { _, new in new })
-        }
-        return env
-    }
-    
     func selectPreferredCLITool(_ tool: CLITool) {
         guard isToolAvailable(tool) else { return }
         preferredCLITool = tool
@@ -1215,17 +1144,16 @@ class ProviderSetupState: ObservableObject {
     
     func runCodexStream() {
         guard !isRunningCodexStream else { return }
-        guard let path = CLIDetector.resolveExecutablePath(for: .codex) else {
-            codexStreamOutput = "Codex CLI not found."
+        guard CLIDetector.isInstalled(.codex) else {
+            codexStreamOutput = "Codex CLI not found. Install it and run 'codex auth' in Terminal."
             return
         }
         let prompt = cliPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Say hello" : cliPrompt
-        codexStreamOutput = "Running \(path) with prompt: \(prompt)\n\n"
+        codexStreamOutput = "Running codex with prompt: \(prompt)\n\n"
         isRunningCodexStream = true
         codexStreamer.run(
-            command: path,
+            command: "codex",
             args: ["exec", "--skip-git-repo-check", "-c", "model_reasoning_effort=high", "-c", "mcp_servers={}", "-c", "rmcp_client=false", "-c", "features.web_search_request=false", "--", prompt],
-            env: cliEnvironment(),
             onStdout: { [weak self] chunk in
                 self?.codexStreamOutput.append(chunk)
             },
@@ -1250,17 +1178,16 @@ class ProviderSetupState: ObservableObject {
     
     func runClaudeStream() {
         guard !isRunningClaudeStream else { return }
-        guard let path = CLIDetector.resolveExecutablePath(for: .claude) else {
-            claudeStreamOutput = "Claude CLI not found."
+        guard CLIDetector.isInstalled(.claude) else {
+            claudeStreamOutput = "Claude CLI not found. Install it and run 'claude login' in Terminal."
             return
         }
         let prompt = cliPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Say hello" : cliPrompt
-        claudeStreamOutput = "Running \(path) with prompt: \(prompt)\n\n"
+        claudeStreamOutput = "Running claude with prompt: \(prompt)\n\n"
         isRunningClaudeStream = true
         claudeStreamer.run(
-            command: path,
+            command: "claude",
             args: ["--print", "--output-format", "json", "--strict-mcp-config", "--", prompt],
-            env: cliEnvironment(),
             onStdout: { [weak self] chunk in
                 self?.claudeStreamOutput.append(chunk)
             },
@@ -1618,7 +1545,6 @@ private struct LocalLLMChatImageURL: Codable {
 
 struct ChatCLITestView: View {
     let selectedTool: CLITool?
-    let environment: [String: String]
     let onTestComplete: (Bool) -> Void
 
     private let accentColor = Color(red: 0.25, green: 0.17, blue: 0)
@@ -1781,8 +1707,8 @@ struct ChatCLITestView: View {
     }
 
     private func performTest(for tool: CLITool) throws -> CLIResult {
-        guard let path = CLIDetector.resolveExecutablePath(for: tool) else {
-            throw NSError(domain: "ChatCLITest", code: 1, userInfo: [NSLocalizedDescriptionKey: "CLI not found for \(tool.shortName)."])
+        guard CLIDetector.isInstalled(tool) else {
+            throw NSError(domain: "ChatCLITest", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(tool.shortName) CLI not found. Install it and run '\(tool == .codex ? "codex auth" : "claude login")' in Terminal."])
         }
 
         let prompt = "Say hello. Respond with just the word 'hello' and nothing else."
@@ -1795,11 +1721,11 @@ struct ChatCLITestView: View {
             // --skip-git-repo-check needed because app runs from sandboxed directory
             // Disable MCP servers to avoid connecting to user's configured servers during test
             // -- separator ensures prompt isn't parsed as an option
-            return try runCLI(path, args: ["exec", "--skip-git-repo-check", "-c", "model_reasoning_effort=high", "-c", "mcp_servers={}", "-c", "rmcp_client=false", "-c", "features.web_search_request=false", "--", prompt], env: environment, cwd: safeWorkingDir)
+            return try runCLI("codex", args: ["exec", "--skip-git-repo-check", "-c", "model_reasoning_effort=high", "-c", "mcp_servers={}", "-c", "rmcp_client=false", "-c", "features.web_search_request=false", "--", prompt], cwd: safeWorkingDir)
         case .claude:
             // --strict-mcp-config disables all user MCP servers
             // -- separator ensures prompt isn't parsed as an option
-            return try runCLI(path, args: ["--print", "--output-format", "text", "--strict-mcp-config", "--", prompt], env: environment, cwd: safeWorkingDir)
+            return try runCLI("claude", args: ["--print", "--output-format", "text", "--strict-mcp-config", "--", prompt], cwd: safeWorkingDir)
         }
     }
 
@@ -1936,64 +1862,38 @@ struct CLIDetectionReport {
 }
 
 struct CLIDetector {
-    static var searchPaths: [String] { cliSearchPaths }
-    
+    /// Detect if a CLI tool is installed by running `tool --version` via login shell.
+    /// This replicates exactly what happens when user types in Terminal.app.
     static func detect(tool: CLITool) async -> CLIDetectionReport {
-        guard let executablePath = resolveExecutablePath(for: tool) else {
-            return CLIDetectionReport(state: .notFound, resolvedPath: nil, stdout: nil, stderr: nil)
+        let result = LoginShellRunner.run("\(tool.executableName) --version", timeout: 10)
+
+        if result.exitCode == 0 {
+            let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            let firstLine = trimmed.components(separatedBy: .newlines).first ?? trimmed
+            let summary = firstLine.isEmpty ? "\(tool.shortName) detected" : firstLine
+            return CLIDetectionReport(state: .installed(version: summary), resolvedPath: tool.executableName, stdout: result.stdout, stderr: result.stderr)
         }
-        do {
-            let result = try runCLI(executablePath, args: ["--version"])
-            if result.exitCode == 0 {
-                let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-                let firstLine = trimmed.components(separatedBy: .newlines).first ?? trimmed
-                let summary = firstLine.isEmpty ? "\(tool.shortName) detected" : firstLine
-                return CLIDetectionReport(state: .installed(version: summary), resolvedPath: executablePath, stdout: result.stdout, stderr: result.stderr)
-            }
-            if result.exitCode == 127 || result.stderr.contains("not found") {
-                return CLIDetectionReport(state: .notFound, resolvedPath: executablePath, stdout: result.stdout, stderr: result.stderr)
-            }
-            let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            if message.isEmpty {
-                return CLIDetectionReport(state: .failed(message: "Exit code \(result.exitCode)"), resolvedPath: executablePath, stdout: result.stdout, stderr: result.stderr)
-            }
-            return CLIDetectionReport(state: .failed(message: message), resolvedPath: executablePath, stdout: result.stdout, stderr: result.stderr)
-        } catch {
-            return CLIDetectionReport(state: .failed(message: error.localizedDescription), resolvedPath: executablePath, stdout: nil, stderr: nil)
+
+        if result.exitCode == 127 || result.stderr.contains("command not found") {
+            return CLIDetectionReport(state: .notFound, resolvedPath: nil, stdout: result.stdout, stderr: result.stderr)
         }
+
+        let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if message.isEmpty {
+            return CLIDetectionReport(state: .failed(message: "Exit code \(result.exitCode)"), resolvedPath: tool.executableName, stdout: result.stdout, stderr: result.stderr)
+        }
+        return CLIDetectionReport(state: .failed(message: message), resolvedPath: tool.executableName, stdout: result.stdout, stderr: result.stderr)
     }
-    
-    static func resolveExecutablePath(for tool: CLITool) -> String? {
-        resolveExecutablePath(named: tool.executableName)
+
+    /// Check if a CLI tool is installed (simple boolean check)
+    static func isInstalled(_ tool: CLITool) -> Bool {
+        LoginShellRunner.isInstalled(tool.executableName)
     }
-    
-    private static func resolveExecutablePath(named name: String) -> String? {
-        let fileManager = FileManager.default
-        var searchDirectories: [String] = []
-        if let envPath = ProcessInfo.processInfo.environment["PATH"] {
-            searchDirectories.append(contentsOf: envPath.split(separator: ":").map { String($0) })
-        }
-        searchDirectories.append(contentsOf: cliSearchPaths)
-        var seen = Set<String>()
-        for directory in searchDirectories {
-            let expanded = (directory as NSString).expandingTildeInPath
-            if !seen.insert(expanded).inserted {
-                continue
-            }
-            let candidate = (expanded as NSString).appendingPathComponent(name)
-            if fileManager.isExecutableFile(atPath: candidate) {
-                return candidate
-            }
-        }
-        return nil
-    }
-    
+
+    /// Run an arbitrary debug command via login shell
     static func runDebugCommand(_ command: String) -> CLIResult {
-        do {
-            return try runCLI("bash", args: ["-lc", command])
-        } catch {
-            return CLIResult(stdout: "", stderr: error.localizedDescription, exitCode: -1)
-        }
+        let result = LoginShellRunner.run(command, timeout: 30)
+        return CLIResult(stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode)
     }
 }
 
