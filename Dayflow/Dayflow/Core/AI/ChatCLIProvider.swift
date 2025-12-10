@@ -15,6 +15,99 @@ enum ChatCLITool: String, Codable {
     case claude
 }
 
+// MARK: - Login Shell Runner
+// Unified utility for invoking CLI commands via the user's login shell.
+// This ensures we get the same PATH/environment the user has in Terminal.app.
+
+struct LoginShellResult {
+    let stdout: String
+    let stderr: String
+    let exitCode: Int32
+}
+
+/// Invokes commands via `/bin/zsh -l -c "..."` to replicate Terminal.app behavior.
+/// This ensures CLIs installed via nvm, homebrew, cargo, etc. are found.
+struct LoginShellRunner {
+
+    /// Run a command via login shell and wait for completion.
+    /// - Parameters:
+    ///   - command: The command to run (e.g., "claude --version")
+    ///   - environment: Additional environment variables to set INSIDE the shell command (immune to .zshrc overrides)
+    ///   - timeout: Maximum time to wait (default 30 seconds)
+    /// - Returns: The result containing stdout, stderr, and exit code
+    static func run(
+        _ command: String,
+        environment: [String: String] = [:],
+        timeout: TimeInterval = 30
+    ) -> LoginShellResult {
+        // Build env exports that happen AFTER shell init (immune to .zshrc overrides)
+        let envExports = environment.map { key, value in
+            "\(key)=\(shellEscape(value))"
+        }.joined(separator: " ")
+
+        let fullCommand = envExports.isEmpty ? command : "\(envExports) \(command)"
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        // -l = login shell (sources .zprofile), -i = interactive (sources .zshrc)
+        // Both are needed because PATH setup can be in either file
+        process.arguments = ["-l", "-i", "-c", fullCommand]
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        process.standardInput = FileHandle.nullDevice  // Prevent interactive prompts
+
+        do {
+            try process.run()
+        } catch {
+            return LoginShellResult(stdout: "", stderr: error.localizedDescription, exitCode: -1)
+        }
+
+        // Timeout handling
+        let semaphore = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            process.waitUntilExit()
+            semaphore.signal()
+        }
+
+        let result = semaphore.wait(timeout: .now() + timeout)
+        if result == .timedOut {
+            process.terminate()
+            return LoginShellResult(stdout: "", stderr: "Command timed out after \(Int(timeout))s", exitCode: -2)
+        }
+
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+
+        return LoginShellResult(stdout: stdout, stderr: stderr, exitCode: process.terminationStatus)
+    }
+
+    /// Check if a CLI tool is installed by running `tool --version`
+    static func isInstalled(_ toolName: String) -> Bool {
+        let result = run("\(toolName) --version", timeout: 10)
+        return result.exitCode == 0
+    }
+
+    /// Get version string of a CLI tool, or nil if not installed
+    static func version(of toolName: String) -> String? {
+        let result = run("\(toolName) --version", timeout: 10)
+        guard result.exitCode == 0 else { return nil }
+        let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.components(separatedBy: .newlines).first ?? trimmed
+    }
+
+    /// Escape a string for safe inclusion in a shell command (single-quote escaping)
+    static func shellEscape(_ string: String) -> String {
+        // Remove null bytes that could truncate at C API boundary
+        let sanitized = string.replacingOccurrences(of: "\0", with: "")
+        // Single-quote escaping: replace ' with '\''
+        let escaped = sanitized.replacingOccurrences(of: "'", with: "'\\''")
+        return "'\(escaped)'"
+    }
+}
+
 private struct ChatCLIConfigManager {
     static let shared = ChatCLIConfigManager()
 
@@ -102,8 +195,6 @@ private struct TokenUsage: Sendable {
 }
 
 private struct ChatCLIProcessRunner {
-    // Cache resolved executable paths so we only run `which` once per tool
-    private static var resolvedPaths: [ChatCLITool: String] = [:]
 
     // Extract final assistant text and usage from CLI JSONL so higher layers can parse domain JSON.
     private func parseAssistant(tool: ChatCLITool, raw: String) -> (text: String, usage: TokenUsage?) {
@@ -118,85 +209,47 @@ private struct ChatCLIProcessRunner {
         return prompt + "\nImages:\n" + hints
     }
 
-    // Paths to search for CLI executables (claude, codex)
-    private static let searchPaths: [String] = {
-        let home = NSHomeDirectory()
-        var paths = [
-            // System paths (Homebrew, manual installs)
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            "/usr/bin",
-            "/bin",
-
-            // Claude CLI locations
-            "\(home)/.local/bin",
-            "\(home)/.claude/bin",
-
-            // Codex CLI / npm / bun locations
-            "\(home)/.bun/bin",
-            "\(home)/.npm-global/bin",
-
-            // Rust builds (if someone compiles from source)
-            "\(home)/.cargo/bin",
-        ]
-
-        // Add nvm paths if nvm is installed (handles dynamic node versions)
-        let nvmBase = "\(home)/.nvm/versions/node"
-        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmBase) {
-            for version in versions {
-                paths.append("\(nvmBase)/\(version)/bin")
-            }
-        }
-
-        return paths
-    }()
-
     func run(tool: ChatCLITool, prompt: String, workingDirectory: URL, imagePaths: [String] = [], model: String? = nil, reasoningEffort: String? = nil) throws -> ChatCLIRunResult {
-        guard let executable = resolveExecutable(tool: tool) else {
-            throw NSError(domain: "ChatCLI", code: -2, userInfo: [NSLocalizedDescriptionKey: "\(tool.rawValue) CLI not found in PATH"])
-        }
+        let toolName = tool.rawValue  // "codex" or "claude"
 
-        var env = ProcessInfo.processInfo.environment
-        env["HOME"] = env["HOME"] ?? NSHomeDirectory()
-        env["PATH"] = mergedPATH(existing: env["PATH"])
-        // Force Codex to use the sandbox config to avoid user MCP servers.
-        if tool == .codex {
-            env["CODEX_HOME"] = ChatCLIConfigManager.shared.baseDirectory.path
-        } else {
-            env["CLAUDE_HOME"] = ChatCLIConfigManager.shared.baseDirectory.path
-        }
-
-        var args: [String] = []
+        // Build the command exactly as user would type in Terminal
+        var cmdParts: [String] = [toolName]
         switch tool {
         case .codex:
-            args = ["exec", "--skip-git-repo-check"]
-            if let model = model { args.append(contentsOf: ["-m", model]) }
-            if let effort = reasoningEffort { args.append(contentsOf: ["-c", "model_reasoning_effort=\(effort)"]) }
+            cmdParts.append(contentsOf: ["exec", "--skip-git-repo-check"])
+            if let model = model { cmdParts.append(contentsOf: ["-m", model]) }
+            if let effort = reasoningEffort { cmdParts.append(contentsOf: ["-c", "model_reasoning_effort=\(effort)"]) }
             // Disable MCP per call as belt and suspenders
-            args.append(contentsOf: ["-c", "mcp_servers={}", "-c", "rmcp_client=false", "-c", "features.web_search_request=false"])
-            for path in imagePaths { args.append(contentsOf: ["--image", path]) }
-            // Separator to ensure prompt is not parsed as an option
-            args.append("--")
-            args.append(prompt)
+            cmdParts.append(contentsOf: ["-c", "mcp_servers={}", "-c", "rmcp_client=false", "-c", "features.web_search_request=false"])
+            for path in imagePaths { cmdParts.append(contentsOf: ["--image", LoginShellRunner.shellEscape(path)]) }
+            cmdParts.append("--")
+            cmdParts.append(LoginShellRunner.shellEscape(prompt))
         case .claude:
-            args = ["-p"]
-            if let model = model { args.append(contentsOf: ["--model", model]) }
-            args.append("--dangerously-skip-permissions")
-            // Disable user MCP servers to avoid loading unnecessary extensions
-            args.append("--strict-mcp-config")
-            // Separator prevents the prompt from being consumed as another tools value
-            args.append("--")
-            args.append(promptWithImageHints(prompt: prompt, imagePaths: imagePaths))
+            cmdParts.append("-p")
+            if let model = model { cmdParts.append(contentsOf: ["--model", model]) }
+            cmdParts.append("--dangerously-skip-permissions")
+            cmdParts.append("--strict-mcp-config")
+            cmdParts.append("--")
+            cmdParts.append(LoginShellRunner.shellEscape(promptWithImageHints(prompt: prompt, imagePaths: imagePaths)))
         }
+
+        // Environment vars set INSIDE shell command (immune to .zshrc overrides)
+        let sandboxPath = ChatCLIConfigManager.shared.baseDirectory.path
+        let homeVar = tool == .codex ? "CODEX_HOME" : "CLAUDE_HOME"
+        let envPrefix = "\(homeVar)=\(LoginShellRunner.shellEscape(sandboxPath))"
+
+        // Use `exec` to replace shell process (ensures terminate() kills the CLI, not just zsh)
+        let shellCommand = "cd \(LoginShellRunner.shellEscape(workingDirectory.path)) && \(envPrefix) exec \(cmdParts.joined(separator: " "))"
+
+        debugCommand(tool: tool, model: model, shellCommand: shellCommand)
 
         let started = Date()
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = args
-        process.currentDirectoryURL = workingDirectory
-        process.environment = env
-
-        debugCommand(tool: tool, model: model, executable: executable, args: args, env: env)
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        // -l = login shell (sources .zprofile), -i = interactive (sources .zshrc)
+        // Both are needed because PATH setup can be in either file
+        process.arguments = ["-l", "-i", "-c", shellCommand]
+        process.standardInput = FileHandle.nullDevice  // Prevent interactive prompts
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -221,23 +274,22 @@ private struct ChatCLIProcessRunner {
 
         let rawOut = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+
+        // Check for "command not found" to give user-friendly error
+        if process.terminationStatus == 127 || stderr.contains("command not found") {
+            throw NSError(domain: "ChatCLI", code: -2, userInfo: [
+                NSLocalizedDescriptionKey: "\(toolName) CLI not found. Please install it and run '\(tool == .codex ? "codex auth" : "claude login")' in Terminal."
+            ])
+        }
+
         let parsed = parseAssistant(tool: tool, raw: rawOut)
         debugLog(tool: tool, model: model, phase: "run", prompt: prompt, stdout: rawOut, stderr: stderr, usage: parsed.usage)
         return ChatCLIRunResult(exitCode: process.terminationStatus, stdout: parsed.text, stderr: stderr, startedAt: started, finishedAt: finished, usage: parsed.usage)
     }
 
-    private func debugCommand(tool: ChatCLITool, model: String?, executable: String, args: [String], env: [String:String]) {
-        let renderedArgs = args.map { $0.contains(" ") ? "\"\($0)\"" : $0 }.joined(separator: " ")
+    private func debugCommand(tool: ChatCLITool, model: String?, shellCommand: String) {
         let header = "[ChatCLI][\(tool.rawValue)][\(model ?? "")] command"
-        // Use explicit string concatenation to avoid GRDB SQL interpolation pollution
-        let envBits = ["PATH": env["PATH"], "HOME": env["HOME"], "CLLI_CONFIG_HOME": env["CLLI_CONFIG_HOME"]].compactMap { key, value in
-            guard let value else { return nil }
-            return key + "=" + value
-        }.joined(separator: " ")
-        print("\(header): \(executable) \(renderedArgs)")
-        if !envBits.isEmpty {
-            print("\(header) env: \(envBits)")
-        }
+        print("\(header): /bin/zsh -l -c '\(shellCommand)'")
     }
 
     private func debugLog(tool: ChatCLITool, model: String?, phase: String, prompt: String, stdout: String, stderr: String, usage: TokenUsage?) {
@@ -248,59 +300,6 @@ private struct ChatCLIProcessRunner {
         if let u = usage {
             print("\(header) usage in=\(u.input) cached=\(u.cachedInput) out=\(u.output)")
         }
-    }
-
-    private func mergedPATH(existing: String?) -> String {
-        var components: [String] = existing?.split(separator: ":").map { String($0) } ?? []
-        for raw in Self.searchPaths {
-            let expanded = (raw as NSString).expandingTildeInPath
-            if !components.contains(expanded) {
-                components.append(expanded)
-            }
-        }
-        return components.joined(separator: ":")
-    }
-
-    private func resolveExecutable(tool: ChatCLITool) -> String? {
-        // Return cached path if still valid
-        if let cached = Self.resolvedPaths[tool] {
-            if FileManager.default.isExecutableFile(atPath: cached) {
-                return cached
-            }
-            // Cached path is stale (CLI moved/uninstalled), clear and re-scan
-            Self.resolvedPaths[tool] = nil
-        }
-
-        let name = tool == .codex ? "codex" : "claude"
-        let fileManager = FileManager.default
-
-        // Direct path checking - same approach as CLIDetector in onboarding
-        // This avoids shell issues (aliases, PATH not loaded from .zshrc, etc.)
-        var searchDirectories: [String] = []
-
-        // Include current process PATH first
-        if let envPath = ProcessInfo.processInfo.environment["PATH"] {
-            searchDirectories.append(contentsOf: envPath.split(separator: ":").map { String($0) })
-        }
-
-        // Add our known CLI installation paths
-        searchDirectories.append(contentsOf: Self.searchPaths)
-
-        // Deduplicate while preserving order
-        var seen = Set<String>()
-        for directory in searchDirectories {
-            let expanded = (directory as NSString).expandingTildeInPath
-            if !seen.insert(expanded).inserted {
-                continue
-            }
-            let candidate = (expanded as NSString).appendingPathComponent(name)
-            if fileManager.isExecutableFile(atPath: candidate) {
-                Self.resolvedPaths[tool] = candidate
-                return candidate
-            }
-        }
-
-        return nil
     }
 }
 
@@ -385,7 +384,7 @@ final class ChatCLIProvider: LLMProvider {
             }
 
             let scale = maxHeight / Double(pixelsHigh)
-            let targetW = max(2, Int(Double(pixelsWide) * scale).rounded(.toNearestOrAwayFromZero))
+            let targetW = max(2, Int((Double(pixelsWide) * scale).rounded(.toNearestOrAwayFromZero)))
             let targetH = Int(maxHeight)
 
             guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
@@ -418,10 +417,10 @@ final class ChatCLIProvider: LLMProvider {
 
             // Encode as JPEG to keep size small.
             let props: [NSBitmapImageRep.PropertyKey: Any] = [.compressionFactor: 0.85]
-            guard let data = bitmap.representation(using: .jpeg, properties: props) else {
+            guard let data = bitmap.representation(using: NSBitmapImageRep.FileType.jpeg, properties: props) else {
                 throw NSError(domain: "ChatCLI", code: -44, userInfo: [NSLocalizedDescriptionKey: "Failed to encode resized image for \(src.path)"])
             }
-            try data.write(to: dst, options: .atomic)
+            try data.write(to: dst, options: Data.WritingOptions.atomic)
         }
 
         for (idx, path) in imagePaths.enumerated() {
@@ -431,7 +430,7 @@ final class ChatCLIProvider: LLMProvider {
             processed.append(dstURL.path)
         }
 
-        let cleanup = {
+        let cleanup: () -> Void = {
             try? fm.removeItem(at: tmpDir)
         }
 
@@ -469,7 +468,7 @@ final class ChatCLIProvider: LLMProvider {
             model = "sonnet"
             effort = nil
         case .codex:
-            model = "gpt-5.1-codex-max"
+            model = "gpt-5.1-codex-mini"
             effort = "high"
         }
 
@@ -796,7 +795,7 @@ final class ChatCLIProvider: LLMProvider {
                 effort = nil
             case .codex:
                 model = "gpt-5.1-codex-mini"
-                effort = "high"
+                effort = "low"
             }
         }
 
@@ -903,10 +902,10 @@ final class ChatCLIProvider: LLMProvider {
         switch tool {
         case .claude:
             model = "sonnet"
-            effort = nil // Claude CLI doesn't expose thinking flag; prompt handles brevity
+            effort = nil
         case .codex:
-            model = "gpt-5.1-codex-max"
-            effort = "high"
+            model = "gpt-5.1-codex-mini"
+            effort = "low"
         }
 
         let run = try runAndScrub(prompt: prompt, model: model, reasoningEffort: effort)
@@ -1335,7 +1334,7 @@ final class ChatCLIProvider: LLMProvider {
                     // Retry with more powerful model
                     if tool == .codex {
                         do {
-                            let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "gpt-5.1-codex-max", overrideEffort: "high")
+                            let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "gpt-5.1-codex-mini", overrideEffort: "high")
                             localPairs = retryPairs
                             localUsage = retryUsage
                             lastError = nil
@@ -1380,7 +1379,7 @@ final class ChatCLIProvider: LLMProvider {
             if !observations.isEmpty {
                 let finishedAt = Date()
                 let headers = sawUsage ? tokenHeaders(from: usageTotal) : nil
-                logSuccess(ctx: makeCtx(batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart), finishedAt: finishedAt, stdout: observations.map { $0.summary }.joined(separator: " | "), stderr: "", responseHeaders: headers)
+                logSuccess(ctx: makeCtx(batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart), finishedAt: finishedAt, stdout: observations.map { $0.observation }.joined(separator: " | "), stderr: "", responseHeaders: headers)
                 let llmCall = makeLLMCall(start: callStart, end: finishedAt, input: "screenshots \(screenshots.count)", output: "obs \(observations.count)")
                 return (observations, llmCall)
             }
@@ -1422,13 +1421,13 @@ final class ChatCLIProvider: LLMProvider {
         case .claude:
             model = "sonnet"
         case .codex:
-            model = "gpt-5.1-codex-max"
+            model = "gpt-5.1-codex-mini"
         }
 
         let run: ChatCLIRunResult
         do {
             run = try await Task.detached {
-                try self.runAndScrub(prompt: prompt, model: model, reasoningEffort: nil)
+                try self.runAndScrub(prompt: prompt, model: model, reasoningEffort: "high")
             }.value
         } catch {
             logFailure(ctx: ctx, finishedAt: Date(), error: error)
