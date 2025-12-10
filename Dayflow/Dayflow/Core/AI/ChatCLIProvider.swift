@@ -181,7 +181,7 @@ private struct ChatCLIProcessRunner {
         case .claude:
             args = ["-p"]
             if let model = model { args.append(contentsOf: ["--model", model]) }
-            args.append(contentsOf: ["--dangerously-skip-permissions", "--tools", "Read"])
+            args.append("--dangerously-skip-permissions")
             // Disable user MCP servers to avoid loading unnecessary extensions
             args.append("--strict-mcp-config")
             // Separator prevents the prompt from being consumed as another tools value
@@ -348,8 +348,94 @@ final class ChatCLIProvider: LLMProvider {
     /// Run the CLI with a clean sandbox and delete any session rollouts/history after.
     private func runAndScrub(prompt: String, imagePaths: [String] = [], model: String? = nil, reasoningEffort: String? = nil) throws -> ChatCLIRunResult {
         config.clearPersistentCLIData()          // start clean (no past rollouts)
-        defer { config.clearPersistentCLIData() } // remove any new rollouts/history
-        return try runner.run(tool: tool, prompt: prompt, workingDirectory: config.baseDirectory, imagePaths: imagePaths, model: model, reasoningEffort: reasoningEffort)
+        // Prepare downsized copies of images (~720p) so Codex input stays compact.
+        let (preparedImages, cleanupImages) = try prepareImagesForCLI(imagePaths)
+        defer {
+            cleanupImages()
+            config.clearPersistentCLIData()       // remove any new rollouts/history
+        }
+        return try runner.run(tool: tool, prompt: prompt, workingDirectory: config.baseDirectory, imagePaths: preparedImages, model: model, reasoningEffort: reasoningEffort)
+    }
+
+    /// Create temporary 720p-max copies of images for Codex/Claude CLI.
+    /// Returns the new paths and a cleanup closure.
+    private func prepareImagesForCLI(_ imagePaths: [String]) throws -> ([String], () -> Void) {
+        guard !imagePaths.isEmpty else { return ([], {}) }
+
+        let fm = FileManager.default
+        let tmpDir = config.baseDirectory.appendingPathComponent("tmp_images_\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+
+        var processed: [String] = []
+
+        func resize(_ src: URL, into dst: URL) throws {
+            guard let image = NSImage(contentsOf: src) else {
+                throw NSError(domain: "ChatCLI", code: -41, userInfo: [NSLocalizedDescriptionKey: "Failed to load image at \(src.path)"])
+            }
+            // Determine pixel size from representations (fallback to point size).
+            let rep = image.representations.compactMap { $0 as? NSBitmapImageRep }.first ?? image.representations.first
+            let pixelsWide = rep?.pixelsWide ?? Int(image.size.width)
+            let pixelsHigh = rep?.pixelsHigh ?? Int(image.size.height)
+
+            let maxHeight: Double = 720.0
+            if pixelsHigh <= Int(maxHeight) {
+                // No resize needed; just copy to temp to keep paths isolated.
+                try fm.copyItem(at: src, to: dst)
+                return
+            }
+
+            let scale = maxHeight / Double(pixelsHigh)
+            let targetW = max(2, Int(Double(pixelsWide) * scale).rounded(.toNearestOrAwayFromZero))
+            let targetH = Int(maxHeight)
+
+            guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                                pixelsWide: targetW,
+                                                pixelsHigh: targetH,
+                                                bitsPerSample: 8,
+                                                samplesPerPixel: 4,
+                                                hasAlpha: true,
+                                                isPlanar: false,
+                                                colorSpaceName: .calibratedRGB,
+                                                bytesPerRow: 0,
+                                                bitsPerPixel: 0) else {
+                throw NSError(domain: "ChatCLI", code: -42, userInfo: [NSLocalizedDescriptionKey: "Failed to create bitmap for \(src.path)"])
+            }
+
+            bitmap.size = NSSize(width: targetW, height: targetH)
+            NSGraphicsContext.saveGraphicsState()
+            guard let ctx = NSGraphicsContext(bitmapImageRep: bitmap) else {
+                throw NSError(domain: "ChatCLI", code: -43, userInfo: [NSLocalizedDescriptionKey: "Failed to create graphics context for \(src.path)"])
+            }
+            NSGraphicsContext.current = ctx
+            image.draw(in: NSRect(x: 0, y: 0, width: CGFloat(targetW), height: CGFloat(targetH)),
+                       from: NSRect(origin: .zero, size: image.size),
+                       operation: .copy,
+                       fraction: 1.0,
+                       respectFlipped: true,
+                       hints: [.interpolation: NSImageInterpolation.high])
+            ctx.flushGraphics()
+            NSGraphicsContext.restoreGraphicsState()
+
+            // Encode as JPEG to keep size small.
+            let props: [NSBitmapImageRep.PropertyKey: Any] = [.compressionFactor: 0.85]
+            guard let data = bitmap.representation(using: .jpeg, properties: props) else {
+                throw NSError(domain: "ChatCLI", code: -44, userInfo: [NSLocalizedDescriptionKey: "Failed to encode resized image for \(src.path)"])
+            }
+            try data.write(to: dst, options: .atomic)
+        }
+
+        for (idx, path) in imagePaths.enumerated() {
+            let srcURL = URL(fileURLWithPath: path)
+            let dstURL = tmpDir.appendingPathComponent(String(format: "%02d.jpg", idx), isDirectory: false)
+            try resize(srcURL, into: dstURL)
+            processed.append(dstURL.path)
+        }
+
+        let cleanup = {
+            try? fm.removeItem(at: tmpDir)
+        }
+
+        return (processed, cleanup)
     }
 
     // MARK: - Activity Cards
@@ -1189,13 +1275,18 @@ final class ChatCLIProvider: LLMProvider {
         let callStart = Date()
         let sortedScreenshots = screenshots.sorted { $0.capturedAt < $1.capturedAt }
 
+        // Sample ~15 evenly spaced screenshots to reduce API calls
+        let targetSamples = 15
+        let strideAmount = max(1, sortedScreenshots.count / targetSamples)
+        let sampledScreenshots = Swift.stride(from: 0, to: sortedScreenshots.count, by: strideAmount).map { sortedScreenshots[$0] }
+
         // Calculate "video duration" from timestamp range
-        let firstTs = sortedScreenshots.first!.capturedAt
-        let lastTs = sortedScreenshots.last!.capturedAt
+        let firstTs = sampledScreenshots.first!.capturedAt
+        let lastTs = sampledScreenshots.last!.capturedAt
         let videoDuration = TimeInterval(lastTs - firstTs)
 
         // Convert screenshots to FrameData (reuse existing paths — no need to copy files)
-        let frames: [FrameData] = sortedScreenshots.compactMap { screenshot in
+        let frames: [FrameData] = sampledScreenshots.compactMap { screenshot in
             // Calculate timestamp relative to batch start (like video frames)
             let relativeTimestamp = TimeInterval(screenshot.capturedAt - firstTs)
 
@@ -1289,7 +1380,7 @@ final class ChatCLIProvider: LLMProvider {
             if !observations.isEmpty {
                 let finishedAt = Date()
                 let headers = sawUsage ? tokenHeaders(from: usageTotal) : nil
-                logSuccess(ctx: makeCtx(batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart), finishedAt: finishedAt, stdout: "screenshots:\(screenshots.count) obs:\(observations.count)", stderr: "", responseHeaders: headers)
+                logSuccess(ctx: makeCtx(batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart), finishedAt: finishedAt, stdout: observations.map { $0.summary }.joined(separator: " | "), stderr: "", responseHeaders: headers)
                 let llmCall = makeLLMCall(start: callStart, end: finishedAt, input: "screenshots \(screenshots.count)", output: "obs \(observations.count)")
                 return (observations, llmCall)
             }
