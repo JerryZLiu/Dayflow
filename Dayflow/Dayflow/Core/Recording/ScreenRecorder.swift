@@ -368,9 +368,15 @@ final class ScreenRecorder: NSObject {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             cachedContent = content
 
-            if let currentID = currentDisplayID,
-               let display = content.displays.first(where: { $0.displayID == currentID }) {
+            // Prefer requested display (from active display tracking) over current
+            let targetID = requestedDisplayID ?? currentDisplayID
+
+            if let id = targetID,
+               let display = content.displays.first(where: { $0.displayID == id }) {
                 cachedDisplay = display
+                currentDisplayID = id
+                if requestedDisplayID == id { requestedDisplayID = nil }
+                dbg("Switched to display \(id)")
             } else if let first = content.displays.first {
                 cachedDisplay = first
                 currentDisplayID = first.displayID
