@@ -1361,15 +1361,20 @@ extension OllamaProvider {
         let callStart = Date()
         let sortedScreenshots = screenshots.sorted { $0.capturedAt < $1.capturedAt }
 
+        // Sample ~15 evenly spaced screenshots to avoid hammering the local LLM
+        let targetSamples = 15
+        let strideAmount = max(1, sortedScreenshots.count / targetSamples)
+        let sampledScreenshots = Swift.stride(from: 0, to: sortedScreenshots.count, by: strideAmount).map { sortedScreenshots[$0] }
+
         // Calculate duration from timestamp range
-        let firstTs = sortedScreenshots.first!.capturedAt
-        let lastTs = sortedScreenshots.last!.capturedAt
+        let firstTs = sampledScreenshots.first!.capturedAt
+        let lastTs = sampledScreenshots.last!.capturedAt
         let durationSeconds = TimeInterval(lastTs - firstTs)
 
         // Describe each screenshot
         var frameDescriptions: [(timestamp: TimeInterval, description: String)] = []
 
-        for screenshot in sortedScreenshots {
+        for screenshot in sampledScreenshots {
             guard let frameData = loadScreenshotAsFrameData(screenshot, relativeTo: firstTs) else {
                 print("[OLLAMA] ⚠️ Failed to load screenshot: \(screenshot.filePath)")
                 continue
