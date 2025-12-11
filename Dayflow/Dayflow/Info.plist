@@ -5,7 +5,7 @@
 	<key>ATSApplicationFontsPath</key>
 	<string>.</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.4.5</string>
+	<string>1.4.6</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -18,7 +18,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>75</string>
+	<string>76</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Dayflow uses screen access to create your timeline. Recordings stay on your Mac and you can pause or delete them anytime.</string>
 	<key>SUAllowsAutomaticUpdates</key>
