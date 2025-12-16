@@ -2,9 +2,9 @@
 //  ChatCLIProvider.swift
 //  Dayflow
 //
-//  Runs ChatGPT (Codex CLI) or Claude Code in headless mode using
-//  sandboxed config files that disable MCP servers. Keeps output
-//  JSON‑only via prompt instructions (no CLI json flags required).
+//  Runs ChatGPT (Codex CLI) or Claude Code in headless mode.
+//  MCP servers are disabled dynamically via CLI flags.
+//  Uses the user's default auth from ~/.codex/ or ~/.claude/.
 //
 
 import Foundation
@@ -25,9 +25,39 @@ struct LoginShellResult {
     let exitCode: Int32
 }
 
-/// Invokes commands via `/bin/zsh -l -c "..."` to replicate Terminal.app behavior.
+/// Invokes commands via the user's login shell to replicate Terminal.app behavior.
 /// This ensures CLIs installed via nvm, homebrew, cargo, etc. are found.
 struct LoginShellRunner {
+
+    /// Detects the user's configured login shell (e.g., /bin/bash or /bin/zsh)
+    static var userLoginShell: URL {
+        if let entry = getpwuid(getuid()),
+           let shellPath = String(validatingUTF8: entry.pointee.pw_shell) {
+            return URL(fileURLWithPath: shellPath)
+        }
+        return URL(fileURLWithPath: "/bin/zsh")
+    }
+
+    /// Get names of all MCP servers configured in Codex CLI.
+    /// Used to generate `--config mcp_servers.<name>.enabled=false` flags.
+    static func getCodexMCPServerNames() -> [String] {
+        let result = run("codex mcp list --json", timeout: 10)
+        guard result.exitCode == 0,
+              let data = result.stdout.data(using: .utf8) else {
+            return []
+        }
+
+        // Parse JSON array of server objects with "name" field
+        struct MCPServer: Codable {
+            let name: String
+        }
+
+        guard let servers = try? JSONDecoder().decode([MCPServer].self, from: data) else {
+            return []
+        }
+
+        return servers.map { $0.name }
+    }
 
     /// Run a command via login shell and wait for completion.
     /// - Parameters:
@@ -48,9 +78,10 @@ struct LoginShellRunner {
         let fullCommand = envExports.isEmpty ? command : "\(envExports) \(command)"
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        // -l = login shell (sources .zprofile), -i = interactive (sources .zshrc)
-        // Both are needed because PATH setup can be in either file
+        // Dynamically use the user's actual shell (Bash, Zsh, etc.)
+        process.executableURL = userLoginShell
+        // -l = login shell (sources .bash_profile/.zprofile)
+        // -i = interactive (sources .bashrc/.zshrc)
         process.arguments = ["-l", "-i", "-c", fullCommand]
 
         let stdoutPipe = Pipe()
@@ -111,63 +142,19 @@ struct LoginShellRunner {
 private struct ChatCLIConfigManager {
     static let shared = ChatCLIConfigManager()
 
-    let baseDirectory: URL
-    let claudeSettingsDirectory: URL
-    let claudeSettingsFile: URL
-    let codexConfigFile: URL
+    /// Working directory for temporary files (e.g., resized images)
+    let workingDirectory: URL
 
     private init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        baseDirectory = appSupport.appendingPathComponent("Dayflow/chatcli", isDirectory: true)
-        claudeSettingsDirectory = baseDirectory.appendingPathComponent(".claude", isDirectory: true)
-        claudeSettingsFile = claudeSettingsDirectory.appendingPathComponent("settings.local.json")
-        codexConfigFile = baseDirectory.appendingPathComponent("config.toml")
+        workingDirectory = appSupport.appendingPathComponent("Dayflow/chatcli", isDirectory: true)
     }
 
-    /// Remove Codex/Claude local session artifacts (rollouts, history) from the sandbox.
-    /// We keep auth and config so the user stays signed in.
-    func clearPersistentCLIData() {
+    /// Ensure working directory exists for temp files
+    func ensureWorkingDirectory() {
         let fm = FileManager.default
-        let paths = [
-            baseDirectory.appendingPathComponent("sessions", isDirectory: true),
-            baseDirectory.appendingPathComponent("archived_sessions", isDirectory: true),
-            baseDirectory.appendingPathComponent("history.jsonl", isDirectory: false)
-        ]
-        for url in paths where fm.fileExists(atPath: url.path) {
-            // Ignore errors — best-effort cleanup only.
-            try? fm.removeItem(at: url)
-        }
-    }
-
-    func ensureSandbox() {
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: baseDirectory.path) {
-            try? fm.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
-        }
-        if !fm.fileExists(atPath: claudeSettingsDirectory.path) {
-            try? fm.createDirectory(at: claudeSettingsDirectory, withIntermediateDirectories: true)
-        }
-        if !fm.fileExists(atPath: claudeSettingsFile.path) {
-            let payload = """
-            {
-              "allowedMcpServers": []
-            }
-            """
-            try? payload.data(using: .utf8)?.write(to: claudeSettingsFile, options: .atomic)
-        }
-        if !fm.fileExists(atPath: codexConfigFile.path) {
-            let payload = """
-            # Generated by Dayflow to isolate Codex CLI from user config
-            # Leave empty: no MCP servers or extra features enabled.
-            """
-            try? payload.data(using: .utf8)?.write(to: codexConfigFile, options: .atomic)
-        }
-
-        // Copy auth.json if user has already logged in so CODEX_HOME works.
-        let defaultAuth = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/auth.json")
-        let sandboxAuth = baseDirectory.appendingPathComponent("auth.json")
-        if fm.fileExists(atPath: defaultAuth), !fm.fileExists(atPath: sandboxAuth.path) {
-            try? fm.copyItem(atPath: defaultAuth, toPath: sandboxAuth.path)
+        if !fm.fileExists(atPath: workingDirectory.path) {
+            try? fm.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
         }
     }
 }
@@ -219,8 +206,13 @@ private struct ChatCLIProcessRunner {
             cmdParts.append(contentsOf: ["exec", "--skip-git-repo-check"])
             if let model = model { cmdParts.append(contentsOf: ["-m", model]) }
             if let effort = reasoningEffort { cmdParts.append(contentsOf: ["-c", "model_reasoning_effort=\(effort)"]) }
-            // Disable MCP per call as belt and suspenders
-            cmdParts.append(contentsOf: ["-c", "mcp_servers={}", "-c", "rmcp_client=false", "-c", "features.web_search_request=false"])
+            // Disable MCP servers dynamically by detecting all configured servers
+            let mcpServers = LoginShellRunner.getCodexMCPServerNames()
+            for serverName in mcpServers {
+                cmdParts.append(contentsOf: ["--config", "mcp_servers.\(serverName).enabled=false"])
+            }
+            // Also disable rmcp_client and web search
+            cmdParts.append(contentsOf: ["-c", "rmcp_client=false", "-c", "features.web_search_request=false"])
             for path in imagePaths { cmdParts.append(contentsOf: ["--image", LoginShellRunner.shellEscape(path)]) }
             cmdParts.append("--")
             cmdParts.append(LoginShellRunner.shellEscape(prompt))
@@ -233,21 +225,19 @@ private struct ChatCLIProcessRunner {
             cmdParts.append(LoginShellRunner.shellEscape(promptWithImageHints(prompt: prompt, imagePaths: imagePaths)))
         }
 
-        // Environment vars set INSIDE shell command (immune to .zshrc overrides)
-        let sandboxPath = ChatCLIConfigManager.shared.baseDirectory.path
-        let homeVar = tool == .codex ? "CODEX_HOME" : "CLAUDE_HOME"
-        let envPrefix = "\(homeVar)=\(LoginShellRunner.shellEscape(sandboxPath))"
-
         // Use `exec` to replace shell process (ensures terminate() kills the CLI, not just zsh)
-        let shellCommand = "cd \(LoginShellRunner.shellEscape(workingDirectory.path)) && \(envPrefix) exec \(cmdParts.joined(separator: " "))"
+        // No sandbox - use default ~/.codex/ or ~/.claude/ auth
+        let shellCommand = "cd \(LoginShellRunner.shellEscape(workingDirectory.path)) && exec \(cmdParts.joined(separator: " "))"
 
-        debugCommand(tool: tool, model: model, shellCommand: shellCommand)
+        let shell = LoginShellRunner.userLoginShell
+        debugCommand(tool: tool, model: model, shell: shell, shellCommand: shellCommand)
 
         let started = Date()
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        // -l = login shell (sources .zprofile), -i = interactive (sources .zshrc)
-        // Both are needed because PATH setup can be in either file
+        // Dynamically use the user's actual shell (Bash, Zsh, etc.)
+        process.executableURL = shell
+        // -l = login shell (sources .bash_profile/.zprofile)
+        // -i = interactive (sources .bashrc/.zshrc)
         process.arguments = ["-l", "-i", "-c", shellCommand]
         process.standardInput = FileHandle.nullDevice  // Prevent interactive prompts
 
@@ -287,9 +277,9 @@ private struct ChatCLIProcessRunner {
         return ChatCLIRunResult(exitCode: process.terminationStatus, stdout: parsed.text, stderr: stderr, startedAt: started, finishedAt: finished, usage: parsed.usage)
     }
 
-    private func debugCommand(tool: ChatCLITool, model: String?, shellCommand: String) {
+    private func debugCommand(tool: ChatCLITool, model: String?, shell: URL, shellCommand: String) {
         let header = "[ChatCLI][\(tool.rawValue)][\(model ?? "")] command"
-        print("\(header): /bin/zsh -l -c '\(shellCommand)'")
+        print("\(header): \(shell.path) -l -i -c '\(shellCommand)'")
     }
 
     private func debugLog(tool: ChatCLITool, model: String?, phase: String, prompt: String, stdout: String, stderr: String, usage: TokenUsage?) {
@@ -341,19 +331,17 @@ final class ChatCLIProvider: LLMProvider {
 
     init(tool: ChatCLITool) {
         self.tool = tool
-        config.ensureSandbox()
+        config.ensureWorkingDirectory()
     }
 
-    /// Run the CLI with a clean sandbox and delete any session rollouts/history after.
+    /// Run the CLI and clean up temp files after.
     private func runAndScrub(prompt: String, imagePaths: [String] = [], model: String? = nil, reasoningEffort: String? = nil) throws -> ChatCLIRunResult {
-        config.clearPersistentCLIData()          // start clean (no past rollouts)
         // Prepare downsized copies of images (~720p) so Codex input stays compact.
         let (preparedImages, cleanupImages) = try prepareImagesForCLI(imagePaths)
         defer {
             cleanupImages()
-            config.clearPersistentCLIData()       // remove any new rollouts/history
         }
-        return try runner.run(tool: tool, prompt: prompt, workingDirectory: config.baseDirectory, imagePaths: preparedImages, model: model, reasoningEffort: reasoningEffort)
+        return try runner.run(tool: tool, prompt: prompt, workingDirectory: config.workingDirectory, imagePaths: preparedImages, model: model, reasoningEffort: reasoningEffort)
     }
 
     /// Create temporary 720p-max copies of images for Codex/Claude CLI.
@@ -362,7 +350,7 @@ final class ChatCLIProvider: LLMProvider {
         guard !imagePaths.isEmpty else { return ([], {}) }
 
         let fm = FileManager.default
-        let tmpDir = config.baseDirectory.appendingPathComponent("tmp_images_\(UUID().uuidString)", isDirectory: true)
+        let tmpDir = config.workingDirectory.appendingPathComponent("tmp_images_\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: tmpDir, withIntermediateDirectories: true)
 
         var processed: [String] = []
@@ -808,10 +796,8 @@ final class ChatCLIProvider: LLMProvider {
             print("[ChatCLI][describeFramesBatch] stderr:\n\(run.stderr)")
         }
         guard run.exitCode == 0 else {
-            let preview = String(run.stdout.prefix(1000))
-            let stderrPreview = String(run.stderr.prefix(500))
             throw NSError(domain: "ChatCLI", code: Int(run.exitCode), userInfo: [
-                NSLocalizedDescriptionKey: "CLI exited with code \(run.exitCode). stdout: \(preview) | stderr: \(stderrPreview)"
+                NSLocalizedDescriptionKey: "CLI exited with code \(run.exitCode). stdout: \(run.stdout) | stderr: \(run.stderr)"
             ])
         }
 
