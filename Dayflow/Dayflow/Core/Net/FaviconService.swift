@@ -47,12 +47,7 @@ final class FaviconService {
         ("numbers", "NumbersFavicon"),
         ("pages.apple", "PagesFavicon"),
 
-        // macOS apps (app name matching for LLM-generated hosts)
-        ("mail", "MailFavicon"),
-        ("calendar", "CalendarFavicon"),
-        ("notes", "NotesFavicon"),
-        ("reminders", "RemindersFavicon"),
-        ("photos", "PhotosFavicon"),
+        // macOS apps - uniquely Apple names (no false positive risk)
         ("safari", "SafariFavicon"),
         ("finder", "FinderFavicon"),
         ("settings", "SettingsFavicon"),
@@ -63,17 +58,6 @@ final class FaviconService {
         ("contacts", "ContactsFavicon"),
         ("voice memos", "VoiceMemosFavicon"),
         ("voicememos", "VoiceMemosFavicon"),
-        ("clock", "ClockFavicon"),
-        ("files", "FilesFavicon"),
-        ("home", "HomeFavicon"),
-        ("stocks", "StocksFavicon"),
-        ("weather", "WeatherFavicon"),
-        ("translate", "TranslateFavicon"),
-        ("podcasts", "PodcastsFavicon"),
-        ("news", "NewsFavicon"),
-        ("books", "BooksFavicon"),
-        ("music", "MusicFavicon"),
-        ("tv", "TVFavicon"),
         ("app store", "AppStoreFavicon"),
         ("appstore", "AppStoreFavicon"),
 
@@ -93,6 +77,27 @@ final class FaviconService {
         ("chrome", "ChromeFavicon"),
     ]
 
+    // MARK: - Dual Pattern Overrides (requires BOTH patterns to match)
+    // Used for generic words that need "apple" context to avoid false matches
+    private let faviconDualPatterns: [(pattern1: String, pattern2: String, asset: String)] = [
+        ("mail", "apple", "MailFavicon"),
+        ("calendar", "apple", "CalendarFavicon"),
+        ("notes", "apple", "NotesFavicon"),
+        ("reminders", "apple", "RemindersFavicon"),
+        ("photos", "apple", "PhotosFavicon"),
+        ("home", "apple", "HomeFavicon"),
+        ("stocks", "apple", "StocksFavicon"),
+        ("files", "apple", "FilesFavicon"),
+        ("clock", "apple", "ClockFavicon"),
+        ("music", "apple", "MusicFavicon"),
+        ("tv", "apple", "TVFavicon"),
+        ("news", "apple", "NewsFavicon"),
+        ("books", "apple", "BooksFavicon"),
+        ("podcasts", "apple", "PodcastsFavicon"),
+        ("weather", "apple", "WeatherFavicon"),
+        ("translate", "apple", "TranslateFavicon"),
+    ]
+
     private init() {
         cache.countLimit = 256
     }
@@ -106,9 +111,13 @@ final class FaviconService {
     func fetchFavicon(primaryRaw: String?, secondaryRaw: String?, primaryHost: String?, secondaryHost: String?) async -> NSImage? {
         print("[FaviconService] 🔍 Fetching favicon - primaryRaw: '\(primaryRaw ?? "nil")' primaryHost: '\(primaryHost ?? "nil")'")
 
-        // First, try pattern matching against raw strings (preserves paths like /xcode)
+        // First, try single pattern matching against raw strings (preserves paths like /xcode)
         if let raw = primaryRaw, let img = matchPattern(raw) { return img }
         if let raw = secondaryRaw, let img = matchPattern(raw) { return img }
+
+        // Then try dual pattern matching (requires both patterns, e.g., "mail" + "apple")
+        if let raw = primaryRaw, let img = matchDualPattern(raw) { return img }
+        if let raw = secondaryRaw, let img = matchDualPattern(raw) { return img }
 
         // Fall back to network fetch using normalized hosts
         if let host = primaryHost, let img = await fetchHost(host) { return img }
@@ -126,6 +135,22 @@ final class FaviconService {
                     return img
                 } else {
                     print("[FaviconService] ⚠️ Pattern matched but asset NOT FOUND: '\(raw)' → '\(pattern)' → '\(assetName)'")
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Check raw string against dual patterns (requires BOTH patterns to match)
+    private func matchDualPattern(_ raw: String) -> NSImage? {
+        let rawLower = raw.lowercased()
+        for (pattern1, pattern2, assetName) in faviconDualPatterns {
+            if rawLower.contains(pattern1) && rawLower.contains(pattern2) {
+                if let img = NSImage(named: assetName) {
+                    print("[FaviconService] ✅ Dual pattern matched '\(raw)' → '\(pattern1)' + '\(pattern2)' → asset '\(assetName)'")
+                    return img
+                } else {
+                    print("[FaviconService] ⚠️ Dual pattern matched but asset NOT FOUND: '\(raw)' → '\(pattern1)' + '\(pattern2)' → '\(assetName)'")
                 }
             }
         }
