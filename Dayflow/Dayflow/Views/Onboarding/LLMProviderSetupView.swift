@@ -861,6 +861,8 @@ class ProviderSetupState: ObservableObject {
     private var hasStartedCLICheck = false
     private let codexStreamer = StreamingCLI()
     private let claudeStreamer = StreamingCLI()
+    private var codexStartTask: Task<Void, Never>?
+    private var claudeStartTask: Task<Void, Never>?
 
     init() {
         let preference = GeminiModelPreference.load()
@@ -1144,31 +1146,57 @@ class ProviderSetupState: ObservableObject {
     
     func runCodexStream() {
         guard !isRunningCodexStream else { return }
-        guard CLIDetector.isInstalled(.codex) else {
-            codexStreamOutput = "Codex CLI not found. Install it and run 'codex auth' in Terminal."
-            return
-        }
-        let prompt = cliPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Say hello" : cliPrompt
-        codexStreamOutput = "Running codex with prompt: \(prompt)\n\n"
+        codexStartTask?.cancel()
         isRunningCodexStream = true
-        codexStreamer.run(
-            command: "codex",
-            args: ["exec", "--skip-git-repo-check", "-c", "model_reasoning_effort=high", "-c", "mcp_servers={}", "-c", "rmcp_client=false", "-c", "features.web_search_request=false", "--", prompt],
-            onStdout: { [weak self] chunk in
-                self?.codexStreamOutput.append(chunk)
-            },
-            onStderr: { [weak self] chunk in
-                self?.codexStreamOutput.append("\n[stderr] \(chunk)")
-            },
-            onFinish: { [weak self] code in
-                guard let self else { return }
-                self.codexStreamOutput.append("\n\nExited \(code)\n")
-                self.isRunningCodexStream = false
+        codexStreamOutput = "Checking for Codex CLI...\n"
+
+        codexStartTask = Task { @MainActor in
+            let installed = await Task.detached(priority: .utility) {
+                CLIDetector.isInstalled(.codex)
+            }.value
+
+            guard !Task.isCancelled else { return }
+
+            guard installed else {
+                codexStreamOutput = "Codex CLI not found. Install it and run 'codex auth' in Terminal."
+                isRunningCodexStream = false
+                codexStartTask = nil
+                return
             }
-        )
+
+            let prompt = cliPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Say hello" : cliPrompt
+            codexStreamOutput = "Running codex with prompt: \(prompt)\n\n"
+            codexStartTask = nil
+
+            // Build args with dynamic MCP disable flags
+            var streamArgs = ["exec", "--skip-git-repo-check", "-c", "model_reasoning_effort=high"]
+            let mcpServers = LoginShellRunner.getCodexMCPServerNames()
+            for serverName in mcpServers {
+                streamArgs.append(contentsOf: ["--config", "mcp_servers.\(serverName).enabled=false"])
+            }
+            streamArgs.append(contentsOf: ["-c", "rmcp_client=false", "-c", "features.web_search_request=false", "--", prompt])
+
+            codexStreamer.run(
+                command: "codex",
+                args: streamArgs,
+                onStdout: { [weak self] chunk in
+                    self?.codexStreamOutput.append(chunk)
+                },
+                onStderr: { [weak self] chunk in
+                    self?.codexStreamOutput.append("\n[stderr] \(chunk)")
+                },
+                onFinish: { [weak self] code in
+                    guard let self else { return }
+                    self.codexStreamOutput.append("\n\nExited \(code)\n")
+                    self.isRunningCodexStream = false
+                }
+            )
+        }
     }
     
     func cancelCodexStream() {
+        codexStartTask?.cancel()
+        codexStartTask = nil
         codexStreamer.cancel()
         if isRunningCodexStream {
             codexStreamOutput.append("\n\nCancelled.\n")
@@ -1178,31 +1206,49 @@ class ProviderSetupState: ObservableObject {
     
     func runClaudeStream() {
         guard !isRunningClaudeStream else { return }
-        guard CLIDetector.isInstalled(.claude) else {
-            claudeStreamOutput = "Claude CLI not found. Install it and run 'claude login' in Terminal."
-            return
-        }
-        let prompt = cliPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Say hello" : cliPrompt
-        claudeStreamOutput = "Running claude with prompt: \(prompt)\n\n"
+        claudeStartTask?.cancel()
         isRunningClaudeStream = true
-        claudeStreamer.run(
-            command: "claude",
-            args: ["--print", "--output-format", "json", "--strict-mcp-config", "--", prompt],
-            onStdout: { [weak self] chunk in
-                self?.claudeStreamOutput.append(chunk)
-            },
-            onStderr: { [weak self] chunk in
-                self?.claudeStreamOutput.append("\n[stderr] \(chunk)")
-            },
-            onFinish: { [weak self] code in
-                guard let self else { return }
-                self.claudeStreamOutput.append("\n\nExited \(code)\n")
-                self.isRunningClaudeStream = false
+        claudeStreamOutput = "Checking for Claude CLI...\n"
+
+        claudeStartTask = Task { @MainActor in
+            let installed = await Task.detached(priority: .utility) {
+                CLIDetector.isInstalled(.claude)
+            }.value
+
+            guard !Task.isCancelled else { return }
+
+            guard installed else {
+                claudeStreamOutput = "Claude CLI not found. Install it and run 'claude login' in Terminal."
+                isRunningClaudeStream = false
+                claudeStartTask = nil
+                return
             }
-        )
+
+            let prompt = cliPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Say hello" : cliPrompt
+            claudeStreamOutput = "Running claude with prompt: \(prompt)\n\n"
+            claudeStartTask = nil
+
+            claudeStreamer.run(
+                command: "claude",
+                args: ["--print", "--output-format", "json", "--strict-mcp-config", "--", prompt],
+                onStdout: { [weak self] chunk in
+                    self?.claudeStreamOutput.append(chunk)
+                },
+                onStderr: { [weak self] chunk in
+                    self?.claudeStreamOutput.append("\n[stderr] \(chunk)")
+                },
+                onFinish: { [weak self] code in
+                    guard let self else { return }
+                    self.claudeStreamOutput.append("\n\nExited \(code)\n")
+                    self.isRunningClaudeStream = false
+                }
+            )
+        }
     }
     
     func cancelClaudeStream() {
+        claudeStartTask?.cancel()
+        claudeStartTask = nil
         claudeStreamer.cancel()
         if isRunningClaudeStream {
             claudeStreamOutput.append("\n\nCancelled.\n")
@@ -1557,7 +1603,7 @@ struct ChatCLITestView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("We'll ask your CLI to say hello to verify it's working and signed in.")
+            Text("We'll ask your CLI a simple question to verify it's working and signed in.")
                 .font(.custom("Nunito", size: 13))
                 .foregroundColor(.black.opacity(0.6))
                 .fixedSize(horizontal: false, vertical: true)
@@ -1595,13 +1641,25 @@ struct ChatCLITestView: View {
             }
 
             if let msg = resultMessage {
-                Text(msg)
-                    .font(.custom("Nunito", size: 13))
-                    .foregroundColor(success ? .black.opacity(0.7) : Color(hex: "E91515"))
-                    .padding(.vertical, 6)
+                HStack(alignment: .center, spacing: 8) {
+                    Text(msg)
+                        .font(.custom("Nunito", size: 13))
+                        .foregroundColor(success ? .black.opacity(0.7) : Color(hex: "E91515"))
+
+                    if debugOutput != nil {
+                        Button(action: copyDebugLogs) {
+                            Text("Copy logs")
+                                .font(.custom("Nunito", size: 11))
+                                .foregroundColor(.black.opacity(0.4))
+                                .underline()
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 6)
             }
 
-            // Debug output - shows raw CLI response for troubleshooting
+            // Debug output - shows raw CLI response for troubleshooting (only on failure)
             if let debug = debugOutput, !success {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Debug output:")
@@ -1654,13 +1712,25 @@ struct ChatCLITestView: View {
                     var debugParts: [String] = []
                     debugParts.append("Tool: \(tool.shortName)")
                     debugParts.append("Exit code: \(cliResult.exitCode)")
+                    debugParts.append("Shell: \(LoginShellRunner.userLoginShell.path)")
+
+                    // Show all installations found (helps debug multi-install issues)
+                    let cmdName = tool == .codex ? "codex" : "claude"
+                    let whichResult = LoginShellRunner.run("which -a \(cmdName)", timeout: 5)
+                    if whichResult.exitCode == 0 {
+                        let paths = whichResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !paths.isEmpty {
+                            debugParts.append("Installations found:\n\(paths)")
+                        }
+                    }
+
                     if !cliResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         debugParts.append("stdout:\n\(cliResult.stdout)")
                     }
                     if !cliResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         debugParts.append("stderr:\n\(cliResult.stderr)")
                     }
-                    debugOutput = debugParts.joined(separator: "\n")
+                    debugOutput = debugParts.joined(separator: "\n\n")
 
                     // Check exit code FIRST - non-zero means failure
                     if cliResult.exitCode != 0 {
@@ -1683,27 +1753,50 @@ struct ChatCLITestView: View {
                         return
                     }
 
-                    // Exit code is 0, now check for "hello" in response
-                    let passed = parseForHello(cliResult)
+                    // Exit code is 0, now check for expected response
+                    let passed = parseForSuccess(cliResult, for: tool)
                     success = passed
                     if passed {
                         resultMessage = "CLI is working!"
-                        debugOutput = nil // Clear debug output on success
                     } else if cliResult.stdout.isEmpty {
                         resultMessage = "CLI returned empty response. Make sure you're signed in."
                     } else {
                         let preview = cliResult.stdout.prefix(100)
-                        resultMessage = "Got: \"\(preview)\" — expected 'hello'"
+                        resultMessage = "Got: \"\(preview)\" — expected '4'"
                     }
                     onTestComplete(passed)
                 case .failure(let error):
                     success = false
                     resultMessage = error.localizedDescription
-                    debugOutput = "Tool: \(tool.shortName)\nError: \(error.localizedDescription)"
+
+                    // Build debug output even for errors
+                    var debugParts: [String] = []
+                    debugParts.append("Tool: \(tool.shortName)")
+                    debugParts.append("Error: \(error.localizedDescription)")
+                    debugParts.append("Shell: \(LoginShellRunner.userLoginShell.path)")
+
+                    let cmdName = tool == .codex ? "codex" : "claude"
+                    let whichResult = LoginShellRunner.run("which -a \(cmdName)", timeout: 5)
+                    if whichResult.exitCode == 0 {
+                        let paths = whichResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !paths.isEmpty {
+                            debugParts.append("Installations found:\n\(paths)")
+                        }
+                    } else {
+                        debugParts.append("Installations found: none")
+                    }
+
+                    debugOutput = debugParts.joined(separator: "\n\n")
                     onTestComplete(false)
                 }
             }
         }
+    }
+
+    private func copyDebugLogs() {
+        guard let debug = debugOutput else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(debug, forType: .string)
     }
 
     private func performTest(for tool: CLITool) throws -> CLIResult {
@@ -1711,27 +1804,59 @@ struct ChatCLITestView: View {
             throw NSError(domain: "ChatCLITest", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(tool.shortName) CLI not found. Install it and run '\(tool == .codex ? "codex auth" : "claude login")' in Terminal."])
         }
 
-        let prompt = "Say hello. Respond with just the word 'hello' and nothing else."
         // Use a sandboxed directory to avoid permission prompts for Downloads/Desktop
         let safeWorkingDir = FileManager.default.temporaryDirectory
 
+        // Simple math test - deterministic and doesn't require image handling
+        let prompt = "What is 2+2? Answer with just the number."
+
         switch tool {
         case .codex:
-            // Explicitly set reasoning effort to override any invalid stored values
             // --skip-git-repo-check needed because app runs from sandboxed directory
-            // Disable MCP servers to avoid connecting to user's configured servers during test
+            // Disable MCP servers dynamically to avoid connecting to user's configured servers during test
             // -- separator ensures prompt isn't parsed as an option
-            return try runCLI("codex", args: ["exec", "--skip-git-repo-check", "-c", "model_reasoning_effort=high", "-c", "mcp_servers={}", "-c", "rmcp_client=false", "-c", "features.web_search_request=false", "--", prompt], cwd: safeWorkingDir)
+            var codexArgs = [
+                "exec",
+                "--skip-git-repo-check",
+                "-c", "model_reasoning_effort=low"
+            ]
+            // Dynamically disable each MCP server by name
+            let mcpServers = LoginShellRunner.getCodexMCPServerNames()
+            for serverName in mcpServers {
+                codexArgs.append(contentsOf: ["--config", "mcp_servers.\(serverName).enabled=false"])
+            }
+            codexArgs.append(contentsOf: [
+                "-c", "rmcp_client=false",
+                "-c", "features.web_search_request=false",
+                "--",
+                prompt
+            ])
+            return try runCLI(
+                "codex",
+                args: codexArgs,
+                cwd: safeWorkingDir
+            )
         case .claude:
             // --strict-mcp-config disables all user MCP servers
             // -- separator ensures prompt isn't parsed as an option
-            return try runCLI("claude", args: ["--print", "--output-format", "text", "--strict-mcp-config", "--", prompt], cwd: safeWorkingDir)
+            return try runCLI(
+                "claude",
+                args: [
+                    "--print",
+                    "--output-format", "text",
+                    "--strict-mcp-config",
+                    "--",
+                    prompt
+                ],
+                cwd: safeWorkingDir
+            )
         }
     }
 
-    private func parseForHello(_ result: CLIResult) -> Bool {
-        let combined = (result.stdout + " " + result.stderr).lowercased()
-        return combined.contains("hello")
+    private func parseForSuccess(_ result: CLIResult, for tool: CLITool) -> Bool {
+        let combined = (result.stdout + " " + result.stderr)
+        // Simple math test - check for "4" in the response
+        return combined.contains("4")
     }
 
     private func detectAuthError(_ result: CLIResult, for tool: CLITool) -> String? {

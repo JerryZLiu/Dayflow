@@ -19,6 +19,8 @@ struct OnboardingLLMSelectionView: View {
     @State private var bottomTextOpacity: Double = 0
     @State private var hasAppeared: Bool = false
     @State private var cliDetected: Bool = false
+    @State private var cliDetectionTask: Task<Void, Never>?
+    @State private var didUserSelectProvider: Bool = false
     
     var body: some View {
         GeometryReader { geometry in
@@ -45,7 +47,7 @@ struct OnboardingLLMSelectionView: View {
 
             VStack(spacing: 0) {
                 // Header
-                Text("Choose a way to run Dayflow")
+                    Text("Choose a way to run Dayflow")
                     .font(.custom("InstrumentSerif-Regular", size: titleSize))
                     .multilineTextAlignment(.center)
                     .foregroundColor(.black.opacity(0.9))
@@ -105,6 +107,10 @@ struct OnboardingLLMSelectionView: View {
             .animation(.easeOut(duration: 0.2), value: cardWidth)
             .animation(.easeOut(duration: 0.2), value: cardHeight)
         }
+        .onDisappear {
+            cliDetectionTask?.cancel()
+            cliDetectionTask = nil
+        }
     }
     
     // Create provider cards as a computed property for reuse
@@ -134,12 +140,14 @@ struct OnboardingLLMSelectionView: View {
                     } else {
                         // Select the card first
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                            didUserSelectProvider = true
                             selectedProvider = "ollama"
                         }
                     }
                 }),
                 onSelect: {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                        didUserSelectProvider = true
                         selectedProvider = "ollama"
                     }
                 }
@@ -167,12 +175,14 @@ struct OnboardingLLMSelectionView: View {
                     } else {
                         // Select the card first
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                            didUserSelectProvider = true
                             selectedProvider = "gemini"
                         }
                     }
                 }),
                 onSelect: {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                        didUserSelectProvider = true
                         selectedProvider = "gemini"
                     }
                 }
@@ -199,12 +209,14 @@ struct OnboardingLLMSelectionView: View {
                         onNext("chatgpt_claude")
                     } else {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                            didUserSelectProvider = true
                             selectedProvider = "chatgpt_claude"
                         }
                     }
                 }),
                 onSelect: {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                        didUserSelectProvider = true
                         selectedProvider = "chatgpt_claude"
                     }
                 }
@@ -286,17 +298,21 @@ struct OnboardingLLMSelectionView: View {
     }
 
     private func detectCLIInstallation() {
-        // Check if either Codex or Claude CLI is installed via login shell
-        // This replicates Terminal.app behavior - if user can run it there, it works here
-        let codexInstalled = CLIDetector.isInstalled(.codex)
-        let claudeInstalled = CLIDetector.isInstalled(.claude)
-        cliDetected = codexInstalled || claudeInstalled
+        cliDetectionTask?.cancel()
+        cliDetectionTask = Task { @MainActor in
+            let installed = await Task.detached(priority: .utility) {
+                let codexInstalled = CLIDetector.isInstalled(.codex)
+                let claudeInstalled = CLIDetector.isInstalled(.claude)
+                return codexInstalled || claudeInstalled
+            }.value
 
-        // Default select the recommended option
-        if cliDetected {
-            selectedProvider = "chatgpt_claude"
-        } else {
-            selectedProvider = "gemini"
+            guard !Task.isCancelled else { return }
+
+            cliDetected = installed
+
+            if !didUserSelectProvider {
+                selectedProvider = installed ? "chatgpt_claude" : "gemini"
+            }
         }
     }
 }
