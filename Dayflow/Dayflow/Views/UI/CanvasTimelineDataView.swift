@@ -408,6 +408,10 @@ struct CanvasTimelineDataView: View {
         } else if site.contains("/") {
             if let url = URL(string: "https://" + site), let host = url.host { return host }
         } else {
+            // If no TLD present, append .com for common sites like "YouTube" → "youtube.com"
+            if !site.contains(".") {
+                return site + ".com"
+            }
             return site
         }
         return nil
