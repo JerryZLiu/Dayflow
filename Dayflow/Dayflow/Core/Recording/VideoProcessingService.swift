@@ -483,15 +483,35 @@ actor VideoProcessingService {
             throw VideoProcessingError.noInputFiles
         }
 
-        // 1. Load first image to get dimensions
-        guard let firstImageData = try? Data(contentsOf: screenshots[0].fileURL),
-              let firstNSImage = NSImage(data: firstImageData),
-              let firstCGImage = firstNSImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        // 1. Find the widest screenshot to use as canvas dimensions
+        //    This ensures all aspect ratios are preserved via letterboxing/pillarboxing
+        var canvasWidth = 0
+        var canvasHeight = 0
+
+        for screenshot in screenshots {
+            guard let imageData = try? Data(contentsOf: screenshot.fileURL),
+                  let nsImage = NSImage(data: imageData),
+                  let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                continue
+            }
+
+            if cgImage.width > canvasWidth {
+                canvasWidth = cgImage.width
+                canvasHeight = cgImage.height
+            }
+        }
+
+        // Fallback to first image if scanning failed
+        guard canvasWidth > 0 && canvasHeight > 0 else {
             throw VideoProcessingError.invalidImageData
         }
 
-        let width = firstCGImage.width
-        let height = firstCGImage.height
+        // Ensure even dimensions for H.264 codec
+        canvasWidth = makeEven(canvasWidth)
+        canvasHeight = makeEven(canvasHeight)
+
+        let width = canvasWidth
+        let height = canvasHeight
 
         // Ensure output directory exists
         let outputDir = outputURL.deletingLastPathComponent()
@@ -553,8 +573,8 @@ actor VideoProcessingService {
                 continue
             }
 
-            // Create pixel buffer
-            guard let pixelBuffer = createPixelBuffer(from: cgImage, width: width, height: height) else {
+            // Create pixel buffer with aspect-fit compositing (letterbox/pillarbox as needed)
+            guard let pixelBuffer = createPixelBuffer(from: cgImage, canvasWidth: width, canvasHeight: height) else {
                 print("⚠️ Failed to create pixel buffer for: \(screenshot.fileURL.lastPathComponent)")
                 continue
             }
@@ -644,7 +664,9 @@ actor VideoProcessingService {
         return nil
     }
 
-    private func createPixelBuffer(from cgImage: CGImage, width: Int, height: Int) -> CVPixelBuffer? {
+    /// Creates a pixel buffer with the image composited onto a canvas using aspect-fit.
+    /// The image is centered and letterboxed/pillarboxed with black if aspect ratios differ.
+    private func createPixelBuffer(from cgImage: CGImage, canvasWidth: Int, canvasHeight: Int) -> CVPixelBuffer? {
         var pixelBuffer: CVPixelBuffer?
 
         let attrs: [String: Any] = [
@@ -654,8 +676,8 @@ actor VideoProcessingService {
 
         let status = CVPixelBufferCreate(
             kCFAllocatorDefault,
-            width,
-            height,
+            canvasWidth,
+            canvasHeight,
             kCVPixelFormatType_32ARGB,
             attrs as CFDictionary,
             &pixelBuffer
@@ -670,8 +692,8 @@ actor VideoProcessingService {
 
         guard let context = CGContext(
             data: CVPixelBufferGetBaseAddress(buffer),
-            width: width,
-            height: height,
+            width: canvasWidth,
+            height: canvasHeight,
             bitsPerComponent: 8,
             bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
             space: CGColorSpaceCreateDeviceRGB(),
@@ -680,9 +702,27 @@ actor VideoProcessingService {
             return nil
         }
 
-        // Draw the image directly - CGImage and CVPixelBuffer both use top-left origin
-        // No flip needed since we're drawing into a pixel buffer destined for video encoding
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        // Fill with black (letterbox/pillarbox background)
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: canvasWidth, height: canvasHeight))
+
+        // Calculate aspect-fit scaling to center the image without distortion
+        let imageWidth = CGFloat(cgImage.width)
+        let imageHeight = CGFloat(cgImage.height)
+        let canvasW = CGFloat(canvasWidth)
+        let canvasH = CGFloat(canvasHeight)
+
+        let scaleX = canvasW / imageWidth
+        let scaleY = canvasH / imageHeight
+        let scale = min(scaleX, scaleY)  // Aspect-fit: use smaller scale to fit entirely
+
+        let scaledWidth = imageWidth * scale
+        let scaledHeight = imageHeight * scale
+        let offsetX = (canvasW - scaledWidth) / 2.0
+        let offsetY = (canvasH - scaledHeight) / 2.0
+
+        // Draw the image centered and scaled
+        context.draw(cgImage, in: CGRect(x: offsetX, y: offsetY, width: scaledWidth, height: scaledHeight))
 
         return buffer
     }
