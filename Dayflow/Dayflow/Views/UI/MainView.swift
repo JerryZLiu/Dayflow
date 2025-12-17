@@ -40,10 +40,12 @@ struct MainView: View {
     @State private var didInitialScroll = false
     @State private var previousDate = timelineDisplayDate(from: Date())
     @State private var lastDateNavMethod: String? = nil
-    // Minute tick to handle civil-day rollover (header updates + jump to today)
+    // Minute tick to handle timeline-day rollover (4am boundary): header updates + jump to today
     @State private var dayChangeTimer: Timer? = nil
-    @State private var lastObservedCivilDay: String = {
-        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"; return fmt.string(from: Date())
+    @State private var lastObservedTimelineDay: String = {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        return fmt.string(from: timelineDisplayDate(from: Date()))
     }()
     @State private var showCategoryEditor = false
     @State private var feedbackModalVisible = false
@@ -1121,13 +1123,13 @@ extension MainView {
     }
 
     private func handleMinuteTickForDayChange() {
-        // Detect civil day rollover regardless of what day user is viewing
+        // Detect timeline day rollover (4am boundary) regardless of what day user is viewing
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
-        let currentCivilDay = fmt.string(from: Date())
-        if currentCivilDay != lastObservedCivilDay {
-            lastObservedCivilDay = currentCivilDay
+        let currentTimelineDay = fmt.string(from: timelineDisplayDate(from: Date()))
+        if currentTimelineDay != lastObservedTimelineDay {
+            lastObservedTimelineDay = currentTimelineDay
 
-            // Jump to current civil day and re-scroll near now
+            // Jump to current timeline day and re-scroll near now
             setSelectedDate(timelineDisplayDate(from: Date()))
             selectedActivity = nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
