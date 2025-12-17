@@ -902,15 +902,41 @@ final class ChatCLIProvider: LLMProvider {
         if !run.stderr.isEmpty {
             print("[ChatCLI][mergeFrameDescriptionsWithCLI] stderr:\n\(run.stderr)")
         }
-        guard run.exitCode == 0,
-              let data = run.stdout.data(using: .utf8),
-              let parsed = try? JSONDecoder().decode(SegmentMergeResponse.self, from: data),
-              !parsed.segments.isEmpty else {
+
+        // Strip markdown code fences that Claude often adds
+        let cleanOutput = run.stdout
+            .replacingOccurrences(of: "```json", with: "")
+            .replacingOccurrences(of: "```", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard run.exitCode == 0 else {
+            return (fallbackObservations(frames: frames, batchId: batchId, batchStartTime: batchStartTime, videoDuration: videoDuration), run.usage)
+        }
+
+        // Try direct decode first
+        var parsed: SegmentMergeResponse?
+        if let data = cleanOutput.data(using: .utf8) {
+            parsed = try? JSONDecoder().decode(SegmentMergeResponse.self, from: data)
+        }
+
+        // Fallback: extract JSON object between first { and last } (handles "Here is the answer: {...}")
+        if parsed == nil || parsed!.segments.isEmpty {
+            if let firstBrace = cleanOutput.firstIndex(of: "{"),
+               let lastBrace = cleanOutput.lastIndex(of: "}"),
+               firstBrace < lastBrace {
+                let jsonSlice = String(cleanOutput[firstBrace...lastBrace])
+                if let sliceData = jsonSlice.data(using: .utf8) {
+                    parsed = try? JSONDecoder().decode(SegmentMergeResponse.self, from: sliceData)
+                }
+            }
+        }
+
+        guard let parsed, !parsed.segments.isEmpty else {
             return (fallbackObservations(frames: frames, batchId: batchId, batchStartTime: batchStartTime, videoDuration: videoDuration), run.usage)
         }
 
         var observations: [Observation] = []
-        for seg in parsed.segments.prefix(5) {
+        for seg in parsed.segments {
             let startSeconds = TimeInterval(parseVideoTimestamp(seg.start))
             let endSeconds = TimeInterval(parseVideoTimestamp(seg.end))
             guard endSeconds > startSeconds else { continue }
@@ -947,7 +973,7 @@ final class ChatCLIProvider: LLMProvider {
                                       videoDuration: TimeInterval) -> [Observation] {
         let sorted = frames.sorted { $0.timestamp < $1.timestamp }
         var result: [Observation] = []
-        for item in sorted.prefix(5) {
+        for item in sorted {
             let startSeconds = max(0.0, item.timestamp)
             let endSeconds = startSeconds + screenshotInterval
             let clampedEndSeconds = videoDuration > 0 ? min(videoDuration, endSeconds) : endSeconds
