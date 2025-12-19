@@ -109,8 +109,6 @@ final class FaviconService {
     ///   - primaryHost: Normalized host for network fetch (just domain)
     ///   - secondaryHost: Normalized host for network fetch
     func fetchFavicon(primaryRaw: String?, secondaryRaw: String?, primaryHost: String?, secondaryHost: String?) async -> NSImage? {
-        print("[FaviconService] 🔍 Fetching favicon - primaryRaw: '\(primaryRaw ?? "nil")' primaryHost: '\(primaryHost ?? "nil")'")
-
         // First, try single pattern matching against raw strings (preserves paths like /xcode)
         if let raw = primaryRaw, let img = matchPattern(raw) { return img }
         if let raw = secondaryRaw, let img = matchPattern(raw) { return img }
@@ -131,10 +129,7 @@ final class FaviconService {
         for (pattern, assetName) in faviconPatterns {
             if rawLower.contains(pattern) {
                 if let img = NSImage(named: assetName) {
-                    print("[FaviconService] ✅ Pattern matched '\(raw)' → '\(pattern)' → asset '\(assetName)'")
                     return img
-                } else {
-                    print("[FaviconService] ⚠️ Pattern matched but asset NOT FOUND: '\(raw)' → '\(pattern)' → '\(assetName)'")
                 }
             }
         }
@@ -147,10 +142,7 @@ final class FaviconService {
         for (pattern1, pattern2, assetName) in faviconDualPatterns {
             if rawLower.contains(pattern1) && rawLower.contains(pattern2) {
                 if let img = NSImage(named: assetName) {
-                    print("[FaviconService] ✅ Dual pattern matched '\(raw)' → '\(pattern1)' + '\(pattern2)' → asset '\(assetName)'")
                     return img
-                } else {
-                    print("[FaviconService] ⚠️ Dual pattern matched but asset NOT FOUND: '\(raw)' → '\(pattern1)' + '\(pattern2)' → '\(assetName)'")
                 }
             }
         }
