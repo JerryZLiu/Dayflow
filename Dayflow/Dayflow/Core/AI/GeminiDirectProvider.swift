@@ -431,7 +431,7 @@ final class GeminiDirectProvider: LLMProvider {
         var finalObservations: [Observation] = []
         var finalUsedModel = modelPreference.primary.rawValue
 
-        var modelState = ModelRunState(models: modelPreference.orderedModels)
+        var modelState = ModelRunState(models: Array(modelPreference.orderedModels.reversed()))
         let callGroupId = UUID().uuidString
 
         while attempt < maxRetries {
@@ -520,7 +520,7 @@ final class GeminiDirectProvider: LLMProvider {
 
                     appliedFallback = true
                     let reason = fallbackReason(for: nsError.code)
-                    print("↘️ Downgrading to \(transition.to.rawValue) after \(nsError.code)")
+                    print("↔️ Switching to \(transition.to.rawValue) after \(nsError.code)")
 
                     Task { @MainActor in
                         await AnalyticsService.shared.capture("llm_model_fallback", [
@@ -860,7 +860,7 @@ final class GeminiDirectProvider: LLMProvider {
 
                     appliedFallback = true
                     let reason = fallbackReason(for: nsError.code)
-                    print("↘️ Downgrading to \(transition.to.rawValue) after \(nsError.code)")
+                    print("↔️ Switching to \(transition.to.rawValue) after \(nsError.code)")
 
                     Task { @MainActor in
                         await AnalyticsService.shared.capture("llm_model_fallback", [
@@ -2040,7 +2040,6 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
 
     func generateText(prompt: String) async throws -> (text: String, log: LLMCall) {
         let callStart = Date()
-        let model = modelPreference.primary
 
         let generationConfig: [String: Any] = [
             "temperature": 0.7,
@@ -2052,16 +2051,16 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             "generationConfig": generationConfig
         ]
 
-        let urlWithKey = endpointForModel(model) + "?key=\(apiKey)"
-
-        // Retry loop for transient errors
         let maxRetries = 4
         var attempt = 0
         var lastError: Error?
+        var modelState = ModelRunState(models: modelPreference.orderedModels)
 
         while attempt < maxRetries {
             do {
                 print("🔄 generateText attempt \(attempt + 1)/\(maxRetries)")
+                let activeModel = modelState.current
+                let urlWithKey = endpointForModel(activeModel) + "?key=\(apiKey)"
 
                 var request = URLRequest(url: URL(string: urlWithKey)!)
                 request.httpMethod = "POST"
@@ -2108,19 +2107,42 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                 lastError = error
                 print("❌ generateText attempt \(attempt + 1) failed: \(error.localizedDescription)")
 
-                let strategy = classifyError(error)
+                var appliedFallback = false
+                if let nsError = error as NSError?,
+                   nsError.domain == "GeminiError",
+                   Self.capacityErrorCodes.contains(nsError.code),
+                   let transition = modelState.advance() {
 
-                // Check if we should retry
-                if strategy == .noRetry || attempt >= maxRetries - 1 {
-                    print("🚫 Not retrying generateText: strategy=\(strategy), attempt=\(attempt + 1)/\(maxRetries)")
-                    throw error
+                    appliedFallback = true
+                    let reason = fallbackReason(for: nsError.code)
+                    print("↔️ Switching to \(transition.to.rawValue) after \(nsError.code)")
+
+                    Task { @MainActor in
+                        await AnalyticsService.shared.capture("llm_model_fallback", [
+                            "provider": "gemini",
+                            "operation": "generate_text",
+                            "from_model": transition.from.rawValue,
+                            "to_model": transition.to.rawValue,
+                            "reason": reason
+                        ])
+                    }
                 }
 
-                // Apply appropriate delay based on error type
-                let delay = delayForStrategy(strategy, attempt: attempt)
-                if delay > 0 {
-                    print("⏳ Waiting \(String(format: "%.1f", delay))s before retry (strategy: \(strategy))")
-                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                if !appliedFallback {
+                    let strategy = classifyError(error)
+
+                    // Check if we should retry
+                    if strategy == .noRetry || attempt >= maxRetries - 1 {
+                        print("🚫 Not retrying generateText: strategy=\(strategy), attempt=\(attempt + 1)/\(maxRetries)")
+                        throw error
+                    }
+
+                    // Apply appropriate delay based on error type
+                    let delay = delayForStrategy(strategy, attempt: attempt)
+                    if delay > 0 {
+                        print("⏳ Waiting \(String(format: "%.1f", delay))s before retry (strategy: \(strategy))")
+                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    }
                 }
             }
 
