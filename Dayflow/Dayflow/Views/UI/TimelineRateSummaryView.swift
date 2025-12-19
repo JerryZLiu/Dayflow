@@ -16,7 +16,7 @@ struct TimelineRateSummaryView: View {
 
     var title: String = "Rate this summary"
     var isEnabled: Bool = true
-    var activityID: UUID? = nil
+    var activityID: String? = nil
     var onRate: ((TimelineRatingDirection) -> Void)? = nil
 
     @State private var selectedDirection: TimelineRatingDirection? = nil

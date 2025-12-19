@@ -9,6 +9,7 @@ import SwiftUI
 import AVKit
 import AVFoundation
 import AppKit
+import Foundation
 import Sentry
 
 struct MainView: View {
@@ -56,6 +57,9 @@ struct MainView: View {
     @State private var feedbackMode: TimelineFeedbackMode = .form
     @State private var copyTimelineState: TimelineCopyState = .idle
     @State private var copyTimelineTask: Task<Void, Never>? = nil
+    @State private var weeklyTrackedMinutes: Double = 0
+    @State private var cardsToReviewCount: Int = 10  // TODO: Hook up to real data
+    @StateObject private var retryCoordinator = RetryCoordinator()
 
     private let rateSummaryFooterHeight: CGFloat = 28
     private var rateSummaryFooterInset: CGFloat {
@@ -123,7 +127,7 @@ struct MainView: View {
                     GeometryReader { geo in
                         HStack(alignment: .top, spacing: 0) {
                             // Left column: header + chips + timeline
-                            ZStack(alignment: .bottomTrailing) {
+                            ZStack(alignment: .bottom) {
                                 VStack(alignment: .leading, spacing: 18) {
                                     // Header: Date navigation + Recording toggle
                                     HStack(alignment: .center) {
@@ -227,10 +231,36 @@ struct MainView: View {
                                 .padding(.leading, 15)
                                 .padding(.trailing, 5)
 
-                                copyTimelineButton
-                                    .padding(.trailing, 24)
-                                    .padding(.bottom, 24)
-                                    .opacity(contentOpacity)
+                                // Floating footer overlay
+                                VStack(spacing: 0) {
+                                    Spacer()
+
+                                    // Bottom footer bar - all items bottom-aligned
+                                    ZStack(alignment: .bottom) {
+                                        // Left & right items
+                                        HStack(alignment: .bottom) {
+                                            weeklyHoursText
+                                                .opacity(contentOpacity)
+
+                                            Spacer()
+
+                                            copyTimelineButton
+                                                .opacity(contentOpacity)
+                                        }
+                                        .padding(.horizontal, 24)
+
+                                        // TODO: Re-enable when card review feature is ready
+                                        // Centered badge (bottom-aligned with text)
+                                        // if cardsToReviewCount > 0 {
+                                        //     CardsToReviewButton(count: cardsToReviewCount) {
+                                        //         // TODO: Handle tap - navigate to review
+                                        //     }
+                                        //     .opacity(contentOpacity)
+                                        // }
+                                    }
+                                    .padding(.bottom, 17)
+                                }
+                                .allowsHitTesting(true)
                             }
                             .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
@@ -240,49 +270,78 @@ struct MainView: View {
                                 .frame(width: 1)
                                 .frame(maxHeight: .infinity)
 
-                            // Right column: activity detail card — spans full height
+                            // Right column: activity detail card OR day summary — spans full height
                             ZStack(alignment: .topLeading) {
                                 Color.white.opacity(0.7)
 
-                                ZStack(alignment: .bottom) {
+                                if let activity = selectedActivity {
+                                    // Show activity details when a card is selected
+                                    ZStack(alignment: .bottom) {
+                                        ActivityCard(
+                                            activity: activity,
+                                            maxHeight: geo.size.height,
+                                            scrollSummary: true,
+                                            hasAnyActivities: hasAnyActivities,
+                                            onCategoryChange: { category, activity in
+                                                handleCategoryChange(to: category, for: activity)
+                                            },
+                                            onNavigateToCategoryEditor: {
+                                                showCategoryEditor = true
+                                            },
+                                            onRetryBatchCompleted: { batchId in
+                                                refreshActivitiesTrigger &+= 1
+                                                if selectedActivity?.batchId == batchId {
+                                                    selectedActivity = nil
+                                                }
+                                            },
+                                            videoNamespace: videoHeroNamespace,
+                                            videoExpansionState: videoExpansionState
+                                        )
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                        .allowsHitTesting(!feedbackModalVisible)
+                                        .padding(.bottom, rateSummaryFooterHeight)
+
+                                        if !feedbackModalVisible {
+                                            TimelineRateSummaryView(
+                                                activityID: activity.id,
+                                                onRate: handleTimelineRating
+                                            )
+                                                .frame(maxWidth: .infinity)
+                                                .allowsHitTesting(!feedbackModalVisible)
+                                                .transition(
+                                                    .move(edge: .bottom)
+                                                        .combined(with: .opacity)
+                                                )
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                                } else {
+                                    // TODO: Re-enable DaySummaryView when ready
+                                    // DaySummaryView(
+                                    //     selectedDate: selectedDate,
+                                    //     categories: categoryStore.categories,
+                                    //     storageManager: StorageManager.shared
+                                    // )
+                                    // .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    // .transition(.opacity.combined(with: .scale(scale: 0.98)))
+
+                                    // Original empty state placeholder
                                     ActivityCard(
-                                        activity: selectedActivity,
+                                        activity: nil,
                                         maxHeight: geo.size.height,
                                         scrollSummary: true,
                                         hasAnyActivities: hasAnyActivities,
-                                        onCategoryChange: { category, activity in
-                                            handleCategoryChange(to: category, for: activity)
-                                        },
+                                        onCategoryChange: nil,
                                         onNavigateToCategoryEditor: {
                                             showCategoryEditor = true
                                         },
+                                        onRetryBatchCompleted: nil,
                                         videoNamespace: videoHeroNamespace,
                                         videoExpansionState: videoExpansionState
                                     )
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                    .animation(
-                                        .spring(response: 0.35, dampingFraction: 0.9),
-                                        value: selectedActivity?.id
-                                    )
-                                    .allowsHitTesting(!feedbackModalVisible)
-                                    .padding(.bottom, rateSummaryFooterInset)
-
-                                    if selectedActivity != nil && !feedbackModalVisible {
-                                        TimelineRateSummaryView(
-                                            activityID: selectedActivity?.id,
-                                            onRate: handleTimelineRating
-                                        )
-                                            .frame(maxWidth: .infinity)
-                                            .allowsHitTesting(!feedbackModalVisible)
-                                            .transition(
-                                                .move(edge: .bottom)
-                                                    .combined(with: .opacity)
-                                            )
-                                    }
                                 }
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .opacity(contentOpacity)
-
                                 if let direction = feedbackDirection, feedbackModalVisible {
                                     TimelineFeedbackModal(
                                         message: $feedbackMessage,
@@ -299,6 +358,9 @@ struct MainView: View {
                                     .zIndex(2)
                                 }
                             }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .opacity(contentOpacity)
+                            .animation(.spring(response: 0.35, dampingFraction: 0.9), value: selectedActivity?.id)
                             .clipShape(
                                 UnevenRoundedRectangle(
                                     cornerRadii: .init(
@@ -398,8 +460,11 @@ struct MainView: View {
                 performInitialScrollIfNeeded()
             }
 
-            // Start minute-level tick to detect civil-day rollover (midnight)
+            // Start minute-level tick to detect timeline-day rollover (4am boundary)
             startDayChangeTimer()
+
+            // Load weekly activity hours
+            loadWeeklyTrackedMinutes()
         }
         // Trigger reset when idle fired and timeline is visible
         .onChange(of: inactivity.pendingReset) { fired in
@@ -496,6 +561,8 @@ struct MainView: View {
             if dayChangeTimer == nil {
                 startDayChangeTimer()
             }
+            // Refresh weekly hours in case activities were added
+            loadWeeklyTrackedMinutes()
         }
         .overlay {
             if showCategoryEditor {
@@ -507,6 +574,7 @@ struct MainView: View {
                 // Removed .contentShape(Rectangle()) and .onTapGesture to allow keyboard input
             }
         }
+        .environmentObject(retryCoordinator)
     }
     
     private func formatDateForDisplay(_ date: Date) -> String {
@@ -606,6 +674,29 @@ struct MainView: View {
             }
         } else {
             reset()
+        }
+    }
+
+    private var weeklyHoursText: some View {
+        let hours = Int(weeklyTrackedMinutes / 60)
+        let textColor = Color(red: 0.84, green: 0.65, blue: 0.52)
+
+        return HStack(spacing: 4) {
+            Text("\(hours) hours")
+                .font(Font.custom("Nunito", size: 10).weight(.bold))
+                .foregroundColor(textColor)
+            Text("tracked this week")
+                .font(Font.custom("Nunito", size: 10).weight(.regular))
+                .foregroundColor(textColor)
+        }
+    }
+
+    private func loadWeeklyTrackedMinutes() {
+        Task.detached(priority: .userInitiated) {
+            let minutes = StorageManager.shared.fetchTotalMinutesTrackedForWeek(containing: Date())
+            await MainActor.run {
+                weeklyTrackedMinutes = minutes
+            }
         }
     }
 
@@ -1193,15 +1284,14 @@ struct ActivityCard: View {
     var hasAnyActivities: Bool = true
     var onCategoryChange: ((TimelineCategory, TimelineActivity) -> Void)? = nil
     var onNavigateToCategoryEditor: (() -> Void)? = nil
+    var onRetryBatchCompleted: ((Int64) -> Void)? = nil
     // Hero animation for video expansion
     var videoNamespace: Namespace.ID? = nil
     var videoExpansionState: VideoExpansionState? = nil
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var categoryStore: CategoryStore
+    @EnvironmentObject private var retryCoordinator: RetryCoordinator
 
-    @State private var isRetrying = false
-    @State private var retryProgress: String = ""
-    @State private var retryError: String? = nil
     @State private var showCategoryPicker = false
 
     private let timeFormatter: DateFormatter = {
@@ -1373,20 +1463,11 @@ struct ActivityCard: View {
             }
 
             // Error message (if retry failed)
-            if isFailedCard(activity), let error = retryError {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.red)
-                        .font(.system(size: 12))
-
-                    Text(error)
-                        .font(.custom("Nunito", size: 11))
-                        .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
-                        .lineLimit(2)
-                }
-                .padding(8)
-                .background(Color.red.opacity(0.05))
-                .cornerRadius(6)
+            if isFailedCard(activity), let statusLine = retryCoordinator.statusLine(for: activity.batchId) {
+                Text(statusLine)
+                    .font(.custom("Nunito", size: 11))
+                    .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
+                    .lineLimit(1)
             }
 
             // Video thumbnail (render only when available)
@@ -1451,7 +1532,7 @@ struct ActivityCard: View {
                         )
                         .foregroundColor(Color(red: 0.55, green: 0.55, blue: 0.55))
 
-                    renderMarkdownText(activity.detailedSummary)
+                    renderMarkdownText(formattedDetailedSummary(activity.detailedSummary))
                         .font(
                             Font.custom("Nunito", size: 12)
                         )
@@ -1472,6 +1553,29 @@ struct ActivityCard: View {
             return Text(parsed)
         }
         return Text(content)
+    }
+
+    private func formattedDetailedSummary(_ content: String) -> String {
+        if content.contains("\n") || content.contains("\r") {
+            return content
+        }
+
+        let pattern = #"\b\d{1,2}:\d{2}\s?(?:AM|PM)\s*-\s*\d{1,2}:\d{2}\s?(?:AM|PM)\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return content
+        }
+
+        let range = NSRange(content.startIndex..., in: content)
+        let matches = regex.matches(in: content, range: range)
+        guard matches.count > 1 else {
+            return content
+        }
+
+        let mutable = NSMutableString(string: content)
+        for idx in stride(from: matches.count - 1, through: 1, by: -1) {
+            mutable.insert("\n", at: matches[idx].range.location)
+        }
+        return mutable as String
     }
 
     private func categoryBadge(for raw: String) -> (name: String, indicator: Color)? {
@@ -1500,7 +1604,10 @@ struct ActivityCard: View {
 
     @ViewBuilder
     private func retryButtonInline(for activity: TimelineActivity) -> some View {
-        if isRetrying {
+        let isProcessing = retryCoordinator.isActive(batchId: activity.batchId)
+        let isDisabled = retryCoordinator.isRunning
+
+        if isProcessing {
             // Processing state - beige pill with spinner
             HStack(alignment: .center, spacing: 4) {
                 ProgressView()
@@ -1532,48 +1639,16 @@ struct ActivityCard: View {
                 .cornerRadius(200)
             }
             .buttonStyle(PlainButtonStyle())
+            .disabled(isDisabled)
+            .opacity(isDisabled ? 0.6 : 1)
         }
     }
 
     private func handleRetry(for activity: TimelineActivity) {
-        guard let batchId = activity.batchId else {
-            retryError = "Cannot retry: batch information missing"
-            return
+        let dayString = activity.startTime.getDayInfoFor4AMBoundary().dayString
+        retryCoordinator.startRetry(for: dayString) { batchId in
+            onRetryBatchCompleted?(batchId)
         }
-
-        isRetrying = true
-        retryProgress = "Preparing to retry..."
-        retryError = nil
-
-        AnalysisManager.shared.reprocessSpecificBatches(
-            [batchId],
-            progressHandler: { progress in
-                DispatchQueue.main.async {
-                    self.retryProgress = progress
-                }
-            },
-            completion: { result in
-                DispatchQueue.main.async {
-                    self.isRetrying = false
-
-                    switch result {
-                    case .success:
-                        self.retryProgress = ""
-                        self.retryError = nil
-                        // Timeline will auto-refresh when batch completes
-
-                    case .failure(let error):
-                        self.retryProgress = ""
-                        self.retryError = "Retry failed: \(error.localizedDescription)"
-
-                        // Clear error after 10 seconds
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-                            self.retryError = nil
-                        }
-                    }
-                }
-            }
-        )
     }
 
     private func commitCategorySelection(_ category: TimelineCategory, for activity: TimelineActivity) {

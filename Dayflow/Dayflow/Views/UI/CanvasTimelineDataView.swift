@@ -12,7 +12,7 @@ private struct CanvasConfig {
 
 // Positioned activity for Canvas rendering
 private struct CanvasPositionedActivity: Identifiable {
-    let id: UUID
+    let id: String
     let activity: TimelineActivity
     let yPosition: CGFloat
     let height: CGFloat
@@ -35,17 +35,18 @@ struct CanvasTimelineDataView: View {
     @Binding var hasAnyActivities: Bool
     @Binding var refreshTrigger: Int
 
-    @State private var selectedCardId: UUID? = nil
+    @State private var selectedCardId: String? = nil
     @State private var positionedActivities: [CanvasPositionedActivity] = []
     @State private var refreshTimer: Timer?
     @State private var didInitialScrollInView: Bool = false
     @State private var isBreathing = false
     @State private var loadTask: Task<Void, Never>?
     // Staggered entrance animation state (Emil Kowalski principle: sequential reveal)
-    @State private var cardEntranceProgress: [UUID: Bool] = [:]
+    @State private var cardEntranceProgress: [String: Bool] = [:]
     @State private var entranceAnimationTrigger: Int = 0
     @EnvironmentObject private var categoryStore: CategoryStore
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var retryCoordinator: RetryCoordinator
 
     private let storageManager = StorageManager.shared
 
@@ -208,6 +209,8 @@ struct CanvasTimelineDataView: View {
                     durationMinutes: item.durationMinutes,
                     style: style(for: item.categoryName),
                     isSelected: selectedCardId == item.id,
+                    isSystemCategory: item.categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .caseInsensitiveCompare("System") == .orderedSame,
                     onTap: {
                         if selectedCardId == item.id {
                             selectedCardId = nil
@@ -220,7 +223,8 @@ struct CanvasTimelineDataView: View {
                     faviconPrimaryRaw: item.faviconPrimaryRaw,
                     faviconSecondaryRaw: item.faviconSecondaryRaw,
                     faviconPrimaryHost: item.faviconPrimaryHost,
-                    faviconSecondaryHost: item.faviconSecondaryHost
+                    faviconSecondaryHost: item.faviconSecondaryHost,
+                    statusLine: retryCoordinator.statusLine(for: item.activity.batchId)
                 )
                 .frame(height: item.height)
                 .offset(y: item.yPosition)
@@ -425,10 +429,14 @@ struct CanvasTimelineDataView: View {
         let calendar = Calendar.current
         let baseDate = calendar.startOfDay(for: date)
 
-        return cards.compactMap { card -> TimelineActivity? in
+        var results: [TimelineActivity] = []
+        var idCounts: [String: Int] = [:]
+        results.reserveCapacity(cards.count)
+
+        for card in cards {
             guard let startDate = timeFormatter.date(from: card.startTimestamp),
                   let endDate = timeFormatter.date(from: card.endTimestamp) else {
-                return nil
+                continue
             }
 
             let startComponents = calendar.dateComponents([.hour, .minute], from: startDate)
@@ -445,7 +453,7 @@ struct CanvasTimelineDataView: View {
                 minute: endComponents.minute ?? 0,
                 second: 0,
                 of: baseDate
-            ) else { return nil }
+            ) else { continue }
 
             var adjustedStartDate = finalStartDate
             var adjustedEndDate = finalEndDate
@@ -464,7 +472,27 @@ struct CanvasTimelineDataView: View {
                 adjustedEndDate = calendar.date(byAdding: .day, value: 1, to: adjustedEndDate) ?? adjustedEndDate
             }
 
-            return TimelineActivity(
+            let baseId = TimelineActivity.stableId(
+                recordId: card.recordId,
+                batchId: card.batchId,
+                startTime: adjustedStartDate,
+                endTime: adjustedEndDate,
+                title: card.title,
+                category: card.category,
+                subcategory: card.subcategory
+            )
+
+            let seenCount = idCounts[baseId, default: 0]
+            idCounts[baseId] = seenCount + 1
+            let finalId = seenCount == 0 ? baseId : "\(baseId)-\(seenCount)"
+#if DEBUG
+            if seenCount > 0 {
+                print("[CanvasTimelineDataView] Duplicate TimelineActivity.id detected: \(baseId) -> \(finalId)")
+            }
+#endif
+
+            results.append(TimelineActivity(
+                id: finalId,
                 recordId: card.recordId,
                 batchId: card.batchId,
                 startTime: adjustedStartDate,
@@ -478,8 +506,10 @@ struct CanvasTimelineDataView: View {
                 videoSummaryURL: card.videoSummaryURL,
                 screenshot: nil,
                 appSites: card.appSites
-            )
+            ))
         }
+
+        return results
     }
 
     // Trims larger overlapping cards so smaller cards keep their full range.
@@ -701,6 +731,7 @@ struct CanvasActivityCard: View {
     let durationMinutes: Double
     let style: CanvasActivityCardStyle
     let isSelected: Bool
+    let isSystemCategory: Bool
     let onTap: () -> Void
     // Raw values for pattern matching (may contain paths)
     let faviconPrimaryRaw: String?
@@ -708,9 +739,21 @@ struct CanvasActivityCard: View {
     // Normalized hosts for network fetch
     let faviconPrimaryHost: String?
     let faviconSecondaryHost: String?
+    let statusLine: String?
 
     private var isFailedCard: Bool {
         title == "Processing failed"
+    }
+
+    private var isCompactCard: Bool {
+        durationMinutes < 13
+    }
+
+    private var selectionStroke: Color {
+        if isSystemCategory {
+            return Color(red: 1, green: 0.16, blue: 0.11)
+        }
+        return style.accent
     }
 
     var body: some View {
@@ -721,7 +764,37 @@ struct CanvasActivityCard: View {
         }) {
             HStack(alignment: .top, spacing: isFailedCard ? 10 : 8) {
                 if durationMinutes >= 10 {
-                    if !isFailedCard {
+                    if isFailedCard {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(alignment: .top, spacing: 8) {
+                                Text(title)
+                                    .font(
+                                        Font.custom("Nunito", size: 13)
+                                            .weight(.semibold)
+                                    )
+                                    .foregroundColor(style.text)
+
+                                Spacer()
+
+                                Text(time)
+                                    .font(
+                                        Font.custom("Nunito", size: 10)
+                                            .weight(.medium)
+                                    )
+                                    .foregroundColor(style.time)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+
+                            if let statusLine = statusLine {
+                                Text(statusLine)
+                                    .font(Font.custom("Nunito", size: 10))
+                                    .foregroundColor(Color(red: 0.55, green: 0.45, blue: 0.4))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                        }
+                    } else {
                         if faviconPrimaryRaw != nil || faviconSecondaryRaw != nil {
                             FaviconOrSparkleView(
                                 primaryRaw: faviconPrimaryRaw,
@@ -731,30 +804,35 @@ struct CanvasActivityCard: View {
                             )
                             .frame(width: 16, height: 16)
                         }
+
+                        Text(title)
+                            .font(
+                                Font.custom("Nunito", size: 13)
+                                    .weight(.semibold)
+                            )
+                            .foregroundColor(style.text)
+
+                        Spacer()
+
+                        Text(time)
+                            .font(
+                                Font.custom("Nunito", size: 10)
+                                    .weight(.medium)
+                            )
+                            .foregroundColor(style.time)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
-
-                    Text(title)
-                        .font(
-                            Font.custom("Nunito", size: 13)
-                                .weight(.semibold)
-                        )
-                        .foregroundColor(style.text)
-
-                    Spacer()
-
-                    Text(time)
-                        .font(
-                            Font.custom("Nunito", size: 10)
-                                .weight(.medium)
-                        )
-                        .foregroundColor(style.time)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
                 }
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, isFailedCard ? 0 : 6)
-            .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .topLeading)
+            .padding(.vertical, isFailedCard ? 0 : (isCompactCard ? 0 : 6))
+            .frame(
+                maxWidth: .infinity,
+                minHeight: height,
+                maxHeight: height,
+                alignment: isCompactCard ? .leading : .topLeading
+            )
             .background(isFailedCard ? Color(hex: "FFECE4") ?? Color.white : (Color(hex: "FFFBF8") ?? Color.white))
             .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
             .overlay(
@@ -781,7 +859,7 @@ struct CanvasActivityCard: View {
             // Selection halo for the active activity
             .overlay(
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .stroke(style.accent, lineWidth: 1.5)
+                    .stroke(selectionStroke, lineWidth: 1.5)
                     .opacity(isSelected ? 1 : 0)
             )
         }
@@ -818,6 +896,7 @@ struct CanvasCardButtonStyle: ButtonStyle {
                 .frame(width: 800, height: 600)
                 .environmentObject(CategoryStore())
                 .environmentObject(AppState.shared)
+                .environmentObject(RetryCoordinator())
         }
     }
     return PreviewWrapper()

@@ -11,7 +11,7 @@ import SwiftUI
 
 /// Represents an activity in the timeline view
 struct TimelineActivity: Identifiable {
-    let id = UUID()
+    let id: String
     let recordId: Int64?
     let batchId: Int64? // Tracks source batch for retry functionality
     let startTime: Date
@@ -26,8 +26,28 @@ struct TimelineActivity: Identifiable {
     let screenshot: NSImage?
     let appSites: AppSites?
 
+    static func stableId(recordId: Int64?, batchId: Int64?, startTime: Date, endTime: Date, title: String, category: String, subcategory: String) -> String {
+        if let recordId {
+            return "record:\(recordId)"
+        }
+        let batchPart = batchId.map { "batch:\($0)" } ?? "batch:unknown"
+        let startMs = Int64((startTime.timeIntervalSince1970 * 1000).rounded())
+        let endMs = Int64((endTime.timeIntervalSince1970 * 1000).rounded())
+        let contentHash = stableHash("\(title)|\(category)|\(subcategory)")
+        return "\(batchPart)-\(startMs)-\(endMs)-\(contentHash)"
+    }
+
+    private static func stableHash(_ input: String) -> String {
+        var hash: UInt64 = 5381
+        for byte in input.utf8 {
+            hash = ((hash << 5) &+ hash) &+ UInt64(byte)
+        }
+        return String(hash, radix: 36)
+    }
+
     func withCategory(_ newCategory: String) -> TimelineActivity {
         TimelineActivity(
+            id: id,
             recordId: recordId,
             batchId: batchId,
             startTime: startTime,
@@ -69,7 +89,7 @@ struct GridPositionedActivity: Identifiable {
     let xOffset: CGFloat        // X position within activity area
     let width: CGFloat          // Width based on column count
     
-    var id: UUID { activity.id }
+    var id: String { activity.id }
 }
 
 /// Manages column assignments for overlapping activities
