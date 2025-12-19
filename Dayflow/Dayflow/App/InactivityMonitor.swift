@@ -27,8 +27,7 @@ final class InactivityMonitor: ObservableObject {
 
     // State
     private var lastInteractionAt: Date = Date()
-    private var lastBecameInactiveAt: Date? = nil
-    private var firedForCurrentIdle: Bool = false
+    private var lastResetAt: Date? = nil
     private var checkTimer: Timer?
     private var eventMonitors: [Any] = []
     private var observers: [NSObjectProtocol] = []
@@ -39,7 +38,7 @@ final class InactivityMonitor: ObservableObject {
         setupEventMonitors()
         setupAppLifecycleObservers()
 
-        // Only check while active; we'll also check immediately on activation.
+        // Only check while active; we'll also check immediately before activation.
         if NSApp.isActive {
             startTimer()
         }
@@ -90,26 +89,32 @@ final class InactivityMonitor: ObservableObject {
 
         let center = NotificationCenter.default
 
-        let didResign = center.addObserver(
-            forName: NSApplication.didResignActiveNotification,
+        let willBecome = center.addObserver(
+            forName: NSApplication.willBecomeActiveNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            self.lastBecameInactiveAt = Date()
-            self.stopTimer()
+            self?.checkIdle()
         }
-        observers.append(didResign)
+        observers.append(willBecome)
 
         let didBecome = center.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            self.handleBecameActive()
+            self?.startTimer()
         }
         observers.append(didBecome)
+
+        let didResign = center.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.stopTimer()
+        }
+        observers.append(didResign)
     }
 
     private func removeObservers() {
@@ -122,8 +127,7 @@ final class InactivityMonitor: ObservableObject {
 
     private func handleInteraction() {
         lastInteractionAt = Date()
-        lastBecameInactiveAt = nil
-        firedForCurrentIdle = false
+        lastResetAt = nil
     }
 
     private func startTimer() {
@@ -142,31 +146,17 @@ final class InactivityMonitor: ObservableObject {
     }
 
     private func checkIdle() {
-        guard !pendingReset, !firedForCurrentIdle else { return }
+        guard !pendingReset else { return }
 
         let threshold = thresholdSeconds
         let now = Date()
-        let reference = lastBecameInactiveAt ?? lastInteractionAt
-        guard now.timeIntervalSince(reference) >= threshold else { return }
+        guard now.timeIntervalSince(lastInteractionAt) >= threshold else { return }
 
-        pendingReset = true
-        firedForCurrentIdle = true
-    }
-
-    private func handleBecameActive() {
-        // If we were inactive, decide based on how long the app was in the background.
-        if let inactiveAt = lastBecameInactiveAt {
-            let elapsed = Date().timeIntervalSince(inactiveAt)
-            if !pendingReset, !firedForCurrentIdle, elapsed >= thresholdSeconds {
-                pendingReset = true
-                firedForCurrentIdle = true
-            }
-        } else {
-            checkIdle()
+        if let lastResetAt, now.timeIntervalSince(lastResetAt) < threshold {
+            return
         }
 
-        // Clear background marker now that we're active again.
-        lastBecameInactiveAt = nil
-        startTimer()
+        pendingReset = true
+        lastResetAt = now
     }
 }
