@@ -9,6 +9,7 @@ import AVFoundation
 @MainActor
 final class JournalCoordinator: ObservableObject {
     @Published var showOnboardingVideo = false
+    @Published var showRemindersAfterOnboarding = false
 }
 
 struct JournalView: View {
@@ -38,9 +39,20 @@ struct JournalView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .sheet(isPresented: $showRemindersSheet) {
             JournalRemindersView(
-                onSave: { showRemindersSheet = false },
-                onCancel: { showRemindersSheet = false }
+                onSave: {
+                    showRemindersSheet = false
+                    coordinator.showRemindersAfterOnboarding = false
+                },
+                onCancel: {
+                    showRemindersSheet = false
+                    coordinator.showRemindersAfterOnboarding = false
+                }
             )
+        }
+        .onChange(of: coordinator.showRemindersAfterOnboarding) { _, shouldShow in
+            if shouldShow {
+                showRemindersSheet = true
+            }
         }
     }
 

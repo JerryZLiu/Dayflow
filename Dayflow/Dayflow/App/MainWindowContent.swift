@@ -56,6 +56,7 @@ struct MainWindowContent: View {
                     withAnimation(.easeOut(duration: 0.3)) {
                         journalCoordinator.showOnboardingVideo = false
                         hasCompletedJournalOnboarding = true
+                        journalCoordinator.showRemindersAfterOnboarding = true
                     }
                 })
                 .ignoresSafeArea()
