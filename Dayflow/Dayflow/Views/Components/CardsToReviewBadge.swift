@@ -73,6 +73,44 @@ struct CardsToReviewBadge: View {
     }
 }
 
+// MARK: - Interactive Button (Emil Kowalski-style)
+
+struct CardsToReviewButton: View {
+    let count: Int
+    let action: () -> Void
+
+    @State private var isPressed = false
+    @State private var isHovered = false
+
+    var body: some View {
+        CardsToReviewBadge(count: count)
+            .scaleEffect(isPressed ? 0.97 : (isHovered ? 1.04 : 1.0))
+            .brightness(isPressed ? -0.03 : 0)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .onTapGesture {
+                // Haptic-like visual feedback
+                withAnimation(.spring(response: 0.15, dampingFraction: 0.5)) {
+                    isPressed = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                        isPressed = false
+                    }
+                    action()
+                }
+            }
+            .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.6)) {
+                    isPressed = pressing
+                }
+            }, perform: {})
+    }
+}
+
 // MARK: - Preview
 
 #Preview("Cards to Review Badge") {
