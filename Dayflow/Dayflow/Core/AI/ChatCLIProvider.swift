@@ -870,7 +870,29 @@ final class ChatCLIProvider: LLMProvider {
                                                videoDuration: TimeInterval,
                                                batchId: Int64?,
                                                callStart: Date) throws -> ([Observation], TokenUsage?) {
-        guard !frames.isEmpty else { return ([], nil) }
+        let logPrefix = "[ChatCLI][merge]"
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "h:mm:ss a"
+        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+        timeFormatter.timeZone = TimeZone.current
+
+        guard !frames.isEmpty else {
+            print("\(logPrefix) ⚠️ No frames to merge, returning empty")
+            return ([], nil)
+        }
+
+        // === INPUT LOGGING ===
+        print("\n\(logPrefix) ═══════════════════════════════════════════════════════")
+        print("\(logPrefix) 📥 INPUT:")
+        print("\(logPrefix)   batchId: \(batchId ?? -1)")
+        print("\(logPrefix)   batchStartTime: \(timeFormatter.string(from: batchStartTime)) (epoch: \(Int(batchStartTime.timeIntervalSince1970)))")
+        print("\(logPrefix)   videoDuration: \(formatSeconds(videoDuration)) (\(Int(videoDuration)) seconds)")
+        print("\(logPrefix)   frameCount: \(frames.count)")
+        print("\(logPrefix)   frames:")
+        for (i, frame) in frames.enumerated() {
+            let frameTime = batchStartTime.addingTimeInterval(frame.timestamp)
+            print("\(logPrefix)     [\(i)] \(formatSeconds(frame.timestamp)) → \(timeFormatter.string(from: frameTime)): \(frame.description.prefix(80))...")
+        }
 
         let durationString = formatSeconds(videoDuration)
         let lines = frames.map { "- " + formatSeconds($0.timestamp) + ": " + $0.description }.joined(separator: "\n")
@@ -894,13 +916,15 @@ final class ChatCLIProvider: LLMProvider {
             effort = "low"
         }
 
+        print("\(logPrefix) 🤖 Calling LLM (model: \(model), effort: \(effort ?? "default"))...")
         let run = try runAndScrub(prompt: prompt, model: model, reasoningEffort: effort)
 
-        // Full, untrimmed logs for debugging
-        print("\n[ChatCLI][mergeFrameDescriptionsWithCLI] model=\(model) effort=\(effort ?? "default") frames=\(frames.count) videoDuration=\(videoDuration)")
-        print("[ChatCLI][mergeFrameDescriptionsWithCLI] stdout:\n\(run.stdout)")
+        // === LLM OUTPUT LOGGING ===
+        print("\(logPrefix) 📤 LLM OUTPUT:")
+        print("\(logPrefix)   exitCode: \(run.exitCode)")
+        print("\(logPrefix)   stdout: \(run.stdout)")
         if !run.stderr.isEmpty {
-            print("[ChatCLI][mergeFrameDescriptionsWithCLI] stderr:\n\(run.stderr)")
+            print("\(logPrefix)   stderr: \(run.stderr)")
         }
 
         // Strip markdown code fences that Claude often adds
@@ -910,13 +934,16 @@ final class ChatCLIProvider: LLMProvider {
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard run.exitCode == 0 else {
+            print("\(logPrefix) ⚠️ LLM failed (exitCode: \(run.exitCode)), using fallback")
             return (fallbackObservations(frames: frames, batchId: batchId, batchStartTime: batchStartTime, videoDuration: videoDuration), run.usage)
         }
 
         // Try direct decode first
         var parsed: SegmentMergeResponse?
+        var parseMethod = "none"
         if let data = cleanOutput.data(using: .utf8) {
             parsed = try? JSONDecoder().decode(SegmentMergeResponse.self, from: data)
+            if parsed != nil { parseMethod = "direct" }
         }
 
         // Fallback: extract JSON object between first { and last } (handles "Here is the answer: {...}")
@@ -927,19 +954,38 @@ final class ChatCLIProvider: LLMProvider {
                 let jsonSlice = String(cleanOutput[firstBrace...lastBrace])
                 if let sliceData = jsonSlice.data(using: .utf8) {
                     parsed = try? JSONDecoder().decode(SegmentMergeResponse.self, from: sliceData)
+                    if parsed != nil { parseMethod = "brace-extraction" }
                 }
             }
         }
 
         guard let parsed, !parsed.segments.isEmpty else {
+            print("\(logPrefix) ⚠️ Failed to parse segments (parseMethod: \(parseMethod)), using fallback")
+            print("\(logPrefix)   cleanOutput: \(cleanOutput)")
             return (fallbackObservations(frames: frames, batchId: batchId, batchStartTime: batchStartTime, videoDuration: videoDuration), run.usage)
         }
 
+        // === PARSED SEGMENTS LOGGING ===
+        print("\(logPrefix) 🔍 PARSED SEGMENTS (parseMethod: \(parseMethod), count: \(parsed.segments.count)):")
+        for (i, seg) in parsed.segments.enumerated() {
+            let durationSec = parseVideoTimestamp(seg.end) - parseVideoTimestamp(seg.start)
+            print("\(logPrefix)   [\(i)] \(seg.start) → \(seg.end) (duration: \(durationSec)s): \(seg.description.prefix(60))...")
+        }
+
+        // === SEGMENT → OBSERVATION CONVERSION ===
+        print("\(logPrefix) 🔄 CONVERTING SEGMENTS TO OBSERVATIONS:")
         var observations: [Observation] = []
-        for seg in parsed.segments {
+        for (i, seg) in parsed.segments.enumerated() {
             let startSeconds = TimeInterval(parseVideoTimestamp(seg.start))
             let endSeconds = TimeInterval(parseVideoTimestamp(seg.end))
-            guard endSeconds > startSeconds else { continue }
+
+            print("\(logPrefix)   [\(i)] Processing segment '\(seg.start)' → '\(seg.end)'")
+            print("\(logPrefix)       startSeconds: \(startSeconds), endSeconds: \(endSeconds)")
+
+            guard endSeconds > startSeconds else {
+                print("\(logPrefix)       ⚠️ SKIPPED: endSeconds <= startSeconds")
+                continue
+            }
 
             let clampedEndSeconds = videoDuration > 0 ? min(endSeconds, videoDuration) : endSeconds
             let startDate = batchStartTime.addingTimeInterval(startSeconds)
@@ -947,6 +993,13 @@ final class ChatCLIProvider: LLMProvider {
 
             let startEpoch = Int(startDate.timeIntervalSince1970)
             let endEpoch = max(startEpoch + 1, Int(endDate.timeIntervalSince1970))
+            let durationMinutes = Double(endEpoch - startEpoch) / 60.0
+
+            print("\(logPrefix)       clampedEndSeconds: \(clampedEndSeconds)")
+            print("\(logPrefix)       startDate: \(timeFormatter.string(from: startDate)) (epoch: \(startEpoch))")
+            print("\(logPrefix)       endDate: \(timeFormatter.string(from: endDate)) (epoch: \(endEpoch))")
+            print("\(logPrefix)       → Observation duration: \(String(format: "%.1f", durationMinutes)) minutes")
+
             observations.append(
                 Observation(
                     id: nil,
@@ -961,9 +1014,21 @@ final class ChatCLIProvider: LLMProvider {
             )
         }
 
+        // === FINAL OUTPUT LOGGING ===
         if observations.isEmpty {
+            print("\(logPrefix) ⚠️ No valid observations created, using fallback")
             return (fallbackObservations(frames: frames, batchId: batchId, batchStartTime: batchStartTime, videoDuration: videoDuration), run.usage)
         }
+
+        print("\(logPrefix) ✅ FINAL OBSERVATIONS (count: \(observations.count)):")
+        for (i, obs) in observations.enumerated() {
+            let startTime = timeFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(obs.startTs)))
+            let endTime = timeFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(obs.endTs)))
+            let durationMin = Double(obs.endTs - obs.startTs) / 60.0
+            print("\(logPrefix)   [\(i)] \(startTime) → \(endTime) (\(String(format: "%.1f", durationMin)) min): \(obs.observation.prefix(50))...")
+        }
+        print("\(logPrefix) ═══════════════════════════════════════════════════════\n")
+
         return (observations, run.usage)
     }
 
@@ -971,9 +1036,21 @@ final class ChatCLIProvider: LLMProvider {
                                       batchId: Int64?,
                                       batchStartTime: Date,
                                       videoDuration: TimeInterval) -> [Observation] {
+        let logPrefix = "[ChatCLI][merge][fallback]"
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "h:mm:ss a"
+        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+        timeFormatter.timeZone = TimeZone.current
+
+        print("\(logPrefix) ⚠️ USING FALLBACK - Creating per-frame observations")
+        print("\(logPrefix)   frameCount: \(frames.count)")
+        print("\(logPrefix)   batchStartTime: \(timeFormatter.string(from: batchStartTime))")
+        print("\(logPrefix)   videoDuration: \(Int(videoDuration))s")
+        print("\(logPrefix)   screenshotInterval: \(screenshotInterval)s")
+
         let sorted = frames.sorted { $0.timestamp < $1.timestamp }
         var result: [Observation] = []
-        for item in sorted {
+        for (i, item) in sorted.enumerated() {
             let startSeconds = max(0.0, item.timestamp)
             let endSeconds = startSeconds + screenshotInterval
             let clampedEndSeconds = videoDuration > 0 ? min(videoDuration, endSeconds) : endSeconds
@@ -983,6 +1060,12 @@ final class ChatCLIProvider: LLMProvider {
 
             let startEpoch = Int(startDate.timeIntervalSince1970)
             let endEpoch = max(startEpoch + 1, Int(endDate.timeIntervalSince1970))
+
+            let startTime = timeFormatter.string(from: startDate)
+            let endTime = timeFormatter.string(from: endDate)
+            let durationSec = endEpoch - startEpoch
+            print("\(logPrefix)   [\(i)] \(startTime) → \(endTime) (\(durationSec)s): \(item.description.prefix(40))...")
+
             result.append(
                 Observation(
                     id: nil,
@@ -996,6 +1079,8 @@ final class ChatCLIProvider: LLMProvider {
                 )
             )
         }
+
+        print("\(logPrefix) Created \(result.count) fallback observations")
         return result
     }
 
