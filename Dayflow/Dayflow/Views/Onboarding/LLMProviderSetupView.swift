@@ -475,7 +475,7 @@ struct LLMProviderSetupView: View {
                 )
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Choose your Gemini model. If you're on the free tier, pick 2.5 Pro, it's the most powerful model and is completely free to use. If you're on a paid plan, which is not recommended, I recommend 2.5 Flash-Lite to minimize costs.")
+                    Text("Choose your Gemini model. If you're on the free tier, pick 3 Flash, it's the most powerful model and is completely free to use. If you're on a paid plan, which is not recommended, I recommend 2.5 Flash-Lite to minimize costs.")
                         .font(.custom("Nunito", size: 16))
                         .fontWeight(.semibold)
                         .foregroundColor(.black.opacity(0.85))
@@ -642,7 +642,7 @@ struct LLMProviderSetupView: View {
                         .fontWeight(.semibold)
                         .foregroundColor(.black.opacity(0.9))
                     
-                    Text("Google's Gemini offers a generous free tier that should allow you to run Dayflow 24/7 for free - no credit card required")
+                    Text("Google's Gemini offers a generous free tier that should allow you to run Dayflow ~15 hours a day for free - no credit card required")
                         .font(.custom("Nunito", size: 14))
                         .foregroundColor(.black.opacity(0.6))
                 }
