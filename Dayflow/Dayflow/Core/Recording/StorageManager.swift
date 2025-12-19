@@ -74,6 +74,7 @@ protocol StorageManaging: Sendable {
     // Timeline Queries
     func fetchTimelineCards(forDay day: String) -> [TimelineCard]
     func fetchTimelineCardsByTimeRange(from: Date, to: Date) -> [TimelineCard]
+    func fetchTotalMinutesTrackedForWeek(containing date: Date) -> Double
     func replaceTimelineCardsInRange(from: Date, to: Date, with: [TimelineCardShell], batchId: Int64) -> (insertedIds: [Int64], deletedVideoPaths: [String])
     func fetchRecentTimelineCardsForDebug(limit: Int) -> [TimelineCardDebugEntry]
 
@@ -1397,6 +1398,41 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         return result
     }
 
+    /// Returns total minutes of tracked activities for the week containing the given date.
+    /// Week starts on Monday at 4 AM and ends the following Monday at 4 AM.
+    func fetchTotalMinutesTrackedForWeek(containing date: Date) -> Double {
+        let calendar = Calendar.current
+
+        // Find the Monday of the week containing this date
+        var weekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date))!
+        // Set to 4 AM on that Monday
+        weekStart = calendar.date(bySettingHour: 4, minute: 0, second: 0, of: weekStart) ?? weekStart
+
+        // If current date is before 4 AM Monday, go back one week
+        if date < weekStart {
+            weekStart = calendar.date(byAdding: .weekOfYear, value: -1, to: weekStart) ?? weekStart
+        }
+
+        // Week ends at 4 AM the following Monday
+        let weekEnd = calendar.date(byAdding: .weekOfYear, value: 1, to: weekStart) ?? weekStart
+
+        let startTs = Int(weekStart.timeIntervalSince1970)
+        let endTs = Int(weekEnd.timeIntervalSince1970)
+
+        // Query sum of (end_ts - start_ts) for all non-deleted cards in the week
+        let totalSeconds: Double? = try? timedRead("fetchTotalMinutesTrackedForWeek") { db in
+            try Double.fetchOne(db, sql: """
+                SELECT COALESCE(SUM(end_ts - start_ts), 0)
+                FROM timeline_cards
+                WHERE start_ts >= ? AND start_ts < ?
+                AND is_deleted = 0
+                AND category != 'System'
+            """, arguments: [startTs, endTs])
+        }
+
+        return (totalSeconds ?? 0) / 60.0
+    }
+
     func fetchRecentTimelineCardsForDebug(limit: Int) -> [TimelineCardDebugEntry] {
         guard limit > 0 else { return [] }
 
@@ -2589,26 +2625,21 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 if limit == Int64.max {
                     return // Unlimited storage - skip purge
                 }
-                
-                // 3 days cutoff for all chunks
-                let cutoffDate = Date().addingTimeInterval(-3 * 24 * 60 * 60)
-                let cutoffTimestamp = Int(cutoffDate.timeIntervalSince1970)
-                
+
                 // Clean up if above limit
                 if currentSize > limit {
 
                     try self.timedWrite("purgeIfNeeded") { db in
-                        // Get chunks older than 3 days with file paths still set
+                        // Get oldest chunks with file paths still set
                         let oldChunks = try Row.fetchAll(db, sql: """
                             SELECT id, file_url, start_ts 
                             FROM chunks 
-                            WHERE start_ts < ?
-                            AND file_url IS NOT NULL
-                            AND file_url != ''
-                            AND (is_deleted = 0 OR is_deleted IS NULL)
+                            WHERE file_url IS NOT NULL
+                              AND file_url != ''
+                              AND (is_deleted = 0 OR is_deleted IS NULL)
                             ORDER BY start_ts ASC 
                             LIMIT 500
-                        """, arguments: [cutoffTimestamp])
+                        """)
                         
                         var deletedCount = 0
                         var freedSpace: Int64 = 0
@@ -2657,8 +2688,47 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                         // freedGB retained for future use if needed
                     }
                 }
+
+                self.cleanupRecordingStragglers()
             } catch {
                 print("❌ Purge error: \(error)")
+            }
+        }
+    }
+
+    private func cleanupRecordingStragglers() {
+        // Find the oldest active chunk timestamp and remove any files older than that cutoff.
+        // This cleans up orphaned files that may not exist in the DB anymore.
+        let oldestActiveStartTs: Int? = try? timedRead("oldestActiveChunkTimestamp") { db in
+            try Int.fetchOne(db, sql: """
+                SELECT MIN(start_ts)
+                FROM chunks
+                WHERE (is_deleted = 0 OR is_deleted IS NULL)
+            """)
+        }
+
+        guard let oldestActiveStartTs else { return }
+        let cutoffDate = Date(timeIntervalSince1970: TimeInterval(oldestActiveStartTs))
+
+        guard let enumerator = fileMgr.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.creationDateKey, .contentModificationDateKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        for case let fileURL as URL in enumerator {
+            do {
+                let values = try fileURL.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey, .isDirectoryKey])
+                if values.isDirectory == true { continue }
+
+                let fileDate = values.creationDate ?? values.contentModificationDate
+                guard let fileDate else { continue }
+
+                if fileDate < cutoffDate {
+                    try fileMgr.removeItem(at: fileURL)
+                }
+            } catch {
+                print("⚠️ Failed to delete straggler file at \(fileURL.path): \(error)")
             }
         }
     }
