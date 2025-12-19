@@ -18,6 +18,7 @@ protocol AnalysisManaging {
     func triggerAnalysisNow()
     func reprocessDay(_ day: String, progressHandler: @escaping (String) -> Void, completion: @escaping (Result<Void, Error>) -> Void)
     func reprocessSpecificBatches(_ batchIds: [Int64], progressHandler: @escaping (String) -> Void, completion: @escaping (Result<Void, Error>) -> Void)
+    func reprocessBatch(_ batchId: Int64, stepHandler: @escaping (LLMProcessingStep) -> Void, completion: @escaping (Result<Void, Error>) -> Void)
 }
 
 
@@ -303,6 +304,37 @@ final class AnalysisManager: AnalysisManaging {
         }
     }
 
+    func reprocessBatch(_ batchId: Int64, stepHandler: @escaping (LLMProcessingStep) -> Void, completion: @escaping (Result<Void, Error>) -> Void) {
+        queue.async { [weak self] in
+            guard let self = self else {
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "AnalysisManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Manager deallocated"])))
+                }
+                return
+            }
+
+            // Reset batch state and clear observations
+            self.store.deleteObservations(forBatchIds: [batchId])
+            let resetBatchIds = Set(self.store.resetBatchStatuses(forBatchIds: [batchId]))
+            guard resetBatchIds.contains(batchId) else {
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "AnalysisManager", code: 4, userInfo: [NSLocalizedDescriptionKey: "No eligible batches found to reprocess"])))
+                }
+                return
+            }
+
+            self.queueGeminiRequest(
+                batchId: batchId,
+                progressHandler: stepHandler,
+                completion: { result in
+                    DispatchQueue.main.async {
+                        completion(result)
+                    }
+                }
+            )
+        }
+    }
+
     @objc private func timerFired() { triggerAnalysisNow() }
 
 
@@ -321,12 +353,17 @@ final class AnalysisManager: AnalysisManaging {
     }
 
 
-    private func queueGeminiRequest(batchId: Int64) {
+    private func queueGeminiRequest(
+        batchId: Int64,
+        progressHandler: ((LLMProcessingStep) -> Void)? = nil,
+        completion: ((Result<Void, Error>) -> Void)? = nil
+    ) {
         let screenshotsInBatch = StorageManager.shared.screenshotsForBatch(batchId)
 
         guard !screenshotsInBatch.isEmpty else {
             print("Warning: Batch \(batchId) has no screenshots. Marking as 'failed_empty'.")
             self.updateBatchStatus(batchId: batchId, status: "failed_empty")
+            completion?(.success(()))
             return
         }
 
@@ -341,6 +378,7 @@ final class AnalysisManager: AnalysisManaging {
         if itemCount == 0 {
             print("Warning: Batch \(batchId) has no data. Marking as 'failed_empty'.")
             self.updateBatchStatus(batchId: batchId, status: "failed_empty")
+            completion?(.success(()))
             return
         }
 
@@ -349,6 +387,7 @@ final class AnalysisManager: AnalysisManaging {
         if totalDurationSeconds < minimumDurationSeconds {
             print("Batch \(batchId) duration (\(totalDurationSeconds)s) is less than \(minimumDurationSeconds)s. Marking as 'skipped_short'.")
             self.updateBatchStatus(batchId: batchId, status: "skipped_short")
+            completion?(.success(()))
             return
         }
 
@@ -373,7 +412,7 @@ final class AnalysisManager: AnalysisManaging {
 
         updateBatchStatus(batchId: batchId, status: "processing")
 
-        llmService.processBatch(batchId) { [weak self] (result: Result<ProcessedBatchResult, Error>) in
+        llmService.processBatch(batchId, progressHandler: progressHandler) { [weak self] (result: Result<ProcessedBatchResult, Error>) in
             guard let self else { return }
 
             let now = Date()
@@ -463,6 +502,8 @@ final class AnalysisManager: AnalysisManaging {
                     print("✅ Timelapse generation complete for batch \(batchId)")
                 }
 
+                completion?(.success(()))
+
             case .failure(let err):
                 print("LLM failed for Batch \(batchId). Day \(currentLogicalDayString) may have been cleared. Error: \(err.localizedDescription)")
 
@@ -470,6 +511,7 @@ final class AnalysisManager: AnalysisManaging {
                 transaction.finish(status: .internalError)
 
                 self.markBatchFailed(batchId: batchId, reason: err.localizedDescription)
+                completion?(.failure(err))
             }
         }
     }

@@ -14,8 +14,13 @@ struct ProcessedBatchResult {
     let cardIds: [Int64]
 }
 
+enum LLMProcessingStep: Sendable, Equatable {
+    case transcribing
+    case generatingCards
+}
+
 protocol LLMServicing {
-    func processBatch(_ batchId: Int64, completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void)
+    func processBatch(_ batchId: Int64, progressHandler: ((LLMProcessingStep) -> Void)?, completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void)
     func generateText(prompt: String) async throws -> String
     var batchingConfig: BatchingConfig { get }
 }
@@ -24,35 +29,20 @@ final class LLMService: LLMServicing {
     static let shared: LLMServicing = LLMService()
     
     private var providerType: LLMProviderType {
-        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-        print("\n🔍 [LLMService] Reading provider type at \(timestamp)")
-        
         guard let savedData = UserDefaults.standard.data(forKey: "llmProviderType") else {
-            print("⚠️ [LLMService] No saved provider type in UserDefaults - defaulting to Gemini")
             return .geminiDirect
         }
-        
-        print("✅ [LLMService] Found provider data in UserDefaults: \(savedData.count) bytes")
-        
+
         do {
-            let decoded = try JSONDecoder().decode(LLMProviderType.self, from: savedData)
-            print("✅ [LLMService] Successfully decoded provider type: \(decoded)")
-            
-            return decoded
+            return try JSONDecoder().decode(LLMProviderType.self, from: savedData)
         } catch {
             print("❌ [LLMService] Failed to decode provider type: \(error)")
-            print("   Raw data (hex): \(savedData.map { String(format: "%02x", $0) }.joined())")
             return .geminiDirect
         }
     }
     
     private var provider: LLMProvider? {
-        let type = providerType
-        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-        print("\n🏗️ [LLMService] Creating provider at \(timestamp)")
-        print("   Provider type: \(type)")
-
-        switch type {
+        switch providerType {
         case .geminiDirect:
             return makeGeminiProvider()
         case .dayflowBackend(let endpoint):
@@ -101,7 +91,7 @@ final class LLMService: LLMServicing {
     }
     
     // Keep the existing processBatch implementation for backward compatibility
-    func processBatch(_ batchId: Int64, completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void) {
+    func processBatch(_ batchId: Int64, progressHandler: ((LLMProcessingStep) -> Void)? = nil, completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void) {
         Task {
             // Get batch info first (outside do-catch so it's available in catch block)
             let batches = StorageManager.shared.allBatches()
@@ -142,6 +132,10 @@ final class LLMService: LLMServicing {
 
                 guard !screenshots.isEmpty else {
                     throw NSError(domain: "LLMService", code: 3, userInfo: [NSLocalizedDescriptionKey: "No screenshots in batch"])
+                }
+
+                await MainActor.run {
+                    progressHandler?(.transcribing)
                 }
 
                 print("📸 [LLMService] Transcribing \(screenshots.count) screenshots")
@@ -227,6 +221,10 @@ final class LLMService: LLMServicing {
                     categories: categories
                 )
                 
+                await MainActor.run {
+                    progressHandler?(.generatingCards)
+                }
+
                 // Generate activity cards using sliding window observations
                 let (cards, cardsLog) = try await provider.generateActivityCards(
                     observations: recentObservations,
