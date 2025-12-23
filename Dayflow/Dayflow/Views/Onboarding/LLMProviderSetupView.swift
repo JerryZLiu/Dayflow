@@ -306,7 +306,7 @@ struct LLMProviderSetupView: View {
                         .font(.custom("Nunito", size: 24))
                         .fontWeight(.semibold)
                         .foregroundColor(.black.opacity(0.9))
-                    Text("We strongly recommend LM Studio for the best reliability. Ollama is also supported, but tends to have more connection and timeout issues.")
+                    Text("For local use, LM Studio is the most reliable; Ollama has a known thinking bug in onboarding (can't turn thinking off) and performance is unreliable.")
                         .font(.custom("Nunito", size: 14))
                         .foregroundColor(.black.opacity(0.6))
                 }
@@ -324,37 +324,6 @@ struct LLMProviderSetupView: View {
                             }
                             .frame(width: 18, height: 18)
                             Text("Download LM Studio")
-                                .font(.custom("Nunito", size: 14))
-                                .fontWeight(.semibold)
-                        },
-                        background: Color(red: 0.25, green: 0.17, blue: 0),
-                        foreground: .white,
-                        borderColor: .clear,
-                        cornerRadius: 8,
-                        showOverlayStroke: true
-                    )
-                    Text("or")
-                        .font(.custom("Nunito", size: 13))
-                        .foregroundColor(.black.opacity(0.5))
-                        .padding(.horizontal, 4)
-                    DayflowSurfaceButton(
-                        action: { setupState.selectEngine(.ollama); openOllamaDownload() },
-                        content: {
-                            AsyncImage(url: URL(string: "https://ollama.com/public/ollama.png")) { phase in
-                                switch phase {
-                                case .success(let image):
-                                    image
-                                        .renderingMode(.template)
-                                        .resizable()
-                                        .scaledToFit()
-                                        .foregroundColor(.white)
-                                case .failure(_): Image(systemName: "shippingbox").resizable().scaledToFit().foregroundColor(.white.opacity(0.6))
-                                case .empty: ProgressView().scaleEffect(0.7)
-                                @unknown default: EmptyView()
-                                }
-                            }
-                            .frame(width: 18, height: 18)
-                            Text("Download Ollama")
                                 .font(.custom("Nunito", size: 14))
                                 .fontWeight(.semibold)
                         },
@@ -575,14 +544,13 @@ struct LLMProviderSetupView: View {
                                     }
                                 )
                             } else {
-                                // Engine selection: Ollama, LM Studio, Other
+                                // Engine selection: LM Studio or Custom
                                 VStack(alignment: .leading, spacing: 12) {
                                     Text("Which tool are you using?")
                                         .font(.custom("Nunito", size: 14))
                                         .foregroundColor(.black.opacity(0.65))
                                     Picker("Engine", selection: $setupState.localEngine) {
                                         Text("LM Studio").tag(LocalEngine.lmstudio)
-                                        Text("Ollama").tag(LocalEngine.ollama)
                                         Text("Custom model").tag(LocalEngine.custom)
                                     }
                                     .pickerStyle(.segmented)
@@ -793,12 +761,6 @@ struct LLMProviderSetupView: View {
         }
     }
     
-    private func openOllamaDownload() {
-        if let url = URL(string: "https://ollama.com/download") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-    
     private func openLMStudioDownload() {
         if let url = URL(string: "https://lmstudio.ai/") {
             NSWorkspace.shared.open(url)
@@ -837,9 +799,9 @@ class ProviderSetupState: ObservableObject {
     @Published var testSuccessful: Bool = false
     @Published var geminiModel: GeminiModel
     // Local engine configuration
-    @Published var localEngine: LocalEngine = .ollama
-    @Published var localBaseURL: String = "http://localhost:11434"
-    @Published var localModelId: String = LocalModelPreferences.defaultModelId(for: .ollama)
+    @Published var localEngine: LocalEngine = .lmstudio
+    @Published var localBaseURL: String = LocalEngine.lmstudio.defaultBaseURL
+    @Published var localModelId: String = LocalModelPreferences.defaultModelId(for: .lmstudio)
     @Published var localAPIKey: String = UserDefaults.standard.string(forKey: "llmLocalAPIKey") ?? ""
     // CLI detection
     @Published var codexCLIStatus: CLIDetectionState = .unknown
@@ -906,7 +868,7 @@ class ProviderSetupState: ObservableObject {
                     title: "Before you begin",
                     contentType: .information(
                         "For experienced users",
-                        "This path is recommended only if you're comfortable running LLMs locally and debugging technical issues. If terms like vLLM or API endpoint don't ring a bell, we recommend going back and picking 'Gemini'. It's non-technical and takes about 30 seconds.\n\nFor local mode, Dayflow recommends Qwen3-VL 4B as the core vision-language model (Qwen2.5-VL 3B remains available if you need a smaller download)."
+                        "This path is recommended only if you're comfortable running LLMs locally and debugging technical issues. If terms like vLLM or API endpoint don't ring a bell, we recommend going back and picking ChatGPT, Claude, or Gemini. It's non-technical and takes about 30 seconds.\n\nFor local mode, Dayflow recommends Qwen3-VL 4B as the core vision-language model (Qwen2.5-VL 3B remains available if you need a smaller download)."
                     )
                 ),
                 SetupStep(id: "choose", title: "Choose engine", contentType: .localChoice),
