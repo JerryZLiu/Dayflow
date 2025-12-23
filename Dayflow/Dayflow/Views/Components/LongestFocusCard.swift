@@ -39,16 +39,43 @@ struct LongestFocusCard: View {
         static let titleColor = Color(hex: "333333")
         static let orangeSolid = Color(hex: "f3854b")
         static let orangeLight = Color(hex: "f3854b").opacity(0.4)
-        static let dotColor = Color(hex: "f3854b").opacity(0.3)
-        static let lineColor = Color(hex: "e0e0e0")
+        static let axisColor = Color(hex: "9A9393")
 
         // Sizing
+        static let cardWidth: CGFloat = 322
+        static let cardHeight: CGFloat = 185
         static let cardCornerRadius: CGFloat = 8
         static let blockCornerRadius: CGFloat = 6
-        static let tallBlockHeight: CGFloat = 50
-        static let shortBlockHeight: CGFloat = 28
         static let dotSize: CGFloat = 4
-        static let timelinePadding: CGFloat = 16
+
+        // Typography positions (from Figma)
+        static let titleX: CGFloat = 14.5
+        static let titleY: CGFloat = 12.53
+        static let valueX: CGFloat = 13.5
+        static let valueY: CGFloat = 31.53
+
+        // Timeline layout (from Figma)
+        static let timelineX: CGFloat = 10.5
+        static let timelineY: CGFloat = 92.5
+        static let timelineWidth: CGFloat = 301
+        static let timelineHeight: CGFloat = 70.02
+        static let axisTop: CGFloat = 48
+        static let axisHeight: CGFloat = 4
+
+        // Block layout (from Figma)
+        static let tallBlockHeight: CGFloat = 50
+        static let shortBlockHeight: CGFloat = 27.88
+        static let tallBlockTop: CGFloat = 0
+        static let shortBlockTop: CGFloat = 22.44
+        static let minimumBlockWidth: CGFloat = 8
+        static let referenceLongestStartX: CGFloat = 94.05
+        static let referenceLongestWidth: CGFloat = 88.02
+
+        // Labels (from Figma)
+        static let labelTop: CGFloat = 56.02
+        static let labelHeight: CGFloat = 14
+        static let labelStartCenterX: CGFloat = 94.05
+        static let labelEndCenterX: CGFloat = 184.99
     }
 
     // MARK: - Computed Properties
@@ -72,57 +99,35 @@ struct LongestFocusCard: View {
         }
     }
 
-    private var timeRange: (start: Date, end: Date)? {
-        guard !focusBlocks.isEmpty else { return nil }
-        let allTimes = focusBlocks.flatMap { [$0.startTime, $0.endTime] }
-        guard let minTime = allTimes.min(), let maxTime = allTimes.max() else { return nil }
-
-        // Expand to full hours for cleaner display
-        let calendar = Calendar.current
-        let startHour = calendar.date(from: calendar.dateComponents([.year, .month, .day, .hour], from: minTime))!
-        let endHour = calendar.date(byAdding: .hour, value: 1, to: calendar.date(from: calendar.dateComponents([.year, .month, .day, .hour], from: maxTime))!)!
-
-        return (startHour, endHour)
-    }
-
-    private var hourMarkers: [Date] {
-        guard let range = timeRange else { return [] }
-        var markers: [Date] = []
-        var current = range.start
-        while current <= range.end {
-            markers.append(current)
-            current = Calendar.current.date(byAdding: .hour, value: 1, to: current)!
-        }
-        return markers
+    private var anchoredRange: (start: Date, end: Date)? {
+        guard let longest = longestBlock, longest.duration > 0 else { return nil }
+        let scale = Double(Design.timelineWidth / Design.referenceLongestWidth)
+        let rangeDuration = longest.duration * scale
+        let startOffset = rangeDuration * Double(Design.referenceLongestStartX / Design.timelineWidth)
+        let rangeStart = longest.startTime.addingTimeInterval(-startOffset)
+        let rangeEnd = rangeStart.addingTimeInterval(rangeDuration)
+        return (rangeStart, rangeEnd)
     }
 
     // MARK: - Body
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Title
+        ZStack(alignment: .topLeading) {
             Text("Longest focus duration")
                 .font(.custom("InstrumentSerif-Regular", size: 16))
                 .foregroundColor(Design.titleColor)
-                .padding(.top, 12)
-                .padding(.horizontal, 14)
+                .offset(x: Design.titleX, y: Design.titleY)
 
-            // Duration value
             Text(formattedDuration)
                 .font(.custom("InstrumentSerif-Regular", size: 24))
                 .foregroundColor(Design.orangeSolid)
-                .padding(.top, 2)
-                .padding(.horizontal, 13)
+                .offset(x: Design.valueX, y: Design.valueY)
 
-            // Timeline visualization
-            GeometryReader { geometry in
-                timelineVisualization(width: geometry.size.width - (Design.timelinePadding * 2))
-                    .padding(.horizontal, Design.timelinePadding)
-            }
-            .frame(height: 100)
-            .padding(.top, 16)
+            timelineVisualization
+                .frame(width: Design.timelineWidth, height: Design.timelineHeight, alignment: .topLeading)
+                .offset(x: Design.timelineX, y: Design.timelineY)
         }
-        .padding(.bottom, 16)
+        .frame(width: Design.cardWidth, height: Design.cardHeight, alignment: .topLeading)
         .background(Design.backgroundColor)
         .overlay(
             RoundedRectangle(cornerRadius: Design.cardCornerRadius)
@@ -133,105 +138,118 @@ struct LongestFocusCard: View {
 
     // MARK: - Timeline Visualization
 
-    private func timelineVisualization(width: CGFloat) -> some View {
-        ZStack(alignment: .bottom) {
-            // Timeline axis with dots
-            timelineAxis(width: width)
-                .offset(y: -20) // Space for time labels below
+    private var timelineVisualization: some View {
+        ZStack(alignment: .topLeading) {
+            timelineAxis()
+                .offset(y: Design.axisTop)
 
-            // Focus blocks
-            focusBlocksView(width: width)
-                .offset(y: -24) // Sit on top of timeline
+            focusBlocksView()
 
-            // Time labels (only for longest block)
-            if let longest = longestBlock, let range = timeRange {
-                timeLabels(for: longest, totalWidth: width, range: range)
+            if let longest = longestBlock {
+                timeLabels(for: longest)
             }
         }
     }
 
-    private func timelineAxis(width: CGFloat) -> some View {
-        let dotCount = hourMarkers.count
-        let spacing = dotCount > 1 ? width / CGFloat(dotCount - 1) : width
+    private func timelineAxis() -> some View {
+        let dotCount = 12
+        let dotSpacing = (Design.timelineWidth - Design.dotSize) / CGFloat(dotCount - 1)
+        let lineY = Design.axisHeight / 2
 
-        return ZStack {
-            // Connecting line
-            Rectangle()
-                .fill(Design.lineColor)
-                .frame(width: width, height: 1)
-
-            // Hour dots
-            HStack(spacing: 0) {
-                ForEach(0..<dotCount, id: \.self) { index in
-                    Circle()
-                        .fill(Design.dotColor)
-                        .frame(width: Design.dotSize, height: Design.dotSize)
-
-                    if index < dotCount - 1 {
-                        Spacer()
-                    }
-                }
+        return ZStack(alignment: .leading) {
+            Path { path in
+                path.move(to: CGPoint(x: Design.dotSize / 2, y: lineY))
+                path.addLine(to: CGPoint(x: Design.timelineWidth - Design.dotSize / 2, y: lineY))
             }
-            .frame(width: width)
+            .stroke(
+                Design.axisColor,
+                style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [4, 2])
+            )
+
+            ForEach(0..<dotCount, id: \.self) { index in
+                Circle()
+                    .fill(Design.axisColor)
+                    .frame(width: Design.dotSize, height: Design.dotSize)
+                    .position(
+                        x: (Design.dotSize / 2) + (CGFloat(index) * dotSpacing),
+                        y: lineY
+                    )
+            }
         }
+        .frame(width: Design.timelineWidth, height: Design.axisHeight, alignment: .leading)
     }
 
     @ViewBuilder
-    private func focusBlocksView(width: CGFloat) -> some View {
-        if let range = timeRange {
-            let totalDuration = range.end.timeIntervalSince(range.start)
-
-            ZStack(alignment: .bottom) {
+    private func focusBlocksView() -> some View {
+        if let range = anchoredRange {
+            ZStack(alignment: .topLeading) {
                 ForEach(focusBlocks) { block in
                     let isLongest = block.id == longestBlock?.id
-                    let blockX = xPosition(for: block.startTime, in: range, width: width)
-                    let blockWidth = (block.duration / totalDuration) * width
+                    let blockFrame = blockFrame(for: block, in: range)
 
-                    RoundedRectangle(cornerRadius: Design.blockCornerRadius)
+                    if blockFrame.width > 0 {
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: Design.blockCornerRadius,
+                            bottomLeadingRadius: 0,
+                            bottomTrailingRadius: 0,
+                            topTrailingRadius: Design.blockCornerRadius
+                        )
                         .fill(isLongest ? Design.orangeSolid : Design.orangeLight)
                         .frame(
-                            width: max(blockWidth, 8), // Minimum width for visibility
+                            width: max(blockFrame.width, Design.minimumBlockWidth),
                             height: isLongest ? Design.tallBlockHeight : Design.shortBlockHeight
                         )
-                        .position(
-                            x: blockX + blockWidth / 2,
-                            y: isLongest ? Design.tallBlockHeight / 2 : Design.shortBlockHeight / 2
+                        .offset(
+                            x: blockFrame.x,
+                            y: isLongest ? Design.tallBlockTop : Design.shortBlockTop
                         )
+                    }
                 }
             }
-            .frame(width: width, height: Design.tallBlockHeight)
         }
     }
 
-    private func timeLabels(for block: FocusBlock, totalWidth: CGFloat, range: (start: Date, end: Date)) -> some View {
+    private func timeLabels(for block: FocusBlock) -> some View {
         let formatter = DateFormatter()
         formatter.dateFormat = "h:mm a"
 
-        let startX = xPosition(for: block.startTime, in: range, width: totalWidth)
-        let endX = xPosition(for: block.endTime, in: range, width: totalWidth)
-
         return ZStack {
-            // Start time label
             Text(formatter.string(from: block.startTime))
                 .font(.custom("Nunito-Bold", size: 10))
                 .foregroundColor(Design.orangeSolid)
-                .position(x: startX, y: 0)
+                .position(
+                    x: Design.labelStartCenterX,
+                    y: Design.labelTop + (Design.labelHeight / 2)
+                )
 
-            // End time label
             Text(formatter.string(from: block.endTime))
                 .font(.custom("Nunito-Bold", size: 10))
                 .foregroundColor(Design.orangeSolid)
-                .position(x: endX, y: 0)
+                .position(
+                    x: Design.labelEndCenterX,
+                    y: Design.labelTop + (Design.labelHeight / 2)
+                )
         }
-        .frame(height: 14)
     }
 
     // MARK: - Helper Functions
 
-    private func xPosition(for date: Date, in range: (start: Date, end: Date), width: CGFloat) -> CGFloat {
+    private func xPosition(for date: Date, in range: (start: Date, end: Date)) -> CGFloat {
         let totalDuration = range.end.timeIntervalSince(range.start)
         let offset = date.timeIntervalSince(range.start)
-        return (offset / totalDuration) * width
+        guard totalDuration > 0 else { return 0 }
+        return CGFloat(offset / totalDuration) * Design.timelineWidth
+    }
+
+    private func blockFrame(for block: FocusBlock, in range: (start: Date, end: Date)) -> (x: CGFloat, width: CGFloat) {
+        let startX = xPosition(for: block.startTime, in: range)
+        let endX = xPosition(for: block.endTime, in: range)
+        let rawMin = min(startX, endX)
+        let rawMax = max(startX, endX)
+        let clampedMin = max(0, min(rawMin, Design.timelineWidth))
+        let clampedMax = max(0, min(rawMax, Design.timelineWidth))
+        let width = max(0, clampedMax - clampedMin)
+        return (x: clampedMin, width: width)
     }
 }
 
