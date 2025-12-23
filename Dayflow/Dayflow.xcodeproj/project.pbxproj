@@ -36,22 +36,9 @@
 		C4C1D2BC2DB56806007D5A55 /* DayflowUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DayflowUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		C4EBEFFF2DBDF65500FC5824 /* Exceptions for "Dayflow" folder in "Dayflow" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = C4C1D2A02DB56805007D5A55 /* Dayflow */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		C4C1D2A32DB56805007D5A55 /* Dayflow */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				C4EBEFFF2DBDF65500FC5824 /* Exceptions for "Dayflow" folder in "Dayflow" target */,
-			);
 			path = Dayflow;
 			sourceTree = "<group>";
 		};
