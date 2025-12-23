@@ -10,6 +10,14 @@ private struct CanvasConfig {
     static let endHour: Int = 28                   // 4 AM next day
 }
 
+struct TimelineTimeLabelFramesPreferenceKey: PreferenceKey {
+    static var defaultValue: [CGRect] = []
+
+    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
 // Positioned activity for Canvas rendering
 private struct CanvasPositionedActivity: Identifiable {
     let id: String
@@ -184,11 +192,20 @@ struct CanvasTimelineDataView: View {
                     .font(.custom("Figtree", size: 13))
                     .foregroundColor(Color(hex: "594838"))
                     .padding(.trailing, 5)
+                    .padding(.top, 2)
                     .frame(width: CanvasConfig.timeColumnWidth, alignment: .trailing)
                     .multilineTextAlignment(.trailing)
                     .lineLimit(1)
                     .minimumScaleFactor(0.95)
                     .allowsTightening(true)
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: TimelineTimeLabelFramesPreferenceKey.self,
+                                value: [proxy.frame(in: .named("TimelinePane"))]
+                            )
+                        }
+                    )
                     .frame(height: CanvasConfig.hourHeight, alignment: .top)
                     .offset(y: -8)
                     .id("hour-\(hourIndex)")
@@ -396,6 +413,12 @@ struct CanvasTimelineDataView: View {
                         self.cardEntranceProgress[activity.id] = true
                     }
                 }
+
+                NotificationCenter.default.post(
+                    name: .timelineDataUpdated,
+                    object: nil,
+                    userInfo: ["dayString": dayString]
+                )
             }
         }
     }
