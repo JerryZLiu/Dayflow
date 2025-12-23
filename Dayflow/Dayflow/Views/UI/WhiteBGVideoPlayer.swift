@@ -12,7 +12,15 @@ import AppKit
 
 // AVPlayerLayer-backed view to avoid AVPlayerView overlays (e.g., Live Text button)
 final class PlayerLayerView: NSView {
-    var player: AVPlayer? { didSet { playerLayer.player = player } }
+    private var _player: AVPlayer?
+    var player: AVPlayer? {
+        get { _player }
+        set {
+            guard newValue != _player else { return }
+            _player = newValue
+            playerLayer.player = newValue
+        }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -37,6 +45,8 @@ final class PlayerLayerView: NSView {
 
 struct WhiteBGVideoPlayer: NSViewRepresentable {
     var player: AVPlayer?
+    var videoGravity: AVLayerVideoGravity = .resizeAspect
+    var backgroundColor: NSColor = .white
 
     func makeNSView(context: Context) -> PlayerLayerView {
         let view = PlayerLayerView()
@@ -46,7 +56,7 @@ struct WhiteBGVideoPlayer: NSViewRepresentable {
 
     func updateNSView(_ nsView: PlayerLayerView, context: Context) {
         nsView.player = player
-        nsView.playerLayer.backgroundColor = NSColor.white.cgColor
-        nsView.playerLayer.videoGravity = .resizeAspect
+        nsView.playerLayer.backgroundColor = backgroundColor.cgColor
+        nsView.playerLayer.videoGravity = videoGravity
     }
 }
