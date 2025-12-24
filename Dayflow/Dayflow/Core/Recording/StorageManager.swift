@@ -2846,115 +2846,139 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     private func purgeIfNeeded() {
         purgeQ.async { [weak self] in
             guard let self = self else { return }
-            
-            do {
-                // Check current size and user-defined limit
-                let currentSize = try self.fileMgr.allocatedSizeOfDirectory(at: self.root)
-                let limit = StoragePreferences.recordingsLimitBytes
+            self.performPurgeIfNeeded()
+        }
+    }
 
-                if limit == Int64.max {
-                    return // Unlimited storage - skip purge
+    func purgeNow(completion: (() -> Void)? = nil) {
+        purgeQ.async { [weak self] in
+            guard let self = self else {
+                if let completion {
+                    DispatchQueue.main.async { completion() }
                 }
+                return
+            }
+            self.performPurgeIfNeeded()
+            if let completion {
+                DispatchQueue.main.async { completion() }
+            }
+        }
+    }
 
-                // Clean up if above limit
-                if currentSize > limit {
+    private func performPurgeIfNeeded() {
+        do {
+            let limit = StoragePreferences.recordingsLimitBytes
 
-                    try self.timedWrite("purgeIfNeeded") { db in
-                        // Get oldest chunks with file paths still set
-                        let oldChunks = try Row.fetchAll(db, sql: """
-                            SELECT id, file_url, start_ts 
-                            FROM chunks 
-                            WHERE file_url IS NOT NULL
-                              AND file_url != ''
-                              AND (is_deleted = 0 OR is_deleted IS NULL)
-                            ORDER BY start_ts ASC 
+            if limit == Int64.max {
+                return // Unlimited storage - skip purge
+            }
+
+            cleanupRecordingStragglers()
+
+            // Check current size after cleaning orphans
+            let currentSize = try fileMgr.allocatedSizeOfDirectory(at: root)
+
+            // Clean up if above limit
+            if currentSize > limit {
+                var freedSpace: Int64 = 0
+                var passCount = 0
+
+                while currentSize - freedSpace > limit {
+                    var deletedThisPass = 0
+                    var freedThisPass: Int64 = 0
+
+                    try timedWrite("purgeScreenshots") { db in
+                        // Get oldest active screenshots
+                        let oldScreenshots = try Row.fetchAll(db, sql: """
+                            SELECT id, file_path, file_size
+                            FROM screenshots
+                            WHERE is_deleted = 0
+                            ORDER BY captured_at ASC
                             LIMIT 500
                         """)
-                        
-                        var deletedCount = 0
-                        var freedSpace: Int64 = 0
-                        
-                        for chunk in oldChunks {
-                            guard let id: Int64 = chunk["id"],
-                                  let path: String = chunk["file_url"] else { continue }
 
-                            // Get file size before deletion
-                            var fileSize: Int64 = 0
-                            if FileManager.default.fileExists(atPath: path) {
-                                if let attrs = try? self.fileMgr.attributesOfItem(atPath: path),
-                                   let size = attrs[.size] as? NSNumber {
-                                    fileSize = size.int64Value
-                                }
-                            }
+                        guard !oldScreenshots.isEmpty else { return }
+
+                        for screenshot in oldScreenshots {
+                            guard let id: Int64 = screenshot["id"],
+                                  let path: String = screenshot["file_path"] else { continue }
 
                             // Mark as deleted in DB first (safer ordering)
                             try db.execute(sql: """
-                                UPDATE chunks
+                                UPDATE screenshots
                                 SET is_deleted = 1
                                 WHERE id = ?
                             """, arguments: [id])
 
                             // Then delete physical file
-                            if FileManager.default.fileExists(atPath: path) {
+                            if fileMgr.fileExists(atPath: path) {
+                                var fileSize: Int64 = 0
+                                if let storedSize: Int64 = screenshot["file_size"] {
+                                    fileSize = storedSize
+                                }
+                                if fileSize == 0,
+                                   let attrs = try? fileMgr.attributesOfItem(atPath: path),
+                                   let size = attrs[.size] as? NSNumber {
+                                    fileSize = size.int64Value
+                                }
+
                                 do {
-                                    try self.fileMgr.removeItem(atPath: path)
-                                    freedSpace += fileSize
-                                    deletedCount += 1
+                                    try fileMgr.removeItem(atPath: path)
+                                    freedThisPass += fileSize
+                                    deletedThisPass += 1
                                 } catch {
-                                    print("⚠️ Failed to delete chunk file at \(path): \(error)")
-                                    // Don't count as freed space if deletion failed
+                                    print("⚠️ Failed to delete screenshot at \(path): \(error)")
                                 }
                             } else {
-                                // File already gone, still count the DB cleanup
-                                deletedCount += 1
-                            }
-
-                            // Stop if we've freed enough space (under 10GB)
-                            if currentSize - freedSpace < limit {
-                                break
+                                deletedThisPass += 1
                             }
                         }
-                        
-                        // freedGB retained for future use if needed
+                    }
+
+                    if deletedThisPass == 0 {
+                        break
+                    }
+
+                    freedSpace += freedThisPass
+                    passCount += 1
+
+                    if passCount > 200 {
+                        break
                     }
                 }
-
-                self.cleanupRecordingStragglers()
-            } catch {
-                print("❌ Purge error: \(error)")
             }
+
+            cleanupRecordingStragglers()
+        } catch {
+            print("❌ Purge error: \(error)")
         }
     }
 
     private func cleanupRecordingStragglers() {
-        // Find the oldest active chunk timestamp and remove any files older than that cutoff.
-        // This cleans up orphaned files that may not exist in the DB anymore.
-        let oldestActiveStartTs: Int? = try? timedRead("oldestActiveChunkTimestamp") { db in
-            try Int.fetchOne(db, sql: """
-                SELECT MIN(start_ts)
-                FROM chunks
-                WHERE (is_deleted = 0 OR is_deleted IS NULL)
+        // Delete any recordings that are not referenced by active screenshots.
+        let activeScreenshotPaths: Set<String> = Set((try? timedRead("activeScreenshotPaths") { db in
+            try Row.fetchAll(db, sql: """
+                SELECT file_path
+                FROM screenshots
+                WHERE is_deleted = 0
             """)
-        }
-
-        guard let oldestActiveStartTs else { return }
-        let cutoffDate = Date(timeIntervalSince1970: TimeInterval(oldestActiveStartTs))
+            .compactMap { $0["file_path"] as? String }
+        }) ?? [])
 
         guard let enumerator = fileMgr.enumerator(
             at: root,
-            includingPropertiesForKeys: [.creationDateKey, .contentModificationDateKey, .isDirectoryKey],
+            includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         ) else { return }
 
+        let deleteAll = activeScreenshotPaths.isEmpty
+
         for case let fileURL as URL in enumerator {
             do {
-                let values = try fileURL.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey, .isDirectoryKey])
+                let values = try fileURL.resourceValues(forKeys: [.isDirectoryKey])
                 if values.isDirectory == true { continue }
 
-                let fileDate = values.creationDate ?? values.contentModificationDate
-                guard let fileDate else { continue }
-
-                if fileDate < cutoffDate {
+                if deleteAll || !activeScreenshotPaths.contains(fileURL.path) {
                     try fileMgr.removeItem(at: fileURL)
                 }
             } catch {

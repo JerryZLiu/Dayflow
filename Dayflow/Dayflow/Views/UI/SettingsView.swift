@@ -430,7 +430,7 @@ struct SettingsView: View {
 
                     HStack(spacing: 12) {
                         DayflowSurfaceButton(
-                            action: refreshStorageMetrics,
+                            action: runStorageStatusCheck,
                             content: {
                                 HStack(spacing: 10) {
                                     if isRefreshingStorage {
@@ -1135,9 +1135,31 @@ struct SettingsView: View {
         }
     }
 
-    private func refreshStorageMetrics() {
+    private func runStorageStatusCheck() {
         guard !isRefreshingStorage else { return }
         isRefreshingStorage = true
+
+        let group = DispatchGroup()
+        group.enter()
+        StorageManager.shared.purgeNow {
+            group.leave()
+        }
+        group.enter()
+        TimelapseStorageManager.shared.purgeNow {
+            group.leave()
+        }
+        group.notify(queue: .main) {
+            refreshStorageMetrics(force: true)
+        }
+    }
+
+    private func refreshStorageMetrics(force: Bool = false) {
+        if !force {
+            guard !isRefreshingStorage else { return }
+        }
+        if !isRefreshingStorage {
+            isRefreshingStorage = true
+        }
 
         Task.detached(priority: .utility) {
             let permission = CGPreflightScreenCaptureAccess()
