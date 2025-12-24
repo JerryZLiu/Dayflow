@@ -18,6 +18,10 @@ struct ActivityCard: View {
     @EnvironmentObject private var retryCoordinator: RetryCoordinator
 
     @State private var showCategoryPicker = false
+    @State private var summaryScrollOffset: CGFloat = 0
+    @State private var hasSummaryScrollOffset = false
+    @State private var isSummaryScrolling = false
+    @State private var summaryScrollReset: DispatchWorkItem? = nil
 
     private let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -216,10 +220,22 @@ struct ActivityCard: View {
                     ScrollView(.vertical, showsIndicators: false) {
                         summaryContent(for: activity)
                             .frame(maxWidth: .infinity, alignment: .topLeading)
+                            .background(
+                                GeometryReader { proxy in
+                                    Color.clear.preference(
+                                        key: ActivitySummaryScrollOffsetPreferenceKey.self,
+                                        value: proxy.frame(in: .named("ActivitySummaryScroll")).minY
+                                    )
+                                }
+                            )
                     }
                     .id(activity.id) // Reset scroll position whenever the selected activity changes
                     .frame(maxWidth: .infinity)
                     .frame(maxHeight: .infinity, alignment: .topLeading)
+                    .coordinateSpace(name: "ActivitySummaryScroll")
+                    .onPreferenceChange(ActivitySummaryScrollOffsetPreferenceKey.self) { offset in
+                        handleSummaryScroll(offset)
+                    }
                 } else {
                     summaryContent(for: activity)
                 }
@@ -267,6 +283,41 @@ struct ActivityCard: View {
                         .textSelection(.enabled)
                 }
             }
+        }
+    }
+
+    private func handleSummaryScroll(_ offset: CGFloat) {
+        if hasSummaryScrollOffset == false {
+            hasSummaryScrollOffset = true
+            summaryScrollOffset = offset
+            return
+        }
+
+        let delta = offset - summaryScrollOffset
+        summaryScrollOffset = offset
+
+        guard abs(delta) > 0.5 else { return }
+
+        if !isSummaryScrolling {
+            let direction = delta < 0 ? "down" : "up"
+            AnalyticsService.shared.capture("right_panel_scrolled", [
+                "panel": "activity_card",
+                "direction": direction
+            ])
+            isSummaryScrolling = true
+        }
+
+        summaryScrollReset?.cancel()
+        let resetWork = DispatchWorkItem { isSummaryScrolling = false }
+        summaryScrollReset = resetWork
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: resetWork)
+    }
+
+    private struct ActivitySummaryScrollOffsetPreferenceKey: PreferenceKey {
+        static var defaultValue: CGFloat = 0
+
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = nextValue()
         }
     }
 
