@@ -61,24 +61,19 @@ struct DateNavigationControls: View {
     private func formatDateForDisplay(_ date: Date) -> String {
         let now = Date()
         let calendar = Calendar.current
-        let formatter = DateFormatter()
 
         let displayDate = timelineDisplayDate(from: date, now: now)
         let timelineToday = timelineDisplayDate(from: now, now: now)
 
         if calendar.isDate(displayDate, inSameDayAs: timelineToday) {
-            formatter.dateFormat = "'Today,' MMM d"
+            return cachedTodayDisplayFormatter.string(from: displayDate)
         } else {
-            formatter.dateFormat = "E, MMM d"
+            return cachedOtherDayDisplayFormatter.string(from: displayDate)
         }
-
-        return formatter.string(from: displayDate)
     }
 
     private func dayString(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        return cachedDayStringFormatter.string(from: date)
     }
 
     private func calculateOptimalPillWidth() -> CGFloat {
