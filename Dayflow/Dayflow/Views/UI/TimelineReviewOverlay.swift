@@ -91,6 +91,13 @@ private enum TimelineReviewRating: String, CaseIterable, Identifiable {
     }
 }
 
+private enum TimelineReviewInput: String {
+    case drag
+    case trackpad
+    case keyboard
+    case button
+}
+
 struct TimelineReviewOverlay: View {
     @Binding var isPresented: Bool
     let selectedDate: Date
@@ -113,6 +120,7 @@ struct TimelineReviewOverlay: View {
     @State private var lastTrackpadDelta: CGSize = .zero
     @State private var isPointerOverSummary = false
     @State private var playbackToggleToken = 0
+    @State private var lastCloseSource: TimelineReviewInput? = nil
 
     @State private var cardSize = CGSize(width: 340, height: 440)
     @State private var isBackAnimating = false
@@ -149,7 +157,16 @@ struct TimelineReviewOverlay: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .transition(.opacity)
-        .onAppear { loadActivities() }
+        .onAppear {
+            lastCloseSource = nil
+            AnalyticsService.shared.capture("timeline_review_opened")
+            loadActivities()
+        }
+        .onDisappear {
+            AnalyticsService.shared.capture("timeline_review_closed", [
+                "source": lastCloseSource?.rawValue ?? "unknown"
+            ])
+        }
         .onChange(of: selectedDate) { _, _ in
             loadActivities()
         }
@@ -159,7 +176,7 @@ struct TimelineReviewOverlay: View {
                     handleMoveCommand(direction)
                 },
                 onBack: {
-                    goBackOneCard()
+                    goBackOneCard(input: .keyboard)
                 },
                 onEscape: {
                     dismissOverlay()
@@ -319,9 +336,9 @@ struct TimelineReviewOverlay: View {
                 .minimumScaleFactor(0.95)
 
             TimelineReviewRatingRow(onUndo: {
-                goBackOneCard()
+                goBackOneCard(input: .button)
             }, onSelect: { rating in
-                commitRating(rating)
+                commitRating(rating, input: .button)
             })
         }
     }
@@ -405,19 +422,22 @@ struct TimelineReviewOverlay: View {
     private func handleMoveCommand(_ direction: MoveCommandDirection) {
         switch direction {
         case .left:
-            commitRating(.distracted, predictedTranslation: TimelineReviewRating.distracted.swipeOffset)
+            commitRating(.distracted, predictedTranslation: TimelineReviewRating.distracted.swipeOffset, input: .keyboard)
         case .right:
-            commitRating(.focused, predictedTranslation: TimelineReviewRating.focused.swipeOffset)
+            commitRating(.focused, predictedTranslation: TimelineReviewRating.focused.swipeOffset, input: .keyboard)
         case .up:
-            commitRating(.neutral, predictedTranslation: TimelineReviewRating.neutral.swipeOffset)
+            commitRating(.neutral, predictedTranslation: TimelineReviewRating.neutral.swipeOffset, input: .keyboard)
         default:
             break
         }
     }
 
-    private func goBackOneCard() {
+    private func goBackOneCard(input: TimelineReviewInput) {
         guard !isAnimatingOut, !isBackAnimating else { return }
         guard currentIndex > 0 else { return }
+        AnalyticsService.shared.capture("timeline_review_undo", [
+            "input": input.rawValue
+        ])
         isBackAnimating = true
         currentIndex -= 1
         isPointerOverSummary = false
@@ -466,7 +486,7 @@ struct TimelineReviewOverlay: View {
                 width: trackpadTranslation.width + (lastTrackpadDelta.width * 6),
                 height: trackpadTranslation.height + (lastTrackpadDelta.height * 6)
             )
-            commitRating(rating, predictedTranslation: predicted)
+            commitRating(rating, predictedTranslation: predicted, input: .trackpad)
         } else {
             resetDragState()
         }
@@ -492,7 +512,7 @@ struct TimelineReviewOverlay: View {
                 }
                 let rating = ratingForGesture(value.translation, allowThreshold: true)
                 if let rating {
-                    commitRating(rating, predictedTranslation: value.predictedEndTranslation)
+                    commitRating(rating, predictedTranslation: value.predictedEndTranslation, input: .drag)
                 } else {
                     resetDragState()
                 }
@@ -512,11 +532,26 @@ struct TimelineReviewOverlay: View {
         return nil
     }
 
-    private func commitRating(_ rating: TimelineReviewRating, predictedTranslation: CGSize? = nil) {
+    private func commitRating(
+        _ rating: TimelineReviewRating,
+        predictedTranslation: CGSize? = nil,
+        input: TimelineReviewInput
+    ) {
         guard !isAnimatingOut, let activity = currentActivity else { return }
         isAnimatingOut = true
         isTrackpadDragging = false
         activeOverlayRating = rating
+
+        let direction: String
+        switch rating {
+        case .distracted: direction = "left"
+        case .neutral: direction = "up"
+        case .focused: direction = "right"
+        }
+        AnalyticsService.shared.capture("timeline_review_swipe", [
+            "direction": direction,
+            "input": input.rawValue
+        ])
 
         let startTs = Int(activity.startTime.timeIntervalSince1970)
         let endTs = Int(activity.endTime.timeIntervalSince1970)
