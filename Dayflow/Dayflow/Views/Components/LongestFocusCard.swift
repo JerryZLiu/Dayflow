@@ -7,6 +7,14 @@
 
 import SwiftUI
 
+// MARK: - Cached DateFormatter (creating DateFormatters is expensive due to ICU initialization)
+
+private let cachedFocusTimeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "h:mm a"
+    return formatter
+}()
+
 // MARK: - Data Model
 
 struct FocusBlock: Identifiable {
@@ -210,11 +218,8 @@ struct LongestFocusCard: View {
     }
 
     private func timeLabels(for block: FocusBlock) -> some View {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-
-        return ZStack {
-            Text(formatter.string(from: block.startTime))
+        ZStack {
+            Text(cachedFocusTimeFormatter.string(from: block.startTime))
                 .font(.custom("Nunito-Bold", size: 10))
                 .foregroundColor(Design.orangeSolid)
                 .position(
@@ -222,7 +227,7 @@ struct LongestFocusCard: View {
                     y: Design.labelTop + (Design.labelHeight / 2)
                 )
 
-            Text(formatter.string(from: block.endTime))
+            Text(cachedFocusTimeFormatter.string(from: block.endTime))
                 .font(.custom("Nunito-Bold", size: 10))
                 .foregroundColor(Design.orangeSolid)
                 .position(
