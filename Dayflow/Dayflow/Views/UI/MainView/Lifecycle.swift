@@ -1,5 +1,12 @@
 import SwiftUI
 
+/// Cached DateFormatter for day change detection - creating DateFormatters is expensive (ICU initialization)
+private let cachedDayFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter
+}()
+
 extension MainView {
     func startDayChangeTimer() {
         stopDayChangeTimer()
@@ -15,8 +22,7 @@ extension MainView {
 
     func handleMinuteTickForDayChange() {
         // Detect timeline day rollover (4am boundary) regardless of what day user is viewing
-        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
-        let currentTimelineDay = fmt.string(from: timelineDisplayDate(from: Date()))
+        let currentTimelineDay = cachedDayFormatter.string(from: timelineDisplayDate(from: Date()))
         if currentTimelineDay != lastObservedTimelineDay {
             lastObservedTimelineDay = currentTimelineDay
 
