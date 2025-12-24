@@ -2,6 +2,21 @@ import SwiftUI
 import AppKit
 import Foundation
 
+// MARK: - Cached DateFormatters (creating DateFormatters is expensive due to ICU initialization)
+
+private let cachedDayFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter
+}()
+
+private let cachedTimeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "h:mm a"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    return formatter
+}()
+
 private struct CanvasConfig {
     static let hourHeight: CGFloat = 144           // 144px per hour (Canvas look)
     static let pixelsPerMinute: CGFloat = 2.4      // 2.4px = 1 minute (Canvas look)
@@ -343,9 +358,7 @@ struct CanvasTimelineDataView: View {
             // Derive the effective timeline day (handles the 4 AM boundary for "today")
             let timelineDate = timelineDisplayDate(from: logicalDate, now: Date())
 
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd"
-            let dayString = formatter.string(from: timelineDate)
+            let dayString = cachedDayFormatter.string(from: timelineDate)
 
             // Check for cancellation before expensive database read
             guard !Task.isCancelled else { return }
@@ -445,10 +458,6 @@ struct CanvasTimelineDataView: View {
     }
 
     private func processTimelineCards(_ cards: [TimelineCard], for date: Date) -> [TimelineActivity] {
-        let timeFormatter = DateFormatter()
-        timeFormatter.dateFormat = "h:mm a"
-        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
-
         let calendar = Calendar.current
         let baseDate = calendar.startOfDay(for: date)
 
@@ -457,8 +466,8 @@ struct CanvasTimelineDataView: View {
         results.reserveCapacity(cards.count)
 
         for card in cards {
-            guard let startDate = timeFormatter.date(from: card.startTimestamp),
-                  let endDate = timeFormatter.date(from: card.endTimestamp) else {
+            guard let startDate = cachedTimeFormatter.date(from: card.startTimestamp),
+                  let endDate = cachedTimeFormatter.date(from: card.endTimestamp) else {
                 continue
             }
 
@@ -670,10 +679,8 @@ struct CanvasTimelineDataView: View {
     }
 
     private func formatRange(start: Date, end: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        let s = formatter.string(from: start)
-        let e = formatter.string(from: end)
+        let s = cachedTimeFormatter.string(from: start)
+        let e = cachedTimeFormatter.string(from: end)
         return "\(s) - \(e)"
     }
 
