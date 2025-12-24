@@ -2,6 +2,15 @@ import SwiftUI
 import AppKit
 import AVFoundation
 
+// MARK: - Cached DateFormatter (creating DateFormatters is expensive due to ICU initialization)
+
+private let cachedReviewTimeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "h:mm a"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    return formatter
+}()
+
 private enum TimelineReviewRating: String, CaseIterable, Identifiable {
     case distracted
     case neutral
@@ -1837,10 +1846,6 @@ private struct TrackpadScrollHandler: NSViewRepresentable {
 }
 
 private func makeTimelineActivities(from cards: [TimelineCard], for date: Date) -> [TimelineActivity] {
-    let timeFormatter = DateFormatter()
-    timeFormatter.dateFormat = "h:mm a"
-    timeFormatter.locale = Locale(identifier: "en_US_POSIX")
-
     let calendar = Calendar.current
     let baseDate = calendar.startOfDay(for: date)
 
@@ -1849,8 +1854,8 @@ private func makeTimelineActivities(from cards: [TimelineCard], for date: Date) 
     results.reserveCapacity(cards.count)
 
     for card in cards {
-        guard let startDate = timeFormatter.date(from: card.startTimestamp),
-              let endDate = timeFormatter.date(from: card.endTimestamp) else {
+        guard let startDate = cachedReviewTimeFormatter.date(from: card.startTimestamp),
+              let endDate = cachedReviewTimeFormatter.date(from: card.endTimestamp) else {
             continue
         }
 
