@@ -11,6 +11,9 @@ struct DaySummaryView: View {
     let selectedDate: Date
     let categories: [TimelineCategory]
     let storageManager: StorageManaging
+    let cardsToReviewCount: Int
+    let reviewRefreshToken: Int
+    var onReviewTap: (() -> Void)? = nil
 
     @State private var timelineCards: [TimelineCard] = []
     @State private var isLoading = true
@@ -21,22 +24,22 @@ struct DaySummaryView: View {
     @State private var hasEarlyAccess = UserDefaults.standard.bool(forKey: "daySummaryEarlyAccessGranted")
     
     // MARK: - Animation State
-    @State private var gatePhase: GatePhase = UserDefaults.standard.bool(
-        forKey: "daySummaryEarlyAccessGranted"
-    ) ? .hidden : .locked
-    
-    @State private var gateOpacity: Double = UserDefaults.standard.bool(
-        forKey: "daySummaryEarlyAccessGranted"
-    ) ? 0 : 1
-    
-    // Animation specific state
+    @State private var gatePhase: GatePhase = UserDefaults.standard.bool(forKey: "daySummaryEarlyAccessGranted") ? .hidden : .locked
+    @State private var gateOpacity: Double = UserDefaults.standard.bool(forKey: "daySummaryEarlyAccessGranted") ? 0 : 1
     @State private var gateScale: CGFloat = 1
-    @State private var gateBlur: CGFloat = 0
-    @State private var gateRingProgress: CGFloat = 0
-    @State private var gateCheckProgress: CGFloat = 0
-    @State private var gateGlowOpacity: Double = 0
-    @State private var gatePulse: CGFloat = 1
-    @State private var successIconScale: CGFloat = 0.5 // Start small for pop effect
+    @State private var contentBlur: CGFloat = UserDefaults.standard.bool(forKey: "daySummaryEarlyAccessGranted") ? 0 : 20
+    @State private var contentScale: CGFloat = UserDefaults.standard.bool(forKey: "daySummaryEarlyAccessGranted") ? 1.0 : 0.95
+    @State private var maskSize: CGFloat = 0
+    @State private var shockwaveScale: CGFloat = 0.1
+    @State private var shockwaveOpacity: Double = 0
+    @State private var successIconScale: CGFloat = 0.001
+    @State private var checkmarkStroke: CGFloat = 0
+    @State private var particleTrigger: Int = 0
+    @State private var reviewSummary = TimelineReviewSummarySnapshot.placeholder
+    @State private var daySummaryScrollOffset: CGFloat = 0
+    @State private var hasDaySummaryScrollOffset = false
+    @State private var isDaySummaryScrolling = false
+    @State private var daySummaryScrollReset: DispatchWorkItem? = nil
 
     private let showDistractionPattern = false
     private let focusSelectionStorageKey = "focusCategorySelection"
@@ -100,10 +103,10 @@ struct DaySummaryView: View {
 
     // MARK: - Computed Stats
 
-    private var timelineDayInfo: (dayString: String, startOfDay: Date) {
+    private var timelineDayInfo: (dayString: String, startOfDay: Date, endOfDay: Date) {
         let timelineDate = timelineDisplayDate(from: selectedDate)
         let info = timelineDate.getDayInfoFor4AMBoundary()
-        return (info.dayString, info.startOfDay)
+        return (info.dayString, info.startOfDay, info.endOfDay)
     }
 
     private var categoryDurations: [CategoryTimeData] {
@@ -208,22 +211,59 @@ struct DaySummaryView: View {
     // MARK: - Body
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Design.sectionSpacing) {
-                daySoFarSection
+        ZStack {
+            ZStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Design.sectionSpacing) {
+                        daySoFarSection
 
-                sectionDivider
+                        sectionDivider
 
-                focusSection
+                        reviewSection
 
-                sectionDivider
+                        sectionDivider
 
-                distractionsSection
+                        focusSection
+
+                        sectionDivider
+
+                        distractionsSection
+                    }
+                    .frame(width: Design.contentWidth, alignment: .leading)
+                    .padding(.top, Design.topPadding)
+                    .padding(.bottom, Design.bottomPadding)
+                    .padding(.horizontal, Design.horizontalPadding)
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: DaySummaryScrollOffsetPreferenceKey.self,
+                                value: proxy.frame(in: .named("DaySummaryScroll")).minY
+                            )
+                        }
+                    )
+                }
+                .scaleEffect(contentScale)
+                .blur(radius: contentBlur)
+                .coordinateSpace(name: "DaySummaryScroll")
+                .onPreferenceChange(DaySummaryScrollOffsetPreferenceKey.self) { offset in
+                    handleDaySummaryScroll(offset)
+                }
             }
-            .frame(width: Design.contentWidth, alignment: .leading)
-            .padding(.top, Design.topPadding)
-            .padding(.bottom, Design.bottomPadding)
-            .padding(.horizontal, Design.horizontalPadding)
+            .mask(
+                ZStack {
+                    if gatePhase == .hidden {
+                        Rectangle()
+                    } else {
+                        Circle().frame(width: maskSize, height: maskSize)
+                    }
+                }
+            )
+
+            if gatePhase != .hidden {
+                earlyAccessGateOverlay
+                    .scaleEffect(gateScale)
+                    .opacity(gateOpacity)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
@@ -233,6 +273,9 @@ struct DaySummaryView: View {
         }
         .onChange(of: selectedDate) { _ in
             loadData()
+        }
+        .onChange(of: reviewRefreshToken) { _ in
+            loadReviewSummary()
         }
         .onReceive(NotificationCenter.default.publisher(for: .timelineDataUpdated)) { notification in
             if let dayString = notification.userInfo?["dayString"] as? String {
@@ -271,16 +314,44 @@ struct DaySummaryView: View {
     private func loadData() {
         isLoading = true
 
-        let dayString = timelineDayInfo.dayString
+        let dayInfo = timelineDayInfo
+        let dayString = dayInfo.dayString
         let storageManager = storageManager
 
         Task.detached(priority: .userInitiated) {
             // Use timeline display date to handle 4 AM boundary
             let cards = await storageManager.fetchTimelineCards(forDay: dayString)
+            let summary = Self.makeReviewSummary(
+                segments: storageManager.fetchReviewRatingSegments(
+                    overlapping: Int(dayInfo.startOfDay.timeIntervalSince1970),
+                    endTs: Int(dayInfo.endOfDay.timeIntervalSince1970)
+                ),
+                dayStartTs: Int(dayInfo.startOfDay.timeIntervalSince1970),
+                dayEndTs: Int(dayInfo.endOfDay.timeIntervalSince1970)
+            )
 
             await MainActor.run {
                 self.timelineCards = cards
                 self.isLoading = false
+                self.reviewSummary = summary
+            }
+        }
+    }
+
+    private func loadReviewSummary() {
+        let dayInfo = timelineDayInfo
+        let storageManager = storageManager
+        Task.detached(priority: .userInitiated) {
+            let summary = Self.makeReviewSummary(
+                segments: storageManager.fetchReviewRatingSegments(
+                    overlapping: Int(dayInfo.startOfDay.timeIntervalSince1970),
+                    endTs: Int(dayInfo.endOfDay.timeIntervalSince1970)
+                ),
+                dayStartTs: Int(dayInfo.startOfDay.timeIntervalSince1970),
+                dayEndTs: Int(dayInfo.endOfDay.timeIntervalSince1970)
+            )
+            await MainActor.run {
+                reviewSummary = summary
             }
         }
     }
@@ -288,18 +359,7 @@ struct DaySummaryView: View {
     // MARK: - Header
 
     private var daySoFarSection: some View {
-        ZStack(alignment: .center) {
-            daySoFarContent
-                .blur(radius: gatePhase == .hidden ? 0 : Design.gateBlurRadius)
-                .allowsHitTesting(gatePhase == .hidden)
-
-            if gatePhase != .hidden {
-                earlyAccessGateOverlay
-                    .scaleEffect(gateScale)
-                    .blur(radius: gateBlur)
-                    .opacity(gateOpacity)
-            }
-        }
+        daySoFarContent
     }
 
     private var daySoFarContent: some View {
@@ -390,6 +450,10 @@ struct DaySummaryView: View {
                 )
                 .shadow(color: Design.gateButtonShadow, radius: 12, x: 0, y: 6)
 
+            ShockwaveView(scale: shockwaveScale, opacity: shockwaveOpacity)
+            SuccessParticlesView(trigger: particleTrigger)
+            ConfettiBurstView(trigger: particleTrigger)
+
             VStack(spacing: 12) {
                 Text("EARLY ACCESS")
                     .font(.custom("Nunito", size: 11).weight(.semibold))
@@ -400,7 +464,7 @@ struct DaySummaryView: View {
                     .font(.custom("InstrumentSerif-Regular", size: 22))
                     .foregroundColor(Design.gateTitleColor)
 
-                Text("Request early access to unlock your live breakdown and focus insights.")
+                Text("Your day so far is a preview of what's to come in Dashboard. This feature is still in beta and may change rapidly.")
                     .font(.custom("Nunito", size: 11))
                     .foregroundColor(Design.gateSubtitleColor)
                     .multilineTextAlignment(.center)
@@ -414,6 +478,14 @@ struct DaySummaryView: View {
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 12)
+    }
+
+    private var reviewSection: some View {
+        TimelineReviewSummaryCard(
+            summary: reviewSummary,
+            cardsToReviewCount: cardsToReviewCount,
+            onReviewTap: onReviewTap
+        )
     }
 
     @ViewBuilder
@@ -435,8 +507,8 @@ struct DaySummaryView: View {
                             .font(.custom("Nunito", size: 12).weight(.semibold))
                     }
                     .foregroundColor(Design.gateButtonText)
+                    .frame(height: 44)
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .fill(
@@ -455,41 +527,27 @@ struct DaySummaryView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(gatePhase == .requesting)
+                .buttonStyle(SquishButtonStyle())
                 .transition(.opacity.animation(.easeOut(duration: 0.2)))
             }
 
             if gatePhase == .granted {
                 VStack(spacing: 6) {
                     ZStack {
-                        // Glow
-                        Circle()
-                            .fill(Design.gateGlow)
-                            .frame(width: 50, height: 50)
-                            .opacity(gateGlowOpacity)
-                            .scaleEffect(gatePulse)
-
-                        // Ring
-                        Circle()
-                            .trim(from: 0, to: gateRingProgress)
-                            .stroke(Design.gateAccent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                            .rotationEffect(Angle.degrees(-90))
-                            .frame(width: 38, height: 38)
-
-                        // Checkmark
                         CheckmarkShape()
-                            .trim(from: 0, to: gateCheckProgress)
+                            .trim(from: 0, to: checkmarkStroke)
                             .stroke(
                                 Design.gateAccent,
-                                style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
+                                style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
                             )
-                            .frame(width: 20, height: 14)
+                            .frame(width: 24, height: 18)
                     }
                     .scaleEffect(successIconScale)
 
-                    Text("Access granted")
+                    Text("Access granted!")
                         .font(.custom("Nunito", size: 12).weight(.bold))
                         .foregroundColor(Design.gateTitleColor)
-                        .opacity(gateCheckProgress) // Fade text in with check
+                        .opacity(checkmarkStroke)
                         .offset(y: 2)
                 }
             }
@@ -499,68 +557,61 @@ struct DaySummaryView: View {
     // MARK: - Animation Logic
     
     private func requestEarlyAccess() {
-        guard gatePhase == .locked else { return }
-        
-        // 1. Tactile Feedback (The "Responsive" Button)
-        // Immediate scale down on press to feel physical
-        withAnimation(.interactiveSpring(response: 0.3, dampingFraction: 0.6)) {
-            gateScale = 0.96
-        }
-        
-        // 2. State Change & Reset
-        // Slight delay to let the scale-down register, then start loading
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            gatePhase = .requesting
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
-                gateScale = 1.0 // Return to normal size
-            }
-        }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { gatePhase = .requesting }
 
-        // 3. The "Unlock" Sequence
-        // Simulate network delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            gatePhase = .granted
-            hasEarlyAccess = true
-            
-            // Pop the icon in (Scale 0 -> 1.1 -> 1.0)
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.6)) {
+            withAnimation(.interpolatingSpring(stiffness: 400, damping: 12)) {
+                gatePhase = .granted
                 successIconScale = 1.0
+                particleTrigger += 1
+                hasEarlyAccess = true
             }
+            withAnimation(.easeOut(duration: 0.5)) { checkmarkStroke = 1.0 }
+            shockwaveOpacity = 1.0
+            withAnimation(.easeOut(duration: 0.7)) { shockwaveScale = 6.0; shockwaveOpacity = 0 }
 
-            // Draw Ring
-            withAnimation(.easeOut(duration: 0.4)) {
-                gateRingProgress = 1
-            }
-            
-            // Draw Checkmark (Staggered slightly after ring starts)
-            withAnimation(.easeOut(duration: 0.3).delay(0.2)) {
-                gateCheckProgress = 1
-            }
-            
-            // Pulse Glow (The "Delight")
-            withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
-                gateGlowOpacity = 0.6
-                gatePulse = 1.3
-            }
-            // Fade glow out
-            withAnimation(.easeIn(duration: 0.5).delay(0.6)) {
-                gateGlowOpacity = 0
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+                withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) {
+                    maskSize = 2500
+                    contentScale = 1.0
+                    contentBlur = 0
+                }
+                withAnimation(.easeIn(duration: 0.3)) { gateOpacity = 0; gateScale = 1.1 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    gatePhase = .hidden
+                    AnalyticsService.shared.capture("day_summary_unlock_completed", [
+                        "source": "button"
+                    ])
+                }
             }
         }
+    }
 
-        // 4. The Exit (Origin-Aware & The "Blur Trick")
-        // Instead of just fading, scale up + blur out to reveal content
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) {
-            withAnimation(.easeIn(duration: 0.35)) {
-                gateOpacity = 0
-                gateScale = 1.05 // Expand slightly as it dissipates
-                gateBlur = 8     // Blur trick: masks the fade-out imperfections
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                gatePhase = .hidden
-            }
+    private func handleDaySummaryScroll(_ offset: CGFloat) {
+        if hasDaySummaryScrollOffset == false {
+            hasDaySummaryScrollOffset = true
+            daySummaryScrollOffset = offset
+            return
         }
+
+        let delta = offset - daySummaryScrollOffset
+        daySummaryScrollOffset = offset
+
+        guard abs(delta) > 0.5 else { return }
+
+        if !isDaySummaryScrolling {
+            let direction = delta < 0 ? "down" : "up"
+            AnalyticsService.shared.capture("right_panel_scrolled", [
+                "panel": "day_summary",
+                "direction": direction
+            ])
+            isDaySummaryScrolling = true
+        }
+
+        daySummaryScrollReset?.cancel()
+        let resetWork = DispatchWorkItem { isDaySummaryScrolling = false }
+        daySummaryScrollReset = resetWork
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: resetWork)
     }
 
     // MARK: - Focus Section
@@ -880,6 +931,68 @@ struct DaySummaryView: View {
             return "0 minutes"
         }
     }
+
+    private enum ReviewRatingKey: String {
+        case distracted
+        case neutral
+        case focused
+    }
+
+    private static func makeReviewSummary(
+        segments: [TimelineReviewRatingSegment],
+        dayStartTs: Int,
+        dayEndTs: Int
+    ) -> TimelineReviewSummarySnapshot {
+        var durationByRating: [ReviewRatingKey: TimeInterval] = [
+            .distracted: 0,
+            .neutral: 0,
+            .focused: 0
+        ]
+        var latestEnd: Int? = nil
+
+        for segment in segments {
+            let start = max(segment.startTs, dayStartTs)
+            let end = min(segment.endTs, dayEndTs)
+            guard end > start else { continue }
+
+            let normalized = segment.rating
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            guard let rating = ReviewRatingKey(rawValue: normalized) else { continue }
+
+            durationByRating[rating, default: 0] += TimeInterval(end - start)
+            latestEnd = max(latestEnd ?? end, end)
+        }
+
+        let total = durationByRating.values.reduce(0, +)
+        guard total > 0 else {
+            return .placeholder
+        }
+
+        let distractedRatio = durationByRating[.distracted, default: 0] / total
+        let neutralRatio = durationByRating[.neutral, default: 0] / total
+        let productiveRatio = durationByRating[.focused, default: 0] / total
+
+        return TimelineReviewSummarySnapshot(
+            hasData: true,
+            lastReviewedAt: latestEnd.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            distractedRatio: distractedRatio,
+            neutralRatio: neutralRatio,
+            productiveRatio: productiveRatio,
+            distractedDuration: durationByRating[.distracted, default: 0],
+            neutralDuration: durationByRating[.neutral, default: 0],
+            productiveDuration: durationByRating[.focused, default: 0]
+        )
+    }
+}
+
+private struct DaySummaryScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
 }
 
 private struct CheckmarkShape: Shape {
@@ -926,6 +1039,136 @@ private struct TotalFocusCard: View {
                 .stroke(Color.white, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+struct ShockwaveView: View {
+    let scale: CGFloat
+    let opacity: Double
+
+    var body: some View {
+        Circle()
+            .stroke(Color(hex: "F3854B"), lineWidth: 3)
+            .scaleEffect(scale)
+            .opacity(opacity)
+    }
+}
+
+struct SuccessParticlesView: View {
+    let trigger: Int
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<15, id: \.self) { index in
+                Rectangle()
+                    .fill(index.isMultiple(of: 2) ? Color(hex: "F3854B") : Color(hex: "3A2F28"))
+                    .frame(width: 8, height: 8)
+                    .modifier(ParticleModifier(trigger: trigger))
+            }
+        }
+    }
+}
+
+struct ParticleModifier: ViewModifier {
+    let trigger: Int
+    @State private var position: CGPoint = .zero
+    @State private var opacity: Double = 0
+
+    func body(content: Content) -> some View {
+        content
+            .offset(x: position.x, y: position.y)
+            .opacity(opacity)
+            .onChange(of: trigger) { _ in
+                opacity = 1
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+                    position = CGPoint(x: .random(in: -200...200), y: .random(in: -200...200))
+                }
+                withAnimation(.easeOut(duration: 0.5).delay(0.15)) {
+                    opacity = 0
+                }
+            }
+    }
+}
+
+struct SquishButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.94 : 1.0)
+            .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+
+struct ConfettiBurstView: View {
+    let trigger: Int
+
+    private let colors: [Color] = [
+        Color(hex: "FF6B6B"),
+        Color(hex: "FFD93D"),
+        Color(hex: "6BCB77"),
+        Color(hex: "4D96FF"),
+        Color(hex: "9B5DE5"),
+        Color(hex: "FF8FAB"),
+        Color(hex: "00C2FF"),
+        Color(hex: "FFA41B"),
+        Color(hex: "F72585"),
+        Color(hex: "7AE582")
+    ]
+    private let confettiCount = 40
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<confettiCount, id: \.self) { index in
+                ConfettiPiece(
+                    color: colors[index % colors.count],
+                    trigger: trigger
+                )
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+private struct ConfettiPiece: View {
+    let color: Color
+    let trigger: Int
+    @State private var offset: CGSize = .zero
+    @State private var rotation: Double = 0
+    @State private var opacity: Double = 0
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 2)
+            .fill(color)
+            .frame(width: 6, height: 10)
+            .rotationEffect(.degrees(rotation))
+            .offset(offset)
+            .opacity(opacity)
+            .onChange(of: trigger) { _ in
+                let xStart = Double.random(in: -40...40)
+                let xBurst = Double.random(in: -140...140)
+                let xFall = Double.random(in: -220...220)
+                let yBurst = Double.random(in: -20...40)
+                let yFall = Double.random(in: 260...420)
+                let spinBurst = Double.random(in: -90...90)
+                let spinFall = spinBurst + Double.random(in: -180...180)
+
+                offset = CGSize(width: xStart, height: -6)
+                rotation = 0
+                opacity = 1
+
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.7)) {
+                    offset = CGSize(width: xBurst, height: yBurst)
+                    rotation = spinBurst
+                }
+
+                withAnimation(.easeInOut(duration: 2.6).delay(0.35)) {
+                    offset = CGSize(width: xFall, height: yFall)
+                    rotation = spinFall
+                }
+
+                withAnimation(.easeOut(duration: 0.6).delay(2.4)) {
+                    opacity = 0
+                }
+            }
     }
 }
 
@@ -1096,7 +1339,10 @@ private struct FocusCategoryFlowLayout: Layout {
     DaySummaryView(
         selectedDate: Date(),
         categories: sampleCategories,
-        storageManager: StorageManager.shared
+        storageManager: StorageManager.shared,
+        cardsToReviewCount: 3,
+        reviewRefreshToken: 0,
+        onReviewTap: { }
     )
     .frame(width: 358, height: 700)
     .background(Color(red: 0.98, green: 0.97, blue: 0.96))

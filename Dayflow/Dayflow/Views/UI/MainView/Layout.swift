@@ -476,7 +476,15 @@ extension MainView {
                 DaySummaryView(
                     selectedDate: selectedDate,
                     categories: categoryStore.categories,
-                    storageManager: StorageManager.shared
+                    storageManager: StorageManager.shared,
+                    cardsToReviewCount: cardsToReviewCount,
+                    reviewRefreshToken: reviewSummaryRefreshToken,
+                    onReviewTap: {
+                        guard cardsToReviewCount > 0 else { return }
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                            showTimelineReview = true
+                        }
+                    }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -532,6 +540,7 @@ extension MainView {
                     selectedDate: selectedDate
                 ) {
                     updateCardsToReviewCount()
+                    reviewSummaryRefreshToken &+= 1
                 }
                 .environmentObject(categoryStore)
                 .transition(.opacity)

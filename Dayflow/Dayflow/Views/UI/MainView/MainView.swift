@@ -61,6 +61,7 @@ struct MainView: View {
     @State var cardsToReviewCount: Int = 0
     @State var showTimelineReview = false
     @State var reviewCountTask: Task<Void, Never>? = nil
+    @State var reviewSummaryRefreshToken: Int = 0
     @StateObject var retryCoordinator = RetryCoordinator()
     @State var weeklyHoursFrame: CGRect = .zero
     @State var timelineTimeLabelFrames: [CGRect] = []
