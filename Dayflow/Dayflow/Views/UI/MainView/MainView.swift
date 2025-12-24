@@ -43,11 +43,7 @@ struct MainView: View {
     @State var lastDateNavMethod: String? = nil
     // Minute tick to handle timeline-day rollover (4am boundary): header updates + jump to today
     @State var dayChangeTimer: Timer? = nil
-    @State var lastObservedTimelineDay: String = {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd"
-        return fmt.string(from: timelineDisplayDate(from: Date()))
-    }()
+    @State var lastObservedTimelineDay: String = cachedDayStringFormatter.string(from: timelineDisplayDate(from: Date()))
     @State var showCategoryEditor = false
     @State var feedbackModalVisible = false
     @State var feedbackMessage: String = ""
