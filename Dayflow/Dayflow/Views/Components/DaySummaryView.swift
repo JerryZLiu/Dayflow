@@ -22,6 +22,15 @@ struct DaySummaryView: View {
     @State private var distractionCategoryIDs: Set<UUID> = []
     @State private var isEditingDistractionCategories = false
     @State private var hasEarlyAccess = UserDefaults.standard.bool(forKey: "daySummaryEarlyAccessGranted")
+
+    // MARK: - Pre-computed Stats (to avoid expensive parsing during body evaluation)
+    // These are computed on background thread when data loads, avoiding main thread hangs
+    @State private var cardsWithDurations: [CardWithDuration] = []
+    @State private var cachedCategoryDurations: [CategoryTimeData] = []
+    @State private var cachedTotalFocusTime: TimeInterval = 0
+    @State private var cachedTotalCapturedTime: TimeInterval = 0
+    @State private var cachedFocusBlocks: [FocusBlock] = []
+    @State private var cachedTotalDistractedTime: TimeInterval = 0
     
     // MARK: - Animation State
     @State private var gatePhase: GatePhase = UserDefaults.standard.bool(forKey: "daySummaryEarlyAccessGranted") ? .hidden : .locked
@@ -101,6 +110,14 @@ struct DaySummaryView: View {
         static let gateBackgroundEnd = Color(hex: "FFF1E3")
     }
 
+    /// Pre-computed card data with parsed timestamps to avoid expensive parsing during body evaluation
+    private struct CardWithDuration {
+        let card: TimelineCard
+        let duration: TimeInterval
+        let startMinutes: Int  // For focus blocks calculation
+        let endMinutes: Int    // For focus blocks calculation
+    }
+
     // MARK: - Computed Stats
 
     private var timelineDayInfo: (dayString: String, startOfDay: Date, endOfDay: Date) {
@@ -109,89 +126,27 @@ struct DaySummaryView: View {
         return (info.dayString, info.startOfDay, info.endOfDay)
     }
 
+    // MARK: - Cached Stats Accessors
+    // These now return pre-computed values instead of computing during body evaluation
+
     private var categoryDurations: [CategoryTimeData] {
-        // Group cards by category and sum durations
-        var durationsByCategory: [String: TimeInterval] = [:]
-
-        for card in timelineCards {
-            guard isSystemCategory(card.category) == false else { continue }
-            let duration = durationSeconds(start: card.startTimestamp, end: card.endTimestamp)
-            durationsByCategory[card.category, default: 0] += duration
-        }
-
-        // Map to CategoryTimeData, matching colors from categories
-        return durationsByCategory.compactMap { (name, duration) -> CategoryTimeData? in
-            guard duration > 0 else { return nil }
-
-            // Find matching category for color
-            let colorHex = categories.first(where: { $0.name == name })?.colorHex ?? "#E5E7EB"
-
-            return CategoryTimeData(
-                name: name,
-                colorHex: colorHex,
-                duration: duration
-            )
-        }
-        .sorted { $0.duration > $1.duration } // Sort by duration descending
+        cachedCategoryDurations
     }
 
     private var totalFocusTime: TimeInterval {
-        // Focus time = user-selected categories
-        timelineCards
-            .filter { isFocusCategory($0.category) }
-            .reduce(0) { total, card in
-                total + durationSeconds(start: card.startTimestamp, end: card.endTimestamp)
-            }
+        cachedTotalFocusTime
     }
 
     private var totalCapturedTime: TimeInterval {
-        timelineCards.reduce(0) { total, card in
-            guard isSystemCategory(card.category) == false else { return total }
-            return total + durationSeconds(start: card.startTimestamp, end: card.endTimestamp)
-        }
+        cachedTotalCapturedTime
     }
 
     private var focusBlocks: [FocusBlock] {
-        let baseDate = timelineDayInfo.startOfDay
-        let focusCards = timelineCards.filter { isFocusCategory($0.category) }
-
-        var blocks: [(start: Int, end: Int)] = []
-        for card in focusCards {
-            guard let start = timelineMinutes(for: card.startTimestamp),
-                  let end = timelineMinutes(for: card.endTimestamp) else { continue }
-            var adjustedEnd = end
-            if adjustedEnd < start {
-                adjustedEnd += Design.minutesPerDay
-            }
-            blocks.append((start: start, end: adjustedEnd))
-        }
-
-        let sorted = blocks.sorted { $0.start < $1.start }
-        var merged: [(start: Int, end: Int)] = []
-        for block in sorted {
-            if let last = merged.last {
-                let gap = block.start - last.end
-                if gap < Design.focusGapMinutes {
-                    merged[merged.count - 1].end = max(last.end, block.end)
-                    continue
-                }
-            }
-            merged.append(block)
-        }
-
-        return merged.map { block in
-            let startDate = baseDate.addingTimeInterval(TimeInterval(block.start * 60))
-            let endDate = baseDate.addingTimeInterval(TimeInterval(block.end * 60))
-            return FocusBlock(startTime: startDate, endTime: endDate)
-        }
+        cachedFocusBlocks
     }
 
     private var totalDistractedTime: TimeInterval {
-        timelineCards.reduce(0) { total, card in
-            guard isSystemCategory(card.category) == false else { return total }
-            guard isDistractionCategory(card.category) else { return total }
-            return total + durationSeconds(start: card.startTimestamp, end: card.endTimestamp)
-        }
+        cachedTotalDistractedTime
     }
 
     private var distractionPattern: (title: String, description: String)? {
@@ -286,12 +241,15 @@ struct DaySummaryView: View {
         .onChange(of: categories) { _ in
             syncFocusSelectionWithCategories()
             syncDistractionSelectionWithCategories()
+            recomputeCachedStatsForCategoryChange()
         }
         .onChange(of: focusCategoryIDs) { _ in
             persistFocusSelection()
+            recomputeFocusStats()
         }
         .onChange(of: distractionCategoryIDs) { _ in
             persistDistractionSelection()
+            recomputeDistractionStats()
         }
         .onChange(of: hasEarlyAccess) { newValue in
             if newValue {
@@ -318,6 +276,11 @@ struct DaySummaryView: View {
         let dayString = dayInfo.dayString
         let storageManager = storageManager
 
+        // Capture current state for background computation
+        let currentFocusIDs = focusCategoryIDs
+        let currentDistractionIDs = distractionCategoryIDs
+        let currentCategories = categories
+
         Task.detached(priority: .userInitiated) {
             // Use timeline display date to handle 4 AM boundary
             let cards = await storageManager.fetchTimelineCards(forDay: dayString)
@@ -330,8 +293,24 @@ struct DaySummaryView: View {
                 dayEndTs: Int(dayInfo.endOfDay.timeIntervalSince1970)
             )
 
+            // Pre-compute all card durations (expensive parsing done once here, off main thread)
+            let precomputed = self.precomputeCardDurations(cards)
+
+            // Pre-compute all stats using the parsed durations
+            let catDurations = self.computeCategoryDurations(from: precomputed, categories: currentCategories)
+            let totalCaptured = self.computeTotalCapturedTime(from: precomputed, categories: currentCategories)
+            let totalFocus = self.computeTotalFocusTime(from: precomputed, focusIDs: currentFocusIDs, categories: currentCategories)
+            let blocks = self.computeFocusBlocks(from: precomputed, focusIDs: currentFocusIDs, baseDate: dayInfo.startOfDay, categories: currentCategories)
+            let totalDistracted = self.computeTotalDistractedTime(from: precomputed, distractionIDs: currentDistractionIDs, categories: currentCategories)
+
             await MainActor.run {
                 self.timelineCards = cards
+                self.cardsWithDurations = precomputed
+                self.cachedCategoryDurations = catDurations
+                self.cachedTotalCapturedTime = totalCaptured
+                self.cachedTotalFocusTime = totalFocus
+                self.cachedFocusBlocks = blocks
+                self.cachedTotalDistractedTime = totalDistracted
                 self.isLoading = false
                 self.reviewSummary = summary
             }
@@ -929,6 +908,183 @@ struct DaySummaryView: View {
             return "\(minutes) minutes"
         } else {
             return "0 minutes"
+        }
+    }
+
+    // MARK: - Pre-computation Helpers (run on background thread to avoid main thread hangs)
+
+    /// Pre-computes durations for all cards (expensive parsing done once)
+    private func precomputeCardDurations(_ cards: [TimelineCard]) -> [CardWithDuration] {
+        cards.compactMap { card in
+            guard let startMinutes = timelineMinutes(for: card.startTimestamp),
+                  let endMinutes = timelineMinutes(for: card.endTimestamp) else {
+                return nil
+            }
+            var adjustedEnd = endMinutes
+            if adjustedEnd < startMinutes {
+                adjustedEnd += Design.minutesPerDay
+            }
+            let duration = TimeInterval(adjustedEnd - startMinutes) * 60
+            return CardWithDuration(
+                card: card,
+                duration: duration,
+                startMinutes: startMinutes,
+                endMinutes: adjustedEnd
+            )
+        }
+    }
+
+    /// Computes category durations from pre-computed data
+    private func computeCategoryDurations(from precomputed: [CardWithDuration], categories: [TimelineCategory]) -> [CategoryTimeData] {
+        var durationsByCategory: [String: TimeInterval] = [:]
+
+        for item in precomputed {
+            guard !isSystemCategoryStatic(item.card.category, categories: categories) else { continue }
+            durationsByCategory[item.card.category, default: 0] += item.duration
+        }
+
+        return durationsByCategory.compactMap { (name, duration) -> CategoryTimeData? in
+            guard duration > 0 else { return nil }
+            let colorHex = categories.first(where: { $0.name == name })?.colorHex ?? "#E5E7EB"
+            return CategoryTimeData(name: name, colorHex: colorHex, duration: duration)
+        }
+        .sorted { $0.duration > $1.duration }
+    }
+
+    /// Computes total captured time from pre-computed data
+    private func computeTotalCapturedTime(from precomputed: [CardWithDuration], categories: [TimelineCategory]) -> TimeInterval {
+        precomputed.reduce(0) { total, item in
+            guard !isSystemCategoryStatic(item.card.category, categories: categories) else { return total }
+            return total + item.duration
+        }
+    }
+
+    /// Computes total focus time from pre-computed data
+    private func computeTotalFocusTime(from precomputed: [CardWithDuration], focusIDs: Set<UUID>, categories: [TimelineCategory]) -> TimeInterval {
+        precomputed
+            .filter { isFocusCategoryStatic($0.card.category, focusIDs: focusIDs, categories: categories) }
+            .reduce(0) { $0 + $1.duration }
+    }
+
+    /// Computes focus blocks from pre-computed data
+    private func computeFocusBlocks(from precomputed: [CardWithDuration], focusIDs: Set<UUID>, baseDate: Date, categories: [TimelineCategory]) -> [FocusBlock] {
+        let focusCards = precomputed.filter { isFocusCategoryStatic($0.card.category, focusIDs: focusIDs, categories: categories) }
+
+        var blocks: [(start: Int, end: Int)] = []
+        for item in focusCards {
+            blocks.append((start: item.startMinutes, end: item.endMinutes))
+        }
+
+        let sorted = blocks.sorted { $0.start < $1.start }
+        var merged: [(start: Int, end: Int)] = []
+        for block in sorted {
+            if let last = merged.last {
+                let gap = block.start - last.end
+                if gap < Design.focusGapMinutes {
+                    merged[merged.count - 1].end = max(last.end, block.end)
+                    continue
+                }
+            }
+            merged.append(block)
+        }
+
+        return merged.map { block in
+            let startDate = baseDate.addingTimeInterval(TimeInterval(block.start * 60))
+            let endDate = baseDate.addingTimeInterval(TimeInterval(block.end * 60))
+            return FocusBlock(startTime: startDate, endTime: endDate)
+        }
+    }
+
+    /// Computes total distracted time from pre-computed data
+    private func computeTotalDistractedTime(from precomputed: [CardWithDuration], distractionIDs: Set<UUID>, categories: [TimelineCategory]) -> TimeInterval {
+        precomputed.reduce(0) { total, item in
+            guard !isSystemCategoryStatic(item.card.category, categories: categories) else { return total }
+            guard isDistractionCategoryStatic(item.card.category, distractionIDs: distractionIDs, categories: categories) else { return total }
+            return total + item.duration
+        }
+    }
+
+    /// Static version of isSystemCategory that takes categories as parameter (for use in background thread)
+    private func isSystemCategoryStatic(_ name: String, categories: [TimelineCategory]) -> Bool {
+        let normalized = normalizedCategoryName(name)
+        if normalized == "system" { return true }
+        guard let category = categories.first(where: { normalizedCategoryName($0.name) == normalized }) else {
+            return false
+        }
+        return category.isSystem
+    }
+
+    /// Static version of isFocusCategory (for use in background thread)
+    private func isFocusCategoryStatic(_ category: String, focusIDs: Set<UUID>, categories: [TimelineCategory]) -> Bool {
+        if isSystemCategoryStatic(category, categories: categories) { return false }
+        let normalized = normalizedCategoryName(category)
+        guard let cat = categories.first(where: { normalizedCategoryName($0.name) == normalized }) else { return false }
+        return focusIDs.contains(cat.id)
+    }
+
+    /// Static version of isDistractionCategory (for use in background thread)
+    private func isDistractionCategoryStatic(_ name: String, distractionIDs: Set<UUID>, categories: [TimelineCategory]) -> Bool {
+        if isSystemCategoryStatic(name, categories: categories) { return false }
+        let normalized = normalizedCategoryName(name)
+        guard let cat = categories.first(where: { normalizedCategoryName($0.name) == normalized }) else { return false }
+        return distractionIDs.contains(cat.id)
+    }
+
+    /// Recomputes focus-related stats when focusCategoryIDs changes
+    private func recomputeFocusStats() {
+        let precomputed = cardsWithDurations
+        let focusIDs = focusCategoryIDs
+        let currentCategories = categories
+        let baseDate = timelineDayInfo.startOfDay
+
+        Task.detached(priority: .userInitiated) {
+            let totalFocus = self.computeTotalFocusTime(from: precomputed, focusIDs: focusIDs, categories: currentCategories)
+            let blocks = self.computeFocusBlocks(from: precomputed, focusIDs: focusIDs, baseDate: baseDate, categories: currentCategories)
+
+            await MainActor.run {
+                self.cachedTotalFocusTime = totalFocus
+                self.cachedFocusBlocks = blocks
+            }
+        }
+    }
+
+    /// Recomputes cached stats when categories change (rename/color/system/focus/distraction flags)
+    private func recomputeCachedStatsForCategoryChange() {
+        let precomputed = cardsWithDurations.isEmpty ? precomputeCardDurations(timelineCards) : cardsWithDurations
+        let currentCategories = categories
+        let focusIDs = focusCategoryIDs
+        let distractionIDs = distractionCategoryIDs
+        let baseDate = timelineDayInfo.startOfDay
+
+        Task.detached(priority: .userInitiated) {
+            let catDurations = self.computeCategoryDurations(from: precomputed, categories: currentCategories)
+            let totalCaptured = self.computeTotalCapturedTime(from: precomputed, categories: currentCategories)
+            let totalFocus = self.computeTotalFocusTime(from: precomputed, focusIDs: focusIDs, categories: currentCategories)
+            let blocks = self.computeFocusBlocks(from: precomputed, focusIDs: focusIDs, baseDate: baseDate, categories: currentCategories)
+            let totalDistracted = self.computeTotalDistractedTime(from: precomputed, distractionIDs: distractionIDs, categories: currentCategories)
+
+            await MainActor.run {
+                self.cachedCategoryDurations = catDurations
+                self.cachedTotalCapturedTime = totalCaptured
+                self.cachedTotalFocusTime = totalFocus
+                self.cachedFocusBlocks = blocks
+                self.cachedTotalDistractedTime = totalDistracted
+            }
+        }
+    }
+
+    /// Recomputes distraction-related stats when distractionCategoryIDs changes
+    private func recomputeDistractionStats() {
+        let precomputed = cardsWithDurations
+        let distractionIDs = distractionCategoryIDs
+        let currentCategories = categories
+
+        Task.detached(priority: .userInitiated) {
+            let totalDistracted = self.computeTotalDistractedTime(from: precomputed, distractionIDs: distractionIDs, categories: currentCategories)
+
+            await MainActor.run {
+                self.cachedTotalDistractedTime = totalDistracted
+            }
         }
     }
 
