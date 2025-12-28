@@ -24,3 +24,7 @@ agents.md
 
 # Internal tools
 tools/
+
+# Eval frameworks
+claudeeval/
+codexeval/
