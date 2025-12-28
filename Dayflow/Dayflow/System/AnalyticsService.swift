@@ -43,9 +43,12 @@ final class AnalyticsService {
         config.captureApplicationLifecycleEvents = false
         PostHogSDK.shared.setup(config)
 
-        // Identity
-        let id = ensureDistinctId()
-        PostHogSDK.shared.identify(id)
+        // Identity - run on background thread to avoid blocking app launch
+        // PostHog's identify() triggers synchronous disk I/O and XPC calls
+        Task.detached(priority: .utility) { [self] in
+            let id = self.ensureDistinctId()
+            PostHogSDK.shared.identify(id)
+        }
 
         // Super properties at launch
         registerInitialSuperProperties()
