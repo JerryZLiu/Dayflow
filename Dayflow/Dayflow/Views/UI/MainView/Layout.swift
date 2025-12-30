@@ -69,13 +69,13 @@ extension MainView {
                 updateCardsToReviewCount()
             }
             // Trigger reset when idle fired and timeline is visible
-            .onChange(of: inactivity.pendingReset) { fired in
+            .onChange(of: inactivity.pendingReset) { _, fired in
                 if fired, selectedIcon != .settings {
                     performIdleResetAndScroll()
                     InactivityMonitor.shared.markHandledIfPending()
                 }
             }
-            .onChange(of: selectedIcon) { newIcon in
+            .onChange(of: selectedIcon) { _, newIcon in
                 // Clear journal notification badge when navigating to journal
                 if newIcon == .journal {
                     NotificationBadgeManager.shared.clearBadge()
@@ -123,7 +123,7 @@ extension MainView {
                     selectedIcon = .journal
                 }
             }
-            .onChange(of: selectedDate) { newDate in
+            .onChange(of: selectedDate) { _, newDate in
                 // If changed via picker, emit navigation now
                 if let method = lastDateNavMethod, method == "picker" {
                     AnalyticsService.shared.capture("date_navigation", [
@@ -138,10 +138,10 @@ extension MainView {
                 }
                 updateCardsToReviewCount()
             }
-            .onChange(of: refreshActivitiesTrigger) { _ in
+            .onChange(of: refreshActivitiesTrigger) {
                 updateCardsToReviewCount()
             }
-            .onChange(of: selectedActivity?.id) { _ in
+            .onChange(of: selectedActivity?.id) {
                 dismissFeedbackModal(animated: false)
                 guard let a = selectedActivity else { return }
                 let dur = a.endTime.timeIntervalSince(a.startTime)
@@ -152,7 +152,7 @@ extension MainView {
                 ])
             }
             // If user returns from Settings and a reset was pending, perform it once
-            .onChange(of: selectedIcon) { newIcon in
+            .onChange(of: selectedIcon) { _, newIcon in
                 if newIcon != .settings, inactivity.pendingReset {
                     performIdleResetAndScroll()
                     InactivityMonitor.shared.markHandledIfPending()
@@ -262,7 +262,7 @@ extension MainView {
         HStack(alignment: .top, spacing: 0) {
             timelineLeftColumn
             Rectangle()
-                .fill(Color(hex: "ECECEC") ?? Color.gray)
+                .fill(Color(hex: "ECECEC"))
                 .frame(width: 1)
                 .frame(maxHeight: .infinity)
             timelineRightColumn(geo: geo)
