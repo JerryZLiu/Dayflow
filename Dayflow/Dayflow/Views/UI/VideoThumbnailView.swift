@@ -56,12 +56,12 @@ struct VideoThumbnailView: View {
             }
             .onAppear { fetchViaCache(size: geometry.size) }
             // Ensure thumbnail updates when a new video URL is provided
-            .onChange(of: videoURL) { _ in
+            .onChange(of: videoURL) {
                 thumbnail = nil
                 fetchViaCache(size: geometry.size)
             }
             // If our layout width meaningfully changes, refresh to better size
-            .onChange(of: geometry.size.width) { _ in
+            .onChange(of: geometry.size.width) {
                 fetchViaCache(size: geometry.size)
             }
             // Fallback sheet for when hero animation isn't available

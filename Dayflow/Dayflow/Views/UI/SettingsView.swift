@@ -189,31 +189,31 @@ struct SettingsView: View {
                 AnalyticsService.shared.capture("settings_opened")
                 launchAtLoginManager.refreshStatus()
             }
-            .onChange(of: analyticsEnabled) { enabled in
+            .onChange(of: analyticsEnabled) { _, enabled in
                 AnalyticsService.shared.setOptIn(enabled)
             }
-            .onChange(of: currentProvider) { newProvider in
+            .onChange(of: currentProvider) { _, newProvider in
                 applyProviderChangeSideEffects(for: newProvider)
             }
-            .onChange(of: selectedTab) { newValue in
+            .onChange(of: selectedTab) { _, newValue in
                 if newValue == .storage {
                     refreshStorageIfNeeded()
                 }
             }
-            .onChange(of: localEngine) { newValue in
+            .onChange(of: localEngine) { _, newValue in
                 UserDefaults.standard.set(newValue.rawValue, forKey: "llmLocalEngine")
                 LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
                 refreshUpgradeBannerState()
             }
-            .onChange(of: localModelId) { newValue in
+            .onChange(of: localModelId) { _, newValue in
                 UserDefaults.standard.set(newValue, forKey: "llmLocalModelId")
                 LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
                 refreshUpgradeBannerState()
             }
-            .onChange(of: localBaseURL) { newValue in
+            .onChange(of: localBaseURL) { _, newValue in
                 UserDefaults.standard.set(newValue, forKey: "llmLocalBaseURL")
             }
-            .onChange(of: localAPIKey) { newValue in
+            .onChange(of: localAPIKey) { _, newValue in
                 persistLocalAPIKey(newValue)
             }
     }
@@ -275,22 +275,22 @@ struct SettingsView: View {
 
     var body: some View {
         contentWithSheets
-            .onChange(of: useCustomGeminiTitlePrompt) { _ in persistGeminiPromptOverridesIfReady() }
-            .onChange(of: useCustomGeminiSummaryPrompt) { _ in persistGeminiPromptOverridesIfReady() }
-            .onChange(of: useCustomGeminiDetailedPrompt) { _ in persistGeminiPromptOverridesIfReady() }
-            .onChange(of: geminiTitlePromptText) { _ in persistGeminiPromptOverridesIfReady() }
-            .onChange(of: geminiSummaryPromptText) { _ in persistGeminiPromptOverridesIfReady() }
-            .onChange(of: geminiDetailedPromptText) { _ in persistGeminiPromptOverridesIfReady() }
-            .onChange(of: useCustomOllamaTitlePrompt) { _ in persistOllamaPromptOverridesIfReady() }
-            .onChange(of: useCustomOllamaSummaryPrompt) { _ in persistOllamaPromptOverridesIfReady() }
-            .onChange(of: ollamaTitlePromptText) { _ in persistOllamaPromptOverridesIfReady() }
-            .onChange(of: ollamaSummaryPromptText) { _ in persistOllamaPromptOverridesIfReady() }
-            .onChange(of: useCustomChatCLITitlePrompt) { _ in persistChatCLIPromptOverridesIfReady() }
-            .onChange(of: useCustomChatCLISummaryPrompt) { _ in persistChatCLIPromptOverridesIfReady() }
-            .onChange(of: useCustomChatCLIDetailedPrompt) { _ in persistChatCLIPromptOverridesIfReady() }
-            .onChange(of: chatCLITitlePromptText) { _ in persistChatCLIPromptOverridesIfReady() }
-            .onChange(of: chatCLISummaryPromptText) { _ in persistChatCLIPromptOverridesIfReady() }
-            .onChange(of: chatCLIDetailedPromptText) { _ in persistChatCLIPromptOverridesIfReady() }
+            .onChange(of: useCustomGeminiTitlePrompt) { persistGeminiPromptOverridesIfReady() }
+            .onChange(of: useCustomGeminiSummaryPrompt) { persistGeminiPromptOverridesIfReady() }
+            .onChange(of: useCustomGeminiDetailedPrompt) { persistGeminiPromptOverridesIfReady() }
+            .onChange(of: geminiTitlePromptText) { persistGeminiPromptOverridesIfReady() }
+            .onChange(of: geminiSummaryPromptText) { persistGeminiPromptOverridesIfReady() }
+            .onChange(of: geminiDetailedPromptText) { persistGeminiPromptOverridesIfReady() }
+            .onChange(of: useCustomOllamaTitlePrompt) { persistOllamaPromptOverridesIfReady() }
+            .onChange(of: useCustomOllamaSummaryPrompt) { persistOllamaPromptOverridesIfReady() }
+            .onChange(of: ollamaTitlePromptText) { persistOllamaPromptOverridesIfReady() }
+            .onChange(of: ollamaSummaryPromptText) { persistOllamaPromptOverridesIfReady() }
+            .onChange(of: useCustomChatCLITitlePrompt) { persistChatCLIPromptOverridesIfReady() }
+            .onChange(of: useCustomChatCLISummaryPrompt) { persistChatCLIPromptOverridesIfReady() }
+            .onChange(of: useCustomChatCLIDetailedPrompt) { persistChatCLIPromptOverridesIfReady() }
+            .onChange(of: chatCLITitlePromptText) { persistChatCLIPromptOverridesIfReady() }
+            .onChange(of: chatCLISummaryPromptText) { persistChatCLIPromptOverridesIfReady() }
+            .onChange(of: chatCLIDetailedPromptText) { persistChatCLIPromptOverridesIfReady() }
     }
 
     private var sidebar: some View {
@@ -371,7 +371,7 @@ struct SettingsView: View {
                         .fill(Color.white.opacity(0.85))
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color(hex: "FFE0A5") ?? Color.orange.opacity(0.3), lineWidth: 1)
+                                .stroke(Color(hex: "FFE0A5"), lineWidth: 1)
                         )
                         .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 6)
                         .matchedGeometryEffect(id: "sidebarSelection", in: sidebarSelectionNamespace)
@@ -1725,7 +1725,7 @@ struct SettingsView: View {
         GeminiModelPreference(primary: model).save()
 
         Task { @MainActor in
-            await AnalyticsService.shared.capture("gemini_model_selected", [
+            AnalyticsService.shared.capture("gemini_model_selected", [
                 "source": source,
                 "model": model.rawValue
             ])
@@ -2171,7 +2171,7 @@ private struct LocalModelUpgradeSheet: View {
             .padding(32)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onChange(of: selectedEngine) { newEngine in
+        .onChange(of: selectedEngine) { _, newEngine in
             candidateModelId = preset.modelId(for: newEngine == .custom ? .ollama : newEngine)
             if newEngine != .custom {
                 candidateBaseURL = newEngine.defaultBaseURL
@@ -2283,7 +2283,7 @@ private struct GeminiModelSettingsCard: View {
                 .font(.custom("Nunito", size: 11))
                 .foregroundColor(.black.opacity(0.45))
         }
-        .onChange(of: selectedModel) { newValue in
+        .onChange(of: selectedModel) { _, newValue in
             onSelectionChanged(newValue)
         }
     }
