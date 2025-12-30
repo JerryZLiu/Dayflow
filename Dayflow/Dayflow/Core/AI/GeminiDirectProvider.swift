@@ -294,10 +294,7 @@ final class GeminiDirectProvider: LLMProvider {
         let durationSeconds = Int(videoDuration.truncatingRemainder(dividingBy: 60))
         let durationString = String(format: "%02d:%02d", durationMinutes, durationSeconds)
 
-        // Format real duration for context
-        let realDurationMinutes = Int(realDuration / 60)
-        let realDurationSeconds = Int(realDuration.truncatingRemainder(dividingBy: 60))
-        let realDurationString = String(format: "%02d:%02d", realDurationMinutes, realDurationSeconds)
+        // realDuration is available via compressionFactor if needed for debugging
         
         let finalTranscriptionPrompt = """
         # Video Transcription Prompt
@@ -429,7 +426,6 @@ final class GeminiDirectProvider: LLMProvider {
         var lastError: Error?
         var finalResponse = ""
         var finalObservations: [Observation] = []
-        var finalUsedModel = modelPreference.primary.rawValue
 
         var modelState = ModelRunState(models: Array(modelPreference.orderedModels.reversed()))
         let callGroupId = UUID().uuidString
@@ -489,6 +485,15 @@ final class GeminiDirectProvider: LLMProvider {
 
                 // If we had validation errors, throw to trigger retry
                 if hasValidationErrors {
+                    AnalyticsService.shared.captureValidationFailure(
+                        provider: "gemini",
+                        operation: "transcribe",
+                        validationType: "timestamp_exceeds_duration",
+                        attempt: attempt + 1,
+                        model: activeModel.rawValue,
+                        batchId: batchId,
+                        errorDetail: "Observations exceeded video duration \(durationString)"
+                    )
                     throw NSError(domain: "GeminiProvider", code: 100, userInfo: [
                         NSLocalizedDescriptionKey: "Gemini generated observations with timestamps exceeding video duration. Video is \(durationString) long but observations extended beyond this."
                     ])
@@ -496,6 +501,15 @@ final class GeminiDirectProvider: LLMProvider {
 
                 // Ensure we have at least one observation
                 if observations.isEmpty {
+                    AnalyticsService.shared.captureValidationFailure(
+                        provider: "gemini",
+                        operation: "transcribe",
+                        validationType: "empty_observations",
+                        attempt: attempt + 1,
+                        model: activeModel.rawValue,
+                        batchId: batchId,
+                        errorDetail: "No valid observations after filtering"
+                    )
                     throw NSError(domain: "GeminiProvider", code: 101, userInfo: [
                         NSLocalizedDescriptionKey: "No valid observations generated after filtering out invalid timestamps"
                     ])
@@ -505,7 +519,6 @@ final class GeminiDirectProvider: LLMProvider {
                 print("✅ Video transcription succeeded on attempt \(attempt + 1)")
                 finalResponse = response
                 finalObservations = observations
-                finalUsedModel = usedModel
                 break
 
             } catch {
@@ -523,7 +536,7 @@ final class GeminiDirectProvider: LLMProvider {
                     print("↔️ Switching to \(transition.to.rawValue) after \(nsError.code)")
 
                     Task { @MainActor in
-                        await AnalyticsService.shared.capture("llm_model_fallback", [
+                        AnalyticsService.shared.capture("llm_model_fallback", [
                             "provider": "gemini",
                             "operation": "transcribe",
                             "from_model": transition.from.rawValue,
@@ -815,6 +828,15 @@ final class GeminiDirectProvider: LLMProvider {
 
                 var errorMessages: [String] = []
                 if !coverageValid && coverageError != nil {
+                    AnalyticsService.shared.captureValidationFailure(
+                        provider: "gemini",
+                        operation: "generate_activity_cards",
+                        validationType: "time_coverage",
+                        attempt: attempt + 1,
+                        model: modelState.current.rawValue,
+                        batchId: batchId,
+                        errorDetail: coverageError
+                    )
                     errorMessages.append("""
                     TIME COVERAGE ERROR:
                     \(coverageError!)
@@ -824,6 +846,15 @@ final class GeminiDirectProvider: LLMProvider {
                 }
 
                 if !durationValid && durationError != nil {
+                    AnalyticsService.shared.captureValidationFailure(
+                        provider: "gemini",
+                        operation: "generate_activity_cards",
+                        validationType: "duration",
+                        attempt: attempt + 1,
+                        model: modelState.current.rawValue,
+                        batchId: batchId,
+                        errorDetail: durationError
+                    )
                     errorMessages.append("""
                     DURATION ERROR:
                     \(durationError!)
@@ -863,7 +894,7 @@ final class GeminiDirectProvider: LLMProvider {
                     print("↔️ Switching to \(transition.to.rawValue) after \(nsError.code)")
 
                     Task { @MainActor in
-                        await AnalyticsService.shared.capture("llm_model_fallback", [
+                        AnalyticsService.shared.capture("llm_model_fallback", [
                             "provider": "gemini",
                             "operation": "generate_activity_cards",
                             "from_model": transition.from.rawValue,
@@ -2118,7 +2149,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                     print("↔️ Switching to \(transition.to.rawValue) after \(nsError.code)")
 
                     Task { @MainActor in
-                        await AnalyticsService.shared.capture("llm_model_fallback", [
+                        AnalyticsService.shared.capture("llm_model_fallback", [
                             "provider": "gemini",
                             "operation": "generate_text",
                             "from_model": transition.from.rawValue,
