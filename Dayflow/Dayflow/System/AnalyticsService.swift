@@ -167,6 +167,31 @@ final class AnalyticsService {
         }
     }
 
+    /// Track LLM validation failures (time coverage, duration, parse errors)
+    func captureValidationFailure(
+        provider: String,
+        operation: String,
+        validationType: String,
+        attempt: Int,
+        model: String?,
+        batchId: Int64?,
+        errorDetail: String?
+    ) {
+        var props: [String: Any] = [
+            "provider": provider,
+            "operation": operation,
+            "validation_type": validationType,
+            "attempt": attempt
+        ]
+        if let model = model { props["model"] = model }
+        if let batchId = batchId { props["batch_id"] = batchId }
+        if let errorDetail = errorDetail {
+            // Truncate long error details to avoid bloating events
+            props["error_detail"] = String(errorDetail.prefix(500))
+        }
+        capture("llm_validation_failed", props)
+    }
+
     func dayString(_ date: Date) -> String {
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd"
