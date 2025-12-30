@@ -180,19 +180,9 @@ if [[ -n "${SENTRY_ENV:-}" ]]; then
     >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :SentryEnvironment string ${SENTRY_ENV}" "${SANITIZED_APP}/Contents/Info.plist"
 fi
 
-# Resolve $(PRODUCT_BUNDLE_IDENTIFIER) in entitlements before codesigning
-BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${SANITIZED_APP}/Contents/Info.plist" 2>/dev/null || true)
+# Copy entitlements for codesigning
 RESOLVED_ENTS="${SANITIZED_DIR}/resolved.entitlements"
-if [[ -n "${BUNDLE_ID}" && -f "${ENTITLEMENTS}" ]]; then
-  cp "${ENTITLEMENTS}" "${RESOLVED_ENTS}"
-  # Force-set Sparkle's mach-lookup exceptions with the resolved bundle id
-  /usr/libexec/PlistBuddy -c "Delete :com.apple.security.temporary-exception.mach-lookup.global-name" "${RESOLVED_ENTS}" >/dev/null 2>&1 || true
-  /usr/libexec/PlistBuddy -c "Add :com.apple.security.temporary-exception.mach-lookup.global-name array" "${RESOLVED_ENTS}" >/dev/null 2>&1 || true
-  /usr/libexec/PlistBuddy -c "Add :com.apple.security.temporary-exception.mach-lookup.global-name:0 string ${BUNDLE_ID}-spks" "${RESOLVED_ENTS}" >/dev/null 2>&1 || true
-  /usr/libexec/PlistBuddy -c "Add :com.apple.security.temporary-exception.mach-lookup.global-name:1 string ${BUNDLE_ID}-spki" "${RESOLVED_ENTS}" >/dev/null 2>&1 || true
-else
-  cp "${ENTITLEMENTS}" "${RESOLVED_ENTS}"
-fi
+cp "${ENTITLEMENTS}" "${RESOLVED_ENTS}"
 
 # Now sign the top-level app bundle (no --deep), using resolved entitlements
 codesign -vvv --force --strict \
@@ -202,19 +192,6 @@ codesign -vvv --force --strict \
   --sign "${SIGN_ID}" \
   "${SANITIZED_APP}"
 
-# Sanity check: ensure mach-lookup exceptions are present
-if command -v rg >/dev/null 2>&1; then
-  ENT_DUMP=$(codesign -dv --entitlements :- "${SANITIZED_APP}" 2>&1 || true)
-  if ! printf "%s" "$ENT_DUMP" | rg -q "com.apple.security.temporary-exception.mach-lookup.global-name"; then
-    echo "WARNING: mach-lookup entitlement missing on app. Check entitlements substitution." >&2
-  fi
-  if ! printf "%s" "$ENT_DUMP" | rg -q "-spks|teleportlabs.com.Dayflow-spks"; then
-    echo "WARNING: Sparkle status mach service (-spks) not present in entitlements." >&2
-  fi
-  if ! printf "%s" "$ENT_DUMP" | rg -q "-spki|teleportlabs.com.Dayflow-spki"; then
-    echo "WARNING: Sparkle installer mach service (-spki) not present in entitlements." >&2
-  fi
-fi
 
 echo "[6/8] Verifying signature…"
 codesign --verify --deep --strict --verbose=2 "${SANITIZED_APP}"

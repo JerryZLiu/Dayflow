@@ -28,7 +28,7 @@
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUEnableInstallerLauncherService</key>
-	<true/>
+	<false/>
 	<key>SUFeedURL</key>
 	<string>https://dayflow.so/appcast.xml</string>
 	<key>SUPublicEDKey</key>
