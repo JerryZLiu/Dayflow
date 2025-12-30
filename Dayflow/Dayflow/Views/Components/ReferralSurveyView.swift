@@ -95,7 +95,7 @@ struct ReferralSurveyView: View {
                 .padding(.top, 8)
             }
         }
-        .onChange(of: customReferral) { _ in
+        .onChange(of: customReferral) {
             hasSubmitted = false
         }
     }

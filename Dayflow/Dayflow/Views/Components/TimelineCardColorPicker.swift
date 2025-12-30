@@ -328,18 +328,18 @@ fileprivate struct ColorPickerView: View {
             wheelImage = makeColorWheelCGImage(size: size, padding: padding, minLight: minLight, maxLight: maxLight)
             updateCallbacks()
         }
-        .onChange(of: size) { _ in
+        .onChange(of: size) {
             wheelImage = makeColorWheelCGImage(size: size, padding: padding, minLight: minLight, maxLight: maxLight)
         }
-        .onChange(of: minLight) { _ in
+        .onChange(of: minLight) {
             wheelImage = makeColorWheelCGImage(size: size, padding: padding, minLight: minLight, maxLight: maxLight)
         }
-        .onChange(of: maxLight) { _ in
+        .onChange(of: maxLight) {
             wheelImage = makeColorWheelCGImage(size: size, padding: padding, minLight: minLight, maxLight: maxLight)
         }
-        .onChange(of: angle) { _ in updateCallbacks() }
-        .onChange(of: radius) { _ in updateCallbacks() }
-        .onChange(of: numPoints) { _ in updateCallbacks() }
+        .onChange(of: angle) { updateCallbacks() }
+        .onChange(of: radius) { updateCallbacks() }
+        .onChange(of: numPoints) { updateCallbacks() }
     }
 }
 
@@ -1016,7 +1016,7 @@ struct ColorOrganizerRoot: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .frame(maxWidth: isCompact ? .infinity : 708)
                 .frame(height: containerHeight, alignment: .topLeading)
-                .onChange(of: pendingScrollTarget) { target in
+                .onChange(of: pendingScrollTarget) { _, target in
                     guard let target else { return }
                     withAnimation(.easeOut(duration: 0.35)) {
                         proxy.scrollTo(target, anchor: .bottom)

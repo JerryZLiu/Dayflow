@@ -36,10 +36,10 @@ struct WrappingHStack<Content: View>: View {
         .onAppear {
             calculateRows()
         }
-        .onChange(of: width) { _ in
+        .onChange(of: width) {
             calculateRows()
         }
-        .onChange(of: items.count) { _ in
+        .onChange(of: items.count) {
             calculateRows()
         }
     }
