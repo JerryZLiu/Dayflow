@@ -45,10 +45,6 @@ struct DaySummaryView: View {
     @State private var checkmarkStroke: CGFloat = 0
     @State private var particleTrigger: Int = 0
     @State private var reviewSummary = TimelineReviewSummarySnapshot.placeholder
-    @State private var daySummaryScrollOffset: CGFloat = 0
-    @State private var hasDaySummaryScrollOffset = false
-    @State private var isDaySummaryScrolling = false
-    @State private var daySummaryScrollReset: DispatchWorkItem? = nil
 
     private let showDistractionPattern = false
     private let focusSelectionStorageKey = "focusCategorySelection"
@@ -188,20 +184,14 @@ struct DaySummaryView: View {
                     .padding(.top, Design.topPadding)
                     .padding(.bottom, Design.bottomPadding)
                     .padding(.horizontal, Design.horizontalPadding)
-                    .background(
-                        GeometryReader { proxy in
-                            Color.clear.preference(
-                                key: DaySummaryScrollOffsetPreferenceKey.self,
-                                value: proxy.frame(in: .named("DaySummaryScroll")).minY
-                            )
-                        }
-                    )
                 }
                 .scaleEffect(contentScale)
                 .blur(radius: contentBlur)
-                .coordinateSpace(name: "DaySummaryScroll")
-                .onPreferenceChange(DaySummaryScrollOffsetPreferenceKey.self) { offset in
-                    handleDaySummaryScroll(offset)
+                .onScrollStart(panelName: "day_summary") { direction in
+                    AnalyticsService.shared.capture("right_panel_scrolled", [
+                        "panel": "day_summary",
+                        "direction": direction
+                    ])
                 }
             }
             .mask(
@@ -226,10 +216,10 @@ struct DaySummaryView: View {
             loadDistractionSelectionIfNeeded()
             loadData()
         }
-        .onChange(of: selectedDate) { _ in
+        .onChange(of: selectedDate) {
             loadData()
         }
-        .onChange(of: reviewRefreshToken) { _ in
+        .onChange(of: reviewRefreshToken) {
             loadReviewSummary()
         }
         .onReceive(NotificationCenter.default.publisher(for: .timelineDataUpdated)) { notification in
@@ -238,20 +228,20 @@ struct DaySummaryView: View {
             }
             loadData()
         }
-        .onChange(of: categories) { _ in
+        .onChange(of: categories) {
             syncFocusSelectionWithCategories()
             syncDistractionSelectionWithCategories()
             recomputeCachedStatsForCategoryChange()
         }
-        .onChange(of: focusCategoryIDs) { _ in
+        .onChange(of: focusCategoryIDs) {
             persistFocusSelection()
             recomputeFocusStats()
         }
-        .onChange(of: distractionCategoryIDs) { _ in
+        .onChange(of: distractionCategoryIDs) {
             persistDistractionSelection()
             recomputeDistractionStats()
         }
-        .onChange(of: hasEarlyAccess) { newValue in
+        .onChange(of: hasEarlyAccess) { _, newValue in
             if newValue {
                 UserDefaults.standard.set(true, forKey: earlyAccessStorageKey)
             }
@@ -564,33 +554,6 @@ struct DaySummaryView: View {
                 }
             }
         }
-    }
-
-    private func handleDaySummaryScroll(_ offset: CGFloat) {
-        if hasDaySummaryScrollOffset == false {
-            hasDaySummaryScrollOffset = true
-            daySummaryScrollOffset = offset
-            return
-        }
-
-        let delta = offset - daySummaryScrollOffset
-        daySummaryScrollOffset = offset
-
-        guard abs(delta) > 0.5 else { return }
-
-        if !isDaySummaryScrolling {
-            let direction = delta < 0 ? "down" : "up"
-            AnalyticsService.shared.capture("right_panel_scrolled", [
-                "panel": "day_summary",
-                "direction": direction
-            ])
-            isDaySummaryScrolling = true
-        }
-
-        daySummaryScrollReset?.cancel()
-        let resetWork = DispatchWorkItem { isDaySummaryScrolling = false }
-        daySummaryScrollReset = resetWork
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: resetWork)
     }
 
     // MARK: - Focus Section
@@ -1143,14 +1106,6 @@ struct DaySummaryView: View {
     }
 }
 
-private struct DaySummaryScrollOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 private struct CheckmarkShape: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
@@ -1234,7 +1189,7 @@ struct ParticleModifier: ViewModifier {
         content
             .offset(x: position.x, y: position.y)
             .opacity(opacity)
-            .onChange(of: trigger) { _ in
+            .onChange(of: trigger) {
                 opacity = 1
                 withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
                     position = CGPoint(x: .random(in: -200...200), y: .random(in: -200...200))
@@ -1298,7 +1253,7 @@ private struct ConfettiPiece: View {
             .rotationEffect(.degrees(rotation))
             .offset(offset)
             .opacity(opacity)
-            .onChange(of: trigger) { _ in
+            .onChange(of: trigger) {
                 let xStart = Double.random(in: -40...40)
                 let xBurst = Double.random(in: -140...140)
                 let xFall = Double.random(in: -220...220)
