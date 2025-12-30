@@ -460,7 +460,7 @@ struct LLMProviderSetupView: View {
                         .font(.custom("Nunito", size: 13))
                         .foregroundColor(.black.opacity(0.55))
                 }
-                .onChange(of: setupState.geminiModel) { _ in
+                .onChange(of: setupState.geminiModel) {
                     setupState.persistGeminiModelSelection(source: "onboarding_picker")
                 }
                 
@@ -979,7 +979,7 @@ class ProviderSetupState: ObservableObject {
         GeminiModelPreference(primary: geminiModel).save()
 
         Task { @MainActor in
-            await AnalyticsService.shared.capture("gemini_model_selected", [
+            AnalyticsService.shared.capture("gemini_model_selected", [
                 "source": source,
                 "model": geminiModel.rawValue
             ])

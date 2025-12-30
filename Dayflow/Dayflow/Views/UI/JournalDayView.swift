@@ -77,7 +77,7 @@ struct WetInkText: View {
             .onAppear {
                 typewriterEffect()
             }
-            .onChange(of: text) { _ in
+            .onChange(of: text) {
                 typewriterEffect()
             }
     }
