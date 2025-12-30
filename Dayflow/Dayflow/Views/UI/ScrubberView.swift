@@ -226,7 +226,7 @@ struct ScrubberView: View {
                     }
                     .frame(width: stripWidth, alignment: .leading)
                     .clipped() // cut last thumbnail at bounds
-                    .onChange(of: columnsNeeded) { newValue in
+                    .onChange(of: columnsNeeded) { _, newValue in
                         generateFilmstripIfNeeded(count: newValue)
                     }
                     .onAppear { generateFilmstripIfNeeded(count: columnsNeeded) }

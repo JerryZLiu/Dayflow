@@ -50,7 +50,7 @@ struct TimelineRateSummaryView: View {
         )
         .shadow(color: Color.white.opacity(1.0), radius: 9, x: 0, y: -4)
         .opacity(isEnabled ? 1 : 0.6)
-        .onChange(of: activityID) { _ in
+        .onChange(of: activityID) {
             selectedDirection = nil
         }
     }
