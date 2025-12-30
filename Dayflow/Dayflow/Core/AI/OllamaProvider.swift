@@ -302,7 +302,7 @@ final class OllamaProvider: LLMProvider {
         }
         
         // Build message content with image and text
-        var content: [MessageContent] = [
+        let content: [MessageContent] = [
             MessageContent(type: "text", text: prompt, image_url: nil),
             MessageContent(type: "image_url", text: nil, image_url: MessageContent.ImageURL(url: "data:image/jpeg;base64,\(base64String)"))
         ]
@@ -368,8 +368,7 @@ final class OllamaProvider: LLMProvider {
                 )
                 ctxForAttempt = ctx
                 let (data, response) = try await URLSession.shared.data(for: urlRequest)
-                let apiTime = Date().timeIntervalSince(apiStart)
-                
+
                 guard let httpResponse = response as? HTTPURLResponse else {
                     throw NSError(domain: "OllamaProvider", code: 4, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
                 }
@@ -1272,6 +1271,18 @@ final class OllamaProvider: LLMProvider {
                 return observations
             } catch let coverageError as SegmentCoverageError {
                 lastError = coverageError
+                let coveragePercent = max(0, min(100, Int(coverageError.coverageRatio * 100)))
+
+                AnalyticsService.shared.captureValidationFailure(
+                    provider: "ollama",
+                    operation: "segment_video_activity",
+                    validationType: "coverage",
+                    attempt: attempt,
+                    model: savedModelId,
+                    batchId: batchId,
+                    errorDetail: "Coverage only \(coveragePercent)% (expected >80%)"
+                )
+
                 if attempt == maxAttempts {
                     print("[OLLAMA] ❌ segment_video_activity retries exhausted (coverage) — returning raw frame observations")
                     return try observationsFromFrames(
@@ -1281,7 +1292,6 @@ final class OllamaProvider: LLMProvider {
                     )
                 }
 
-                let coveragePercent = max(0, min(100, Int(coverageError.coverageRatio * 100)))
                 print("[OLLAMA] ⚠️ Segment coverage attempt \(attempt) only reached \(coveragePercent)% — retrying")
 
                 prompt = basePrompt + """
