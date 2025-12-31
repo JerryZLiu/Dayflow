@@ -114,10 +114,8 @@ final class AnalysisManager: AnalysisManaging {
 
             // 6. Process each batch sequentially
             var processedCount = 0
-            var hasError = false
 
             for (index, batchId) in batchIds.enumerated() {
-                if hasError { break }
 
                 let batchStartTime = Date()
                 let elapsedTotal = Date().timeIntervalSince(overallStartTime)
@@ -126,14 +124,11 @@ final class AnalysisManager: AnalysisManaging {
                     progressHandler("Processing batch \(index + 1) of \(batchIds.count)... (Total elapsed: \(self.formatDuration(elapsedTotal)))")
                 }
 
-                // Use a semaphore to wait for each batch to complete
-                let semaphore = DispatchSemaphore(value: 0)
-
                 self.queueGeminiRequest(batchId: batchId)
 
                 // Wait for batch to complete (check status periodically)
                 var isCompleted = false
-                while !isCompleted && !hasError {
+                while !isCompleted {
                     Thread.sleep(forTimeInterval: 2.0) // Check every 2 seconds
 
                     let currentBatches = self.store.fetchBatches(forDay: day)
@@ -187,12 +182,7 @@ final class AnalysisManager: AnalysisManaging {
                 }
 
                 progressHandler(summary)
-
-                if hasError {
-                    completion(.failure(NSError(domain: "AnalysisManager", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to reprocess some batches"])))
-                } else {
-                    completion(.success(()))
-                }
+                completion(.success(()))
             }
         }
     }
@@ -237,11 +227,8 @@ final class AnalysisManager: AnalysisManaging {
 
             // Process batches
             var processedCount = 0
-            var hasError = false
 
             for (index, batchId) in batchesToProcess.enumerated() {
-                if hasError { break }
-
                 let batchStartTime = Date()
                 let elapsedTotal = Date().timeIntervalSince(overallStartTime)
 
@@ -253,7 +240,7 @@ final class AnalysisManager: AnalysisManaging {
 
                 // Wait for batch to complete (check status periodically)
                 var isCompleted = false
-                while !isCompleted && !hasError {
+                while !isCompleted {
                     Thread.sleep(forTimeInterval: 2.0) // Check every 2 seconds
 
                     let allBatches = self.store.allBatches()
