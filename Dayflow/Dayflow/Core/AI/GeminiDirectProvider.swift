@@ -1253,7 +1253,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             // Prepare logging context
             let responseHeaders: [String:String] = httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
                 if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
-            } ?? [:]
+            }
             let modelName = model.rawValue
             let ctx = LLMCallContext(
                 batchId: batchId,
@@ -1567,7 +1567,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             // Prepare logging context
             let responseHeaders: [String:String] = httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
                 if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
-            } ?? [:]
+            }
             let modelName = model.rawValue
             let ctx = LLMCallContext(
                 batchId: batchId,
