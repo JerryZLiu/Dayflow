@@ -143,7 +143,7 @@ extension UpdaterManager: SPUUpdaterDelegate {
     nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         Task { @MainActor in
             self.updateAvailable = true
-            self.latestVersionString = item.displayVersionString ?? item.versionString
+            self.latestVersionString = item.displayVersionString
             self.statusText = "Update available: v\(self.latestVersionString ?? "?")"
             self.isChecking = false
             AppDelegate.allowTermination = false
@@ -200,7 +200,7 @@ extension UpdaterManager: SPUUpdaterDelegate {
 
     private func props(for item: SUAppcastItem) -> [String: Any] {
         var props: [String: Any] = [
-            "version": item.displayVersionString ?? item.versionString,
+            "version": item.displayVersionString,
             "build": item.versionString
         ]
 
