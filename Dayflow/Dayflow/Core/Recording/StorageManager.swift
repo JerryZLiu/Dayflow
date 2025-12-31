@@ -1842,11 +1842,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                    AND (category != 'System' OR batch_id = ?)
             """, arguments: [toTs, fromTs, fromTs, toTs, batchId])
 
-            for card in cardsToDelete {
-                let id: Int64 = card["id"]
-                let start: String = card["start"]
-                let end: String = card["end"]
-                let title: String = card["title"]
+            for _ in cardsToDelete {
+                // Cards being deleted - no-op needed, just iterating to trigger side effects
             }
 
             // Soft delete existing cards in the range using timestamp columns
@@ -1903,7 +1900,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 let startComponents = calendar.dateComponents([.hour, .minute], from: startTime)
                 guard let startHour = startComponents.hour, let startMinute = startComponents.minute else { continue }
 
-                var startDate = resolveClock(startHour, startMinute)
+                let startDate = resolveClock(startHour, startMinute)
 
                 let startTs = Int(startDate.timeIntervalSince1970)
 
@@ -2592,7 +2589,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     /// - Parameter mode: .passive (non-blocking), .full, .restart, or .truncate (resets WAL to zero)
     func checkpoint(mode: Database.CheckpointMode = .passive) {
         do {
-            try db.writeWithoutTransaction { db in
+            _ = try db.writeWithoutTransaction { db in
                 try db.checkpoint(mode)
             }
             print("✅ [StorageManager] WAL checkpoint completed (mode: \(mode))")

@@ -56,7 +56,6 @@ final class ThumbnailCache {
 
         queue.addOperation { [weak self] in
             guard let self = self else { return }
-            let t0 = CFAbsoluteTimeGetCurrent()
             let image = self.generateThumbnail(urlString: normalizedURL, targetSize: targetSize)
 
             if let image = image {
@@ -131,8 +130,23 @@ final class ThumbnailCache {
             generator.maximumSize = CGSize(width: targetSize.width * scale, height: targetSize.height * scale)
         }
 
+        // Load duration asynchronously using semaphore to bridge sync/async
+        let semaphore = DispatchSemaphore(value: 0)
+        var durationSec: Double = 5.0  // Default fallback
+
+        Task {
+            do {
+                let duration = try await asset.load(.duration)
+                durationSec = CMTimeGetSeconds(duration)
+            } catch {
+                // Keep default
+            }
+            semaphore.signal()
+        }
+
+        semaphore.wait()
+
         // Prefer a representative mid-point (bounded) to avoid identical first frames
-        let durationSec = CMTimeGetSeconds(asset.duration)
         let mid = max(0.5, min(5.0, durationSec / 2.0))
         let times: [CMTime] = [CMTime(seconds: mid, preferredTimescale: 600), CMTime(seconds: 1, preferredTimescale: 600), .zero]
         for t in times {
