@@ -245,9 +245,9 @@ final class OllamaProvider: LLMProvider {
     private struct ChatRequest: Codable {
         let model: String
         let messages: [ChatMessage]
-        let temperature: Double = 0.7
-        let max_tokens: Int = 4000
-        let stream: Bool = false
+        var temperature: Double = 0.7
+        var max_tokens: Int = 4000
+        var stream: Bool = false
     }
     
     private struct ChatMessage: Codable {
