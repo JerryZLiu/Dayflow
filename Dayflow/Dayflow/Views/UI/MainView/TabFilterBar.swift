@@ -45,7 +45,7 @@ struct TabFilterBar: View {
         var body: some View {
             HStack(spacing: 10) {
                 Circle()
-                    .fill(Color(hex: category.colorHex) ?? .blue)
+                    .fill(Color(hex: category.colorHex))
                     .frame(width: 10, height: 10)
 
                 Text(category.name)
@@ -118,14 +118,14 @@ struct TabFilterBar: View {
         HStack(spacing: 0) {
             Spacer()
             LinearGradient(
-                gradient: Gradient(colors: [Color.clear, Color(hex: "FFF8F1") ?? Color.white]),
+                gradient: Gradient(colors: [Color.clear, Color(hex: "FFF8F1")]),
                 startPoint: .leading,
                 endPoint: .trailing
             )
             .frame(width: 40)
             .allowsHitTesting(false)
 
-            (Color(hex: "FFF8F1") ?? Color.white)
+            Color(hex: "FFF8F1")
                 .frame(width: editButtonSize)
                 .allowsHitTesting(false)
         }

@@ -79,7 +79,7 @@ struct SidebarIconButton: View {
                 // Badge indicator (top-right orange dot)
                 if showBadge {
                     Circle()
-                        .fill(Color(hex: "F96E00") ?? .orange)
+                        .fill(Color(hex: "F96E00"))
                         .frame(width: 8, height: 8)
                         .offset(x: 12, y: -12)
                 }
