@@ -25,7 +25,7 @@ func runCLI(
     cwd: URL? = nil
 ) throws -> CLIResult {
     // Build the full command with args
-    var cmdParts = [command] + args.map { LoginShellRunner.shellEscape($0) }
+    let cmdParts = [command] + args.map { LoginShellRunner.shellEscape($0) }
     var fullCommand = cmdParts.joined(separator: " ")
 
     // Add environment variable exports if provided
@@ -77,7 +77,7 @@ final class StreamingCLI {
         process = proc
 
         // Build shell command from command + args
-        var cmdParts = [command] + args.map { LoginShellRunner.shellEscape($0) }
+        let cmdParts = [command] + args.map { LoginShellRunner.shellEscape($0) }
         var shellCommand = cmdParts.joined(separator: " ")
 
         // Add environment exports if provided
