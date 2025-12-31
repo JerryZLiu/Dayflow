@@ -54,7 +54,7 @@ final class AnalyticsService {
         registerInitialSuperProperties()
 
         // Person properties via $set / $set_once
-        var set: [String: Any] = [
+        let set: [String: Any] = [
             "analytics_opt_in": isOptedIn
         ]
         var payload: [String: Any] = ["$set": sanitize(set)]
