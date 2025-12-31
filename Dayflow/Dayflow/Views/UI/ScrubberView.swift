@@ -60,16 +60,38 @@ final class FilmstripGenerator {
         queue.addOperation { [weak self] in
             guard let self = self else { return }
             let asset = AVAsset(url: url)
-            guard asset.isPlayable else {
+
+            // Load properties asynchronously using semaphore to bridge sync/async
+            let semaphore = DispatchSemaphore(value: 0)
+            var isPlayable = false
+            var durationSec: Double = 0
+
+            Task {
+                do {
+                    isPlayable = try await asset.load(.isPlayable)
+                    if isPlayable {
+                        let duration = try await asset.load(.duration)
+                        durationSec = CMTimeGetSeconds(duration)
+                    }
+                } catch {
+                    // Keep defaults (isPlayable = false)
+                }
+                semaphore.signal()
+            }
+
+            semaphore.wait()
+
+            guard isPlayable else {
                 self.finish(key: key, frameCount: frameCount, images: [])
                 return
             }
 
-            let duration = CMTimeGetSeconds(asset.duration)
-            if duration.isNaN || duration.isInfinite || duration <= 0 {
+            if durationSec.isNaN || durationSec.isInfinite || durationSec <= 0 {
                 self.finish(key: key, frameCount: frameCount, images: [])
                 return
             }
+
+            let duration = durationSec
 
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
@@ -90,7 +112,6 @@ final class FilmstripGenerator {
 
             var images: [NSImage] = Array(repeating: NSImage(), count: frameCount)
             var produced = 0
-            let group = DispatchGroup()
 
             // Use generateCGImagesAsynchronously for better throughput
             generator.generateCGImagesAsynchronously(forTimes: times) { requestedTime, cg, actualTime, result, error in

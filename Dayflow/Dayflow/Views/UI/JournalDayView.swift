@@ -413,9 +413,7 @@ private struct JournalTextEditor: View {
     }
     
     private func calculateMinHeight() -> CGFloat {
-        guard let layoutManager = NSLayoutManager() as? NSLayoutManager else {
-            return CGFloat(minLines * 22)
-        }
+        let layoutManager = NSLayoutManager()
         let lineHeight = layoutManager.defaultLineHeight(for: font)
         return (lineHeight * CGFloat(minLines)) + (verticalInset * 2)
     }

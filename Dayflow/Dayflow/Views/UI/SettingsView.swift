@@ -1164,8 +1164,6 @@ struct SettingsView: View {
         Task.detached(priority: .utility) {
             let permission = CGPreflightScreenCaptureAccess()
             let recordingsURL = StorageManager.shared.recordingsRoot
-            let timelapseURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Dayflow/timelapses", isDirectory: true)
 
             let recordingsSize = SettingsView.directorySize(at: recordingsURL)
             let timelapseSize = TimelapseStorageManager.shared.currentUsageBytes()

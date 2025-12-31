@@ -89,7 +89,6 @@ struct CategoryDonutChart: View {
         let innerRadiusRatio: CGFloat = 0.62
         // Calculate actual radii for the gradient overlay
         let outerRadius = chartSize / 2
-        let innerRadius = outerRadius * innerRadiusRatio
 
         return ZStack {
             // Background circle with light grey fill and shadow
