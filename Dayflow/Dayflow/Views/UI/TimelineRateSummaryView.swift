@@ -85,8 +85,7 @@ struct TimelineRateSummaryView: View {
     }
 }
 
-#Preview("TimelineRateSummaryView") {
+#Preview("TimelineRateSummaryView", traits: .sizeThatFitsLayout) {
     TimelineRateSummaryView()
         .padding()
-        .previewLayout(.sizeThatFits)
 }
