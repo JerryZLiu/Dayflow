@@ -273,7 +273,7 @@ struct DaySummaryView: View {
 
         Task.detached(priority: .userInitiated) {
             // Use timeline display date to handle 4 AM boundary
-            let cards = await storageManager.fetchTimelineCards(forDay: dayString)
+            let cards = storageManager.fetchTimelineCards(forDay: dayString)
             let summary = Self.makeReviewSummary(
                 segments: storageManager.fetchReviewRatingSegments(
                     overlapping: Int(dayInfo.startOfDay.timeIntervalSince1970),
@@ -689,7 +689,7 @@ struct DaySummaryView: View {
         return focusCategoryIDs.contains(categoryID)
     }
 
-    private func normalizedCategoryName(_ name: String) -> String {
+    nonisolated private func normalizedCategoryName(_ name: String) -> String {
         name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
@@ -824,7 +824,7 @@ struct DaySummaryView: View {
         UserDefaults.standard.set(stored, forKey: distractionSelectionStorageKey)
     }
 
-    private func timelineMinutes(for timeString: String) -> Int? {
+    nonisolated private func timelineMinutes(for timeString: String) -> Int? {
         guard let minutes = parseTimeHMMA(timeString: timeString) else { return nil }
         if minutes >= Design.timelineDayStartMinutes {
             return minutes - Design.timelineDayStartMinutes
@@ -877,7 +877,7 @@ struct DaySummaryView: View {
     // MARK: - Pre-computation Helpers (run on background thread to avoid main thread hangs)
 
     /// Pre-computes durations for all cards (expensive parsing done once)
-    private func precomputeCardDurations(_ cards: [TimelineCard]) -> [CardWithDuration] {
+    nonisolated private func precomputeCardDurations(_ cards: [TimelineCard]) -> [CardWithDuration] {
         cards.compactMap { card in
             guard let startMinutes = timelineMinutes(for: card.startTimestamp),
                   let endMinutes = timelineMinutes(for: card.endTimestamp) else {
@@ -898,7 +898,7 @@ struct DaySummaryView: View {
     }
 
     /// Computes category durations from pre-computed data
-    private func computeCategoryDurations(from precomputed: [CardWithDuration], categories: [TimelineCategory]) -> [CategoryTimeData] {
+    nonisolated private func computeCategoryDurations(from precomputed: [CardWithDuration], categories: [TimelineCategory]) -> [CategoryTimeData] {
         var durationsByCategory: [String: TimeInterval] = [:]
 
         for item in precomputed {
@@ -915,7 +915,7 @@ struct DaySummaryView: View {
     }
 
     /// Computes total captured time from pre-computed data
-    private func computeTotalCapturedTime(from precomputed: [CardWithDuration], categories: [TimelineCategory]) -> TimeInterval {
+    nonisolated private func computeTotalCapturedTime(from precomputed: [CardWithDuration], categories: [TimelineCategory]) -> TimeInterval {
         precomputed.reduce(0) { total, item in
             guard !isSystemCategoryStatic(item.card.category, categories: categories) else { return total }
             return total + item.duration
@@ -923,14 +923,14 @@ struct DaySummaryView: View {
     }
 
     /// Computes total focus time from pre-computed data
-    private func computeTotalFocusTime(from precomputed: [CardWithDuration], focusIDs: Set<UUID>, categories: [TimelineCategory]) -> TimeInterval {
+    nonisolated private func computeTotalFocusTime(from precomputed: [CardWithDuration], focusIDs: Set<UUID>, categories: [TimelineCategory]) -> TimeInterval {
         precomputed
             .filter { isFocusCategoryStatic($0.card.category, focusIDs: focusIDs, categories: categories) }
             .reduce(0) { $0 + $1.duration }
     }
 
     /// Computes focus blocks from pre-computed data
-    private func computeFocusBlocks(from precomputed: [CardWithDuration], focusIDs: Set<UUID>, baseDate: Date, categories: [TimelineCategory]) -> [FocusBlock] {
+    nonisolated private func computeFocusBlocks(from precomputed: [CardWithDuration], focusIDs: Set<UUID>, baseDate: Date, categories: [TimelineCategory]) -> [FocusBlock] {
         let focusCards = precomputed.filter { isFocusCategoryStatic($0.card.category, focusIDs: focusIDs, categories: categories) }
 
         var blocks: [(start: Int, end: Int)] = []
@@ -959,7 +959,7 @@ struct DaySummaryView: View {
     }
 
     /// Computes total distracted time from pre-computed data
-    private func computeTotalDistractedTime(from precomputed: [CardWithDuration], distractionIDs: Set<UUID>, categories: [TimelineCategory]) -> TimeInterval {
+    nonisolated private func computeTotalDistractedTime(from precomputed: [CardWithDuration], distractionIDs: Set<UUID>, categories: [TimelineCategory]) -> TimeInterval {
         precomputed.reduce(0) { total, item in
             guard !isSystemCategoryStatic(item.card.category, categories: categories) else { return total }
             guard isDistractionCategoryStatic(item.card.category, distractionIDs: distractionIDs, categories: categories) else { return total }
@@ -968,7 +968,7 @@ struct DaySummaryView: View {
     }
 
     /// Static version of isSystemCategory that takes categories as parameter (for use in background thread)
-    private func isSystemCategoryStatic(_ name: String, categories: [TimelineCategory]) -> Bool {
+    nonisolated private func isSystemCategoryStatic(_ name: String, categories: [TimelineCategory]) -> Bool {
         let normalized = normalizedCategoryName(name)
         if normalized == "system" { return true }
         guard let category = categories.first(where: { normalizedCategoryName($0.name) == normalized }) else {
@@ -978,7 +978,7 @@ struct DaySummaryView: View {
     }
 
     /// Static version of isFocusCategory (for use in background thread)
-    private func isFocusCategoryStatic(_ category: String, focusIDs: Set<UUID>, categories: [TimelineCategory]) -> Bool {
+    nonisolated private func isFocusCategoryStatic(_ category: String, focusIDs: Set<UUID>, categories: [TimelineCategory]) -> Bool {
         if isSystemCategoryStatic(category, categories: categories) { return false }
         let normalized = normalizedCategoryName(category)
         guard let cat = categories.first(where: { normalizedCategoryName($0.name) == normalized }) else { return false }
@@ -986,7 +986,7 @@ struct DaySummaryView: View {
     }
 
     /// Static version of isDistractionCategory (for use in background thread)
-    private func isDistractionCategoryStatic(_ name: String, distractionIDs: Set<UUID>, categories: [TimelineCategory]) -> Bool {
+    nonisolated private func isDistractionCategoryStatic(_ name: String, distractionIDs: Set<UUID>, categories: [TimelineCategory]) -> Bool {
         if isSystemCategoryStatic(name, categories: categories) { return false }
         let normalized = normalizedCategoryName(name)
         guard let cat = categories.first(where: { normalizedCategoryName($0.name) == normalized }) else { return false }
@@ -1057,7 +1057,7 @@ struct DaySummaryView: View {
         case focused
     }
 
-    private static func makeReviewSummary(
+    nonisolated private static func makeReviewSummary(
         segments: [TimelineReviewRatingSegment],
         dayStartTs: Int,
         dayEndTs: Int
