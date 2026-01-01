@@ -8,6 +8,7 @@
 import SwiftUI
 import AppKit
 import CoreGraphics
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     private enum SettingsTab: String, CaseIterable, Identifiable {
@@ -1281,7 +1282,7 @@ struct SettingsView: View {
         savePanel.title = "Export timeline"
         savePanel.prompt = "Export"
         savePanel.nameFieldStringValue = "Dayflow timeline \(dayFormatter.string(from: startDate)) to \(dayFormatter.string(from: endDate)).md"
-        savePanel.allowedFileTypes = ["md", "markdown", "txt"]
+        savePanel.allowedContentTypes = [.text, .plainText]
         savePanel.canCreateDirectories = true
 
         let response = savePanel.runModal()
@@ -1472,7 +1473,7 @@ struct SettingsView: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func directorySize(at url: URL) -> Int64 {
+    nonisolated private static func directorySize(at url: URL) -> Int64 {
         let fileManager = FileManager.default
         guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: [.fileAllocatedSizeKey, .totalFileAllocatedSizeKey], options: [.skipsHiddenFiles]) else {
             return 0
