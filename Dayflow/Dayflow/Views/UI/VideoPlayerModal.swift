@@ -442,26 +442,36 @@ class VideoPlayerViewModel: ObservableObject {
     
     func setupPlayer(url: URL) {
         player = AVPlayer(url: url)
-        
+
         // Get video duration and aspect
-        player?.currentItem?.asset.loadValuesAsynchronously(forKeys: ["duration", "tracks"]) { [weak self] in
-            guard let asset = self?.player?.currentItem?.asset else { return }
-            let duration = asset.duration
-            DispatchQueue.main.async {
-                self?.duration = CMTimeGetSeconds(duration)
-                if let track = asset.tracks(withMediaType: .video).first {
-                    let natural = track.naturalSize
-                    let transform = track.preferredTransform
+        guard let asset = player?.currentItem?.asset else { return }
+        Task {
+            do {
+                let duration = try await asset.load(.duration)
+                let tracks = try await asset.loadTracks(withMediaType: .video)
+
+                var aspect: CGFloat = 16.0 / 9.0  // Default aspect ratio
+                if let track = tracks.first {
+                    let natural = try await track.load(.naturalSize)
+                    let transform = try await track.load(.preferredTransform)
                     let transformed = natural.applying(transform)
                     let w = abs(transformed.width) > 0 ? abs(transformed.width) : max(1, natural.width)
                     let h = abs(transformed.height) > 0 ? abs(transformed.height) : max(1, natural.height)
-                    let aspect = max(0.1, CGFloat(w / h))
-                    self?.videoAspect = aspect
+                    aspect = max(0.1, CGFloat(w / h))
                 }
-                self?.loadSegments()
+
+                await MainActor.run {
+                    self.duration = CMTimeGetSeconds(duration)
+                    self.videoAspect = aspect
+                    self.loadSegments()
+                }
+            } catch {
+                await MainActor.run {
+                    self.loadSegments()
+                }
             }
         }
-        
+
         // Observe playback time
         let interval = CMTime(seconds: 1.0/60.0, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in

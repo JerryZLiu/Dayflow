@@ -704,7 +704,7 @@ struct TimelineReviewOverlay: View {
         }
     }
 
-    private static func makeRatingSummary(
+    nonisolated private static func makeRatingSummary(
         segments: [TimelineReviewRatingSegment],
         dayStartTs: Int,
         dayEndTs: Int
@@ -725,7 +725,7 @@ struct TimelineReviewOverlay: View {
         var end: Int
     }
 
-    private static func filterUnreviewedActivities(
+    nonisolated private static func filterUnreviewedActivities(
         activities: [TimelineActivity],
         ratingSegments: [TimelineReviewRatingSegment],
         dayStartTs: Int,
@@ -762,7 +762,7 @@ struct TimelineReviewOverlay: View {
         return unreviewed
     }
 
-    private static func mergedCoverageSegments(
+    nonisolated private static func mergedCoverageSegments(
         segments: [TimelineReviewRatingSegment],
         dayStartTs: Int,
         dayEndTs: Int
@@ -794,7 +794,7 @@ struct TimelineReviewOverlay: View {
         return merged
     }
 
-    private static func overlapSeconds(
+    nonisolated private static func overlapSeconds(
         start: Int,
         end: Int,
         segments: [CoverageSegment],
@@ -1146,12 +1146,17 @@ private final class TimelineReviewPlayerModel: ObservableObject {
 
     private func observeDuration(for item: AVPlayerItem?) {
         guard let asset = item?.asset else { return }
-        asset.loadValuesAsynchronously(forKeys: ["duration"]) { [weak self] in
-            guard let self else { return }
-            let duration = asset.duration
-            DispatchQueue.main.async {
-                let seconds = CMTimeGetSeconds(duration)
-                self.duration = seconds.isFinite && seconds > 0 ? seconds : 1
+        Task {
+            do {
+                let duration = try await asset.load(.duration)
+                await MainActor.run {
+                    let seconds = CMTimeGetSeconds(duration)
+                    self.duration = seconds.isFinite && seconds > 0 ? seconds : 1
+                }
+            } catch {
+                await MainActor.run {
+                    self.duration = 1
+                }
             }
         }
     }
