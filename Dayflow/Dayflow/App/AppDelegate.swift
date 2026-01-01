@@ -129,7 +129,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                     print("Screen recording permission not granted, skipping auto-start")
                 }
-                await self.flushPendingDeepLinks()
+                self.flushPendingDeepLinks()
             }
         } else {
             // Still in early onboarding, don't enable persistence yet
@@ -164,7 +164,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { _ in
-            AppDelegate.allowTermination = true
+            MainActor.assumeIsolated {
+                AppDelegate.allowTermination = true
+            }
         }
 
     }
@@ -263,7 +265,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Schedule repeating timer every 12 hours
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 12 * 60 * 60, repeats: true) { [weak self] _ in
-            self?.sendHeartbeat()
+            MainActor.assumeIsolated {
+                self?.sendHeartbeat()
+            }
         }
     }
 

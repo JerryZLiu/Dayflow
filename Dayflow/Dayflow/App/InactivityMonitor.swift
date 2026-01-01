@@ -94,7 +94,9 @@ final class InactivityMonitor: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.checkIdle()
+            MainActor.assumeIsolated {
+                self?.checkIdle()
+            }
         }
         observers.append(willBecome)
 
@@ -103,7 +105,9 @@ final class InactivityMonitor: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.startTimer()
+            MainActor.assumeIsolated {
+                self?.startTimer()
+            }
         }
         observers.append(didBecome)
 
@@ -112,7 +116,9 @@ final class InactivityMonitor: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.stopTimer()
+            MainActor.assumeIsolated {
+                self?.stopTimer()
+            }
         }
         observers.append(didResign)
     }
