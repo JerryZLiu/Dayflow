@@ -79,7 +79,7 @@ private enum ScreenRecorderError: Error {
 
 // MARK: - ScreenRecorder
 
-final class ScreenRecorder: NSObject {
+final class ScreenRecorder: NSObject, @unchecked Sendable {
 
     // MARK: - Initialization
 
