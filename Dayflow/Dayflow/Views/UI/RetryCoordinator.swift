@@ -139,8 +139,10 @@ final class RetryCoordinator: ObservableObject {
         guard dotTimer == nil else { return }
         dotTick = 0
         dotTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.dotTick = (self.dotTick + 1) % 3
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.dotTick = (self.dotTick + 1) % 3
+            }
         }
     }
 
