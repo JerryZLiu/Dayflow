@@ -266,7 +266,8 @@ private struct ChatCLIProcessRunner {
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
 
         // Check for "command not found" to give user-friendly error
-        if process.terminationStatus == 127 || stderr.contains("command not found") {
+        // Only check stderr if exit code indicates failure (avoids false positives from unrelated .zshrc errors)
+        if process.terminationStatus == 127 || (process.terminationStatus != 0 && stderr.contains("command not found")) {
             throw NSError(domain: "ChatCLI", code: -2, userInfo: [
                 NSLocalizedDescriptionKey: "\(toolName) CLI not found. Please install it and run '\(tool == .codex ? "codex auth" : "claude login")' in Terminal."
             ])
@@ -1506,12 +1507,15 @@ final class ChatCLIProvider: LLMProvider {
             // Empty observations - log and maybe retry
             if transcribeAttempt < maxTranscribeAttempts {
                 print("[ChatCLI] Screenshot transcribe attempt \(transcribeAttempt) returned 0 observations from \(frames.count) screenshots, retrying...")
+                // Capture values before Task to avoid mutating var across async boundary
+                let frameDescriptionsCount = frameDescriptions.count
+                let screenshotCount = screenshots.count
                 Task { @MainActor in
                     AnalyticsService.shared.capture("transcribe_screenshots_empty_retry", [
                         "batch_id": batchId as Any,
                         "attempt": transcribeAttempt,
-                        "screenshot_count": screenshots.count,
-                        "frame_descriptions_count": frameDescriptions.count,
+                        "screenshot_count": screenshotCount,
+                        "frame_descriptions_count": frameDescriptionsCount,
                         "tool": tool.rawValue
                     ])
                 }

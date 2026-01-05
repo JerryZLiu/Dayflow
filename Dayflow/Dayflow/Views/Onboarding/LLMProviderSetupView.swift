@@ -1039,7 +1039,7 @@ class ProviderSetupState: ObservableObject {
         let command = debugCommandInput
         Task.detached { [weak self] in
             let result = CLIDetector.runDebugCommand(command)
-            await MainActor.run {
+            await MainActor.run { [weak self] in
                 guard let self else { return }
                 var output = ""
                 output += "Exit code: \(result.exitCode)\n"
