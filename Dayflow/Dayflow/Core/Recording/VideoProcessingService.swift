@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import Foundation
 import CoreGraphics
 
@@ -393,15 +393,21 @@ actor VideoProcessingService {
         reader.startReading()
         
         // Process video frames
+        // Create unsafe captures - these are used exclusively on the serial queue below
+        let unsafeWriterInput = writerInput
+        let unsafeReader = reader
+        let unsafeReaderOutput = readerOutput
+        let unsafeWriter = writer
+
         await withCheckedContinuation { continuation in
-            writerInput.requestMediaDataWhenReady(on: DispatchQueue(label: "com.dayflow.timelapse")) {
-                while writerInput.isReadyForMoreMediaData {
-                    if reader.status == .reading,
-                       let sampleBuffer = readerOutput.copyNextSampleBuffer() {
-                        writerInput.append(sampleBuffer)
+            unsafeWriterInput.requestMediaDataWhenReady(on: DispatchQueue(label: "com.dayflow.timelapse")) {
+                while unsafeWriterInput.isReadyForMoreMediaData {
+                    if unsafeReader.status == .reading,
+                       let sampleBuffer = unsafeReaderOutput.copyNextSampleBuffer() {
+                        unsafeWriterInput.append(sampleBuffer)
                     } else {
-                        writerInput.markAsFinished()
-                        writer.finishWriting {
+                        unsafeWriterInput.markAsFinished()
+                        unsafeWriter.finishWriting {
                             continuation.resume()
                         }
                         break
