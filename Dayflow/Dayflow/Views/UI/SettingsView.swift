@@ -1257,13 +1257,17 @@ struct SettingsView: View {
             let divider = "\n\n---\n\n"
             let exportText = sections.joined(separator: divider)
 
+            // Shadow mutable vars with let before crossing async boundary
+            let finalDayCount = dayCount
+            let finalActivityCount = totalActivities
+
             await MainActor.run {
                 presentSavePanelAndWrite(
                     exportText: exportText,
                     startDate: start,
                     endDate: end,
-                    dayCount: dayCount,
-                    activityCount: totalActivities
+                    dayCount: finalDayCount,
+                    activityCount: finalActivityCount
                 )
             }
         }

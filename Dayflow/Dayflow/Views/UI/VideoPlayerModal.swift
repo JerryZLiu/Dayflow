@@ -460,9 +460,12 @@ class VideoPlayerViewModel: ObservableObject {
                     aspect = max(0.1, CGFloat(w / h))
                 }
 
+                // Shadow mutable var with let before crossing async boundary
+                let finalAspect = aspect
+
                 await MainActor.run {
                     self.duration = CMTimeGetSeconds(duration)
-                    self.videoAspect = aspect
+                    self.videoAspect = finalAspect
                     self.loadSegments()
                 }
             } catch {
