@@ -17,18 +17,20 @@ final class ActiveDisplayTracker: ObservableObject {
     private var timerSource: DispatchSourceTimer?
     private var screensObserver: Any?
 
-    // Debounce state (accessed only from background queue)
+    // Debounce state (accessed only from stateQueue - manually synchronized)
     private let stateQueue = DispatchQueue(label: "com.dayflow.ActiveDisplayTracker.state")
-    private var candidateID: CGDirectDisplayID?
-    private var candidateSince: Date?
+    nonisolated(unsafe) private var candidateID: CGDirectDisplayID?
+    nonisolated(unsafe) private var candidateSince: Date?
 
     // Tunables
     private let pollHz: Double
     private let debounceSeconds: TimeInterval
     private let hysteresisInset: CGFloat
 
-    init(pollHz: Double = 6.0, debounceMs: Double = 400, hysteresisInset: CGFloat = 10) {
-        self.pollHz = max(1.0, pollHz)
+    /// - pollHz: How often to check mouse position. Default 0.1 = once per 10 seconds.
+    ///   Lower values save significant battery (6Hz was 21,600 wakeups/hour).
+    init(pollHz: Double = 0.1, debounceMs: Double = 400, hysteresisInset: CGFloat = 10) {
+        self.pollHz = max(0.01, pollHz)  // Allow very slow polling for battery savings
         self.debounceSeconds = max(0.0, debounceMs / 1000.0)
         self.hysteresisInset = hysteresisInset
 
@@ -38,7 +40,9 @@ final class ActiveDisplayTracker: ObservableObject {
             object: NSApplication.shared,
             queue: .main
         ) { [weak self] _ in
-            self?.handleDisplayChange()
+            MainActor.assumeIsolated {
+                self?.handleDisplayChange()
+            }
         }
 
         start()
@@ -51,13 +55,13 @@ final class ActiveDisplayTracker: ObservableObject {
     }
 
     private func handleDisplayChange() {
-        stateQueue.async { [weak self] in
-            self?.candidateID = nil
-            self?.candidateSince = nil
+        stateQueue.async {
+            self.candidateID = nil
+            self.candidateSince = nil
         }
         // Trigger an immediate poll
-        stateQueue.async { [weak self] in
-            self?.pollDisplayOnBackground()
+        stateQueue.async {
+            self.pollDisplayOnBackground()
         }
     }
 
@@ -66,7 +70,9 @@ final class ActiveDisplayTracker: ObservableObject {
 
         let interval = 1.0 / pollHz
         let source = DispatchSource.makeTimerSource(queue: stateQueue)
-        source.schedule(deadline: .now() + interval, repeating: interval)
+        // Leeway allows macOS to coalesce timer fires for better energy efficiency
+        let leeway = DispatchTimeInterval.milliseconds(Int(interval * 100))  // 10% tolerance
+        source.schedule(deadline: .now() + interval, repeating: interval, leeway: leeway)
         source.setEventHandler { [weak self] in
             self?.pollDisplayOnBackground()
         }
@@ -80,7 +86,7 @@ final class ActiveDisplayTracker: ObservableObject {
     }
 
     /// Called on stateQueue (background) - does the heavy lifting off the main thread
-    private func pollDisplayOnBackground() {
+    nonisolated private func pollDisplayOnBackground() {
         // Get mouse location - this can occasionally block, so we do it off main
         let loc = NSEvent.mouseLocation
         let inset = hysteresisInset
@@ -108,7 +114,7 @@ final class ActiveDisplayTracker: ObservableObject {
         // Candidate is stable long enough - update the published property on main actor
         if let since = candidateSince, now.timeIntervalSince(since) >= debounceSeconds {
             let stableID = id
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 guard let self = self else { return }
                 if self.activeDisplayID != stableID {
                     self.activeDisplayID = stableID
