@@ -363,8 +363,8 @@ struct CanvasTimelineDataView: View {
             // Check for cancellation before expensive database read
             guard !Task.isCancelled else { return }
 
-            let timelineCards = await self.storageManager.fetchTimelineCards(forDay: dayString)
-            let activities = await self.processTimelineCards(timelineCards, for: timelineDate)
+            let timelineCards = self.storageManager.fetchTimelineCards(forDay: dayString)
+            let activities = self.processTimelineCards(timelineCards, for: timelineDate)
 
             // Check for cancellation before expensive processing
             guard !Task.isCancelled else { return }
@@ -372,9 +372,9 @@ struct CanvasTimelineDataView: View {
             // Mitigation transform: resolve visual overlaps by trimming larger cards
             // so that smaller cards "win". This is a display-only fix to handle
             // upstream card-generation overlap bugs without touching stored data.
-            let segments = await self.resolveOverlapsForDisplay(activities)
+            let segments = self.resolveOverlapsForDisplay(activities)
 
-            let positioned = await segments.map { seg -> CanvasPositionedActivity in
+            let positioned = segments.map { seg -> CanvasPositionedActivity in
                 let y = self.calculateYPosition(for: seg.start)
                 // Card spacing: -2 total (1px top + 1px bottom)
                 let durationMinutes = max(0, seg.end.timeIntervalSince(seg.start) / 60)
