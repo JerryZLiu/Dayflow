@@ -315,14 +315,18 @@ struct CanvasTimelineDataView: View {
                             .scaleEffect(isBreathing ? 1.1 : 1.0)
                     }
                     .animation(
-                        .easeInOut(duration: 1.5)
-                        .repeatForever(autoreverses: true),
+                        isBreathing
+                            ? .easeInOut(duration: 1.5).repeatForever(autoreverses: true)
+                            : .easeInOut(duration: 0.3),
                         value: isBreathing
                     )
                 }
                 .frame(height: 1)
                 .onAppear {
-                    isBreathing = appState.isRecording
+                    // Delay setting isBreathing to allow the view to settle first
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        isBreathing = appState.isRecording
+                    }
                 }
                 .onChange(of: appState.isRecording) { _, newValue in
                     isBreathing = newValue
