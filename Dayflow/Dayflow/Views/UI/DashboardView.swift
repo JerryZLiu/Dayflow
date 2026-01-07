@@ -58,46 +58,57 @@ private struct InfiniteScrollingBanner: View {
 
     @State private var startTime: TimeInterval = Date().timeIntervalSinceReferenceDate
     @State private var imageAspect: CGFloat = 2.0 // fallback aspect ratio (w/h)
+    @State private var isAnimating = false
 
     var body: some View {
         GeometryReader { geo in
-            TimelineView(.animation) { timeline in
-                let now = timeline.date.timeIntervalSinceReferenceDate
-                let elapsed = max(0, now - startTime)
+            let h = max(1, geo.size.height)
+            let tileW = max(1, h * imageAspect)
+            let visibleW = max(1, geo.size.width)
+            let needed = Int(ceil(visibleW / tileW)) + 2
 
-                // Determine tile size from available height and image aspect ratio
-                let h = max(1, geo.size.height)
-                let tileW = max(1, h * imageAspect)
+            if isAnimating {
+                // Animate when visible
+                TimelineView(.animation) { timeline in
+                    let now = timeline.date.timeIntervalSinceReferenceDate
+                    let elapsed = max(0, now - startTime)
+                    let shift = CGFloat(elapsed) * speed
+                    let phase = shift.truncatingRemainder(dividingBy: tileW)
+                    let xOffset = (direction == .rightToLeft) ? -phase : phase
 
-                // Compute how many tiles to fully cover width even while shifting
-                let visibleW = max(1, geo.size.width)
-                let needed = Int(ceil(visibleW / tileW)) + 2
-
-                // Offset that loops per tileW
-                let shift = CGFloat(elapsed) * speed
-                let phase = shift.truncatingRemainder(dividingBy: tileW)
-                let xOffset = (direction == .rightToLeft) ? -phase : phase
-
-                HStack(spacing: 0) {
-                    ForEach(0..<max(2, needed), id: \.self) { _ in
-                        Image(imageName)
-                            .resizable()
-                            .interpolation(.high)
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: tileW, height: h)
-                            .clipped()
-                    }
+                    bannerContent(tileW: tileW, h: h, needed: needed, xOffset: xOffset)
                 }
-                .offset(x: xOffset)
-                .blur(radius: blurRadius, opaque: true)
+            } else {
+                // Static when not visible - no CPU usage
+                bannerContent(tileW: tileW, h: h, needed: needed, xOffset: 0)
             }
         }
         .onAppear {
             startTime = Date().timeIntervalSinceReferenceDate
+            isAnimating = true
             if let img = NSImage(named: imageName), img.size.height > 0 {
                 imageAspect = img.size.width / img.size.height
             }
         }
+        .onDisappear {
+            isAnimating = false
+        }
         .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func bannerContent(tileW: CGFloat, h: CGFloat, needed: Int, xOffset: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            ForEach(0..<max(2, needed), id: \.self) { _ in
+                Image(imageName)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: tileW, height: h)
+                    .clipped()
+            }
+        }
+        .offset(x: xOffset)
+        .blur(radius: blurRadius, opaque: true)
     }
 }
