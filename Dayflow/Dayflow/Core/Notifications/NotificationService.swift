@@ -181,7 +181,9 @@ extension NotificationService: UNUserNotificationCenterDelegate {
 
             // Activate app and bring to foreground
             NSApp.activate(ignoringOtherApps: true)
-            if NSApp.activationPolicy() == .accessory {
+            // Only show Dock icon if user preference allows it
+            let showDockIcon = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
+            if showDockIcon && NSApp.activationPolicy() == .accessory {
                 NSApp.setActivationPolicy(.regular)
             }
             NSApp.windows.first?.makeKeyAndOrderFront(nil)

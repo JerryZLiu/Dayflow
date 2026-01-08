@@ -138,6 +138,7 @@ struct SettingsView: View {
 
     // Debug options
     @AppStorage("showJournalDebugPanel") private var showJournalDebugPanel = false
+    @AppStorage("showDockIcon") private var showDockIcon = true
 
     // Providers – debug log copy feedback
 
@@ -216,6 +217,9 @@ struct SettingsView: View {
             }
             .onChange(of: localAPIKey) { _, newValue in
                 persistLocalAPIKey(newValue)
+            }
+            .onChange(of: showDockIcon) { _, show in
+                NSApp.setActivationPolicy(show ? .regular : .accessory)
             }
     }
 
@@ -1045,6 +1049,17 @@ struct SettingsView: View {
                             .foregroundColor(.black.opacity(0.7))
                     }
                     .toggleStyle(.switch)
+
+                    Toggle(isOn: $showDockIcon) {
+                        Text("Show Dock icon")
+                            .font(.custom("Nunito", size: 13))
+                            .foregroundColor(.black.opacity(0.7))
+                    }
+                    .toggleStyle(.switch)
+
+                    Text("When off, Dayflow runs as a menu bar–only app.")
+                        .font(.custom("Nunito", size: 11.5))
+                        .foregroundColor(.black.opacity(0.5))
 
                     Text("Dayflow v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")")
                         .font(.custom("Nunito", size: 12))
