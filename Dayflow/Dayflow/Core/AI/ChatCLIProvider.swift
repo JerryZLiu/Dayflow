@@ -525,7 +525,7 @@ final class ChatCLIProvider: LLMProvider {
 
         let finishedAt = lastRun?.finishedAt ?? Date()
         let finalError = lastError ?? CardParseError.decodeFailure(rawOutput: lastRawOutput)
-        logFailure(ctx: makeCtx(batchId: batchId, operation: "generate_cards", startedAt: callStart), finishedAt: finishedAt, error: finalError)
+        logFailure(ctx: makeCtx(batchId: batchId, operation: "generate_cards", startedAt: callStart), finishedAt: finishedAt, error: finalError, stdout: lastRawOutput, stderr: lastRun?.stderr)
         throw finalError
     }
 
@@ -892,7 +892,7 @@ final class ChatCLIProvider: LLMProvider {
                                                batchStartTime: Date,
                                                videoDuration: TimeInterval,
                                                batchId: Int64?,
-                                               callStart: Date) throws -> ([Observation], TokenUsage?) {
+                                               callStart: Date) throws -> (observations: [Observation], usage: TokenUsage?, rawOutput: String) {
         let logPrefix = "[ChatCLI][merge]"
         let timeFormatter = DateFormatter()
         timeFormatter.dateFormat = "h:mm:ss a"
@@ -901,7 +901,7 @@ final class ChatCLIProvider: LLMProvider {
 
         guard !frames.isEmpty else {
             print("\(logPrefix) ⚠️ No frames to merge, returning empty")
-            return ([], nil)
+            return ([], nil, "")
         }
 
         // === INPUT LOGGING ===
@@ -958,7 +958,7 @@ final class ChatCLIProvider: LLMProvider {
 
         guard run.exitCode == 0 else {
             print("\(logPrefix) ⚠️ LLM failed (exitCode: \(run.exitCode)), using fallback")
-            return (fallbackObservations(frames: frames, batchId: batchId, batchStartTime: batchStartTime, videoDuration: videoDuration), run.usage)
+            return (fallbackObservations(frames: frames, batchId: batchId, batchStartTime: batchStartTime, videoDuration: videoDuration), run.usage, run.stdout)
         }
 
         // Try direct decode first
@@ -985,7 +985,7 @@ final class ChatCLIProvider: LLMProvider {
         guard let parsed, !parsed.segments.isEmpty else {
             print("\(logPrefix) ⚠️ Failed to parse segments (parseMethod: \(parseMethod)), using fallback")
             print("\(logPrefix)   cleanOutput: \(cleanOutput)")
-            return (fallbackObservations(frames: frames, batchId: batchId, batchStartTime: batchStartTime, videoDuration: videoDuration), run.usage)
+            return (fallbackObservations(frames: frames, batchId: batchId, batchStartTime: batchStartTime, videoDuration: videoDuration), run.usage, run.stdout)
         }
 
         // === PARSED SEGMENTS LOGGING ===
@@ -1040,7 +1040,7 @@ final class ChatCLIProvider: LLMProvider {
         // === FINAL OUTPUT LOGGING ===
         if observations.isEmpty {
             print("\(logPrefix) ⚠️ No valid observations created, using fallback")
-            return (fallbackObservations(frames: frames, batchId: batchId, batchStartTime: batchStartTime, videoDuration: videoDuration), run.usage)
+            return (fallbackObservations(frames: frames, batchId: batchId, batchStartTime: batchStartTime, videoDuration: videoDuration), run.usage, run.stdout)
         }
 
         print("\(logPrefix) ✅ FINAL OBSERVATIONS (count: \(observations.count)):")
@@ -1052,7 +1052,7 @@ final class ChatCLIProvider: LLMProvider {
         }
         print("\(logPrefix) ═══════════════════════════════════════════════════════\n")
 
-        return (observations, run.usage)
+        return (observations, run.usage, run.stdout)
     }
 
     private func fallbackObservations(frames: [(timestamp: TimeInterval, description: String)],
@@ -1375,8 +1375,20 @@ final class ChatCLIProvider: LLMProvider {
         LLMLogger.logSuccess(ctx: ctx, http: http, finishedAt: finishedAt)
     }
 
-    private func logFailure(ctx: LLMCallContext, finishedAt: Date, error: Error) {
-        LLMLogger.logFailure(ctx: ctx, http: nil, finishedAt: finishedAt, errorDomain: "ChatCLI", errorCode: (error as NSError).code, errorMessage: error.localizedDescription)
+    private func logFailure(ctx: LLMCallContext, finishedAt: Date, error: Error, stdout: String? = nil, stderr: String? = nil) {
+        let http: LLMHTTPInfo?
+        let out = stdout ?? ""
+        let err = stderr ?? ""
+
+        if out.isEmpty && err.isEmpty {
+            http = nil
+        } else {
+            let separator = out.isEmpty || err.isEmpty ? "" : "\n\n[stderr]\n"
+            let combined = out + separator + err
+            http = LLMHTTPInfo(httpStatus: nil, responseHeaders: nil, responseBody: combined.data(using: .utf8))
+        }
+
+        LLMLogger.logFailure(ctx: ctx, http: http, finishedAt: finishedAt, errorDomain: "ChatCLI", errorCode: (error as NSError).code, errorMessage: error.localizedDescription)
     }
 
     private func makeLLMCall(start: Date, end: Date, input: String?, output: String?) -> LLMCall {
@@ -1430,6 +1442,7 @@ final class ChatCLIProvider: LLMProvider {
 
         var usageTotal = TokenUsage.zero
         var sawUsage = false
+        var lastMergeRawOutput = ""
 
         // Retry loop for entire transcription pipeline
         let maxTranscribeAttempts = 2
@@ -1485,7 +1498,7 @@ final class ChatCLIProvider: LLMProvider {
             }
 
             // Merge descriptions into observations via CLI text prompt
-            let (observations, mergeUsage) = try mergeFrameDescriptionsWithCLI(
+            let (observations, mergeUsage, mergeRawOutput) = try mergeFrameDescriptionsWithCLI(
                 frameDescriptions,
                 batchStartTime: batchStartTime,
                 videoDuration: videoDuration,
@@ -1499,10 +1512,13 @@ final class ChatCLIProvider: LLMProvider {
             if !observations.isEmpty {
                 let finishedAt = Date()
                 let headers = sawUsage ? tokenHeaders(from: usageTotal) : nil
-                logSuccess(ctx: makeCtx(batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart), finishedAt: finishedAt, stdout: observations.map { $0.observation }.joined(separator: " | "), stderr: "", responseHeaders: headers)
+                logSuccess(ctx: makeCtx(batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart), finishedAt: finishedAt, stdout: mergeRawOutput, stderr: "", responseHeaders: headers)
                 let llmCall = makeLLMCall(start: callStart, end: finishedAt, input: "screenshots \(screenshots.count)", output: "obs \(observations.count)")
                 return (observations, llmCall)
             }
+
+            // Store raw output for potential failure logging
+            lastMergeRawOutput = mergeRawOutput
 
             // Empty observations - log and maybe retry
             if transcribeAttempt < maxTranscribeAttempts {
@@ -1529,7 +1545,7 @@ final class ChatCLIProvider: LLMProvider {
         let emptyError = NSError(domain: "ChatCLI", code: -99, userInfo: [
             NSLocalizedDescriptionKey: "Screenshot transcription produced 0 observations after \(maxTranscribeAttempts) attempts from \(screenshots.count) screenshots"
         ])
-        logFailure(ctx: makeCtx(batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart), finishedAt: finishedAt, error: emptyError)
+        logFailure(ctx: makeCtx(batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart), finishedAt: finishedAt, error: emptyError, stdout: lastMergeRawOutput)
         throw emptyError
     }
 
@@ -1560,7 +1576,7 @@ final class ChatCLIProvider: LLMProvider {
         guard run.exitCode == 0 else {
             let errorMessage = run.stderr.isEmpty ? "CLI exited with code \(run.exitCode)" : run.stderr
             let error = NSError(domain: "ChatCLI", code: Int(run.exitCode), userInfo: [NSLocalizedDescriptionKey: errorMessage])
-            logFailure(ctx: ctx, finishedAt: run.finishedAt, error: error)
+            logFailure(ctx: ctx, finishedAt: run.finishedAt, error: error, stdout: run.stdout, stderr: run.stderr)
             throw error
         }
 
