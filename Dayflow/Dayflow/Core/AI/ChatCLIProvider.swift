@@ -707,11 +707,30 @@ final class ChatCLIProvider: LLMProvider {
             return arrayCards
         }
 
-        // Strategy 3: Claude often wraps valid JSON in code fences or adds prefix/suffix text.
-        // As a last resort, grab the substring between the first '[' and the last ']' and try again.
-        if let firstBracket = output.firstIndex(of: "["),
-           let lastBracket = output.lastIndex(of: "]"),
-           firstBracket < lastBracket {
+        // Strategy 3: LLM may output preamble text containing brackets (e.g., git help `[-v | --version]`).
+        // Use bracket balancing: start from the last ']' and walk backwards tracking balance.
+        // When balance hits 0, we've found the '[' that opens our JSON array.
+        func findBalancedArrayStart(_ str: String, endBracket: String.Index) -> String.Index? {
+            var balance = 0
+            var index = endBracket
+            while true {
+                let char = str[index]
+                if char == "]" {
+                    balance += 1
+                } else if char == "[" {
+                    balance -= 1
+                    if balance == 0 {
+                        return index
+                    }
+                }
+                if index == str.startIndex { break }
+                index = str.index(before: index)
+            }
+            return nil
+        }
+
+        if let lastBracket = output.lastIndex(of: "]"),
+           let firstBracket = findBalancedArrayStart(output, endBracket: lastBracket) {
             let sliced = String(output[firstBracket...lastBracket])
                 .replacingOccurrences(of: "```json", with: "")
                 .replacingOccurrences(of: "```", with: "")
