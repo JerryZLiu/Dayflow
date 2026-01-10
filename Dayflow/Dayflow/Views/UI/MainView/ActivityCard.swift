@@ -216,16 +216,16 @@ struct ActivityCard: View {
                     ScrollView(.vertical, showsIndicators: false) {
                         summaryContent(for: activity)
                             .frame(maxWidth: .infinity, alignment: .topLeading)
+                            .onScrollStart(panelName: "activity_card") { direction in
+                                AnalyticsService.shared.capture("right_panel_scrolled", [
+                                    "panel": "activity_card",
+                                    "direction": direction
+                                ])
+                            }
                     }
                     .id(activity.id) // Reset scroll position whenever the selected activity changes
                     .frame(maxWidth: .infinity)
                     .frame(maxHeight: .infinity, alignment: .topLeading)
-                    .onScrollStart(panelName: "activity_card") { direction in
-                        AnalyticsService.shared.capture("right_panel_scrolled", [
-                            "panel": "activity_card",
-                            "direction": direction
-                        ])
-                    }
                 } else {
                     summaryContent(for: activity)
                 }
