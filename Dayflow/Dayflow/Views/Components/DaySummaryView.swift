@@ -184,15 +184,15 @@ struct DaySummaryView: View {
                     .padding(.top, Design.topPadding)
                     .padding(.bottom, Design.bottomPadding)
                     .padding(.horizontal, Design.horizontalPadding)
+                    .onScrollStart(panelName: "day_summary") { direction in
+                        AnalyticsService.shared.capture("right_panel_scrolled", [
+                            "panel": "day_summary",
+                            "direction": direction
+                        ])
+                    }
                 }
                 .scaleEffect(contentScale)
                 .blur(radius: contentBlur)
-                .onScrollStart(panelName: "day_summary") { direction in
-                    AnalyticsService.shared.capture("right_panel_scrolled", [
-                        "panel": "day_summary",
-                        "direction": direction
-                    ])
-                }
             }
             .mask(
                 ZStack {
