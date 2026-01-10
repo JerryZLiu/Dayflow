@@ -10,6 +10,9 @@ protocol LLMProvider {
     func transcribeScreenshots(_ screenshots: [Screenshot], batchStartTime: Date, batchId: Int64?) async throws -> (observations: [Observation], log: LLMCall)
     func generateActivityCards(observations: [Observation], context: ActivityGenerationContext, batchId: Int64?) async throws -> (cards: [ActivityCardData], log: LLMCall)
     func generateText(prompt: String) async throws -> (text: String, log: LLMCall)
+
+    /// Generate text with streaming output - yields chunks as they arrive
+    func generateTextStreaming(prompt: String) -> AsyncThrowingStream<String, Error>
 }
 
 struct ActivityGenerationContext {
@@ -57,6 +60,21 @@ struct ActivityCardData: Codable {
 
 
 extension LLMProvider {
+    // Default streaming implementation - falls back to non-streaming
+    func generateTextStreaming(prompt: String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let (text, _) = try await self.generateText(prompt: prompt)
+                    continuation.yield(text)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
     // Convert "MM:SS" or "HH:MM:SS" to seconds from video start
     func parseVideoTimestamp(_ timestamp: String) -> Int {
         let components = timestamp.components(separatedBy: ":")
