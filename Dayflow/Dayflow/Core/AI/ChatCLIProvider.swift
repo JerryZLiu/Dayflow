@@ -9,10 +9,29 @@
 
 import Foundation
 import AppKit
+import Darwin
 
 enum ChatCLITool: String, Codable {
     case codex
     case claude
+}
+
+// MARK: - Streaming Events
+
+/// Events emitted during JSONL streaming from CLI tools
+enum ChatStreamEvent: Sendable {
+    /// Thinking/reasoning content (shown in collapsible UI)
+    case thinking(String)
+    /// Tool/command execution started
+    case toolStart(command: String)
+    /// Tool/command execution completed
+    case toolEnd(output: String, exitCode: Int?)
+    /// Incremental text chunk from response
+    case textDelta(String)
+    /// Final complete response
+    case complete(text: String)
+    /// Error occurred
+    case error(String)
 }
 
 // MARK: - Login Shell Runner
@@ -161,7 +180,8 @@ private struct ChatCLIConfigManager {
 
 private struct ChatCLIRunResult {
     let exitCode: Int32
-    let stdout: String
+    let stdout: String      // Parsed/cleaned response
+    let rawStdout: String   // Original stdout for thinking extraction
     let stderr: String
     let startedAt: Date
     let finishedAt: Date
@@ -181,13 +201,396 @@ private struct TokenUsage: Sendable {
     }
 }
 
-private struct ChatCLIProcessRunner {
+// MARK: - Codex JSONL Event Parsing
 
-    // Extract final assistant text and usage from CLI JSONL so higher layers can parse domain JSON.
+/// Codex `--json` outputs events like:
+/// {"type":"item.completed","item":{"type":"reasoning","text":"..."}}
+/// {"type":"item.started","item":{"type":"command_execution","command":"..."}}
+/// {"type":"item.completed","item":{"type":"command_execution","aggregated_output":"...","exit_code":0}}
+/// {"type":"item.completed","item":{"type":"agent_message","text":"..."}}
+private struct CodexJSONLEvent: Decodable {
+    let type: String  // "item.started", "item.completed", etc.
+    let item: CodexItem?
+
+    struct CodexItem: Decodable {
+        let type: String  // "reasoning", "command_execution", "agent_message"
+        let text: String?
+        let command: String?
+        let status: String?
+        let aggregated_output: String?
+        let exit_code: Int?
+    }
+}
+
+// MARK: - Claude JSONL Event Parsing
+
+/// Claude `--output-format stream-json` outputs events like:
+/// {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}}
+private struct ClaudeJSONLEvent: Decodable {
+    let type: String  // "stream_event", "message_complete", etc.
+    let event: ClaudeEvent?
+    let result: String?
+
+    struct ClaudeEvent: Decodable {
+        let type: String  // "content_block_delta", "message_stop", etc.
+        let delta: ClaudeDelta?
+    }
+
+    struct ClaudeDelta: Decodable {
+        let type: String?  // "text_delta", "thinking_delta"
+        let text: String?
+        let thinking: String?
+    }
+
+}
+
+private struct ChatCLIProcessRunner {
+    private struct PseudoTerminal {
+        let master: FileHandle
+        let slaveFd: Int32
+    }
+
+    private func makePseudoTerminal() throws -> PseudoTerminal {
+        var master: Int32 = 0
+        var slave: Int32 = 0
+        let result = openpty(&master, &slave, nil, nil, nil)
+        guard result == 0 else {
+            throw NSError(domain: "ChatCLI", code: -50, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to allocate pseudo-terminal for Claude streaming."
+            ])
+        }
+        let masterHandle = FileHandle(fileDescriptor: master, closeOnDealloc: true)
+        return PseudoTerminal(master: masterHandle, slaveFd: slave)
+    }
+
+    /// Run a streaming command, yielding events as JSONL lines arrive
+    func runStreaming(
+        tool: ChatCLITool,
+        prompt: String,
+        workingDirectory: URL,
+        model: String? = nil,
+        reasoningEffort: String? = nil
+    ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            Task.detached {
+                do {
+                    try await self.executeStreaming(
+                        tool: tool,
+                        prompt: prompt,
+                        workingDirectory: workingDirectory,
+                        model: model,
+                        reasoningEffort: reasoningEffort,
+                        continuation: continuation
+                    )
+                } catch {
+                    continuation.yield(.error(error.localizedDescription))
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func executeStreaming(
+        tool: ChatCLITool,
+        prompt: String,
+        workingDirectory: URL,
+        model: String?,
+        reasoningEffort: String?,
+        continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation
+    ) async throws {
+        let toolName = tool.rawValue
+
+        // Build command with streaming flags
+        var cmdParts: [String] = [toolName]
+        switch tool {
+        case .codex:
+            cmdParts.append(contentsOf: ["exec", "--skip-git-repo-check", "--json"])
+            if let model = model { cmdParts.append(contentsOf: ["-m", model]) }
+            if let effort = reasoningEffort { cmdParts.append(contentsOf: ["-c", "model_reasoning_effort=\(effort)"]) }
+            // Disable MCP servers dynamically
+            let mcpServers = LoginShellRunner.getCodexMCPServerNames()
+            for serverName in mcpServers {
+                cmdParts.append(contentsOf: ["--config", "mcp_servers.\(serverName).enabled=false"])
+            }
+            cmdParts.append(contentsOf: ["-c", "rmcp_client=false", "-c", "features.web_search_request=false"])
+            cmdParts.append("--")
+            cmdParts.append(LoginShellRunner.shellEscape(prompt))
+
+        case .claude:
+            cmdParts.append("-p")
+            cmdParts.append(contentsOf: ["--output-format", "stream-json"])
+            cmdParts.append("--include-partial-messages")
+            if let model = model { cmdParts.append(contentsOf: ["--model", model]) }
+            cmdParts.append("--dangerously-skip-permissions")
+            cmdParts.append("--strict-mcp-config")
+            cmdParts.append("--")
+            cmdParts.append(LoginShellRunner.shellEscape(prompt))
+        }
+
+        let shellCommand = "cd \(LoginShellRunner.shellEscape(workingDirectory.path)) && exec \(cmdParts.joined(separator: " "))"
+        let shell = LoginShellRunner.userLoginShell
+
+        print("[ChatCLI][streaming] \(toolName) command: \(shell.path) -l -i -c '\(shellCommand)'")
+
+        let process = Process()
+        process.executableURL = shell
+        process.arguments = ["-l", "-i", "-c", shellCommand]
+        var cleanupPty: (() -> Void)?
+        let stdoutHandle: FileHandle
+        if tool == .claude {
+            let pty = try makePseudoTerminal()
+            stdoutHandle = pty.master
+            let slaveHandle = FileHandle(fileDescriptor: pty.slaveFd, closeOnDealloc: false)
+            process.standardInput = slaveHandle
+            process.standardOutput = slaveHandle
+            cleanupPty = {
+                close(pty.slaveFd)
+            }
+        } else {
+            let stdoutPipe = Pipe()
+            process.standardOutput = stdoutPipe
+            process.standardInput = FileHandle.nullDevice
+            stdoutHandle = stdoutPipe.fileHandleForReading
+        }
+
+        let stderrPipe = Pipe()
+        process.standardError = stderrPipe
+
+        // Accumulate response text for final event
+        var accumulatedText = ""
+        var lineBuffer = Data()
+        var sawTextDelta = false
+        var didYieldComplete = false
+
+        // Set up stdout handler for line-by-line JSONL parsing
+        stdoutHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+
+            lineBuffer.append(data)
+
+            // Process complete lines
+            while let newlineRange = lineBuffer.range(of: Data([0x0A])) {
+                let lineData = lineBuffer.subdata(in: 0..<newlineRange.lowerBound)
+                lineBuffer.removeSubrange(0...newlineRange.lowerBound)
+
+                guard let rawLine = String(data: lineData, encoding: .utf8) else { continue }
+                let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                let line = self.stripANSIEscapes(trimmed)
+                guard !line.isEmpty else { continue }
+
+                // Parse JSONL event based on tool
+                if let event = self.parseJSONLLine(tool: tool, line: line) {
+                    // Track accumulated text for textDelta events
+                    if case .textDelta(let text) = event {
+                        sawTextDelta = true
+                        accumulatedText += text
+                    } else if case .complete(let text) = event {
+                        if sawTextDelta || didYieldComplete {
+                            continue
+                        }
+                        didYieldComplete = true
+                        accumulatedText = text
+                    }
+                    continuation.yield(event)
+                }
+            }
+        }
+
+        try process.run()
+
+        // Wait for process completion
+        process.waitUntilExit()
+
+        // Clean up handlers
+        stdoutHandle.readabilityHandler = nil
+        cleanupPty?()
+
+        // Process any remaining buffered data
+        if !lineBuffer.isEmpty,
+           let rawLine = String(data: lineBuffer, encoding: .utf8) {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            let line = stripANSIEscapes(trimmed)
+            if !line.isEmpty, let event = parseJSONLLine(tool: tool, line: line) {
+                var shouldYield = true
+                if case .textDelta(let text) = event {
+                    sawTextDelta = true
+                    accumulatedText += text
+                } else if case .complete(let text) = event {
+                    if sawTextDelta || didYieldComplete {
+                        shouldYield = false
+                    } else {
+                        didYieldComplete = true
+                        accumulatedText = text
+                    }
+                }
+                if shouldYield {
+                    continuation.yield(event)
+                }
+            }
+        }
+
+        // Check exit status
+        if process.terminationStatus != 0 {
+            let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            if stderr.contains("command not found") {
+                continuation.yield(.error("\(toolName) CLI not found. Please install it and run '\(tool == .codex ? "codex auth" : "claude login")' in Terminal."))
+            } else if !stderr.isEmpty {
+                continuation.yield(.error(stderr))
+            }
+        }
+
+        // Yield final complete event if we accumulated text
+        if !accumulatedText.isEmpty, !didYieldComplete {
+            continuation.yield(.complete(text: accumulatedText))
+        }
+
+        continuation.finish()
+    }
+
+    /// Parse a single JSONL line into a ChatStreamEvent
+    private func parseJSONLLine(tool: ChatCLITool, line: String) -> ChatStreamEvent? {
+        guard let data = line.data(using: .utf8) else { return nil }
+
+        switch tool {
+        case .codex:
+            return parseCodexEvent(data)
+        case .claude:
+            return parseClaudeEvent(data)
+        }
+    }
+
+    private func parseCodexEvent(_ data: Data) -> ChatStreamEvent? {
+        guard let event = try? JSONDecoder().decode(CodexJSONLEvent.self, from: data) else { return nil }
+
+        guard let item = event.item else { return nil }
+
+        switch item.type {
+        case "reasoning":
+            if let text = item.text, !text.isEmpty {
+                return .thinking(text)
+            }
+
+        case "command_execution":
+            if event.type == "item.started", let command = item.command {
+                return .toolStart(command: command)
+            } else if event.type == "item.completed" {
+                let output = item.aggregated_output ?? ""
+                return .toolEnd(output: output, exitCode: item.exit_code)
+            }
+
+        case "agent_message":
+            if let text = item.text, !text.isEmpty {
+                return .textDelta(text)
+            }
+
+        default:
+            break
+        }
+
+        return nil
+    }
+
+    private func parseClaudeEvent(_ data: Data) -> ChatStreamEvent? {
+        guard let event = try? JSONDecoder().decode(ClaudeJSONLEvent.self, from: data) else { return nil }
+
+        // Handle stream events
+        if event.type == "stream_event", let streamEvent = event.event {
+            if streamEvent.type == "content_block_delta", let delta = streamEvent.delta {
+                // Thinking delta
+                if delta.type == "thinking_delta", let thinking = delta.thinking, !thinking.isEmpty {
+                    return .thinking(thinking)
+                }
+                // Text delta
+                if delta.type == "text_delta", let text = delta.text, !text.isEmpty {
+                    return .textDelta(text)
+                }
+            }
+        }
+
+        if event.type == "result", let result = event.result, !result.isEmpty {
+            return .complete(text: result)
+        }
+
+        return nil
+    }
+
+    private func stripANSIEscapes(_ input: String) -> String {
+        var output = ""
+        var index = input.startIndex
+        while index < input.endIndex {
+            let ch = input[index]
+            if ch == "\u{1B}" {
+                var cursor = input.index(after: index)
+                if cursor < input.endIndex, input[cursor] == "[" {
+                    cursor = input.index(after: cursor)
+                    while cursor < input.endIndex {
+                        let scalar = input[cursor].unicodeScalars.first
+                        if let scalar, scalar.value >= 0x40 && scalar.value <= 0x7E {
+                            cursor = input.index(after: cursor)
+                            break
+                        }
+                        cursor = input.index(after: cursor)
+                    }
+                    index = cursor
+                    continue
+                }
+            }
+            output.append(ch)
+            index = input.index(after: index)
+        }
+        return output
+    }
+
+    // Extract final assistant text from CLI output.
+    // Codex outputs: thinking blocks, exec blocks, then "codex\n<response>\ntokens used\n..."
     private func parseAssistant(tool: ChatCLITool, raw: String) -> (text: String, usage: TokenUsage?) {
-        // Without CLI JSON envelopes, treat stdout as final message.
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // For Codex, extract just the final response after "codex\n"
+        if tool == .codex {
+            // Find the last occurrence of "codex\n" which marks the final response
+            if let codexRange = trimmed.range(of: "\ncodex\n", options: .backwards) {
+                var response = String(trimmed[codexRange.upperBound...])
+                // Remove "tokens used" footer if present
+                if let tokensRange = response.range(of: "\ntokens used", options: .caseInsensitive) {
+                    response = String(response[..<tokensRange.lowerBound])
+                }
+                return (response.trimmingCharacters(in: .whitespacesAndNewlines), nil)
+            }
+        }
+
         return (trimmed, nil)
+    }
+
+    /// Extract thinking blocks from Codex stdout (between "thinking\n" markers)
+    func parseThinkingFromOutput(_ output: String) -> String? {
+        var thinkingParts: [String] = []
+        let lines = output.components(separatedBy: .newlines)
+        var inThinking = false
+        var currentThinking: [String] = []
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == "thinking" {
+                if inThinking && !currentThinking.isEmpty {
+                    thinkingParts.append(currentThinking.joined(separator: " "))
+                    currentThinking = []
+                }
+                inThinking = !inThinking
+            } else if inThinking && !trimmed.isEmpty && !trimmed.hasPrefix("exec") && !trimmed.hasPrefix("/bin") {
+                // Clean up markdown bold markers
+                let cleaned = trimmed.replacingOccurrences(of: "**", with: "")
+                currentThinking.append(cleaned)
+            }
+        }
+
+        if !currentThinking.isEmpty {
+            thinkingParts.append(currentThinking.joined(separator: " "))
+        }
+
+        guard !thinkingParts.isEmpty else { return nil }
+        return thinkingParts.joined(separator: " → ")
     }
 
     private func promptWithImageHints(prompt: String, imagePaths: [String]) -> String {
@@ -196,7 +599,7 @@ private struct ChatCLIProcessRunner {
         return prompt + "\nImages:\n" + hints
     }
 
-    func run(tool: ChatCLITool, prompt: String, workingDirectory: URL, imagePaths: [String] = [], model: String? = nil, reasoningEffort: String? = nil) throws -> ChatCLIRunResult {
+    func run(tool: ChatCLITool, prompt: String, workingDirectory: URL, imagePaths: [String] = [], model: String? = nil, reasoningEffort: String? = nil, disableTools: Bool = false) throws -> ChatCLIRunResult {
         let toolName = tool.rawValue  // "codex" or "claude"
 
         // Build the command exactly as user would type in Terminal
@@ -219,7 +622,14 @@ private struct ChatCLIProcessRunner {
         case .claude:
             cmdParts.append("-p")
             if let model = model { cmdParts.append(contentsOf: ["--model", model]) }
-            cmdParts.append("--dangerously-skip-permissions")
+            // For chat mode, disable all tools to force the LLM to use our JSON tool format
+            if disableTools {
+                // Pass empty array to --allowedTools to disable all built-in tools
+                cmdParts.append("--allowedTools")
+                cmdParts.append(LoginShellRunner.shellEscape("[]"))
+            } else {
+                cmdParts.append("--dangerously-skip-permissions")
+            }
             cmdParts.append("--strict-mcp-config")
             cmdParts.append("--")
             cmdParts.append(LoginShellRunner.shellEscape(promptWithImageHints(prompt: prompt, imagePaths: imagePaths)))
@@ -239,11 +649,26 @@ private struct ChatCLIProcessRunner {
         // -l = login shell (sources .bash_profile/.zprofile)
         // -i = interactive (sources .bashrc/.zshrc)
         process.arguments = ["-l", "-i", "-c", shellCommand]
-        process.standardInput = FileHandle.nullDevice  // Prevent interactive prompts
 
-        let stdoutPipe = Pipe()
+        var cleanupPty: (() -> Void)?
+        let stdoutHandle: FileHandle
+        if tool == .claude {
+            let pty = try makePseudoTerminal()
+            stdoutHandle = pty.master
+            let slaveHandle = FileHandle(fileDescriptor: pty.slaveFd, closeOnDealloc: false)
+            process.standardInput = slaveHandle
+            process.standardOutput = slaveHandle
+            cleanupPty = {
+                close(pty.slaveFd)
+            }
+        } else {
+            let stdoutPipe = Pipe()
+            process.standardOutput = stdoutPipe
+            process.standardInput = FileHandle.nullDevice  // Prevent interactive prompts
+            stdoutHandle = stdoutPipe.fileHandleForReading
+        }
+
         let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
         try process.run()
@@ -262,7 +687,11 @@ private struct ChatCLIProcessRunner {
         }
         let finished = Date()
 
-        let rawOut = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        cleanupPty?()
+        var rawOut = String(data: stdoutHandle.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        if tool == .claude {
+            rawOut = stripANSIEscapes(rawOut)
+        }
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
 
         // Check for "command not found" to give user-friendly error
@@ -275,7 +704,7 @@ private struct ChatCLIProcessRunner {
 
         let parsed = parseAssistant(tool: tool, raw: rawOut)
         debugLog(tool: tool, model: model, phase: "run", prompt: prompt, stdout: rawOut, stderr: stderr, usage: parsed.usage)
-        return ChatCLIRunResult(exitCode: process.terminationStatus, stdout: parsed.text, stderr: stderr, startedAt: started, finishedAt: finished, usage: parsed.usage)
+        return ChatCLIRunResult(exitCode: process.terminationStatus, stdout: parsed.text, rawStdout: rawOut, stderr: stderr, startedAt: started, finishedAt: finished, usage: parsed.usage)
     }
 
     private func debugCommand(tool: ChatCLITool, model: String?, shell: URL, shellCommand: String) {
@@ -336,13 +765,13 @@ final class ChatCLIProvider: LLMProvider {
     }
 
     /// Run the CLI and clean up temp files after.
-    private func runAndScrub(prompt: String, imagePaths: [String] = [], model: String? = nil, reasoningEffort: String? = nil) throws -> ChatCLIRunResult {
+    private func runAndScrub(prompt: String, imagePaths: [String] = [], model: String? = nil, reasoningEffort: String? = nil, disableTools: Bool = false) throws -> ChatCLIRunResult {
         // Prepare downsized copies of images (~720p) so Codex input stays compact.
         let (preparedImages, cleanupImages) = try prepareImagesForCLI(imagePaths)
         defer {
             cleanupImages()
         }
-        return try runner.run(tool: tool, prompt: prompt, workingDirectory: config.workingDirectory, imagePaths: preparedImages, model: model, reasoningEffort: reasoningEffort)
+        return try runner.run(tool: tool, prompt: prompt, workingDirectory: config.workingDirectory, imagePaths: preparedImages, model: model, reasoningEffort: reasoningEffort, disableTools: disableTools)
     }
 
     /// Create temporary 720p-max copies of images for Codex/Claude CLI.
@@ -457,7 +886,7 @@ final class ChatCLIProvider: LLMProvider {
             model = "sonnet"
             effort = nil
         case .codex:
-            model = "gpt-5.1-codex-mini"
+            model = "gpt-5.2"
             effort = "high"
         }
 
@@ -1414,6 +1843,48 @@ final class ChatCLIProvider: LLMProvider {
         LLMCall(timestamp: end, latency: end.timeIntervalSince(start), input: input, output: output)
     }
 
+    /// Parse thinking content from Codex stderr (between "thinking" markers)
+    private func parseThinkingFromStderr(_ stderr: String) -> String? {
+        // Codex outputs thinking like:
+        // thinking
+        // **Some thinking text**
+        // thinking
+        // **More thinking**
+        // codex
+        // <actual response>
+
+        var thinkingParts: [String] = []
+        let lines = stderr.components(separatedBy: .newlines)
+        var inThinking = false
+        var currentThinking: [String] = []
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == "thinking" {
+                if inThinking {
+                    // End of thinking block
+                    if !currentThinking.isEmpty {
+                        thinkingParts.append(currentThinking.joined(separator: "\n"))
+                    }
+                    currentThinking = []
+                }
+                inThinking = !inThinking
+            } else if inThinking && !trimmed.isEmpty {
+                // Clean up markdown bold markers if present
+                let cleaned = trimmed.replacingOccurrences(of: "**", with: "")
+                currentThinking.append(cleaned)
+            }
+        }
+
+        // Handle unclosed thinking block
+        if inThinking && !currentThinking.isEmpty {
+            thinkingParts.append(currentThinking.joined(separator: "\n"))
+        }
+
+        guard !thinkingParts.isEmpty else { return nil }
+        return thinkingParts.joined(separator: "\n\n")
+    }
+
     // MARK: - Screenshot Transcription
 
     /// Transcribe observations from screenshots.
@@ -1463,99 +1934,115 @@ final class ChatCLIProvider: LLMProvider {
         var sawUsage = false
         var lastMergeRawOutput = ""
 
-        // Retry loop for entire transcription pipeline
-        let maxTranscribeAttempts = 2
+        // Retry loop for entire transcription pipeline (2 retries)
+        let maxTranscribeAttempts = 3
         for transcribeAttempt in 1...maxTranscribeAttempts {
-            // Per-frame descriptions via CLI (reuse existing batching logic)
-            var frameDescriptions: [(timestamp: TimeInterval, description: String)] = []
-            let batchSize = 10
-            for chunk in stride(from: 0, to: frames.count, by: batchSize) {
-                let slice = Array(frames[chunk..<min(chunk+batchSize, frames.count)])
+            do {
+                // Per-frame descriptions via CLI (reuse existing batching logic)
+                var frameDescriptions: [(timestamp: TimeInterval, description: String)] = []
+                let batchSize = 10
+                for chunk in stride(from: 0, to: frames.count, by: batchSize) {
+                    let slice = Array(frames[chunk..<min(chunk+batchSize, frames.count)])
 
-                var localPairs: [(FrameData, String)] = []
-                var localUsage: TokenUsage? = nil
-                var lastError: Error? = nil
+                    var localPairs: [(FrameData, String)] = []
+                    var localUsage: TokenUsage? = nil
+                    var lastError: Error? = nil
 
-                // Try initial call
-                do {
-                    let (initialPairs, initialUsage) = try describeFramesBatch(slice)
-                    localPairs = initialPairs
-                    localUsage = initialUsage
-                } catch {
-                    lastError = error
-                    // Retry with more powerful model
-                    if tool == .codex {
-                        do {
-                            let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "gpt-5.1-codex-mini", overrideEffort: "high")
-                            localPairs = retryPairs
-                            localUsage = retryUsage
-                            lastError = nil
-                        } catch {
-                            lastError = error
+                    // Try initial call
+                    do {
+                        let (initialPairs, initialUsage) = try describeFramesBatch(slice)
+                        localPairs = initialPairs
+                        localUsage = initialUsage
+                    } catch {
+                        lastError = error
+                        // Retry with more powerful model
+                        if tool == .codex {
+                            do {
+                                let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "gpt-5.1-codex-mini", overrideEffort: "high")
+                                localPairs = retryPairs
+                                localUsage = retryUsage
+                                lastError = nil
+                            } catch {
+                                lastError = error
+                            }
+                        } else if tool == .claude {
+                            do {
+                                let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "sonnet")
+                                localPairs = retryPairs
+                                localUsage = retryUsage
+                                lastError = nil
+                            } catch {
+                                lastError = error
+                            }
                         }
-                    } else if tool == .claude {
-                        do {
-                            let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "sonnet")
-                            localPairs = retryPairs
-                            localUsage = retryUsage
-                            lastError = nil
-                        } catch {
-                            lastError = error
-                        }
+                    }
+
+                    if let error = lastError {
+                        throw error
+                    }
+
+                    if let localUsage { usageTotal = usageTotal.adding(localUsage); sawUsage = true }
+                    for (frame, desc) in localPairs {
+                        frameDescriptions.append((timestamp: frame.timestamp, description: desc))
                     }
                 }
 
-                if let error = lastError {
-                    logFailure(ctx: makeCtx(batchId: batchId, operation: "describe_screenshots", startedAt: callStart), finishedAt: Date(), error: error)
-                    throw error
+                // Merge descriptions into observations via CLI text prompt
+                let (observations, mergeUsage, mergeRawOutput) = try mergeFrameDescriptionsWithCLI(
+                    frameDescriptions,
+                    batchStartTime: batchStartTime,
+                    videoDuration: videoDuration,
+                    batchId: batchId,
+                    callStart: callStart
+                )
+
+                if let mergeUsage { usageTotal = usageTotal.adding(mergeUsage); sawUsage = true }
+
+                // Check if we got observations
+                if !observations.isEmpty {
+                    let finishedAt = Date()
+                    let headers = sawUsage ? tokenHeaders(from: usageTotal) : nil
+                    logSuccess(ctx: makeCtx(batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart), finishedAt: finishedAt, stdout: mergeRawOutput, stderr: "", responseHeaders: headers)
+                    let llmCall = makeLLMCall(start: callStart, end: finishedAt, input: "screenshots \(screenshots.count)", output: "obs \(observations.count)")
+                    return (observations, llmCall)
                 }
 
-                if let localUsage { usageTotal = usageTotal.adding(localUsage); sawUsage = true }
-                for (frame, desc) in localPairs {
-                    frameDescriptions.append((timestamp: frame.timestamp, description: desc))
+                // Store raw output for potential failure logging
+                lastMergeRawOutput = mergeRawOutput
+
+                // Empty observations - log and maybe retry
+                if transcribeAttempt < maxTranscribeAttempts {
+                    print("[ChatCLI] Screenshot transcribe attempt \(transcribeAttempt) returned 0 observations from \(frames.count) screenshots, retrying...")
+                    // Capture values before Task to avoid mutating var across async boundary
+                    let frameDescriptionsCount = frameDescriptions.count
+                    let screenshotCount = screenshots.count
+                    Task { @MainActor in
+                        AnalyticsService.shared.capture("transcribe_screenshots_empty_retry", [
+                            "batch_id": batchId as Any,
+                            "attempt": transcribeAttempt,
+                            "screenshot_count": screenshotCount,
+                            "frame_descriptions_count": frameDescriptionsCount,
+                            "tool": tool.rawValue
+                        ])
+                    }
+                    let backoffSeconds = pow(2.0, Double(transcribeAttempt - 1)) * 2.0
+                    try await Task.sleep(nanoseconds: UInt64(backoffSeconds * 1_000_000_000))
+                    usageTotal = TokenUsage.zero
+                    sawUsage = false
                 }
-            }
+            } catch {
+                if transcribeAttempt < maxTranscribeAttempts {
+                    print("[ChatCLI] Screenshot transcribe attempt \(transcribeAttempt) failed: \(error.localizedDescription) — retrying")
+                    let backoffSeconds = pow(2.0, Double(transcribeAttempt - 1)) * 2.0
+                    try await Task.sleep(nanoseconds: UInt64(backoffSeconds * 1_000_000_000))
+                    usageTotal = TokenUsage.zero
+                    sawUsage = false
+                    continue
+                }
 
-            // Merge descriptions into observations via CLI text prompt
-            let (observations, mergeUsage, mergeRawOutput) = try mergeFrameDescriptionsWithCLI(
-                frameDescriptions,
-                batchStartTime: batchStartTime,
-                videoDuration: videoDuration,
-                batchId: batchId,
-                callStart: callStart
-            )
-
-            if let mergeUsage { usageTotal = usageTotal.adding(mergeUsage); sawUsage = true }
-
-            // Check if we got observations
-            if !observations.isEmpty {
                 let finishedAt = Date()
-                let headers = sawUsage ? tokenHeaders(from: usageTotal) : nil
-                logSuccess(ctx: makeCtx(batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart), finishedAt: finishedAt, stdout: mergeRawOutput, stderr: "", responseHeaders: headers)
-                let llmCall = makeLLMCall(start: callStart, end: finishedAt, input: "screenshots \(screenshots.count)", output: "obs \(observations.count)")
-                return (observations, llmCall)
-            }
-
-            // Store raw output for potential failure logging
-            lastMergeRawOutput = mergeRawOutput
-
-            // Empty observations - log and maybe retry
-            if transcribeAttempt < maxTranscribeAttempts {
-                print("[ChatCLI] Screenshot transcribe attempt \(transcribeAttempt) returned 0 observations from \(frames.count) screenshots, retrying...")
-                // Capture values before Task to avoid mutating var across async boundary
-                let frameDescriptionsCount = frameDescriptions.count
-                let screenshotCount = screenshots.count
-                Task { @MainActor in
-                    AnalyticsService.shared.capture("transcribe_screenshots_empty_retry", [
-                        "batch_id": batchId as Any,
-                        "attempt": transcribeAttempt,
-                        "screenshot_count": screenshotCount,
-                        "frame_descriptions_count": frameDescriptionsCount,
-                        "tool": tool.rawValue
-                    ])
-                }
-                usageTotal = TokenUsage.zero
-                sawUsage = false
+                logFailure(ctx: makeCtx(batchId: batchId, operation: "describe_screenshots", startedAt: callStart), finishedAt: finishedAt, error: error)
+                throw error
             }
         }
 
@@ -1568,7 +2055,60 @@ final class ChatCLIProvider: LLMProvider {
         throw emptyError
     }
 
-    // MARK: - Text Generation
+    // MARK: - Text Generation (Streaming)
+
+    /// Stream chat responses with real-time thinking and tool execution events
+    func generateChatStreaming(prompt: String) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        let model: String
+        let effort: String?
+        switch tool {
+        case .claude:
+            model = "sonnet"
+            effort = nil
+        case .codex:
+            model = "gpt-5.1-codex-mini"
+            effort = "high"
+        }
+
+        return runner.runStreaming(
+            tool: tool,
+            prompt: prompt,
+            workingDirectory: config.workingDirectory,
+            model: model,
+            reasoningEffort: effort
+        )
+    }
+
+    /// Stream text-only output for protocol conformance
+    func generateTextStreaming(prompt: String) -> AsyncThrowingStream<String, Error> {
+        let stream = generateChatStreaming(prompt: prompt)
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    for try await event in stream {
+                        switch event {
+                        case .textDelta(let chunk):
+                            continuation.yield(chunk)
+                        case .error(let message):
+                            continuation.finish(throwing: NSError(
+                                domain: "ChatCLI",
+                                code: -1,
+                                userInfo: [NSLocalizedDescriptionKey: message]
+                            ))
+                            return
+                        default:
+                            break
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    // MARK: - Text Generation (Non-Streaming)
 
     func generateText(prompt: String) async throws -> (text: String, log: LLMCall) {
         let callStart = Date()
@@ -1585,7 +2125,8 @@ final class ChatCLIProvider: LLMProvider {
         let run: ChatCLIRunResult
         do {
             run = try await Task.detached {
-                try self.runAndScrub(prompt: prompt, model: model, reasoningEffort: "high")
+                // Enable tools so LLM can query the database directly
+                try self.runAndScrub(prompt: prompt, model: model, reasoningEffort: "high", disableTools: false)
             }.value
         } catch {
             logFailure(ctx: ctx, finishedAt: Date(), error: error)
@@ -1601,8 +2142,21 @@ final class ChatCLIProvider: LLMProvider {
 
         logSuccess(ctx: ctx, finishedAt: run.finishedAt, stdout: run.stdout, stderr: run.stderr)
 
+        // Parse thinking - Codex puts it in stdout, Claude in stderr
+        let thinking: String?
+        if tool == .codex {
+            thinking = runner.parseThinkingFromOutput(run.rawStdout)
+        } else {
+            thinking = parseThinkingFromStderr(run.stderr)
+        }
+
         let log = makeLLMCall(start: callStart, end: run.finishedAt, input: prompt, output: run.stdout)
 
-        return (run.stdout.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), log)
+        // Return text with thinking prefix if present (ChatService will split on marker)
+        let text = run.stdout.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        if let thinking = thinking, !thinking.isEmpty {
+            return ("---THINKING---\n\(thinking)\n---END_THINKING---\n\(text)", log)
+        }
+        return (text, log)
     }
 }
