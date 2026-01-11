@@ -22,6 +22,9 @@ enum LLMProcessingStep: Sendable, Equatable {
 protocol LLMServicing {
     func processBatch(_ batchId: Int64, progressHandler: ((LLMProcessingStep) -> Void)?, completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void)
     func generateText(prompt: String) async throws -> String
+    func generateTextStreaming(prompt: String) -> AsyncThrowingStream<String, Error>
+    /// Rich chat streaming with thinking, tool calls, and text events (ChatCLI only)
+    func generateChatStreaming(prompt: String) -> AsyncThrowingStream<ChatStreamEvent, Error>
     var batchingConfig: BatchingConfig { get }
 }
 
@@ -503,5 +506,62 @@ final class LLMService: LLMServicing {
 
         let (text, _) = try await provider.generateText(prompt: prompt)
         return text
+    }
+
+    // MARK: - Streaming Text Generation
+
+    func generateTextStreaming(prompt: String) -> AsyncThrowingStream<String, Error> {
+        guard let provider = provider else {
+            return AsyncThrowingStream { continuation in
+                continuation.finish(throwing: NSError(
+                    domain: "LLMService",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "No LLM provider configured. Please configure in settings."]
+                ))
+            }
+        }
+
+        return provider.generateTextStreaming(prompt: prompt)
+    }
+
+    // MARK: - Rich Chat Streaming (ChatCLI only)
+
+    func generateChatStreaming(prompt: String) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        // For ChatCLI, use the rich streaming API
+        if case .chatGPTClaude = providerType {
+            let preferredTool = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "codex"
+            let tool: ChatCLITool = (preferredTool == "claude") ? .claude : .codex
+            let chatCLI = ChatCLIProvider(tool: tool)
+            return chatCLI.generateChatStreaming(prompt: prompt)
+        }
+
+        // For other providers, wrap text streaming into ChatStreamEvents
+        guard let provider = provider else {
+            return AsyncThrowingStream { continuation in
+                continuation.finish(throwing: NSError(
+                    domain: "LLMService",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "No LLM provider configured. Please configure in settings."]
+                ))
+            }
+        }
+
+        // Wrap simple text streaming into ChatStreamEvents
+        return AsyncThrowingStream { continuation in
+            Task {
+                var accumulatedText = ""
+                do {
+                    for try await chunk in provider.generateTextStreaming(prompt: prompt) {
+                        accumulatedText += chunk
+                        continuation.yield(.textDelta(chunk))
+                    }
+                    continuation.yield(.complete(text: accumulatedText))
+                    continuation.finish()
+                } catch {
+                    continuation.yield(.error(error.localizedDescription))
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
     }
 }
