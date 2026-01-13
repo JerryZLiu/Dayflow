@@ -1,0 +1,980 @@
+//
+//  ChatView.swift
+//  Dayflow
+//
+//  Chat interface for asking questions about activity data.
+//
+
+import SwiftUI
+import Charts
+import AppKit
+
+struct ChatView: View {
+    @StateObject private var chatService = ChatService()
+    @State private var inputText = ""
+    @State private var showWorkDetails = false
+    @FocusState private var isInputFocused: Bool
+    @Namespace private var bottomID
+    @AppStorage("chatCLIPreferredTool") private var selectedTool: String = "codex"
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // Main chat area
+            chatContent
+
+            // Debug panel (toggleable)
+            if chatService.showDebugPanel {
+                debugPanel
+            }
+        }
+        .preferredColorScheme(.light)
+    }
+
+    private var chatContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Debug toggle button in header
+            HStack {
+                Spacer()
+                Button(action: { chatService.showDebugPanel.toggle() }) {
+                    Image(systemName: chatService.showDebugPanel ? "ladybug.fill" : "ladybug")
+                        .font(.system(size: 14))
+                        .foregroundColor(chatService.showDebugPanel ? Color(hex: "F96E00") : Color(hex: "999999"))
+                }
+                .buttonStyle(.plain)
+                .help("Toggle debug panel")
+                .padding(.trailing, 12)
+                .padding(.top, 8)
+            }
+
+            // Messages area
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        // Welcome message if empty
+                        if chatService.messages.isEmpty {
+                            welcomeView
+                        }
+
+                        // Messages
+                        ForEach(Array(chatService.messages.enumerated()), id: \.element.id) { index, message in
+                            if let status = chatService.workStatus,
+                               let insertionIndex = statusInsertionIndex,
+                               index == insertionIndex {
+                                WorkStatusCard(status: status, showDetails: $showWorkDetails)
+                            }
+                            MessageBubble(message: message)
+                        }
+                        if let status = chatService.workStatus,
+                           let insertionIndex = statusInsertionIndex,
+                           insertionIndex == chatService.messages.count {
+                            WorkStatusCard(status: status, showDetails: $showWorkDetails)
+                        }
+
+                        // Anchor for auto-scroll
+                        Color.clear
+                            .frame(height: 1)
+                            .id(bottomID)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, 20)
+                }
+                .onChange(of: chatService.messages.count) {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(bottomID, anchor: .bottom)
+                    }
+                }
+                .onChange(of: chatService.isProcessing) {
+                    if chatService.isProcessing {
+                        showWorkDetails = false
+                    }
+                    // Auto-scroll when processing starts
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(bottomID, anchor: .bottom)
+                    }
+                }
+            }
+
+            Divider()
+                .background(Color(hex: "ECECEC"))
+
+            // Input area
+            inputArea
+        }
+        .background(Color(hex: "FFFAF5"))
+    }
+
+    // MARK: - Debug Panel
+
+    private var debugPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack {
+                Text("Debug Log")
+                    .font(.custom("Nunito", size: 12).weight(.bold))
+                    .foregroundColor(Color(hex: "666666"))
+
+                Spacer()
+
+                Button(action: { copyDebugLog() }) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(hex: "999999"))
+                }
+                .buttonStyle(.plain)
+                .help("Copy all")
+
+                Button(action: { chatService.clearDebugLog() }) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(hex: "999999"))
+                }
+                .buttonStyle(.plain)
+                .help("Clear log")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(hex: "F5F5F5"))
+
+            Divider()
+
+            // Log entries
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(chatService.debugLog) { entry in
+                        DebugLogEntry(entry: entry)
+                    }
+                }
+                .padding(12)
+            }
+        }
+        .frame(width: 350)
+        .background(Color.white)
+        .overlay(
+            Rectangle()
+                .fill(Color(hex: "E0E0E0"))
+                .frame(width: 1),
+            alignment: .leading
+        )
+    }
+
+    // MARK: - Welcome View
+
+    private var welcomeView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "bubble.left.and.bubble.right.fill")
+                .font(.system(size: 36))
+                .foregroundColor(Color(hex: "F96E00").opacity(0.6))
+                .padding(.top, 40)
+
+            Text("Ask about your day")
+                .font(.custom("InstrumentSerif-Regular", size: 24))
+                .foregroundColor(Color(hex: "333333"))
+
+            Text("Try questions like:")
+                .font(.custom("Nunito", size: 13).weight(.medium))
+                .foregroundColor(Color(hex: "666666"))
+
+            VStack(alignment: .leading, spacing: 10) {
+                SuggestionChip(text: "What did I do today?") {
+                    sendMessage("What did I do today?")
+                }
+                SuggestionChip(text: "How much time did I spend on Twitter this week?") {
+                    sendMessage("How much time did I spend on Twitter this week?")
+                }
+                SuggestionChip(text: "What was my longest focus block yesterday?") {
+                    sendMessage("What was my longest focus block yesterday?")
+                }
+            }
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+
+    // MARK: - Input Area
+
+    private var inputArea: some View {
+        VStack(spacing: 0) {
+            // Text input
+            ZStack(alignment: .topLeading) {
+                if inputText.isEmpty {
+                    Text("Ask about your day...")
+                        .font(.custom("Nunito", size: 13).weight(.medium))
+                        .foregroundColor(Color(hex: "AAAAAA"))
+                        .padding(.leading, 14)
+                        .padding(.top, 10)
+                }
+
+                TextEditor(text: $inputText)
+                    .font(.custom("Nunito", size: 13).weight(.medium))
+                    .foregroundColor(Color(hex: "333333"))
+                    .scrollContentBackground(.hidden)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .focused($isInputFocused)
+                    .disabled(chatService.isProcessing)
+                    .onKeyPress { press in
+                        if press.key == .return {
+                            if press.modifiers.contains(.shift) {
+                                return .ignored  // Shift+Enter = new line
+                            } else {
+                                sendMessage(inputText)
+                                return .handled  // Enter = send
+                            }
+                        }
+                        return .ignored
+                    }
+            }
+            .frame(height: 36)
+
+            // Bottom toolbar
+            HStack(spacing: 8) {
+                // Provider picker
+                Picker("", selection: $selectedTool) {
+                    Text("Codex").tag("codex")
+                    Text("Claude").tag("claude")
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .tint(Color(hex: "666666"))
+
+                Spacer()
+
+                // Send button
+                Button(action: { sendMessage(inputText) }) {
+                    ZStack {
+                        if chatService.isProcessing {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                                .tint(Color.white)
+                        } else {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+                    }
+                    .frame(width: 28, height: 28)
+                    .background(
+                        inputText.isEmpty || chatService.isProcessing
+                            ? Color(hex: "CCCCCC")
+                            : Color(hex: "F96E00")
+                    )
+                    .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(inputText.isEmpty || chatService.isProcessing)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(height: 44)
+        }
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(
+                    isInputFocused ? Color(hex: "F96E00").opacity(0.5) : Color(hex: "E0E0E0"),
+                    lineWidth: 1
+                )
+        )
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    private var statusInsertionIndex: Int? {
+        guard chatService.workStatus != nil else { return nil }
+        if chatService.isProcessing {
+            return chatService.messages.lastIndex(where: { $0.role == .assistant }) ?? chatService.messages.count
+        }
+        return chatService.messages.count
+    }
+
+    // MARK: - Actions
+
+    private func sendMessage(_ text: String) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let messageText = text
+        inputText = ""
+        Task {
+            await chatService.sendMessage(messageText)
+        }
+    }
+
+    private func copyDebugLog() {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss.SSS"
+
+        let text = chatService.debugLog.map { entry in
+            "[\(formatter.string(from: entry.timestamp))] \(entry.type.rawValue)\n\(entry.content)"
+        }.joined(separator: "\n\n---\n\n")
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+// MARK: - Message Bubble
+
+private struct MessageBubble: View {
+    let message: ChatMessage
+
+    var body: some View {
+        switch message.role {
+        case .user:
+            userBubble
+        case .assistant:
+            assistantBubble
+        case .toolCall:
+            ToolCallBubble(message: message)
+        }
+    }
+
+    private var userBubble: some View {
+        HStack {
+            Spacer(minLength: 60)
+            Text(message.content)
+                .font(.custom("Nunito", size: 13).weight(.medium))
+                .foregroundColor(.white)
+                .textSelection(.enabled)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color(hex: "F96E00"))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
+    private var assistantBubble: some View {
+        let blocks = ChatContentParser.blocks(from: message.content)
+        return HStack {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(blocks) { block in
+                    switch block {
+                    case .text(_, let content):
+                        renderMarkdownLines(content)
+                    case .chart(let spec):
+                        ChatChartBlockView(spec: spec)
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color(hex: "E8E8E8"), lineWidth: 1)
+            )
+            Spacer(minLength: 60)
+        }
+    }
+
+    private func renderMarkdownText(_ content: String) -> Text {
+        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        if let parsed = try? AttributedString(markdown: normalized, options: options) {
+            return Text(parsed)
+        }
+        return Text(content)
+    }
+
+    private func renderMarkdownLines(_ content: String) -> some View {
+        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
+        let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+
+        return VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("- ") {
+                    HStack(alignment: .top, spacing: 6) {
+                        Text("•")
+                            .font(.custom("Nunito", size: 13).weight(.medium))
+                            .foregroundColor(Color(hex: "333333"))
+                        renderMarkdownText(String(trimmed.dropFirst(2)))
+                            .font(.custom("Nunito", size: 13).weight(.medium))
+                            .foregroundColor(Color(hex: "333333"))
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else if trimmed.isEmpty {
+                    Spacer(minLength: 4)
+                } else {
+                    renderMarkdownText(line)
+                        .font(.custom("Nunito", size: 13).weight(.medium))
+                        .foregroundColor(Color(hex: "333333"))
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Inline Charts
+
+private enum ChatContentBlock: Identifiable {
+    case text(id: UUID, content: String)
+    case chart(ChatChartSpec)
+
+    var id: UUID {
+        switch self {
+        case .text(let id, _):
+            return id
+        case .chart(let spec):
+            return spec.id
+        }
+    }
+}
+
+private enum ChatChartType: String {
+    case bar
+    case line
+}
+
+private struct ChatChartSpec: Identifiable {
+    let id = UUID()
+    let type: ChatChartType
+    let title: String
+    let labels: [String]
+    let values: [Double]
+    let colorHex: String?
+
+    private struct Payload: Decodable {
+        let title: String
+        let x: [String]
+        let y: [Double]
+        let color: String?
+    }
+
+    static func parse(type: String, jsonString: String) -> ChatChartSpec? {
+        guard let chartType = ChatChartType(rawValue: type) else { return nil }
+        guard let data = jsonString.data(using: .utf8) else { return nil }
+        guard let payload = try? JSONDecoder().decode(Payload.self, from: data) else { return nil }
+        guard !payload.x.isEmpty, payload.x.count == payload.y.count else { return nil }
+        let colorHex = sanitizeHex(payload.color)
+        return ChatChartSpec(
+            type: chartType,
+            title: payload.title,
+            labels: payload.x,
+            values: payload.y,
+            colorHex: colorHex
+        )
+    }
+
+    private static func sanitizeHex(_ value: String?) -> String? {
+        guard var raw = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+        if raw.hasPrefix("#") {
+            raw.removeFirst()
+        }
+        let length = raw.count
+        guard length == 6 || length == 8 else { return nil }
+        let allowed = CharacterSet(charactersIn: "0123456789ABCDEFabcdef")
+        guard raw.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+        return raw.uppercased()
+    }
+}
+
+private struct ChatContentParser {
+    static func blocks(from text: String) -> [ChatContentBlock] {
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+        let pattern = "```chart\\s+type\\s*=\\s*(\\w+)\\s*\\n([\\s\\S]*?)\\n```"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return [.text(id: UUID(), content: text)]
+        }
+
+        let range = NSRange(normalized.startIndex..., in: normalized)
+        let matches = regex.matches(in: normalized, range: range)
+        guard !matches.isEmpty else { return [.text(id: UUID(), content: text)] }
+
+        var blocks: [ChatContentBlock] = []
+        var currentIndex = normalized.startIndex
+
+        for match in matches {
+            guard let matchRange = Range(match.range, in: normalized) else { continue }
+
+            if matchRange.lowerBound > currentIndex {
+                let chunk = String(normalized[currentIndex..<matchRange.lowerBound])
+                if !chunk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    blocks.append(.text(id: UUID(), content: chunk))
+                }
+            }
+
+            if let typeRange = Range(match.range(at: 1), in: normalized),
+               let jsonRange = Range(match.range(at: 2), in: normalized) {
+                let typeString = normalized[typeRange].lowercased()
+                let jsonString = normalized[jsonRange].trimmingCharacters(in: .whitespacesAndNewlines)
+                if let spec = ChatChartSpec.parse(type: typeString, jsonString: jsonString) {
+                    blocks.append(.chart(spec))
+                } else {
+                    blocks.append(.text(id: UUID(), content: String(normalized[matchRange])))
+                }
+            }
+
+            currentIndex = matchRange.upperBound
+        }
+
+        if currentIndex < normalized.endIndex {
+            let tail = String(normalized[currentIndex...])
+            if !tail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                blocks.append(.text(id: UUID(), content: tail))
+            }
+        }
+
+        return blocks.isEmpty ? [.text(id: UUID(), content: text)] : blocks
+    }
+}
+
+private struct ChatChartBlockView: View {
+    let spec: ChatChartSpec
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !spec.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(spec.title)
+                    .font(.custom("Nunito", size: 12).weight(.semibold))
+                    .foregroundColor(Color(hex: "4A4A4A"))
+            }
+
+            Chart(points) { point in
+                switch spec.type {
+                case .bar:
+                    BarMark(
+                        x: .value("Category", point.label),
+                        y: .value("Value", point.value)
+                    )
+                    .foregroundStyle(seriesColor)
+                case .line:
+                    LineMark(
+                        x: .value("Category", point.label),
+                        y: .value("Value", point.value)
+                    )
+                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(seriesColor)
+
+                    PointMark(
+                        x: .value("Category", point.label),
+                        y: .value("Value", point.value)
+                    )
+                    .foregroundStyle(seriesColor)
+                }
+            }
+            .chartXAxis {
+                AxisMarks(values: points.map(\.label)) { value in
+                    if let label = value.as(String.self) {
+                        AxisValueLabel {
+                            Text(label)
+                                .font(.system(size: 10))
+                                .foregroundColor(Color(hex: "666666"))
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading) { _ in
+                    AxisGridLine()
+                    AxisValueLabel()
+                }
+            }
+            .frame(height: 180)
+            .padding(.top, 4)
+        }
+    }
+
+    private var points: [ChartPoint] {
+        Array(zip(spec.labels, spec.values)).map { label, value in
+            ChartPoint(label: label, value: value)
+        }
+    }
+
+    private var seriesColor: Color {
+        if let hex = spec.colorHex {
+            return Color(hex: hex)
+        }
+        return Color(hex: "F96E00")
+    }
+
+    private struct ChartPoint: Identifiable {
+        let id = UUID()
+        let label: String
+        let value: Double
+    }
+}
+
+// MARK: - Work Status Card
+
+private struct WorkStatusCard: View {
+    let status: ChatWorkStatus
+    @Binding var showDetails: Bool
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 10) {
+                header
+
+                if status.stage == .error, let message = status.errorMessage, !message.isEmpty {
+                    Text(message)
+                        .font(.custom("Nunito", size: 12).weight(.semibold))
+                        .foregroundColor(Color(hex: "C62828"))
+                }
+
+                if !status.tools.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(status.tools) { tool in
+                            ToolStatusRow(tool: tool, showDetails: showDetails)
+                        }
+                    }
+                }
+
+                if status.hasDetails {
+                    Button(action: { showDetails.toggle() }) {
+                        HStack(spacing: 4) {
+                            Text(showDetails ? "Hide details" : "Show details")
+                            Image(systemName: showDetails ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
+                        }
+                        .font(.custom("Nunito", size: 11).weight(.semibold))
+                        .foregroundColor(Color(hex: "8B5E3C"))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if showDetails, !status.thinkingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(status.thinkingText.trimmingCharacters(in: .whitespacesAndNewlines))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(Color(hex: "666666"))
+                        .textSelection(.enabled)
+                        .padding(8)
+                        .background(Color(hex: "FFFFFF").opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(backgroundColor)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(borderColor, lineWidth: 1)
+            )
+
+            Spacer(minLength: 60)
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 6) {
+            Image(systemName: headerIcon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(accentColor)
+                .frame(width: 14, height: 14, alignment: .center)
+
+            HStack(spacing: 0) {
+                Text(headerTitle)
+                if showsEllipsis {
+                    AnimatedEllipsis()
+                }
+            }
+            .font(.custom("Nunito", size: 12).weight(.semibold))
+            .foregroundColor(Color(hex: "4A4A4A"))
+
+            Spacer()
+        }
+    }
+
+    private var headerTitle: String {
+        switch status.stage {
+        case .thinking:
+            return "Thinking"
+        case .runningTools:
+            return "Running tools"
+        case .answering:
+            return "Answering"
+        case .error:
+            return "Something went wrong"
+        }
+    }
+
+    private var showsEllipsis: Bool {
+        switch status.stage {
+        case .thinking, .runningTools, .answering:
+            return true
+        case .error:
+            return false
+        }
+    }
+
+    private var headerIcon: String {
+        switch status.stage {
+        case .thinking:
+            return "sparkles"
+        case .runningTools:
+            return "wrench.and.screwdriver"
+        case .answering:
+            return "text.bubble"
+        case .error:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var accentColor: Color {
+        switch status.stage {
+        case .error:
+            return Color(hex: "C62828")
+        default:
+            return Color(hex: "F96E00")
+        }
+    }
+
+    private var backgroundColor: Color {
+        switch status.stage {
+        case .error:
+            return Color(hex: "FFEBEE")
+        default:
+            return Color(hex: "FFF4E9")
+        }
+    }
+
+    private var borderColor: Color {
+        switch status.stage {
+        case .error:
+            return Color(hex: "FFCDD2")
+        default:
+            return Color(hex: "F96E00").opacity(0.2)
+        }
+    }
+}
+
+private struct AnimatedEllipsis: View {
+    private let interval: TimeInterval = 0.45
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: interval)) { context in
+            let step = Int(context.date.timeIntervalSinceReferenceDate / interval) % 3 + 1
+            Text(String(repeating: ".", count: step))
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+private struct ToolStatusRow: View {
+    let tool: ChatWorkStatus.ToolRun
+    let showDetails: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                statusIcon
+                    .frame(width: 14, height: 14, alignment: .center)
+                Text(tool.summary)
+                    .font(.custom("Nunito", size: 12).weight(.semibold))
+                    .foregroundColor(textColor)
+            }
+
+            if showDetails {
+                Text(tool.command)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(Color(hex: "666666"))
+                    .textSelection(.enabled)
+                    .lineLimit(3)
+
+                if !trimmedOutput.isEmpty {
+                    Text(trimmedOutput)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(Color(hex: "555555"))
+                        .lineLimit(6)
+                        .textSelection(.enabled)
+                        .padding(6)
+                        .background(Color(hex: "FFFFFF").opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+            }
+        }
+    }
+
+    private var trimmedOutput: String {
+        tool.output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        switch tool.state {
+        case .running:
+            ProgressView()
+                .scaleEffect(0.6)
+                .tint(Color(hex: "F96E00"))
+        case .completed:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(Color(hex: "34C759"))
+        case .failed:
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(Color(hex: "C62828"))
+        }
+    }
+
+    private var textColor: Color {
+        switch tool.state {
+        case .failed:
+            return Color(hex: "C62828")
+        default:
+            return Color(hex: "4A4A4A")
+        }
+    }
+}
+
+// MARK: - Suggestion Chip
+
+private struct SuggestionChip: View {
+    let text: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(text)
+                .font(.custom("Nunito", size: 12).weight(.medium))
+                .foregroundColor(Color(hex: "F96E00"))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color(hex: "FFF4E9"))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(Color(hex: "F96E00").opacity(0.3), lineWidth: 1)
+                )
+                .scaleEffect(isHovered ? 1.02 : 1.0)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.7)) {
+                isHovered = hovering
+            }
+        }
+    }
+}
+
+// MARK: - Debug Log Entry
+
+private struct DebugLogEntry: View {
+    let entry: ChatDebugEntry
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Header with type and timestamp
+            HStack(spacing: 6) {
+                Text(entry.type.rawValue)
+                    .font(.custom("Nunito", size: 10).weight(.bold))
+                    .foregroundColor(Color(hex: entry.typeColor))
+
+                Spacer()
+
+                Text(formatTimestamp(entry.timestamp))
+                    .font(.custom("Nunito", size: 9))
+                    .foregroundColor(Color(hex: "AAAAAA"))
+            }
+
+            // Content (scrollable if long)
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(entry.content)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(Color(hex: "333333"))
+                    .textSelection(.enabled)
+            }
+            .frame(maxHeight: 150)
+        }
+        .padding(8)
+        .background(Color(hex: "FAFAFA"))
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(Color(hex: entry.typeColor).opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    private func formatTimestamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss.SSS"
+        return formatter.string(from: date)
+    }
+}
+
+// MARK: - Thinking Indicator
+
+private struct ThinkingIndicator: View {
+    @State private var dotScale: [CGFloat] = [1, 1, 1]
+    @State private var isAnimating = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(Color(hex: "F96E00"))
+
+            Text("Thinking")
+                .font(.custom("Nunito", size: 12).weight(.semibold))
+                .foregroundColor(Color(hex: "8B5E3C"))
+
+            HStack(spacing: 3) {
+                ForEach(0..<3, id: \.self) { index in
+                    Circle()
+                        .fill(Color(hex: "F96E00"))
+                        .frame(width: 4, height: 4)
+                        .scaleEffect(dotScale[index])
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            LinearGradient(
+                colors: [Color(hex: "FFF4E9"), Color(hex: "FFECD8")],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color(hex: "F96E00").opacity(0.2), lineWidth: 1)
+        )
+        .onAppear {
+            startAnimation()
+        }
+    }
+
+    private func startAnimation() {
+        // Staggered bouncing dots animation
+        for i in 0..<3 {
+            withAnimation(
+                .easeInOut(duration: 0.4)
+                .repeatForever(autoreverses: true)
+                .delay(Double(i) * 0.15)
+            ) {
+                dotScale[i] = 1.4
+            }
+        }
+    }
+}
+
+// MARK: - Preview
+
+#Preview("Chat View") {
+    ChatView()
+        .frame(width: 400, height: 600)
+}
+
+#Preview("Thinking Indicator") {
+    ThinkingIndicator()
+        .padding()
+        .background(Color(hex: "FFFAF5"))
+}
