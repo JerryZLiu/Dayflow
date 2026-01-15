@@ -404,31 +404,38 @@ final class ChatService: ObservableObject {
         { "title": "Focus time by day", "x": ["Mon", "Tue", "Wed"], "y": [2.5, 3.0, 1.8], "color": "#1F6FEB" }
         ```
 
+        ```chart type=stacked_bar
+        { "title": "Work vs Personal by day", "x": ["Mon", "Tue"], "series": [{ "name": "Work", "values": [2.5, 3.1], "color": "#1F6FEB" }, { "name": "Personal", "values": [1.2, 0.8], "color": "#F96E00" }] }
+        ```
+
         RULES:
-        - Allowed chart types: bar, line
+        - Allowed chart types: bar, line, stacked_bar
         - JSON must be valid (double quotes, no trailing commas)
         - x and y must be arrays of the same length
         - Use numbers only for y values
         - Optional: color can be a hex string like "#F96E00" or "F96E00"
+        - For stacked_bar: provide x categories and a series array; each series needs name + values (values count must match x); color optional per series
         - Place the chart block where you want it to appear in the response
         - If a chart isn't helpful, omit it
 
         ## RESPONSE STYLE
 
-        - **Brief and readable** - Get to the point, no fluff
-        - **Human-readable times** - "about an hour", "45 minutes", not "4140 seconds"
-        - **Markdown formatting** - Use **bold**, bullet points, and newlines for readability
-        - **Natural language** - Talk like a friend, not a database
+        - **Short and scannable** - 3-5 bullet points max, not a wall of text
+        - **Group by time of day** - Use "Morning", "Midday", "Afternoon/evening" - NOT specific times like "9:20-10:04"
+        - **High-level summaries** - Don't list every activity, summarize the vibe
+        - **Human-readable durations** - "about an hour", "a couple hours", not "45 minutes" or "4140 seconds"
+        - **Markdown formatting** - Use **bold** for time periods, bullet points for structure
 
         GOOD example:
-        "I pulled your cards from yesterday.
-
-        Your longest stretch was **about an hour** on the Daniel Wirtz blog - looks like research mode!"
+        "Pulled today's cards.
+        - **Morning:** research/UX work, then about an hour of personal downtime
+        - **Midday:** mostly personal—shorts, threads, feed browsing
+        - **Afternoon/evening:** back to work on code with a couple League matches mixed in"
 
         BAD example:
-        "The timeline_cards table returned a 4140 second Personal category block titled 'Tracked Chester-focused favorites entry'."
+        "Morning focus started with a 9:20–10:04 work block researching Dayflow/ChatCLI logging and UX notes, then shifted into about an hour of personal/break time watching League clips, YouTube Shorts..."
 
-        NEVER mention: seconds, epoch times, table names, SQL syntax, raw column values
+        NEVER mention: seconds, specific timestamps (9:20-10:04), epoch times, table names, SQL syntax, raw column values
         """
     }
 

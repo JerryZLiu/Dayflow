@@ -285,9 +285,7 @@ struct ChatView: View {
 
     private var statusInsertionIndex: Int? {
         guard chatService.workStatus != nil else { return nil }
-        if chatService.isProcessing {
-            return chatService.messages.lastIndex(where: { $0.role == .assistant }) ?? chatService.messages.count
-        }
+        // Always show at the end (after the latest user message)
         return chatService.messages.count
     }
 
@@ -429,39 +427,95 @@ private enum ChatContentBlock: Identifiable {
     }
 }
 
-private enum ChatChartType: String {
-    case bar
-    case line
-}
+private enum ChatChartSpec: Identifiable {
+    case bar(BasicChartSpec)
+    case line(BasicChartSpec)
+    case stackedBar(StackedBarChartSpec)
 
-private struct ChatChartSpec: Identifiable {
-    let id = UUID()
-    let type: ChatChartType
-    let title: String
-    let labels: [String]
-    let values: [Double]
-    let colorHex: String?
+    var id: UUID {
+        switch self {
+        case .bar(let spec):
+            return spec.id
+        case .line(let spec):
+            return spec.id
+        case .stackedBar(let spec):
+            return spec.id
+        }
+    }
 
-    private struct Payload: Decodable {
+    var title: String {
+        switch self {
+        case .bar(let spec):
+            return spec.title
+        case .line(let spec):
+            return spec.title
+        case .stackedBar(let spec):
+            return spec.title
+        }
+    }
+
+    static func parse(type: String, jsonString: String) -> ChatChartSpec? {
+        guard let data = jsonString.data(using: .utf8) else { return nil }
+        switch type {
+        case "bar":
+            guard let payload = try? JSONDecoder().decode(BasicPayload.self, from: data) else { return nil }
+            guard !payload.x.isEmpty, payload.x.count == payload.y.count else { return nil }
+            return .bar(BasicChartSpec(
+                title: payload.title,
+                labels: payload.x,
+                values: payload.y,
+                colorHex: sanitizeHex(payload.color)
+            ))
+        case "line":
+            guard let payload = try? JSONDecoder().decode(BasicPayload.self, from: data) else { return nil }
+            guard !payload.x.isEmpty, payload.x.count == payload.y.count else { return nil }
+            return .line(BasicChartSpec(
+                title: payload.title,
+                labels: payload.x,
+                values: payload.y,
+                colorHex: sanitizeHex(payload.color)
+            ))
+        case "stacked_bar":
+            guard let payload = try? JSONDecoder().decode(StackedPayload.self, from: data) else { return nil }
+            guard !payload.x.isEmpty, !payload.series.isEmpty else { return nil }
+
+            let series = payload.series.compactMap { entry -> StackedBarChartSpec.Series? in
+                guard !entry.values.isEmpty, entry.values.count == payload.x.count else { return nil }
+                return StackedBarChartSpec.Series(
+                    name: entry.name,
+                    values: entry.values,
+                    colorHex: sanitizeHex(entry.color)
+                )
+            }
+            guard !series.isEmpty else { return nil }
+
+            return .stackedBar(StackedBarChartSpec(
+                title: payload.title,
+                categories: payload.x,
+                series: series
+            ))
+        default:
+            return nil
+        }
+    }
+
+    private struct BasicPayload: Decodable {
         let title: String
         let x: [String]
         let y: [Double]
         let color: String?
     }
 
-    static func parse(type: String, jsonString: String) -> ChatChartSpec? {
-        guard let chartType = ChatChartType(rawValue: type) else { return nil }
-        guard let data = jsonString.data(using: .utf8) else { return nil }
-        guard let payload = try? JSONDecoder().decode(Payload.self, from: data) else { return nil }
-        guard !payload.x.isEmpty, payload.x.count == payload.y.count else { return nil }
-        let colorHex = sanitizeHex(payload.color)
-        return ChatChartSpec(
-            type: chartType,
-            title: payload.title,
-            labels: payload.x,
-            values: payload.y,
-            colorHex: colorHex
-        )
+    private struct StackedPayload: Decodable {
+        let title: String
+        let x: [String]
+        let series: [SeriesPayload]
+
+        struct SeriesPayload: Decodable {
+            let name: String
+            let values: [Double]
+            let color: String?
+        }
     }
 
     private static func sanitizeHex(_ value: String?) -> String? {
@@ -475,6 +529,28 @@ private struct ChatChartSpec: Identifiable {
         let allowed = CharacterSet(charactersIn: "0123456789ABCDEFabcdef")
         guard raw.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
         return raw.uppercased()
+    }
+}
+
+private struct BasicChartSpec: Identifiable {
+    let id = UUID()
+    let title: String
+    let labels: [String]
+    let values: [Double]
+    let colorHex: String?
+}
+
+private struct StackedBarChartSpec: Identifiable {
+    let id = UUID()
+    let title: String
+    let categories: [String]
+    let series: [Series]
+
+    struct Series: Identifiable {
+        let id = UUID()
+        let name: String
+        let values: [Double]
+        let colorHex: String?
     }
 }
 
@@ -533,69 +609,130 @@ private struct ChatChartBlockView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !spec.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(spec.title)
+            let title = spec.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !title.isEmpty {
+                Text(title)
                     .font(.custom("Nunito", size: 12).weight(.semibold))
                     .foregroundColor(Color(hex: "4A4A4A"))
             }
+            chartBody
+                .frame(height: 180)
+                .padding(.top, 4)
+        }
+    }
 
-            Chart(points) { point in
-                switch spec.type {
-                case .bar:
-                    BarMark(
-                        x: .value("Category", point.label),
-                        y: .value("Value", point.value)
-                    )
-                    .foregroundStyle(seriesColor)
-                case .line:
-                    LineMark(
-                        x: .value("Category", point.label),
-                        y: .value("Value", point.value)
-                    )
-                    .interpolationMethod(.catmullRom)
-                    .foregroundStyle(seriesColor)
+    @ViewBuilder
+    private var chartBody: some View {
+        switch spec {
+        case .bar(let chartSpec):
+            basicChartBody(spec: chartSpec, isLine: false)
+        case .line(let chartSpec):
+            basicChartBody(spec: chartSpec, isLine: true)
+        case .stackedBar(let chartSpec):
+            stackedBarBody(spec: chartSpec)
+        }
+    }
 
-                    PointMark(
-                        x: .value("Category", point.label),
-                        y: .value("Value", point.value)
-                    )
-                    .foregroundStyle(seriesColor)
-                }
+    private func basicChartBody(spec: BasicChartSpec, isLine: Bool) -> some View {
+        let points = Array(zip(spec.labels, spec.values)).map { ChartPoint(label: $0.0, value: $0.1) }
+        let color = seriesColor(for: spec.colorHex, fallbackIndex: 0)
+
+        return Chart(points) { point in
+            if isLine {
+                LineMark(
+                    x: .value("Category", point.label),
+                    y: .value("Value", point.value)
+                )
+                .interpolationMethod(.catmullRom)
+                .foregroundStyle(color)
+
+                PointMark(
+                    x: .value("Category", point.label),
+                    y: .value("Value", point.value)
+                )
+                .foregroundStyle(color)
+            } else {
+                BarMark(
+                    x: .value("Category", point.label),
+                    y: .value("Value", point.value)
+                )
+                .foregroundStyle(color)
             }
-            .chartXAxis {
-                AxisMarks(values: points.map(\.label)) { value in
-                    if let label = value.as(String.self) {
-                        AxisValueLabel {
-                            Text(label)
-                                .font(.system(size: 10))
-                                .foregroundColor(Color(hex: "666666"))
-                                .lineLimit(1)
-                        }
+        }
+        .chartXAxis {
+            AxisMarks(values: points.map(\.label)) { value in
+                if let label = value.as(String.self) {
+                    AxisValueLabel {
+                        Text(label)
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(hex: "666666"))
+                            .lineLimit(1)
                     }
                 }
             }
-            .chartYAxis {
-                AxisMarks(position: .leading) { _ in
-                    AxisGridLine()
-                    AxisValueLabel()
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading) { _ in
+                AxisGridLine()
+                AxisValueLabel()
+            }
+        }
+    }
+
+    private func stackedBarBody(spec: StackedBarChartSpec) -> some View {
+        let points = stackedPoints(from: spec)
+        let domain = spec.series.map(\.name)
+        let range = spec.series.enumerated().map { index, series in
+            seriesColor(for: series.colorHex, fallbackIndex: index)
+        }
+
+        return Chart(points) { point in
+            BarMark(
+                x: .value("Category", point.category),
+                y: .value("Value", point.value)
+            )
+            .foregroundStyle(by: .value("Series", point.seriesName))
+        }
+        .chartForegroundStyleScale(domain: domain, range: range)
+        .chartXAxis {
+            AxisMarks(values: spec.categories) { value in
+                if let label = value.as(String.self) {
+                    AxisValueLabel {
+                        Text(label)
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(hex: "666666"))
+                            .lineLimit(1)
+                    }
                 }
             }
-            .frame(height: 180)
-            .padding(.top, 4)
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading) { _ in
+                AxisGridLine()
+                AxisValueLabel()
+            }
         }
     }
 
-    private var points: [ChartPoint] {
-        Array(zip(spec.labels, spec.values)).map { label, value in
-            ChartPoint(label: label, value: value)
+    private func stackedPoints(from spec: StackedBarChartSpec) -> [StackedPoint] {
+        var points: [StackedPoint] = []
+        for series in spec.series {
+            for (index, category) in spec.categories.enumerated() {
+                points.append(StackedPoint(
+                    category: category,
+                    seriesName: series.name,
+                    value: series.values[index]
+                ))
+            }
         }
+        return points
     }
 
-    private var seriesColor: Color {
-        if let hex = spec.colorHex {
+    private func seriesColor(for hex: String?, fallbackIndex: Int) -> Color {
+        if let hex {
             return Color(hex: hex)
         }
-        return Color(hex: "F96E00")
+        return Self.defaultPalette[fallbackIndex % Self.defaultPalette.count]
     }
 
     private struct ChartPoint: Identifiable {
@@ -603,6 +740,21 @@ private struct ChatChartBlockView: View {
         let label: String
         let value: Double
     }
+
+    private struct StackedPoint: Identifiable {
+        let id = UUID()
+        let category: String
+        let seriesName: String
+        let value: Double
+    }
+
+    private static let defaultPalette: [Color] = [
+        Color(hex: "F96E00"),
+        Color(hex: "1F6FEB"),
+        Color(hex: "2E7D32"),
+        Color(hex: "8E24AA"),
+        Color(hex: "00897B")
+    ]
 }
 
 // MARK: - Work Status Card
