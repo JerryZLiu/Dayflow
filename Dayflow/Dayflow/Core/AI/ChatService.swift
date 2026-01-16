@@ -412,6 +412,10 @@ final class ChatService: ObservableObject {
         { "title": "Time split (today)", "labels": ["Work", "Personal"], "values": [3.0, 5.7], "colors": ["#1F6FEB", "#F96E00"] }
         ```
 
+        ```chart type=heatmap
+        { "title": "Focus by daypart", "x": ["Mon", "Tue", "Wed"], "y": ["Morning", "Afternoon", "Evening"], "values": [[1.2, 0.8, 1.5], [2.0, 1.6, 1.1], [0.7, 1.0, 0.9]], "color": "#1F6FEB" }
+        ```
+
         RULES:
         - Allowed chart types: bar, line, stacked_bar
         - JSON must be valid (double quotes, no trailing commas)
@@ -420,6 +424,7 @@ final class ChatService: ObservableObject {
         - Optional: color can be a hex string like "#F96E00" or "F96E00"
         - For stacked_bar: provide x categories and a series array; each series needs name + values (values count must match x); color optional per series
         - For donut: provide labels + values (same length); optional colors array (same length) for slice colors
+        - For heatmap: provide x labels, y labels, and values as a 2D array where each row matches y and each row length matches x; optional base color
         - Place the chart block where you want it to appear in the response
         - If a chart isn't helpful, omit it
 

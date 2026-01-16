@@ -432,6 +432,7 @@ private enum ChatChartSpec: Identifiable {
     case line(BasicChartSpec)
     case stackedBar(StackedBarChartSpec)
     case donut(DonutChartSpec)
+    case heatmap(HeatmapChartSpec)
 
     var id: UUID {
         switch self {
@@ -442,6 +443,8 @@ private enum ChatChartSpec: Identifiable {
         case .stackedBar(let spec):
             return spec.id
         case .donut(let spec):
+            return spec.id
+        case .heatmap(let spec):
             return spec.id
         }
     }
@@ -455,6 +458,8 @@ private enum ChatChartSpec: Identifiable {
         case .stackedBar(let spec):
             return spec.title
         case .donut(let spec):
+            return spec.title
+        case .heatmap(let spec):
             return spec.title
         }
     }
@@ -515,6 +520,20 @@ private enum ChatChartSpec: Identifiable {
                 values: payload.values,
                 colorHexes: colorHexes
             ))
+        case "heatmap":
+            guard let payload = try? JSONDecoder().decode(HeatmapPayload.self, from: data) else { return nil }
+            guard !payload.x.isEmpty, !payload.y.isEmpty else { return nil }
+            guard payload.values.count == payload.y.count else { return nil }
+            for row in payload.values {
+                guard row.count == payload.x.count else { return nil }
+            }
+            return .heatmap(HeatmapChartSpec(
+                title: payload.title,
+                xLabels: payload.x,
+                yLabels: payload.y,
+                values: payload.values,
+                colorHex: sanitizeHex(payload.color)
+            ))
         default:
             return nil
         }
@@ -544,6 +563,14 @@ private enum ChatChartSpec: Identifiable {
         let labels: [String]
         let values: [Double]
         let colors: [String]?
+    }
+
+    private struct HeatmapPayload: Decodable {
+        let title: String
+        let x: [String]
+        let y: [String]
+        let values: [[Double]]
+        let color: String?
     }
 
     private static func sanitizeHex(_ value: String?) -> String? {
@@ -588,6 +615,15 @@ private struct DonutChartSpec: Identifiable {
     let labels: [String]
     let values: [Double]
     let colorHexes: [String?]
+}
+
+private struct HeatmapChartSpec: Identifiable {
+    let id = UUID()
+    let title: String
+    let xLabels: [String]
+    let yLabels: [String]
+    let values: [[Double]]
+    let colorHex: String?
 }
 
 private struct ChatContentParser {
@@ -668,6 +704,8 @@ private struct ChatChartBlockView: View {
             stackedBarBody(spec: chartSpec)
         case .donut(let chartSpec):
             donutBody(spec: chartSpec)
+        case .heatmap(let chartSpec):
+            heatmapBody(spec: chartSpec)
         }
     }
 
@@ -771,6 +809,48 @@ private struct ChatChartBlockView: View {
         .chartLegend(position: .bottom, alignment: .leading)
     }
 
+    private func heatmapBody(spec: HeatmapChartSpec) -> some View {
+        let points = heatmapPoints(from: spec)
+        let range = heatmapRange(for: spec)
+        let baseColor = seriesColor(for: spec.colorHex, fallbackIndex: 1)
+
+        return Chart(points) { point in
+            RectangleMark(
+                x: .value("X", point.xLabel),
+                y: .value("Y", point.yLabel),
+                width: .ratio(0.9),
+                height: .ratio(0.9)
+            )
+            .foregroundStyle(heatmapColor(value: point.value, range: range, base: baseColor))
+            .cornerRadius(2)
+        }
+        .chartXAxis {
+            AxisMarks(values: spec.xLabels) { value in
+                if let label = value.as(String.self) {
+                    AxisValueLabel {
+                        Text(label)
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(hex: "666666"))
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading, values: spec.yLabels) { value in
+                if let label = value.as(String.self) {
+                    AxisValueLabel {
+                        Text(label)
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(hex: "666666"))
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
+        .chartLegend(.hidden)
+    }
+
     private func stackedPoints(from spec: StackedBarChartSpec) -> [StackedPoint] {
         var points: [StackedPoint] = []
         for series in spec.series {
@@ -809,6 +889,48 @@ private struct ChatChartBlockView: View {
         let id = UUID()
         let label: String
         let value: Double
+    }
+
+    private struct HeatmapPoint: Identifiable {
+        let id = UUID()
+        let xLabel: String
+        let yLabel: String
+        let value: Double
+    }
+
+    private struct HeatmapRange {
+        let min: Double
+        let max: Double
+    }
+
+    private func heatmapPoints(from spec: HeatmapChartSpec) -> [HeatmapPoint] {
+        var points: [HeatmapPoint] = []
+        for (rowIndex, row) in spec.values.enumerated() {
+            let yLabel = spec.yLabels[rowIndex]
+            for (colIndex, value) in row.enumerated() {
+                points.append(HeatmapPoint(
+                    xLabel: spec.xLabels[colIndex],
+                    yLabel: yLabel,
+                    value: value
+                ))
+            }
+        }
+        return points
+    }
+
+    private func heatmapRange(for spec: HeatmapChartSpec) -> HeatmapRange {
+        let flattened = spec.values.flatMap { $0 }
+        let minValue = flattened.min() ?? 0
+        let maxValue = flattened.max() ?? minValue
+        return HeatmapRange(min: minValue, max: maxValue)
+    }
+
+    private func heatmapColor(value: Double, range: HeatmapRange, base: Color) -> Color {
+        let denominator = range.max - range.min
+        let normalized = denominator == 0 ? 1.0 : (value - range.min) / denominator
+        let clamped = min(max(normalized, 0), 1)
+        let opacity = 0.2 + (0.8 * clamped)
+        return base.opacity(opacity)
     }
 
     private static let defaultPalette: [Color] = [
