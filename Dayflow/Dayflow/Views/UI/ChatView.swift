@@ -431,6 +431,7 @@ private enum ChatChartSpec: Identifiable {
     case bar(BasicChartSpec)
     case line(BasicChartSpec)
     case stackedBar(StackedBarChartSpec)
+    case donut(DonutChartSpec)
 
     var id: UUID {
         switch self {
@@ -439,6 +440,8 @@ private enum ChatChartSpec: Identifiable {
         case .line(let spec):
             return spec.id
         case .stackedBar(let spec):
+            return spec.id
+        case .donut(let spec):
             return spec.id
         }
     }
@@ -450,6 +453,8 @@ private enum ChatChartSpec: Identifiable {
         case .line(let spec):
             return spec.title
         case .stackedBar(let spec):
+            return spec.title
+        case .donut(let spec):
             return spec.title
         }
     }
@@ -494,6 +499,22 @@ private enum ChatChartSpec: Identifiable {
                 categories: payload.x,
                 series: series
             ))
+        case "donut":
+            guard let payload = try? JSONDecoder().decode(DonutPayload.self, from: data) else { return nil }
+            guard !payload.labels.isEmpty, payload.labels.count == payload.values.count else { return nil }
+            let colors = payload.colors?.map { sanitizeHex($0) }
+            let colorHexes: [String?]
+            if let colors, colors.count == payload.labels.count {
+                colorHexes = colors
+            } else {
+                colorHexes = Array(repeating: nil, count: payload.labels.count)
+            }
+            return .donut(DonutChartSpec(
+                title: payload.title,
+                labels: payload.labels,
+                values: payload.values,
+                colorHexes: colorHexes
+            ))
         default:
             return nil
         }
@@ -516,6 +537,13 @@ private enum ChatChartSpec: Identifiable {
             let values: [Double]
             let color: String?
         }
+    }
+
+    private struct DonutPayload: Decodable {
+        let title: String
+        let labels: [String]
+        let values: [Double]
+        let colors: [String]?
     }
 
     private static func sanitizeHex(_ value: String?) -> String? {
@@ -552,6 +580,14 @@ private struct StackedBarChartSpec: Identifiable {
         let values: [Double]
         let colorHex: String?
     }
+}
+
+private struct DonutChartSpec: Identifiable {
+    let id = UUID()
+    let title: String
+    let labels: [String]
+    let values: [Double]
+    let colorHexes: [String?]
 }
 
 private struct ChatContentParser {
@@ -630,6 +666,8 @@ private struct ChatChartBlockView: View {
             basicChartBody(spec: chartSpec, isLine: true)
         case .stackedBar(let chartSpec):
             stackedBarBody(spec: chartSpec)
+        case .donut(let chartSpec):
+            donutBody(spec: chartSpec)
         }
     }
 
@@ -714,6 +752,25 @@ private struct ChatChartBlockView: View {
         }
     }
 
+    private func donutBody(spec: DonutChartSpec) -> some View {
+        let slices = zip(spec.labels, spec.values).map { DonutSlice(label: $0.0, value: $0.1) }
+        let range = spec.labels.enumerated().map { index, _ in
+            let hex = spec.colorHexes.indices.contains(index) ? spec.colorHexes[index] : nil
+            return seriesColor(for: hex, fallbackIndex: index)
+        }
+
+        return Chart(slices) { slice in
+            SectorMark(
+                angle: .value("Value", slice.value),
+                innerRadius: .ratio(0.6),
+                angularInset: 1
+            )
+            .foregroundStyle(by: .value("Label", slice.label))
+        }
+        .chartForegroundStyleScale(domain: spec.labels, range: range)
+        .chartLegend(position: .bottom, alignment: .leading)
+    }
+
     private func stackedPoints(from spec: StackedBarChartSpec) -> [StackedPoint] {
         var points: [StackedPoint] = []
         for series in spec.series {
@@ -745,6 +802,12 @@ private struct ChatChartBlockView: View {
         let id = UUID()
         let category: String
         let seriesName: String
+        let value: Double
+    }
+
+    private struct DonutSlice: Identifiable {
+        let id = UUID()
+        let label: String
         let value: Double
     }
 

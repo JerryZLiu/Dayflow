@@ -408,6 +408,10 @@ final class ChatService: ObservableObject {
         { "title": "Work vs Personal by day", "x": ["Mon", "Tue"], "series": [{ "name": "Work", "values": [2.5, 3.1], "color": "#1F6FEB" }, { "name": "Personal", "values": [1.2, 0.8], "color": "#F96E00" }] }
         ```
 
+        ```chart type=donut
+        { "title": "Time split (today)", "labels": ["Work", "Personal"], "values": [3.0, 5.7], "colors": ["#1F6FEB", "#F96E00"] }
+        ```
+
         RULES:
         - Allowed chart types: bar, line, stacked_bar
         - JSON must be valid (double quotes, no trailing commas)
@@ -415,6 +419,7 @@ final class ChatService: ObservableObject {
         - Use numbers only for y values
         - Optional: color can be a hex string like "#F96E00" or "F96E00"
         - For stacked_bar: provide x categories and a series array; each series needs name + values (values count must match x); color optional per series
+        - For donut: provide labels + values (same length); optional colors array (same length) for slice colors
         - Place the chart block where you want it to appear in the response
         - If a chart isn't helpful, omit it
 
