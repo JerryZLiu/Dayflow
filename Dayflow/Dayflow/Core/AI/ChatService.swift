@@ -416,6 +416,10 @@ final class ChatService: ObservableObject {
         { "title": "Focus by daypart", "x": ["Mon", "Tue", "Wed"], "y": ["Morning", "Afternoon", "Evening"], "values": [[1.2, 0.8, 1.5], [2.0, 1.6, 1.1], [0.7, 1.0, 0.9]], "color": "#1F6FEB" }
         ```
 
+        ```chart type=gantt
+        { "title": "Focus blocks (today)", "items": [{ "label": "Research", "start": 9.0, "end": 10.5, "color": "#1F6FEB" }, { "label": "Break", "start": 10.5, "end": 11.0, "color": "#F96E00" }] }
+        ```
+
         RULES:
         - Allowed chart types: bar, line, stacked_bar
         - JSON must be valid (double quotes, no trailing commas)
@@ -425,6 +429,7 @@ final class ChatService: ObservableObject {
         - For stacked_bar: provide x categories and a series array; each series needs name + values (values count must match x); color optional per series
         - For donut: provide labels + values (same length); optional colors array (same length) for slice colors
         - For heatmap: provide x labels, y labels, and values as a 2D array where each row matches y and each row length matches x; optional base color
+        - For gantt: provide items with label, start, end (numbers, start < end); optional color per item
         - Place the chart block where you want it to appear in the response
         - If a chart isn't helpful, omit it
 
@@ -446,6 +451,19 @@ final class ChatService: ObservableObject {
         "Morning focus started with a 9:20–10:04 work block researching Dayflow/ChatCLI logging and UX notes, then shifted into about an hour of personal/break time watching League clips, YouTube Shorts..."
 
         NEVER mention: seconds, specific timestamps (9:20-10:04), epoch times, table names, SQL syntax, raw column values
+
+        ## FOLLOW-UP SUGGESTIONS
+
+        At the end of EVERY response, include a suggestions block with 3-4 follow-up questions:
+        - 1-2 natural follow-ups (dig deeper, clarify, get details on something you mentioned)
+        - 1-2 orthogonal questions (different angles, comparisons, trends they might find interesting)
+
+        Format (MUST be valid JSON array):
+        ```suggestions
+        ["Question 1", "Question 2", "Question 3"]
+        ```
+
+        Keep questions short (<50 chars), conversational, start with verbs like "Show", "Compare", "Break down", "What's".
         """
     }
 

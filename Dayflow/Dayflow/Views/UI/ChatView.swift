@@ -433,6 +433,7 @@ private enum ChatChartSpec: Identifiable {
     case stackedBar(StackedBarChartSpec)
     case donut(DonutChartSpec)
     case heatmap(HeatmapChartSpec)
+    case gantt(GanttChartSpec)
 
     var id: UUID {
         switch self {
@@ -445,6 +446,8 @@ private enum ChatChartSpec: Identifiable {
         case .donut(let spec):
             return spec.id
         case .heatmap(let spec):
+            return spec.id
+        case .gantt(let spec):
             return spec.id
         }
     }
@@ -460,6 +463,8 @@ private enum ChatChartSpec: Identifiable {
         case .donut(let spec):
             return spec.title
         case .heatmap(let spec):
+            return spec.title
+        case .gantt(let spec):
             return spec.title
         }
     }
@@ -534,6 +539,22 @@ private enum ChatChartSpec: Identifiable {
                 values: payload.values,
                 colorHex: sanitizeHex(payload.color)
             ))
+        case "gantt":
+            guard let payload = try? JSONDecoder().decode(GanttPayload.self, from: data) else { return nil }
+            let items = payload.items.compactMap { item -> GanttChartSpec.Item? in
+                guard item.end > item.start else { return nil }
+                return GanttChartSpec.Item(
+                    label: item.label,
+                    start: item.start,
+                    end: item.end,
+                    colorHex: sanitizeHex(item.color)
+                )
+            }
+            guard !items.isEmpty else { return nil }
+            return .gantt(GanttChartSpec(
+                title: payload.title,
+                items: items
+            ))
         default:
             return nil
         }
@@ -571,6 +592,18 @@ private enum ChatChartSpec: Identifiable {
         let y: [String]
         let values: [[Double]]
         let color: String?
+    }
+
+    private struct GanttPayload: Decodable {
+        let title: String
+        let items: [ItemPayload]
+
+        struct ItemPayload: Decodable {
+            let label: String
+            let start: Double
+            let end: Double
+            let color: String?
+        }
     }
 
     private static func sanitizeHex(_ value: String?) -> String? {
@@ -624,6 +657,20 @@ private struct HeatmapChartSpec: Identifiable {
     let yLabels: [String]
     let values: [[Double]]
     let colorHex: String?
+}
+
+private struct GanttChartSpec: Identifiable {
+    let id = UUID()
+    let title: String
+    let items: [Item]
+
+    struct Item: Identifiable {
+        let id = UUID()
+        let label: String
+        let start: Double
+        let end: Double
+        let colorHex: String?
+    }
 }
 
 private struct ChatContentParser {
@@ -706,6 +753,8 @@ private struct ChatChartBlockView: View {
             donutBody(spec: chartSpec)
         case .heatmap(let chartSpec):
             heatmapBody(spec: chartSpec)
+        case .gantt(let chartSpec):
+            ganttBody(spec: chartSpec)
         }
     }
 
@@ -851,6 +900,46 @@ private struct ChatChartBlockView: View {
         .chartLegend(.hidden)
     }
 
+    private func ganttBody(spec: GanttChartSpec) -> some View {
+        let domain = ganttDomain(for: spec)
+        let labels = spec.items.map(\.label)
+
+        return Chart(spec.items) { item in
+            BarMark(
+                xStart: .value("Start", item.start),
+                xEnd: .value("End", item.end),
+                y: .value("Label", item.label)
+            )
+            .foregroundStyle(seriesColor(for: item.colorHex, fallbackIndex: itemIndex(for: item, in: spec)))
+            .cornerRadius(4)
+        }
+        .chartXScale(domain: domain.min...domain.max)
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 6)) { value in
+                if let number = value.as(Double.self) {
+                    AxisValueLabel {
+                        Text(number, format: .number.precision(.fractionLength(1)))
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(hex: "666666"))
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading, values: labels) { value in
+                if let label = value.as(String.self) {
+                    AxisValueLabel {
+                        Text(label)
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(hex: "666666"))
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
+        .chartLegend(.hidden)
+    }
+
     private func stackedPoints(from spec: StackedBarChartSpec) -> [StackedPoint] {
         var points: [StackedPoint] = []
         for series in spec.series {
@@ -903,6 +992,11 @@ private struct ChatChartBlockView: View {
         let max: Double
     }
 
+    private struct GanttDomain {
+        let min: Double
+        let max: Double
+    }
+
     private func heatmapPoints(from spec: HeatmapChartSpec) -> [HeatmapPoint] {
         var points: [HeatmapPoint] = []
         for (rowIndex, row) in spec.values.enumerated() {
@@ -931,6 +1025,18 @@ private struct ChatChartBlockView: View {
         let clamped = min(max(normalized, 0), 1)
         let opacity = 0.2 + (0.8 * clamped)
         return base.opacity(opacity)
+    }
+
+    private func ganttDomain(for spec: GanttChartSpec) -> GanttDomain {
+        let starts = spec.items.map(\.start)
+        let ends = spec.items.map(\.end)
+        let minValue = min(starts.min() ?? 0, ends.min() ?? 0)
+        let maxValue = max(starts.max() ?? 0, ends.max() ?? 0)
+        return GanttDomain(min: minValue, max: maxValue)
+    }
+
+    private func itemIndex(for item: GanttChartSpec.Item, in spec: GanttChartSpec) -> Int {
+        spec.items.firstIndex(where: { $0.id == item.id }) ?? 0
     }
 
     private static let defaultPalette: [Color] = [
