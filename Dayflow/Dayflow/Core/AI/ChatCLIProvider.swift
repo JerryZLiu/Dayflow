@@ -708,6 +708,25 @@ private struct ChatCLIProcessRunner {
 
         try process.run()
 
+        let outputQueue = DispatchQueue(label: "ChatCLI.Output")
+        var stdoutBuffer = Data()
+        var stderrBuffer = Data()
+
+        stdoutHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            outputQueue.sync {
+                stdoutBuffer.append(data)
+            }
+        }
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            outputQueue.sync {
+                stderrBuffer.append(data)
+            }
+        }
+
         // 5-minute timeout to prevent indefinite hangs
         let timeoutSeconds: TimeInterval = 300
         let semaphore = DispatchSemaphore(value: 0)
@@ -723,11 +742,25 @@ private struct ChatCLIProcessRunner {
         let finished = Date()
 
         cleanupPty?()
-        var rawOut = String(data: stdoutHandle.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        stdoutHandle.readabilityHandler = nil
+        stderrPipe.fileHandleForReading.readabilityHandler = nil
+        outputQueue.sync { }
+        let remainingStdout = stdoutHandle.readDataToEndOfFile()
+        let remainingStderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        outputQueue.sync {
+            if !remainingStdout.isEmpty {
+                stdoutBuffer.append(remainingStdout)
+            }
+            if !remainingStderr.isEmpty {
+                stderrBuffer.append(remainingStderr)
+            }
+        }
+
+        var rawOut = String(data: stdoutBuffer, encoding: .utf8) ?? ""
         if tool == .claude {
             rawOut = stripANSIEscapes(rawOut)
         }
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrBuffer, encoding: .utf8) ?? ""
 
         // Check for "command not found" to give user-friendly error
         // Only check stderr if exit code indicates failure (avoids false positives from unrelated .zshrc errors)
