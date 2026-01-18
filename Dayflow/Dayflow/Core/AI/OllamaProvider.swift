@@ -6,7 +6,7 @@
 import Foundation
 import AppKit
 
-final class OllamaProvider: LLMProvider {
+final class OllamaProvider {
     private let endpoint: String
     private let screenshotInterval: TimeInterval = 10  // seconds between screenshots
     // Read persisted local settings
@@ -978,6 +978,27 @@ final class OllamaProvider: LLMProvider {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone.current
         return formatter.string(from: date)
+    }
+
+    private func parseVideoTimestamp(_ timestamp: String) -> Int {
+        let components = timestamp.components(separatedBy: ":")
+
+        if components.count == 3 {
+            guard let hours = Int(components[0]),
+                  let minutes = Int(components[1]),
+                  let seconds = Int(components[2]) else {
+                return 0
+            }
+            return hours * 3600 + minutes * 60 + seconds
+        } else if components.count == 2 {
+            guard let minutes = Int(components[0]),
+                  let seconds = Int(components[1]) else {
+                return 0
+            }
+            return minutes * 60 + seconds
+        }
+
+        return 0
     }
     
     private func calculateDurationInMinutes(from startTime: String, to endTime: String) -> Int {

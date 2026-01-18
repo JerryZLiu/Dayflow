@@ -5,7 +5,7 @@
 
 import Foundation
 
-final class GeminiDirectProvider: LLMProvider {
+final class GeminiDirectProvider {
     private let apiKey: String
     private let fileEndpoint = "https://generativelanguage.googleapis.com/upload/v1beta/files"
     private let modelPreference: GeminiModelPreference

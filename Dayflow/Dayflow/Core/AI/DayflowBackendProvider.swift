@@ -5,7 +5,7 @@
 
 import Foundation
 
-final class DayflowBackendProvider: LLMProvider {
+final class DayflowBackendProvider {
     private let token: String
     private let endpoint: String
 

@@ -787,7 +787,7 @@ private struct ChatCLICardsEnvelope: Codable {
     let cards: [Item]
 }
 
-final class ChatCLIProvider: LLMProvider {
+final class ChatCLIProvider {
     private let tool: ChatCLITool
     private let runner = ChatCLIProcessRunner()
     private let config = ChatCLIConfigManager.shared
@@ -2195,5 +2195,35 @@ final class ChatCLIProvider: LLMProvider {
             return ("---THINKING---\n\(thinking)\n---END_THINKING---\n\(text)", log)
         }
         return (text, log)
+    }
+
+    private func parseVideoTimestamp(_ timestamp: String) -> Int {
+        let components = timestamp.components(separatedBy: ":")
+
+        if components.count == 3 {
+            guard let hours = Int(components[0]),
+                  let minutes = Int(components[1]),
+                  let seconds = Int(components[2]) else {
+                return 0
+            }
+            return hours * 3600 + minutes * 60 + seconds
+        } else if components.count == 2 {
+            guard let minutes = Int(components[0]),
+                  let seconds = Int(components[1]) else {
+                return 0
+            }
+            return minutes * 60 + seconds
+        }
+
+        return 0
+    }
+
+    private func formatTimestampForPrompt(_ unixTime: Int) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(unixTime))
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        return formatter.string(from: date)
     }
 }

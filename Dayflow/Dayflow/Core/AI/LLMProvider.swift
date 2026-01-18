@@ -5,16 +5,6 @@
 
 import Foundation
 
-protocol LLMProvider {
-    /// Transcribe observations from screenshots.
-    func transcribeScreenshots(_ screenshots: [Screenshot], batchStartTime: Date, batchId: Int64?) async throws -> (observations: [Observation], log: LLMCall)
-    func generateActivityCards(observations: [Observation], context: ActivityGenerationContext, batchId: Int64?) async throws -> (cards: [ActivityCardData], log: LLMCall)
-    func generateText(prompt: String) async throws -> (text: String, log: LLMCall)
-
-    /// Generate text with streaming output - yields chunks as they arrive
-    func generateTextStreaming(prompt: String) -> AsyncThrowingStream<String, Error>
-}
-
 struct ActivityGenerationContext {
     let batchObservations: [Observation]
     let existingCards: [ActivityCardData]  // Cards that overlap with current analysis window
@@ -57,55 +47,3 @@ struct ActivityCardData: Codable {
 
 // Distraction is defined in StorageManager.swift
 // LLMCall is defined in StorageManager.swift
-
-
-extension LLMProvider {
-    // Default streaming implementation - falls back to non-streaming
-    func generateTextStreaming(prompt: String) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { continuation in
-            Task {
-                do {
-                    let (text, _) = try await self.generateText(prompt: prompt)
-                    continuation.yield(text)
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-        }
-    }
-
-    // Convert "MM:SS" or "HH:MM:SS" to seconds from video start
-    func parseVideoTimestamp(_ timestamp: String) -> Int {
-        let components = timestamp.components(separatedBy: ":")
-        
-        if components.count == 3 {
-            // HH:MM:SS format
-            guard let hours = Int(components[0]),
-                  let minutes = Int(components[1]),
-                  let seconds = Int(components[2]) else {
-                return 0
-            }
-            return hours * 3600 + minutes * 60 + seconds
-        } else if components.count == 2 {
-            // MM:SS format
-            guard let minutes = Int(components[0]),
-                  let seconds = Int(components[1]) else {
-                return 0
-            }
-            return minutes * 60 + seconds
-        }
-        
-        return 0
-    }
-    
-    // Convert Unix timestamp to "h:mm a" for prompts
-    func formatTimestampForPrompt(_ unixTime: Int) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(unixTime))
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone.current
-        return formatter.string(from: date)
-    }
-}
