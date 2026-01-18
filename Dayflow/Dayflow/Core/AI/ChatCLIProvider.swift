@@ -1288,7 +1288,7 @@ final class ChatCLIProvider: LLMProvider {
                 model = "haiku"
                 effort = nil
             case .codex:
-                model = "gpt-5.1-codex-mini"
+                model = "gpt-5.2"
                 effort = "low"
             }
         }
@@ -1418,7 +1418,7 @@ final class ChatCLIProvider: LLMProvider {
             model = "sonnet"
             effort = nil
         case .codex:
-            model = "gpt-5.1-codex-mini"
+            model = "gpt-5.2"
             effort = "low"
         }
 
@@ -1993,7 +1993,7 @@ final class ChatCLIProvider: LLMProvider {
                         // Retry with more powerful model
                         if tool == .codex {
                             do {
-                                let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "gpt-5.1-codex-mini", overrideEffort: "high")
+                                let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "gpt-5.2", overrideEffort: "high")
                                 localPairs = retryPairs
                                 localUsage = retryUsage
                                 lastError = nil
@@ -2102,8 +2102,8 @@ final class ChatCLIProvider: LLMProvider {
             model = "sonnet"
             effort = nil
         case .codex:
-            model = "gpt-5.1-codex-mini"
-            effort = "high"
+            model = "gpt-5.2"
+            effort = "low"
         }
 
         return runner.runStreaming(
@@ -2156,7 +2156,7 @@ final class ChatCLIProvider: LLMProvider {
         case .claude:
             model = "sonnet"
         case .codex:
-            model = "gpt-5.1-codex-mini"
+            model = "gpt-5.2"
         }
 
         let run: ChatCLIRunResult
