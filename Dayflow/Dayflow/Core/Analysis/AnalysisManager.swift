@@ -124,7 +124,7 @@ final class AnalysisManager: AnalysisManaging {
                     progressHandler("Processing batch \(index + 1) of \(batchIds.count)... (Total elapsed: \(self.formatDuration(elapsedTotal)))")
                 }
 
-                self.queueGeminiRequest(batchId: batchId)
+                self.queueLLMRequest(batchId: batchId)
 
                 // Wait for batch to complete (check status periodically)
                 var isCompleted = false
@@ -236,7 +236,7 @@ final class AnalysisManager: AnalysisManaging {
                     progressHandler("Processing batch \(index + 1) of \(batchesToProcess.count)... (Total elapsed: \(self.formatDuration(elapsedTotal)))")
                 }
 
-                self.queueGeminiRequest(batchId: batchId)
+                self.queueLLMRequest(batchId: batchId)
 
                 // Wait for batch to complete (check status periodically)
                 var isCompleted = false
@@ -310,7 +310,7 @@ final class AnalysisManager: AnalysisManaging {
                 return
             }
 
-            self.queueGeminiRequest(
+            self.queueLLMRequest(
                 batchId: batchId,
                 progressHandler: stepHandler,
                 completion: { result in
@@ -336,11 +336,11 @@ final class AnalysisManager: AnalysisManaging {
         // 3. Persist batch rows & join table
         let batchIDs = batches.compactMap(saveScreenshotBatch)
         // 4. Fire LLM for each batch
-        for id in batchIDs { queueGeminiRequest(batchId: id) }
+        for id in batchIDs { queueLLMRequest(batchId: id) }
     }
 
 
-    private func queueGeminiRequest(
+    private func queueLLMRequest(
         batchId: Int64,
         progressHandler: ((LLMProcessingStep) -> Void)? = nil,
         completion: ((Result<Void, Error>) -> Void)? = nil
