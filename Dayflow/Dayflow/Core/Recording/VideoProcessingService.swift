@@ -489,6 +489,9 @@ actor VideoProcessingService {
             throw VideoProcessingError.noInputFiles
         }
 
+        let overallStart = Date()
+        let scanStart = Date()
+
         // 1. Find the widest screenshot to use as canvas dimensions
         //    This ensures all aspect ratios are preserved via letterboxing/pillarboxing
         var canvasWidth = 0
@@ -511,6 +514,8 @@ actor VideoProcessingService {
         guard canvasWidth > 0 && canvasHeight > 0 else {
             throw VideoProcessingError.invalidImageData
         }
+
+        let scanDuration = Date().timeIntervalSince(scanStart)
 
         // Ensure even dimensions for H.264 codec
         canvasWidth = makeEven(canvasWidth)
@@ -567,7 +572,9 @@ actor VideoProcessingService {
         writer.startSession(atSourceTime: .zero)
 
         // 3. Write each screenshot as a frame
+        let encodeStart = Date()
         var frameIndex = 0
+        var skippedFrames = 0
         let baseTimestamp = screenshots.first!.capturedAt
 
         for screenshot in screenshots {
@@ -576,12 +583,14 @@ actor VideoProcessingService {
                   let nsImage = NSImage(data: imageData),
                   let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
                 print("⚠️ Skipping invalid image: \(screenshot.fileURL.lastPathComponent)")
+                skippedFrames += 1
                 continue
             }
 
             // Create pixel buffer with aspect-fit compositing (letterbox/pillarbox as needed)
             guard let pixelBuffer = createPixelBuffer(from: cgImage, canvasWidth: width, canvasHeight: height) else {
                 print("⚠️ Failed to create pixel buffer for: \(screenshot.fileURL.lastPathComponent)")
+                skippedFrames += 1
                 continue
             }
 
@@ -609,15 +618,18 @@ actor VideoProcessingService {
             }
             frameIndex += 1
         }
+        let encodeDuration = Date().timeIntervalSince(encodeStart)
 
         // 4. Finish writing
         writerInput.markAsFinished()
 
+        let finalizeStart = Date()
         await withCheckedContinuation { continuation in
             writer.finishWriting {
                 continuation.resume()
             }
         }
+        let finalizeDuration = Date().timeIntervalSince(finalizeStart)
 
         guard writer.status == .completed else {
             print("Screenshot compositing failed. Status: \(writer.status). Error: \(writer.error?.localizedDescription ?? "nil")")
@@ -626,6 +638,23 @@ actor VideoProcessingService {
 
         let videoDuration = useCompressedTimeline ? frameIndex : (screenshots.last!.capturedAt - baseTimestamp)
         print("✅ Generated \(useCompressedTimeline ? "compressed" : "realtime") video from \(frameIndex) screenshots (\(videoDuration)s): \(outputURL.lastPathComponent)")
+
+        let totalDuration = Date().timeIntervalSince(overallStart)
+        let timingSummary = String(
+            format: "TIMING timelapse frames=%d/%d skipped=%d size=%dx%d fps=%d scan=%.2fs encode=%.2fs finalize=%.2fs total=%.2fs output=%@",
+            frameIndex,
+            screenshots.count,
+            skippedFrames,
+            width,
+            height,
+            fps,
+            scanDuration,
+            encodeDuration,
+            finalizeDuration,
+            totalDuration,
+            outputURL.lastPathComponent
+        )
+        print(timingSummary)
     }
 
     /// Overload that accepts file URLs directly (convenience for legacy code paths)
