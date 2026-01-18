@@ -1,5 +1,5 @@
 //
-//  LLMProvider.swift
+//  LLMTypes.swift
 //  Dayflow
 //
 
