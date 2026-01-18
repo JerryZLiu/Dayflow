@@ -104,6 +104,7 @@ final class ChatService: ObservableObject {
     // MARK: - Private
 
     private var conversationHistory: [(role: String, content: String)] = []
+    private var currentSessionId: String?
 
     // MARK: - Debug Logging
 
@@ -151,14 +152,25 @@ final class ChatService: ObservableObject {
         error = nil
         workStatus = nil
         currentSuggestions = []
+        currentSessionId = nil
     }
 
     // MARK: - Conversation Processing
 
     private func processConversation() async {
-        // Build prompt with system context
-        let fullPrompt = buildFullPrompt()
-        log(.prompt, fullPrompt)
+        // Build prompt - full prompt for new session, just user message for resume
+        let prompt: String
+        let isResume = currentSessionId != nil
+
+        if isResume {
+            // For resumed sessions, just send the latest user message
+            prompt = conversationHistory.last?.content ?? ""
+            log(.prompt, "[Resuming session \(currentSessionId!)] \(prompt)")
+        } else {
+            // For new sessions, send full prompt with system context
+            prompt = buildFullPrompt()
+            log(.prompt, prompt)
+        }
 
         // Track state during streaming
         var responseText = ""
@@ -171,10 +183,17 @@ final class ChatService: ObservableObject {
 
         do {
             // Use rich streaming with thinking and tool events
-            let stream = LLMService.shared.generateChatStreaming(prompt: fullPrompt)
+            let stream = LLMService.shared.generateChatStreaming(prompt: prompt, sessionId: currentSessionId)
 
             for try await event in stream {
                 switch event {
+                case .sessionStarted(let id):
+                    // Capture session ID for future messages
+                    if currentSessionId == nil {
+                        currentSessionId = id
+                        log(.info, "📍 Session started: \(id)")
+                    }
+
                 case .thinking(let text):
                     log(.info, "💭 Thinking: \(text)")
                     updateWorkStatus { status in
