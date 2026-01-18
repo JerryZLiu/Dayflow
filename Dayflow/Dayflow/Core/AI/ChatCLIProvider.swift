@@ -20,6 +20,8 @@ enum ChatCLITool: String, Codable {
 
 /// Events emitted during JSONL streaming from CLI tools
 enum ChatStreamEvent: Sendable {
+    /// Session started with ID (for session persistence)
+    case sessionStarted(id: String)
     /// Thinking/reasoning content (shown in collapsible UI)
     case thinking(String)
     /// Tool/command execution started
@@ -209,7 +211,8 @@ private struct TokenUsage: Sendable {
 /// {"type":"item.completed","item":{"type":"command_execution","aggregated_output":"...","exit_code":0}}
 /// {"type":"item.completed","item":{"type":"agent_message","text":"..."}}
 private struct CodexJSONLEvent: Decodable {
-    let type: String  // "item.started", "item.completed", etc.
+    let type: String  // "thread.started", "item.started", "item.completed", etc.
+    let thread_id: String?  // Present in "thread.started" event
     let item: CodexItem?
 
     struct CodexItem: Decodable {
@@ -225,9 +228,11 @@ private struct CodexJSONLEvent: Decodable {
 // MARK: - Claude JSONL Event Parsing
 
 /// Claude `--output-format stream-json` outputs events like:
+/// {"type":"system","session_id":"..."}  (init event)
 /// {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}}
 private struct ClaudeJSONLEvent: Decodable {
-    let type: String  // "stream_event", "message_complete", etc.
+    let type: String  // "system", "stream_event", "message_complete", etc.
+    let session_id: String?  // Present in "system" init event
     let event: ClaudeEvent?
     let result: String?
 
@@ -463,6 +468,11 @@ private struct ChatCLIProcessRunner {
     private func parseCodexEvent(_ data: Data) -> ChatStreamEvent? {
         guard let event = try? JSONDecoder().decode(CodexJSONLEvent.self, from: data) else { return nil }
 
+        // Handle thread.started event (session init)
+        if event.type == "thread.started", let threadId = event.thread_id {
+            return .sessionStarted(id: threadId)
+        }
+
         guard let item = event.item else { return nil }
 
         switch item.type {
@@ -493,6 +503,11 @@ private struct ChatCLIProcessRunner {
 
     private func parseClaudeEvent(_ data: Data) -> ChatStreamEvent? {
         guard let event = try? JSONDecoder().decode(ClaudeJSONLEvent.self, from: data) else { return nil }
+
+        // Handle system init event (session start)
+        if event.type == "system", let sessionId = event.session_id {
+            return .sessionStarted(id: sessionId)
+        }
 
         // Handle stream events
         if event.type == "stream_event", let streamEvent = event.event {
