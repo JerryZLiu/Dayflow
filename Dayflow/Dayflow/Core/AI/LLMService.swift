@@ -32,6 +32,16 @@ protocol LLMServicing {
 final class LLMService: LLMServicing {
     static let shared: LLMServicing = LLMService()
     
+    private struct BatchProviderActions {
+        let transcribeScreenshots: ([Screenshot], Date, Int64?) async throws -> (observations: [Observation], log: LLMCall)
+        let generateActivityCards: ([Observation], ActivityGenerationContext, Int64?) async throws -> (cards: [ActivityCardData], log: LLMCall)
+    }
+
+    private struct TextProviderActions {
+        let generateText: (String) async throws -> (text: String, log: LLMCall)
+        let generateTextStreaming: ((String) -> AsyncThrowingStream<String, Error>)?
+    }
+
     private var providerType: LLMProviderType {
         guard let savedData = UserDefaults.standard.data(forKey: "llmProviderType") else {
             return .geminiDirect
@@ -45,28 +55,7 @@ final class LLMService: LLMServicing {
         }
     }
     
-    private var provider: LLMProvider? {
-        switch providerType {
-        case .geminiDirect:
-            return makeGeminiProvider()
-        case .dayflowBackend(let endpoint):
-            if let token = KeychainManager.shared.retrieve(for: "dayflow"), !token.isEmpty {
-                return DayflowBackendProvider(token: token, endpoint: endpoint)
-            } else {
-                print("❌ [LLMService] Failed to retrieve Dayflow token from Keychain")
-                return nil
-            }
-
-        case .ollamaLocal(let endpoint):
-            return OllamaProvider(endpoint: endpoint)
-        case .chatGPTClaude:
-            let preferredTool = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "codex"
-            let tool: ChatCLITool = (preferredTool == "claude") ? .claude : .codex
-            return ChatCLIProvider(tool: tool)
-        }
-    }
-    
-    private func makeGeminiProvider() -> LLMProvider? {
+    private func makeGeminiProvider() -> GeminiDirectProvider? {
         if let apiKey = KeychainManager.shared.retrieve(for: "gemini"), !apiKey.isEmpty {
             let preference = GeminiModelPreference.load()
             return GeminiDirectProvider(apiKey: apiKey, preference: preference)
@@ -76,12 +65,116 @@ final class LLMService: LLMServicing {
         }
     }
 
+    private func makeDayflowProvider(endpoint: String) -> DayflowBackendProvider? {
+        if let token = KeychainManager.shared.retrieve(for: "dayflow"), !token.isEmpty {
+            return DayflowBackendProvider(token: token, endpoint: endpoint)
+        }
+        print("❌ [LLMService] Failed to retrieve Dayflow token from Keychain")
+        return nil
+    }
+
+    private func makeOllamaProvider(endpoint: String) -> OllamaProvider {
+        OllamaProvider(endpoint: endpoint)
+    }
+
+    private func makeChatCLIProvider() -> ChatCLIProvider {
+        let preferredTool = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "codex"
+        let tool: ChatCLITool = (preferredTool == "claude") ? .claude : .codex
+        return ChatCLIProvider(tool: tool)
+    }
+
     private func providerName() -> String {
         switch providerType {
         case .geminiDirect: return "gemini"
         case .dayflowBackend: return "dayflow"
         case .ollamaLocal: return "ollama"
         case .chatGPTClaude: return "chat_cli"
+        }
+    }
+
+    private func noProviderError() -> NSError {
+        NSError(
+            domain: "LLMService",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "No LLM provider configured. Please configure in settings."]
+        )
+    }
+
+    private func makeBatchProvider() throws -> BatchProviderActions {
+        switch providerType {
+        case .geminiDirect:
+            guard let provider = makeGeminiProvider() else { throw noProviderError() }
+            return BatchProviderActions(
+                transcribeScreenshots: provider.transcribeScreenshots,
+                generateActivityCards: provider.generateActivityCards
+            )
+        case .dayflowBackend(let endpoint):
+            guard let provider = makeDayflowProvider(endpoint: endpoint) else { throw noProviderError() }
+            return BatchProviderActions(
+                transcribeScreenshots: provider.transcribeScreenshots,
+                generateActivityCards: provider.generateActivityCards
+            )
+        case .ollamaLocal(let endpoint):
+            let provider = makeOllamaProvider(endpoint: endpoint)
+            return BatchProviderActions(
+                transcribeScreenshots: provider.transcribeScreenshots,
+                generateActivityCards: provider.generateActivityCards
+            )
+        case .chatGPTClaude:
+            let provider = makeChatCLIProvider()
+            return BatchProviderActions(
+                transcribeScreenshots: provider.transcribeScreenshots,
+                generateActivityCards: provider.generateActivityCards
+            )
+        }
+    }
+
+    private func makeTextProvider() throws -> TextProviderActions {
+        switch providerType {
+        case .geminiDirect:
+            guard let provider = makeGeminiProvider() else { throw noProviderError() }
+            return TextProviderActions(
+                generateText: provider.generateText,
+                generateTextStreaming: nil
+            )
+        case .dayflowBackend(let endpoint):
+            guard let provider = makeDayflowProvider(endpoint: endpoint) else { throw noProviderError() }
+            return TextProviderActions(
+                generateText: provider.generateText,
+                generateTextStreaming: nil
+            )
+        case .ollamaLocal(let endpoint):
+            let provider = makeOllamaProvider(endpoint: endpoint)
+            return TextProviderActions(
+                generateText: provider.generateText,
+                generateTextStreaming: nil
+            )
+        case .chatGPTClaude:
+            let provider = makeChatCLIProvider()
+            return TextProviderActions(
+                generateText: provider.generateText,
+                generateTextStreaming: provider.generateTextStreaming
+            )
+        }
+    }
+
+    private func makeFallbackTextStream(_ work: @escaping () async throws -> String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let text = try await work()
+                    continuation.yield(text)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func makeErrorStream(_ error: Error) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish(throwing: error)
         }
     }
 
@@ -117,11 +210,8 @@ final class LLMService: LLMServicing {
                     "total_duration_seconds": batchEndTs - batchStartTs,
                     "llm_provider": providerName()
                 ])
-                
-                // Check provider inside the do block so errors go through catch
-                guard let provider = provider else {
-                    throw NSError(domain: "LLMService", code: 1, userInfo: [NSLocalizedDescriptionKey: "No LLM provider configured. Please configure in settings."])
-                }
+
+                let batchProvider = try makeBatchProvider()
                 
                 // Mark batch as processing
                 StorageManager.shared.updateBatch(batchId, status: "processing")
@@ -145,7 +235,7 @@ final class LLMService: LLMServicing {
                 print("📸 [LLMService] Transcribing \(screenshots.count) screenshots")
 
                 // Transcribe screenshots using provider
-                let result = try await provider.transcribeScreenshots(screenshots, batchStartTime: batchStartDate, batchId: batchId)
+                let result = try await batchProvider.transcribeScreenshots(screenshots, batchStartDate, batchId)
                 observations = result.observations
                 transcribeLog = result.log
                 print("📸 [LLMService] Transcribed → \(observations.count) observations")
@@ -230,11 +320,7 @@ final class LLMService: LLMServicing {
                 }
 
                 // Generate activity cards using sliding window observations
-                let (cards, _) = try await provider.generateActivityCards(
-                    observations: recentObservations,
-                    context: context,
-                    batchId: batchId
-                )
+                let (cards, _) = try await batchProvider.generateActivityCards(recentObservations, context, batchId)
                 // Note: card generation log is not persisted per-batch yet
                 
                 // Replace old cards with new ones in the time range
@@ -501,28 +587,23 @@ final class LLMService: LLMServicing {
     // MARK: - Text Generation
 
     func generateText(prompt: String) async throws -> String {
-        guard let provider = provider else {
-            throw NSError(domain: "LLMService", code: 1, userInfo: [NSLocalizedDescriptionKey: "No LLM provider configured. Please configure in settings."])
-        }
-
-        let (text, _) = try await provider.generateText(prompt: prompt)
+        let textProvider = try makeTextProvider()
+        let (text, _) = try await textProvider.generateText(prompt)
         return text
     }
 
     // MARK: - Streaming Text Generation
 
     func generateTextStreaming(prompt: String) -> AsyncThrowingStream<String, Error> {
-        guard let provider = provider else {
-            return AsyncThrowingStream { continuation in
-                continuation.finish(throwing: NSError(
-                    domain: "LLMService",
-                    code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "No LLM provider configured. Please configure in settings."]
-                ))
+        do {
+            let textProvider = try makeTextProvider()
+            if let streaming = textProvider.generateTextStreaming {
+                return streaming(prompt)
             }
+            return makeFallbackTextStream { try await textProvider.generateText(prompt).text }
+        } catch {
+            return makeErrorStream(error)
         }
-
-        return provider.generateTextStreaming(prompt: prompt)
     }
 
     // MARK: - Rich Chat Streaming (ChatCLI only)
@@ -530,29 +611,16 @@ final class LLMService: LLMServicing {
     func generateChatStreaming(prompt: String, sessionId: String? = nil) -> AsyncThrowingStream<ChatStreamEvent, Error> {
         // For ChatCLI, use the rich streaming API with session support
         if case .chatGPTClaude = providerType {
-            let preferredTool = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "codex"
-            let tool: ChatCLITool = (preferredTool == "claude") ? .claude : .codex
-            let chatCLI = ChatCLIProvider(tool: tool)
+            let chatCLI = makeChatCLIProvider()
             return chatCLI.generateChatStreaming(prompt: prompt, sessionId: sessionId)
         }
 
-        // For other providers, wrap text streaming into ChatStreamEvents
-        guard let provider = provider else {
-            return AsyncThrowingStream { continuation in
-                continuation.finish(throwing: NSError(
-                    domain: "LLMService",
-                    code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "No LLM provider configured. Please configure in settings."]
-                ))
-            }
-        }
-
-        // Wrap simple text streaming into ChatStreamEvents
+        let stream = generateTextStreaming(prompt: prompt)
         return AsyncThrowingStream { continuation in
             Task {
                 var accumulatedText = ""
                 do {
-                    for try await chunk in provider.generateTextStreaming(prompt: prompt) {
+                    for try await chunk in stream {
                         accumulatedText += chunk
                         continuation.yield(.textDelta(chunk))
                     }
