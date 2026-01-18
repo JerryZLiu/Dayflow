@@ -17,6 +17,7 @@ struct ChatDebugEntry: Identifiable {
     let content: String
 
     enum EntryType: String {
+        case user = "📝 USER"
         case prompt = "📤 PROMPT"
         case response = "📥 RESPONSE"
         case toolDetected = "🔧 TOOL DETECTED"
@@ -27,6 +28,7 @@ struct ChatDebugEntry: Identifiable {
 
     var typeColor: String {
         switch type {
+        case .user: return "F96E00"
         case .prompt: return "4A90D9"
         case .response: return "7B68EE"
         case .toolDetected: return "F96E00"
@@ -96,6 +98,7 @@ final class ChatService: ObservableObject {
     @Published private(set) var error: String?
     @Published private(set) var debugLog: [ChatDebugEntry] = []
     @Published private(set) var workStatus: ChatWorkStatus?
+    @Published private(set) var currentSuggestions: [String] = []
     @Published var showDebugPanel = false
 
     // MARK: - Private
@@ -126,11 +129,13 @@ final class ChatService: ObservableObject {
         error = nil
         streamingText = ""
         workStatus = nil
+        currentSuggestions = []
 
         // Add user message
         let userMessage = ChatMessage.user(content)
         messages.append(userMessage)
         conversationHistory.append((role: "user", content: content))
+        log(.user, content)
 
         // Process with potential tool calls
         await processConversation()
@@ -145,6 +150,7 @@ final class ChatService: ObservableObject {
         streamingText = ""
         error = nil
         workStatus = nil
+        currentSuggestions = []
     }
 
     // MARK: - Conversation Processing
@@ -295,22 +301,26 @@ final class ChatService: ObservableObject {
             workStatus = nil
         }
 
-        // Update final response
+        // Parse suggestions from response
+        let (cleanedText, suggestions) = parseSuggestions(from: responseText)
+        currentSuggestions = suggestions
+
+        // Update final response (with suggestions block removed)
         if let id = responseMessageId,
            let index = messages.firstIndex(where: { $0.id == id }) {
             // Remove response message if empty (error case or no response)
-            if responseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if cleanedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 messages.remove(at: index)
             } else {
                 messages[index] = ChatMessage(
                     id: id,
                     role: .assistant,
-                    content: responseText
+                    content: cleanedText
                 )
             }
         }
 
-        // Add to conversation history
+        // Add to conversation history (keep original with suggestions for context)
         if !responseText.isEmpty {
             conversationHistory.append((role: "assistant", content: responseText))
         }
@@ -435,11 +445,11 @@ final class ChatService: ObservableObject {
 
         ## RESPONSE STYLE
 
-        - **Short and scannable** - 3-5 bullet points max, not a wall of text
-        - **Group by time of day** - Use "Morning", "Midday", "Afternoon/evening" - NOT specific times like "9:20-10:04"
+        - **Brief and scannable** - A few key points, not a wall of text. Use bullets if they help organize.
+        - **Group by time of day** - "Morning", "Midday", "Afternoon/evening" - NOT specific timestamps like "9:20-10:04"
         - **High-level summaries** - Don't list every activity, summarize the vibe
         - **Human-readable durations** - "about an hour", "a couple hours", not "45 minutes" or "4140 seconds"
-        - **Markdown formatting** - Use **bold** for time periods, bullet points for structure
+        - **Markdown** - Use **bold** for emphasis where helpful
 
         GOOD example:
         "Pulled today's cards.
@@ -454,16 +464,16 @@ final class ChatService: ObservableObject {
 
         ## FOLLOW-UP SUGGESTIONS
 
-        At the end of EVERY response, include a suggestions block with 3-4 follow-up questions:
-        - 1-2 natural follow-ups (dig deeper, clarify, get details on something you mentioned)
-        - 1-2 orthogonal questions (different angles, comparisons, trends they might find interesting)
+        At the END of your response, include 3-4 follow-up question suggestions:
+        - 1-2 natural follow-ups (dig deeper into something you mentioned)
+        - 1-2 orthogonal questions (different angles they might find interesting)
 
-        Format (MUST be valid JSON array):
+        Format EXACTLY like this (no "Suggestions:" label, just the block):
         ```suggestions
         ["Question 1", "Question 2", "Question 3"]
         ```
 
-        Keep questions short (<50 chars), conversational, start with verbs like "Show", "Compare", "Break down", "What's".
+        Keep questions short (<50 chars), start with verbs like "Show", "Compare", "Break down", "What's".
         """
     }
 
@@ -544,6 +554,44 @@ final class ChatService: ObservableObject {
         let displayFormatter = DateFormatter()
         displayFormatter.dateFormat = "MMM d"  // e.g., "Jan 7"
         return displayFormatter.string(from: date)
+    }
+
+    // MARK: - Suggestions Parsing
+
+    /// Parse suggestions block from response and return cleaned text + suggestions array
+    private func parseSuggestions(from text: String) -> (cleanedText: String, suggestions: [String]) {
+        // Look for ```suggestions ... ``` block (with optional "Suggestions:" label before it)
+        // Pattern captures: optional label + the code block with JSON array inside
+        let pattern = "(?:Suggestions:\\s*)?```suggestions\\s*\\n([\\s\\S]*?)\\n?```"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return (text, [])
+        }
+
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, options: [], range: range),
+              let jsonRange = Range(match.range(at: 1), in: text) else {
+            return (text, [])
+        }
+
+        let jsonString = String(text[jsonRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Parse JSON array
+        guard let data = jsonString.data(using: .utf8),
+              let parsed = try? JSONSerialization.jsonObject(with: data) as? [String] else {
+            print("[ChatService] Failed to parse suggestions JSON: \(jsonString)")
+            return (text, [])
+        }
+
+        // Remove the entire suggestions block (including optional label) from the text
+        let cleanedText = regex.stringByReplacingMatches(
+            in: text,
+            options: [],
+            range: range,
+            withTemplate: ""
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        print("[ChatService] Parsed \(parsed.count) suggestions")
+        return (cleanedText, parsed)
     }
 }
 
