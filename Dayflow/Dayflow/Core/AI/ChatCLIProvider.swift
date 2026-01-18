@@ -269,12 +269,14 @@ private struct ChatCLIProcessRunner {
     }
 
     /// Run a streaming command, yielding events as JSONL lines arrive
+    /// - Parameter sessionId: Optional session ID to resume a previous conversation
     func runStreaming(
         tool: ChatCLITool,
         prompt: String,
         workingDirectory: URL,
         model: String? = nil,
-        reasoningEffort: String? = nil
+        reasoningEffort: String? = nil,
+        sessionId: String? = nil
     ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             Task.detached {
@@ -285,6 +287,7 @@ private struct ChatCLIProcessRunner {
                         workingDirectory: workingDirectory,
                         model: model,
                         reasoningEffort: reasoningEffort,
+                        sessionId: sessionId,
                         continuation: continuation
                     )
                 } catch {
@@ -301,15 +304,23 @@ private struct ChatCLIProcessRunner {
         workingDirectory: URL,
         model: String?,
         reasoningEffort: String?,
+        sessionId: String?,
         continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation
     ) async throws {
         let toolName = tool.rawValue
+        let isResume = sessionId != nil
 
         // Build command with streaming flags
         var cmdParts: [String] = [toolName]
         switch tool {
         case .codex:
-            cmdParts.append(contentsOf: ["exec", "--skip-git-repo-check", "--json"])
+            // For resume: codex exec resume <session_id> "prompt" --json
+            // For new: codex exec "prompt" --json
+            if let sessionId = sessionId {
+                cmdParts.append(contentsOf: ["exec", "resume", sessionId, "--skip-git-repo-check", "--json"])
+            } else {
+                cmdParts.append(contentsOf: ["exec", "--skip-git-repo-check", "--json"])
+            }
             if let model = model { cmdParts.append(contentsOf: ["-m", model]) }
             if let effort = reasoningEffort { cmdParts.append(contentsOf: ["-c", "model_reasoning_effort=\(effort)"]) }
             // Disable MCP servers dynamically
@@ -322,14 +333,23 @@ private struct ChatCLIProcessRunner {
             cmdParts.append(LoginShellRunner.shellEscape(prompt))
 
         case .claude:
+            // For resume: claude -p --resume <session_id> "prompt"
+            // For new: claude -p "prompt"
             cmdParts.append("-p")
             cmdParts.append(contentsOf: ["--output-format", "stream-json"])
             cmdParts.append("--include-partial-messages")
+            if let sessionId = sessionId {
+                cmdParts.append(contentsOf: ["--resume", sessionId])
+            }
             if let model = model { cmdParts.append(contentsOf: ["--model", model]) }
             cmdParts.append("--dangerously-skip-permissions")
             cmdParts.append("--strict-mcp-config")
             cmdParts.append("--")
             cmdParts.append(LoginShellRunner.shellEscape(prompt))
+        }
+
+        if isResume {
+            print("[ChatCLI][streaming] Resuming session: \(sessionId!)")
         }
 
         let shellCommand = "cd \(LoginShellRunner.shellEscape(workingDirectory.path)) && exec \(cmdParts.joined(separator: " "))"
@@ -2073,7 +2093,8 @@ final class ChatCLIProvider: LLMProvider {
     // MARK: - Text Generation (Streaming)
 
     /// Stream chat responses with real-time thinking and tool execution events
-    func generateChatStreaming(prompt: String) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+    /// - Parameter sessionId: Optional session ID to resume a previous conversation
+    func generateChatStreaming(prompt: String, sessionId: String? = nil) -> AsyncThrowingStream<ChatStreamEvent, Error> {
         let model: String
         let effort: String?
         switch tool {
@@ -2090,7 +2111,8 @@ final class ChatCLIProvider: LLMProvider {
             prompt: prompt,
             workingDirectory: config.workingDirectory,
             model: model,
-            reasoningEffort: effort
+            reasoningEffort: effort,
+            sessionId: sessionId
         )
     }
 
