@@ -70,6 +70,11 @@ struct ChatView: View {
                             WorkStatusCard(status: status, showDetails: $showWorkDetails)
                         }
 
+                        // Follow-up suggestions (show after last assistant message when not processing)
+                        if !chatService.isProcessing && !chatService.currentSuggestions.isEmpty {
+                            followUpSuggestions
+                        }
+
                         // Anchor for auto-scroll
                         Color.clear
                             .frame(height: 1)
@@ -287,6 +292,26 @@ struct ChatView: View {
         guard chatService.workStatus != nil else { return nil }
         // Always show at the end (after the latest user message)
         return chatService.messages.count
+    }
+
+    // MARK: - Follow-up Suggestions
+
+    private var followUpSuggestions: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Follow up")
+                .font(.custom("Nunito", size: 11).weight(.semibold))
+                .foregroundColor(Color(hex: "999999"))
+
+            FlowLayout(spacing: 8) {
+                ForEach(chatService.currentSuggestions, id: \.self) { suggestion in
+                    SuggestionChip(text: suggestion) {
+                        inputText = suggestion
+                        isInputFocused = true
+                    }
+                }
+            }
+        }
+        .padding(.top, 4)
     }
 
     // MARK: - Actions
@@ -1348,6 +1373,53 @@ private struct DebugLogEntry: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss.SSS"
         return formatter.string(from: date)
+    }
+}
+
+// MARK: - Flow Layout
+
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var rowWidth: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var totalHeight: CGFloat = 0
+        var maxRowWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if rowWidth > 0 && rowWidth + spacing + size.width > maxWidth {
+                totalHeight += rowHeight + spacing
+                maxRowWidth = max(maxRowWidth, rowWidth)
+                rowWidth = size.width
+                rowHeight = size.height
+            } else {
+                rowWidth = rowWidth == 0 ? size.width : rowWidth + spacing + size.width
+                rowHeight = max(rowHeight, size.height)
+            }
+        }
+        maxRowWidth = max(maxRowWidth, rowWidth)
+        totalHeight += rowHeight
+        return CGSize(width: maxRowWidth, height: totalHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var origin = CGPoint(x: bounds.minX, y: bounds.minY)
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if origin.x > bounds.minX && origin.x + size.width > bounds.maxX {
+                origin.x = bounds.minX
+                origin.y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: origin, proposal: ProposedViewSize(size))
+            origin.x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }
 
