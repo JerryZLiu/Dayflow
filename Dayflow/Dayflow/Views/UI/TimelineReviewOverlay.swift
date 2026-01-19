@@ -837,6 +837,7 @@ private struct TimelineReviewCard: View {
     let onSummaryHover: (Bool) -> Void
 
     @StateObject private var playerModel: TimelineReviewPlayerModel
+    @StateObject private var screenshotModel = ScreenshotSequencePlayerModel()
     @State private var isHoveringMedia = false
     @State private var wasPlayingBeforeScrub = false
 
@@ -858,7 +859,8 @@ private struct TimelineReviewCard: View {
         self.isActive = isActive
         self.playbackToggleToken = playbackToggleToken
         self.onSummaryHover = onSummaryHover
-        _playerModel = StateObject(wrappedValue: TimelineReviewPlayerModel(videoURL: activity.videoSummaryURL))
+        let initialVideoURL = TimelapsePlaybackConfig.useScreenshotPlayback ? nil : activity.videoSummaryURL
+        _playerModel = StateObject(wrappedValue: TimelineReviewPlayerModel(videoURL: initialVideoURL))
     }
 
     var body: some View {
@@ -868,13 +870,28 @@ private struct TimelineReviewCard: View {
                 .shadow(color: Color.black.opacity(0.18), radius: 14, x: 0, y: 8)
 
             VStack(spacing: 0) {
-                TimelineReviewCardMedia(
-                    player: playerModel.player,
-                    onTogglePlayback: {
-                        guard isActive else { return }
-                        playerModel.togglePlay()
+                Group {
+                    if useScreenshots {
+                        TimelineReviewCardScreenshotMedia(
+                            image: screenshotModel.currentFrame,
+                            onTogglePlayback: {
+                                guard isActive else { return }
+                                togglePlayback()
+                            },
+                            onSizeChange: { size in
+                                screenshotModel.setTargetSize(size)
+                            }
+                        )
+                    } else {
+                        TimelineReviewCardMedia(
+                            player: playerModel.player,
+                            onTogglePlayback: {
+                                guard isActive else { return }
+                                togglePlayback()
+                            }
+                        )
                     }
-                )
+                }
                 .frame(height: Design.mediaHeight)
                 .overlay(alignment: .bottom) {
                     TimelineReviewPlaybackTimeline(
@@ -947,17 +964,35 @@ private struct TimelineReviewCard: View {
         }
         .opacity(highlightOpacity)
         .onAppear {
-            playerModel.setActive(isActive)
+            if useScreenshots == false {
+                playerModel.setActive(isActive)
+            }
+            if useScreenshots {
+                loadScreenshotPlayback()
+                setScreenshotActive(isActive)
+            }
         }
         .onChange(of: isActive) { _, active in
-            playerModel.setActive(active)
+            if useScreenshots == false {
+                playerModel.setActive(active)
+            }
+            if useScreenshots {
+                setScreenshotActive(active)
+            }
         }
         .onChange(of: activity.videoSummaryURL) { _, newValue in
-            playerModel.updateVideo(url: newValue)
+            if useScreenshots == false {
+                playerModel.updateVideo(url: newValue)
+            }
+        }
+        .onChange(of: activity.id) { _, _ in
+            if useScreenshots {
+                loadScreenshotPlayback()
+            }
         }
         .onChange(of: playbackToggleToken) { _, _ in
             guard isActive else { return }
-            playerModel.togglePlay()
+            togglePlayback()
         }
     }
 
@@ -972,8 +1007,8 @@ private struct TimelineReviewCard: View {
     }
 
     private var playbackProgress: CGFloat {
-        let duration = max(playerModel.duration, 0.001)
-        let progress = playerModel.currentTime / duration
+        let duration = max(activeDuration, 0.001)
+        let progress = activeCurrentTime / duration
         return CGFloat(min(max(progress, 0), 1))
     }
 
@@ -985,27 +1020,79 @@ private struct TimelineReviewCard: View {
     }
 
     private var speedLabel: String {
-        "\(Int(playerModel.playbackSpeed * 20))x"
+        "\(Int(activePlaybackSpeed * 20))x"
     }
 
     private func beginScrub() {
         guard isActive else { return }
-        wasPlayingBeforeScrub = playerModel.isPlaying
-        playerModel.pause()
+        wasPlayingBeforeScrub = activeIsPlaying
+        if useScreenshots {
+            screenshotModel.pause()
+        } else {
+            playerModel.pause()
+        }
     }
 
     private func updateScrub(progress: CGFloat) {
         guard isActive else { return }
-        let seconds = Double(progress) * playerModel.duration
-        playerModel.seek(to: seconds, resume: false)
+        let seconds = Double(progress) * activeDuration
+        if useScreenshots {
+            screenshotModel.seek(to: seconds, resume: false)
+        } else {
+            playerModel.seek(to: seconds, resume: false)
+        }
     }
 
     private func endScrub() {
         guard isActive else { return }
         if wasPlayingBeforeScrub {
-            playerModel.play()
+            if useScreenshots {
+                screenshotModel.play()
+            } else {
+                playerModel.play()
+            }
         }
         wasPlayingBeforeScrub = false
+    }
+
+    private var useScreenshots: Bool {
+        TimelapsePlaybackConfig.useScreenshotPlayback
+    }
+
+    private var activeDuration: Double {
+        useScreenshots ? screenshotModel.duration : playerModel.duration
+    }
+
+    private var activeCurrentTime: Double {
+        useScreenshots ? screenshotModel.currentTime : playerModel.currentTime
+    }
+
+    private var activePlaybackSpeed: Float {
+        useScreenshots ? screenshotModel.playbackSpeed : playerModel.playbackSpeed
+    }
+
+    private var activeIsPlaying: Bool {
+        useScreenshots ? screenshotModel.isPlaying : playerModel.isPlaying
+    }
+
+    private func togglePlayback() {
+        if useScreenshots {
+            screenshotModel.togglePlayPause()
+        } else {
+            playerModel.togglePlay()
+        }
+    }
+
+    private func setScreenshotActive(_ active: Bool) {
+        if active {
+            screenshotModel.play()
+        } else {
+            screenshotModel.pause()
+        }
+    }
+
+    private func loadScreenshotPlayback() {
+        screenshotModel.loadScreenshots(startTime: activity.startTime, endTime: activity.endTime)
     }
 
     private enum Design {
@@ -1235,6 +1322,53 @@ private struct TimelineReviewCardMedia: View {
         .contentShape(Rectangle())
         .onTapGesture {
             onTogglePlayback()
+        }
+        .overlay(
+            Rectangle()
+                .stroke(Design.mediaBorderColor, lineWidth: 1)
+        )
+    }
+}
+
+private struct TimelineReviewCardScreenshotMedia: View {
+    let image: NSImage?
+    let onTogglePlayback: () -> Void
+    let onSizeChange: (CGSize) -> Void
+
+    private enum Design {
+        static let mediaBorderColor = Color.white.opacity(0.2)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
+                } else {
+                    LinearGradient(
+                        colors: [Color.black.opacity(0.25), Color.black.opacity(0.05)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onTogglePlayback()
+            }
+            .onAppear {
+                onSizeChange(proxy.size)
+            }
+            .onChange(of: proxy.size.width) { _, _ in
+                onSizeChange(proxy.size)
+            }
+            .onChange(of: proxy.size.height) { _, _ in
+                onSizeChange(proxy.size)
+            }
         }
         .overlay(
             Rectangle()
