@@ -10,7 +10,7 @@ import Charts
 import AppKit
 
 struct ChatView: View {
-    @StateObject private var chatService = ChatService()
+    @ObservedObject private var chatService = ChatService.shared
     @State private var inputText = ""
     @State private var showWorkDetails = false
     @FocusState private var isInputFocused: Bool
@@ -32,9 +32,22 @@ struct ChatView: View {
 
     private var chatContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Debug toggle button in header
-            HStack {
+            // Header buttons
+            HStack(spacing: 8) {
                 Spacer()
+
+                // Clear chat button (only show if there are messages)
+                if !chatService.messages.isEmpty {
+                    Button(action: { chatService.clearConversation() }) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 13))
+                            .foregroundColor(Color(hex: "999999"))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear chat")
+                }
+
+                // Debug toggle
                 Button(action: { chatService.showDebugPanel.toggle() }) {
                     Image(systemName: chatService.showDebugPanel ? "ladybug.fill" : "ladybug")
                         .font(.system(size: 14))
@@ -42,9 +55,9 @@ struct ChatView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Toggle debug panel")
-                .padding(.trailing, 12)
-                .padding(.top, 8)
             }
+            .padding(.trailing, 12)
+            .padding(.top, 8)
 
             // Messages area
             ScrollViewReader { proxy in
