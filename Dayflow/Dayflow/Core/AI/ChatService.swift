@@ -90,6 +90,10 @@ struct ChatWorkStatus: Sendable, Equatable {
 @MainActor
 final class ChatService: ObservableObject {
 
+    // MARK: - Singleton
+
+    static let shared = ChatService()
+
     // MARK: - Published State
 
     @Published private(set) var messages: [ChatMessage] = []
