@@ -40,32 +40,23 @@ enum ChatCLIPromptPreferences {
 
 enum ChatCLIPromptDefaults {
     static let titleBlock = """
-TITLES
+TITLE GUIDELINES:
+Your title should help the user mentally reconstruct what they did. Be specific, but concise.
 
-Write titles like you'd answer "what were you doing?"
+Good titles are specific:
+- "Fixed auth bug in login flow"
+- "Planned Tokyo trip with Sarah"
+- "Debugged why notifications weren't sending"
+- "Coordinated launch timeline with marketing team"
+- "Researched competitors for pitch deck"
 
-Formula: [Main thing] + optional quick context
+Bad titles are vague or clichéd:
+- "Product discussion with Sarah" (vague—what about?)
+- "Analytics work" (what were you actually doing?)
+- "Deep dive into X" / "X rabbit hole" (cliché)
+- "Coding + emails + Twitter" (lazy, pick the main thing)
 
-Good:
-- "Prepped Mia's Duke interview"
-- "Japan flights with Evan"
-- "Nick Fuentes interview, then UI diagrams"
-- "Debugged auth flow in React"
-- "League game, checked DayFlow between"
-- "Watched Succession finale"
-- "Booked Denver flights on Expedia"
-
-Bad:
-- "Twitter scrolling, YouTube video, and UI diagrams" (laundry list)
-- "Duke interview prep and DayFlow code review" (unrelated things jammed together)
-- "Extended browsing session" (vague, formal)
-- "Random browsing and activities" (says nothing)
-- "Worked on DayFlow project" (what specifically?)
-- "Early morning digital drift" (poetic fluff)
-
-If there's a secondary thing, make it context not a co-headline:
-- "Prepped Duke interview, League between" ✓
-- "Duke interview prep and League of Legends" ✗
+Avoid "+" unless two activities are truly equal weight. Usually one thing is primary—title that, mention the rest in summary.
 """
 
     static let summaryBlock = """
@@ -92,10 +83,11 @@ Never use:
     static let detailedSummaryBlock = """
 DETAILED SUMMARY
 
-Granular activity log — every context switch, every app, every distinct action. This is the "show me exactly what happened" view.
+Granular activity log. This is the "show me exactly what happened" view.
 
 Format:
 [H:MM AM/PM] - [H:MM AM/PM] [specific action] [in app/tool] [on what]
+Each line should be one sentence (~25 words max). Be concise but detailed.
 
 Include:
 - Specific file/document names when visible
@@ -117,8 +109,6 @@ Bad example:
 7:30 AM - 7:35 AM Slack
 7:35 AM - 8:00 AM coding"
 (Too coarse — what doc? which Slack channel? coding what?)
-
-The goal: someone could reconstruct exactly what you did just from the detailed summary.
 """
 }
 
