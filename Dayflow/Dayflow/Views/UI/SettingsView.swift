@@ -136,6 +136,13 @@ struct SettingsView: View {
     @State private var exportStatusMessage: String?
     @State private var exportErrorMessage: String?
 
+    // Debug - reprocess day
+    @State private var reprocessDayDate = timelineDisplayDate(from: Date())
+    @State private var isReprocessingDay = false
+    @State private var reprocessStatusMessage: String?
+    @State private var reprocessErrorMessage: String?
+    @State private var showReprocessDayConfirm = false
+
     // Debug options
     @AppStorage("showJournalDebugPanel") private var showJournalDebugPanel = false
     @AppStorage("showDockIcon") private var showDockIcon = true
@@ -1066,6 +1073,10 @@ struct SettingsView: View {
                         .foregroundColor(.black.opacity(0.45))
                 }
             }
+
+            if showJournalDebugPanel {
+                reprocessDayCard
+            }
         }
     }
 
@@ -1201,6 +1212,81 @@ struct SettingsView: View {
         }
     }
 
+    private var reprocessDayCard: some View {
+        SettingsCard(title: "Debug: Reprocess day", subtitle: "Re-run analysis for all batches on a selected day") {
+            let normalizedDate = timelineDisplayDate(from: reprocessDayDate)
+            let dayString = DateFormatter.yyyyMMdd.string(from: normalizedDate)
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    DatePicker("Day", selection: $reprocessDayDate, displayedComponents: .date)
+                        .datePickerStyle(.compact)
+                        .labelsHidden()
+                        .accessibilityLabel(Text("Reprocess day"))
+                        .disabled(isReprocessingDay)
+
+                    Text(dayString)
+                        .font(.custom("Nunito", size: 12))
+                        .foregroundColor(.black.opacity(0.5))
+                }
+
+                Text("Reprocessing deletes existing timeline cards for the selected day and re-runs analysis.")
+                    .font(.custom("Nunito", size: 11.5))
+                    .foregroundColor(.black.opacity(0.55))
+
+                Text("This will consume a lot of API calls.")
+                    .font(.custom("Nunito", size: 11.5))
+                    .foregroundColor(.black.opacity(0.7))
+
+                HStack(spacing: 10) {
+                    DayflowSurfaceButton(
+                        action: { showReprocessDayConfirm = true },
+                        content: {
+                            HStack(spacing: 8) {
+                                if isReprocessingDay {
+                                    ProgressView().scaleEffect(0.75)
+                                } else {
+                                    Image(systemName: "arrow.clockwise")
+                                        .font(.system(size: 13, weight: .semibold))
+                                }
+                                Text(isReprocessingDay ? "Reprocessing…" : "Reprocess day")
+                                    .font(.custom("Nunito", size: 13))
+                                    .fontWeight(.semibold)
+                            }
+                            .frame(minWidth: 150)
+                        },
+                        background: Color(red: 0.25, green: 0.17, blue: 0),
+                        foreground: .white,
+                        borderColor: .clear,
+                        cornerRadius: 8,
+                        horizontalPadding: 20,
+                        verticalPadding: 10,
+                        showOverlayStroke: true
+                    )
+                    .disabled(isReprocessingDay)
+
+                    if let reprocessStatusMessage {
+                        Text(reprocessStatusMessage)
+                            .font(.custom("Nunito", size: 12))
+                            .foregroundColor(.black.opacity(0.6))
+                    }
+                }
+
+                if let reprocessErrorMessage {
+                    Text(reprocessErrorMessage)
+                        .font(.custom("Nunito", size: 12))
+                        .foregroundColor(.red.opacity(0.8))
+                }
+            }
+            .alert("Reprocess day?", isPresented: $showReprocessDayConfirm) {
+                Button("Cancel", role: .cancel) {}
+                Button("Reprocess", role: .destructive) { reprocessSelectedDay() }
+            } message: {
+                Text("This will delete existing timeline cards for \(dayString) and re-run analysis. It will consume a large number of API calls.")
+            }
+        }
+    }
+
     private func openRecordingsFolder() {
         let url = StorageManager.shared.recordingsRoot
         ensureDirectoryExists(url)
@@ -1286,6 +1372,31 @@ struct SettingsView: View {
                 )
             }
         }
+    }
+
+    private func reprocessSelectedDay() {
+        guard !isReprocessingDay else { return }
+
+        let normalizedDate = timelineDisplayDate(from: reprocessDayDate)
+        let dayString = DateFormatter.yyyyMMdd.string(from: normalizedDate)
+
+        isReprocessingDay = true
+        reprocessErrorMessage = nil
+        reprocessStatusMessage = "Starting reprocess for \(dayString)…"
+
+        AnalysisManager.shared.reprocessDay(dayString, progressHandler: { message in
+            self.reprocessStatusMessage = message
+        }, completion: { result in
+            switch result {
+            case .success:
+                if self.reprocessStatusMessage == nil {
+                    self.reprocessStatusMessage = "Reprocess completed."
+                }
+            case .failure(let error):
+                self.reprocessErrorMessage = error.localizedDescription
+            }
+            self.isReprocessingDay = false
+        })
     }
 
     @MainActor
