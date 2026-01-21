@@ -49,6 +49,11 @@ final class OllamaProvider {
             .replacingOccurrences(of: "A user", with: "", options: .caseInsensitive)
     }
 
+    private func logCallDuration(operation: String, duration: TimeInterval, status: Int? = nil) {
+        let statusText = status.map { " status=\($0)" } ?? ""
+        print("⏱️ [\(localEngine)] \(operation) \(String(format: "%.2f", duration))s\(statusText)")
+    }
+
     func generateActivityCards(observations: [Observation], context: ActivityGenerationContext, batchId: Int64?) async throws -> (cards: [ActivityCardData], log: LLMCall) {
         let callStart = Date()
         var logs: [String] = []
@@ -93,21 +98,15 @@ final class OllamaProvider {
             // Hard cap: Don't even try to merge if the last card is already 25+ minutes
             let lastCardDuration = calculateDurationInMinutes(from: lastExistingCard.startTime, to: lastExistingCard.endTime)
             
-            print("[DEBUG] Last card: \(lastExistingCard.startTime) - \(lastExistingCard.endTime) (\(lastCardDuration) minutes)")
-            print("[DEBUG] New card: \(initialCard.startTime) - \(initialCard.endTime)")
-            
             if lastCardDuration >= 40 {
-                print("[DEBUG] Skipping merge - last card already \(lastCardDuration) minutes")
                 allCards.append(initialCard)
             } else {
                 let gapMinutes = calculateDurationInMinutes(from: lastExistingCard.endTime, to: initialCard.startTime)
                 if gapMinutes > 5 {
-                    print("[DEBUG] Skipping merge - gap between cards is \(gapMinutes) minutes")
                     allCards.append(initialCard)
                 } else {
                     let candidateDuration = calculateDurationInMinutes(from: lastExistingCard.startTime, to: initialCard.endTime)
                     if candidateDuration > 60 {
-                        print("[DEBUG] Skipping merge - merged card would be \(candidateDuration) minutes")
                         allCards.append(initialCard)
                     } else {
                         let (shouldMerge, mergeLog) = try await checkShouldMerge(
@@ -117,8 +116,6 @@ final class OllamaProvider {
                         )
                         logs.append(mergeLog)
 
-                        print("[DEBUG] Merge decision: \(shouldMerge)")
-
                         if shouldMerge {
                             let (mergedCard, mergeCreateLog) = try await mergeTwoCards(
                                 previousCard: lastExistingCard,
@@ -127,10 +124,8 @@ final class OllamaProvider {
                             )
 
                             let mergedDuration = calculateDurationInMinutes(from: mergedCard.startTime, to: mergedCard.endTime)
-                            print("[DEBUG] Merged card: \(mergedCard.startTime) - \(mergedCard.endTime) (\(mergedDuration) minutes)")
 
                             if mergedDuration > 60 {
-                                print("[DEBUG] Discarding merged card - duration exceeds safety cap")
                                 allCards.append(initialCard)
                             } else {
                                 logs.append(mergeCreateLog)
@@ -146,7 +141,6 @@ final class OllamaProvider {
             }
         } else {
             // No existing cards, just add the initial card
-            print("[DEBUG] No existing cards, adding initial card")
             allCards.append(initialCard)
         }
         
@@ -337,6 +331,8 @@ final class OllamaProvider {
         for attempt in 0..<attempts {
             var ctxForAttempt: LLMCallContext?
             var didLogFailureThisAttempt = false
+            var didLogTiming = false
+            var apiStart: Date?
             do {
                 var urlRequest = URLRequest(url: url)
                 urlRequest.httpMethod = "POST"
@@ -345,7 +341,8 @@ final class OllamaProvider {
                 urlRequest.httpBody = try JSONEncoder().encode(request)
                 urlRequest.timeoutInterval = 60.0  // 60-second timeout
                 
-                let apiStart = Date()
+                let start = Date()
+                apiStart = start
                 let requestBodyForLogging: Data?
                 if operation == "describe_frame" {
                     // Don't persist raw base64 image payloads to the LLM call log (SQLite)
@@ -364,10 +361,14 @@ final class OllamaProvider {
                     requestURL: urlRequest.url,
                     requestHeaders: urlRequest.allHTTPHeaderFields,
                     requestBody: requestBodyForLogging,
-                    startedAt: apiStart
+                    startedAt: start
                 )
                 ctxForAttempt = ctx
                 let (data, response) = try await URLSession.shared.data(for: urlRequest)
+                let requestDuration = Date().timeIntervalSince(start)
+                let statusCode = (response as? HTTPURLResponse)?.statusCode
+                logCallDuration(operation: operation, duration: requestDuration, status: statusCode)
+                didLogTiming = true
 
                 guard let httpResponse = response as? HTTPURLResponse else {
                     throw NSError(domain: "OllamaProvider", code: 4, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
@@ -424,6 +425,11 @@ final class OllamaProvider {
                 
             } catch {
                 lastError = error
+                if !didLogTiming, let startedAt = apiStart {
+                    let requestDuration = Date().timeIntervalSince(startedAt)
+                    logCallDuration(operation: operation, duration: requestDuration, status: nil)
+                    didLogTiming = true
+                }
                 print("[OLLAMA] Request failed (attempt \(attempt + 1)/\(attempts)): \(error)")
                 
                 // If it's not the last attempt, wait before retrying
@@ -529,22 +535,12 @@ final class OllamaProvider {
 
 
     private func generateSummary(observations: [Observation], categories: [LLMCategoryDescriptor], batchId: Int64?) async throws -> (SummaryResponse, String) {
-        print("[DEBUG] generateSummary - Input observations:")
-        for (i, obs) in observations.enumerated() {
-            print("  [\(i)] observation type: \(type(of: obs.observation))")
-            print("       observation value: \(obs.observation)")
-        }
-
         let observationLines: [String] = observations.map { obs in
             let startTime = formatTimestampForPrompt(obs.startTs)
             let endTime = formatTimestampForPrompt(obs.endTs)
-            print("[DEBUG] generateSummary processing observation: \(obs.observation)")
             return "[\(startTime) - \(endTime)]: \(obs.observation)"
         }
         let observationsText: String = stripUserReferences(observationLines.joined(separator: "\n\n"))
-
-        print("[DEBUG] generateSummary observationsText:")
-        print(observationsText)
 
         let descriptorList = categories.isEmpty ? CategoryStore.descriptorsForLLM() : categories
         let categoryLines: [String] = descriptorList.enumerated().map { index, descriptor in
@@ -553,13 +549,9 @@ final class OllamaProvider {
                 description = "Use when the user is idle for most of the period."
             }
             let dashDescription = description.isEmpty ? "" : " — \(description)"
-            print("[DEBUG] generateSummary processing category: \(descriptor.name)")
             return "- \"\(descriptor.name)\"\(dashDescription)"
         }
         let categoriesSection: String = categoryLines.joined(separator: "\n")
-
-        print("[DEBUG] generateSummary categoriesSection:")
-        print(categoriesSection)
 
         let allowedValues: String = descriptorList
             .map { "\"\($0.name)\"" }
@@ -596,15 +588,12 @@ final class OllamaProvider {
         }
         """
 
-        print("[DEBUG] generateSummary final prompt:")
-
         let maxAttempts = 3
         var prompt = basePrompt
         var lastError: Error?
 
         for attempt in 1...maxAttempts {
             do {
-                print("[DEBUG] generateSummary attempt \(attempt)")
                 let response = try await callTextAPI(prompt, operation: "generate_summary", expectJSON: true, batchId: batchId)
 
                 guard let data = response.data(using: .utf8) else {
@@ -612,11 +601,6 @@ final class OllamaProvider {
                 }
 
                 let result = try parseJSONResponse(SummaryResponse.self, from: data)
-
-                print("[DEBUG] Summary generation result:")
-                print("  Reasoning: \(result.reasoning)")
-                print("  Summary: \(result.summary)")
-                print("  Category: \(result.category)")
 
                 return (result, response)
             } catch {
@@ -641,10 +625,6 @@ final class OllamaProvider {
 
 
     private func generateTitle(summary: String, batchId: Int64?) async throws -> (TitleResponse, String) {
-        print("[DEBUG] generateTitle - Input summary:")
-        print("Summary type: \(type(of: summary))")
-        print("Summary value: \(summary)")
-
         let promptSections = OllamaPromptSections(overrides: OllamaPromptPreferences.load())
 
         let basePrompt = """
@@ -665,15 +645,12 @@ final class OllamaProvider {
         Always describe what happened (e.g., "Reviewed GitHub PRs") instead of just naming apps or panes.
         """
 
-        print("[DEBUG] generateTitle final prompt:")
-
         let maxAttempts = 3
         var prompt = basePrompt
         var lastError: Error?
 
         for attempt in 1...maxAttempts {
             do {
-                print("[DEBUG] generateTitle attempt \(attempt)")
                 let response = try await callTextAPI(prompt, operation: "generate_title", expectJSON: true, batchId: batchId)
 
                 guard let data = response.data(using: .utf8) else {
@@ -681,10 +658,6 @@ final class OllamaProvider {
                 }
 
                 let result = try parseJSONResponse(TitleResponse.self, from: data)
-
-                print("[DEBUG] Title generation result:")
-                print("  Reasoning: \(result.reasoning)")
-                print("  Title: \(result.title)")
 
                 return (result, response)
             } catch {
@@ -708,10 +681,7 @@ final class OllamaProvider {
     }
 
     private func generateTitleAndSummary(observations: [Observation], categories: [LLMCategoryDescriptor], batchId: Int64?) async throws -> (TitleSummaryResponse, String) {
-        print("[DEBUG] generateTitleAndSummary - Starting two-step approach")
-
         // Step 1: Generate summary + category
-        print("[DEBUG] generateTitleAndSummary - Step 1: Generating summary")
         let (summaryResult, summaryLog) = try await generateSummary(
             observations: observations,
             categories: categories,
@@ -719,7 +689,6 @@ final class OllamaProvider {
         )
 
         // Step 2: Generate title from summary
-        print("[DEBUG] generateTitleAndSummary - Step 2: Generating title from summary")
         let (titleResult, titleLog) = try await generateTitle(summary: summaryResult.summary, batchId: batchId)
 
         // Combine into the expected response format
@@ -732,11 +701,6 @@ final class OllamaProvider {
 
         // Combine logs
         let combinedLog = "=== SUMMARY GENERATION ===\n\(summaryLog)\n\n=== TITLE GENERATION ===\n\(titleLog)"
-
-        print("[DEBUG] generateTitleAndSummary - Two-step generation complete:")
-        print("  Final Title: \(combinedResult.title)")
-        print("  Final Summary: \(combinedResult.summary)")
-        print("  Final Category: \(combinedResult.category)")
 
         return (combinedResult, combinedLog)
     }
@@ -818,15 +782,6 @@ final class OllamaProvider {
                 let decision = try parseJSONResponse(MergeDecision.self, from: data)
 
                 let shouldMerge = decision.combine && decision.confidence >= confidenceThreshold
-
-                print("[DEBUG] Merge check input:")
-                print("  Previous: \(previousCard.title) (\(previousCard.startTime) - \(previousCard.endTime))")
-                print("  New: \(newCard.title) (\(newCard.startTime) - \(newCard.endTime))")
-                print("[DEBUG] Merge check result:")
-                print("  Raw decision: \(decision.combine ? "MERGE" : "KEEP SEPARATE")")
-                print("  Confidence: \(String(format: "%.2f", decision.confidence))")
-                print("  Final decision: \(shouldMerge ? "MERGE" : "KEEP SEPARATE") (threshold: \(confidenceThreshold))")
-                print("  Reason: \(decision.reason)")
 
                 return (shouldMerge, response)
             } catch {
@@ -1272,11 +1227,7 @@ final class OllamaProvider {
                     batchId: batchId
                 )
 
-                let (segments, reasoning) = try decodeSegmentResponse(response)
-                let trimmedReasoning = reasoning.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmedReasoning.isEmpty {
-                    print("[OLLAMA] Segment reasoning (attempt \(attempt)): \(trimmedReasoning)")
-                }
+                let (segments, _) = try decodeSegmentResponse(response)
 
                 let (observations, coverage) = try convertSegmentsToObservations(
                     segments,
