@@ -263,9 +263,9 @@ final class LLMService: LLMServicing {
                 
                 // SLIDING WINDOW CARD GENERATION - Replace old card generation with sliding window approach
                 
-                // Calculate time window (1 hour before current batch end time)
+                // Calculate time window (30 minutes before current batch end time)
                 let currentTime = Date(timeIntervalSince1970: TimeInterval(batchEndTs))
-                let oneHourAgo = currentTime.addingTimeInterval(-3600) // 1 hour = 3600 seconds
+                let oneHourAgo = currentTime.addingTimeInterval(-1800) // 30 minutes = 1800 seconds
                 
                 // Fetch all observations from the last hour (instead of just current batch)
                 let recentObservations = StorageManager.shared.fetchObservationsByTimeRange(
