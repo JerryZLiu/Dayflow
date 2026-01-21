@@ -16,6 +16,11 @@ struct ChatView: View {
     @FocusState private var isInputFocused: Bool
     @Namespace private var bottomID
     @AppStorage("chatCLIPreferredTool") private var selectedTool: String = "codex"
+    @State private var cliDetected = false
+    @State private var cliDetectionTask: Task<Void, Never>?
+    @State private var didCheckCLI = false
+    @State private var showToolSwitchConfirm = false
+    @State private var pendingToolSelection: String?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -28,6 +33,25 @@ struct ChatView: View {
             }
         }
         .preferredColorScheme(.light)
+        .task {
+            guard !didCheckCLI else { return }
+            didCheckCLI = true
+            await detectCLIInstallation()
+        }
+        .onDisappear {
+            cliDetectionTask?.cancel()
+            cliDetectionTask = nil
+        }
+        .alert("Switch model?", isPresented: $showToolSwitchConfirm) {
+            Button("Switch and Reset", role: .destructive) {
+                confirmToolSwitch()
+            }
+            Button("Cancel", role: .cancel) {
+                pendingToolSelection = nil
+            }
+        } message: {
+            Text("Switching to \(pendingToolLabel) will clear this chat’s context.")
+        }
     }
 
     private var chatContent: some View {
@@ -39,9 +63,19 @@ struct ChatView: View {
                 // Clear chat button (only show if there are messages)
                 if !chatService.messages.isEmpty {
                     Button(action: { chatService.clearConversation() }) {
-                        Image(systemName: "arrow.counterclockwise")
-                            .font(.system(size: 13))
-                            .foregroundColor(Color(hex: "999999"))
+                        Text("Reset")
+                            .font(.custom("Nunito", size: 12).weight(.semibold))
+                            .foregroundColor(Color(hex: "F96E00"))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Color(hex: "FFF4E9"))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(Color(hex: "F96E00").opacity(0.25), lineWidth: 1)
+                            )
                     }
                     .buttonStyle(.plain)
                     .help("Clear chat")
@@ -194,14 +228,17 @@ struct ChatView: View {
                 .foregroundColor(Color(hex: "666666"))
 
             VStack(alignment: .leading, spacing: 10) {
-                SuggestionChip(text: "What did I do today?") {
-                    sendMessage("What did I do today?")
+                SuggestionChip(text: "Generate standup notes for yesterday") {
+                    sendMessage("Generate standup notes for yesterday")
                 }
-                SuggestionChip(text: "How much time did I spend on Twitter this week?") {
-                    sendMessage("How much time did I spend on Twitter this week?")
+                SuggestionChip(text: "What did I get done last week?") {
+                    sendMessage("What did I get done last week?")
                 }
-                SuggestionChip(text: "What was my longest focus block yesterday?") {
-                    sendMessage("What was my longest focus block yesterday?")
+                SuggestionChip(text: "What distracted me the most this past week?") {
+                    sendMessage("What distracted me the most this past week?")
+                }
+                SuggestionChip(text: "Pull my data from the last week and tell me something interesting") {
+                    sendMessage("Pull my data from the last week and tell me something interesting")
                 }
             }
             .padding(.top, 8)
@@ -215,47 +252,29 @@ struct ChatView: View {
     private var inputArea: some View {
         VStack(spacing: 0) {
             // Text input
-            ZStack(alignment: .topLeading) {
-                if inputText.isEmpty {
-                    Text("Ask about your day...")
-                        .font(.custom("Nunito", size: 13).weight(.medium))
-                        .foregroundColor(Color(hex: "AAAAAA"))
-                        .padding(.leading, 14)
-                        .padding(.top, 10)
-                }
-
-                TextEditor(text: $inputText)
+            TextField(
+                "",
+                text: $inputText,
+                prompt: Text("Ask about your day...")
                     .font(.custom("Nunito", size: 13).weight(.medium))
-                    .foregroundColor(Color(hex: "333333"))
-                    .scrollContentBackground(.hidden)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .focused($isInputFocused)
-                    .disabled(chatService.isProcessing)
-                    .onKeyPress { press in
-                        if press.key == .return {
-                            if press.modifiers.contains(.shift) {
-                                return .ignored  // Shift+Enter = new line
-                            } else {
-                                sendMessage(inputText)
-                                return .handled  // Enter = send
-                            }
-                        }
-                        return .ignored
-                    }
-            }
+                    .foregroundColor(Color(hex: "AAAAAA"))
+            )
+            .textFieldStyle(.plain)
+            .font(.custom("Nunito", size: 13).weight(.medium))
+            .foregroundColor(Color(hex: "333333"))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .frame(height: 36)
+            .focused($isInputFocused)
+            .disabled(chatService.isProcessing)
+            .onSubmit {
+                sendMessage(inputText)
+            }
 
             // Bottom toolbar
             HStack(spacing: 8) {
-                // Provider picker
-                Picker("", selection: $selectedTool) {
-                    Text("Codex").tag("codex")
-                    Text("Claude").tag("claude")
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .tint(Color(hex: "666666"))
+                // Provider toggle
+                providerToggle
 
                 Spacer()
 
@@ -299,6 +318,37 @@ struct ChatView: View {
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    private var providerToggle: some View {
+        HStack(spacing: 6) {
+            ProviderTogglePill(
+                title: "Codex",
+                isSelected: selectedTool == "codex",
+                isEnabled: cliDetected
+            ) {
+                handleToolSelection("codex")
+            }
+            ProviderTogglePill(
+                title: "Claude",
+                isSelected: selectedTool == "claude",
+                isEnabled: cliDetected
+            ) {
+                handleToolSelection("claude")
+            }
+        }
+        .padding(4)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color(hex: "E6E6E6"), lineWidth: 1)
+        )
+        .opacity(cliDetected ? 1.0 : 0.6)
+        .help(cliDetected ? "Choose CLI provider" : "Install Codex or Claude CLI to enable")
+        .allowsHitTesting(cliDetected)
     }
 
     private var statusInsertionIndex: Int? {
@@ -348,6 +398,48 @@ struct ChatView: View {
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func detectCLIInstallation() async {
+        cliDetectionTask?.cancel()
+        cliDetectionTask = Task { @MainActor in
+            let installed = await Task.detached(priority: .utility) {
+                CLIDetector.isInstalled(.codex) || CLIDetector.isInstalled(.claude)
+            }.value
+
+            guard !Task.isCancelled else { return }
+            cliDetected = installed
+        }
+    }
+
+    private func handleToolSelection(_ tool: String) {
+        guard tool != selectedTool else { return }
+        guard !chatService.isProcessing else { return }
+
+        if chatService.messages.isEmpty {
+            chatService.clearConversation()
+            selectedTool = tool
+            return
+        }
+
+        pendingToolSelection = tool
+        showToolSwitchConfirm = true
+    }
+
+    private func confirmToolSwitch() {
+        guard let pendingToolSelection else { return }
+        chatService.clearConversation()
+        selectedTool = pendingToolSelection
+        self.pendingToolSelection = nil
+    }
+
+    private var pendingToolLabel: String {
+        switch pendingToolSelection {
+        case "claude":
+            return "Claude"
+        default:
+            return "Codex"
+        }
     }
 }
 
@@ -1341,6 +1433,48 @@ private struct SuggestionChip: View {
                 isHovered = hovering
             }
         }
+    }
+}
+
+private struct ProviderTogglePill: View {
+    let title: String
+    let isSelected: Bool
+    let isEnabled: Bool
+    let action: () -> Void
+
+    private var backgroundColor: Color {
+        if !isEnabled { return Color(hex: "F2F2F2") }
+        return isSelected ? Color(hex: "FFF4E9") : Color.white
+    }
+
+    private var borderColor: Color {
+        if !isEnabled { return Color(hex: "E0E0E0") }
+        return isSelected ? Color(hex: "F96E00").opacity(0.25) : Color(hex: "E0E0E0")
+    }
+
+    private var textColor: Color {
+        if !isEnabled { return Color(hex: "B0B0B0") }
+        return isSelected ? Color(hex: "F96E00") : Color(hex: "666666")
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.custom("Nunito", size: 12).weight(.semibold))
+                .foregroundColor(textColor)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(backgroundColor)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(borderColor, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
     }
 }
 
