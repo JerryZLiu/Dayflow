@@ -348,14 +348,8 @@ private struct ChatCLIProcessRunner {
             cmdParts.append(LoginShellRunner.shellEscape(prompt))
         }
 
-        if isResume {
-            print("[ChatCLI][streaming] Resuming session: \(sessionId!)")
-        }
-
         let shellCommand = "cd \(LoginShellRunner.shellEscape(workingDirectory.path)) && exec \(cmdParts.joined(separator: " "))"
         let shell = LoginShellRunner.userLoginShell
-
-        print("[ChatCLI][streaming] \(toolName) command: \(shell.path) -l -i -c '\(shellCommand)'")
 
         let process = Process()
         process.executableURL = shell
@@ -423,13 +417,25 @@ private struct ChatCLIProcessRunner {
         }
 
         try process.run()
+        defer {
+            stdoutHandle.readabilityHandler = nil
+            cleanupPty?()
+        }
 
-        // Wait for process completion
-        process.waitUntilExit()
-
-        // Clean up handlers
-        stdoutHandle.readabilityHandler = nil
-        cleanupPty?()
+        // Wait for process completion (timeout to avoid indefinite hangs)
+        let timeoutSeconds: TimeInterval = 150
+        let semaphore = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            process.waitUntilExit()
+            semaphore.signal()
+        }
+        let result = semaphore.wait(timeout: .now() + timeoutSeconds)
+        if result == .timedOut {
+            process.terminate()
+            throw NSError(domain: "ChatCLI", code: -3, userInfo: [
+                NSLocalizedDescriptionKey: "CLI process timed out after \(Int(timeoutSeconds)) seconds"
+            ])
+        }
 
         // Process any remaining buffered data
         if !lineBuffer.isEmpty,
@@ -675,7 +681,6 @@ private struct ChatCLIProcessRunner {
         let shellCommand = "cd \(LoginShellRunner.shellEscape(workingDirectory.path)) && exec \(cmdParts.joined(separator: " "))"
 
         let shell = LoginShellRunner.userLoginShell
-        debugCommand(tool: tool, model: model, shell: shell, shellCommand: shellCommand)
 
         let started = Date()
         let process = Process()
@@ -771,23 +776,10 @@ private struct ChatCLIProcessRunner {
         }
 
         let parsed = parseAssistant(tool: tool, raw: rawOut)
-        debugLog(tool: tool, model: model, phase: "run", prompt: prompt, stdout: rawOut, stderr: stderr, usage: parsed.usage)
+        let duration = finished.timeIntervalSince(started)
+        let modelLabel = model ?? "default"
+        print("⏱️ [ChatCLI] \(tool.rawValue) \(modelLabel) \(String(format: "%.2f", duration))s")
         return ChatCLIRunResult(exitCode: process.terminationStatus, stdout: parsed.text, rawStdout: rawOut, stderr: stderr, startedAt: started, finishedAt: finished, usage: parsed.usage)
-    }
-
-    private func debugCommand(tool: ChatCLITool, model: String?, shell: URL, shellCommand: String) {
-        let header = "[ChatCLI][\(tool.rawValue)][\(model ?? "")] command"
-        print("\(header): \(shell.path) -l -i -c '\(shellCommand)'")
-    }
-
-    private func debugLog(tool: ChatCLITool, model: String?, phase: String, prompt: String, stdout: String, stderr: String, usage: TokenUsage?) {
-        let header = "[ChatCLI][\(tool.rawValue)][\(model ?? "")] \(phase)"
-        print("\(header) prompt:\n\(prompt)")
-        if !stdout.isEmpty { print("\(header) stdout:\n\(stdout)") }
-        if !stderr.isEmpty { print("\(header) stderr:\n\(stderr)") }
-        if let u = usage {
-            print("\(header) usage in=\(u.input) cached=\(u.cachedInput) out=\(u.output)")
-        }
     }
 }
 
@@ -840,6 +832,59 @@ final class ChatCLIProvider {
             cleanupImages()
         }
         return try runner.run(tool: tool, prompt: prompt, workingDirectory: config.workingDirectory, imagePaths: preparedImages, model: model, reasoningEffort: reasoningEffort, disableTools: disableTools)
+    }
+
+    private func runStreamingAndCollect(prompt: String, model: String?, reasoningEffort: String?, sessionId: String?) async throws -> (run: ChatCLIRunResult, sessionId: String?) {
+        let started = Date()
+        var collectedText = ""
+        var sawTextDelta = false
+        var capturedSessionId = sessionId
+
+        let stream = runner.runStreaming(
+            tool: tool,
+            prompt: prompt,
+            workingDirectory: config.workingDirectory,
+            model: model,
+            reasoningEffort: reasoningEffort,
+            sessionId: sessionId
+        )
+
+        do {
+            for try await event in stream {
+                switch event {
+                case .sessionStarted(let id):
+                    if capturedSessionId == nil {
+                        capturedSessionId = id
+                    }
+                case .textDelta(let chunk):
+                    sawTextDelta = true
+                    collectedText += chunk
+                case .complete(let text):
+                    if !sawTextDelta {
+                        collectedText = text
+                    }
+                case .error(let message):
+                    throw NSError(domain: "ChatCLI", code: -4, userInfo: [NSLocalizedDescriptionKey: message])
+                default:
+                    break
+                }
+            }
+        } catch {
+            throw error
+        }
+
+        let finished = Date()
+        let run = ChatCLIRunResult(
+            exitCode: 0,
+            stdout: collectedText,
+            rawStdout: collectedText,
+            stderr: "",
+            startedAt: started,
+            finishedAt: finished,
+            usage: nil
+        )
+
+        return (run, capturedSessionId)
     }
 
     /// Create temporary 720p-max copies of images for Codex/Claude CLI.
@@ -955,17 +1000,20 @@ final class ChatCLIProvider {
             effort = nil
         case .codex:
             model = "gpt-5.2"
-            effort = "high"
+            effort = "medium"
         }
 
         var lastError: Error?
         var lastRun: ChatCLIRunResult?
         var lastRawOutput: String = ""
         var parsedCards: [ActivityCardData] = []
+        var sessionId: String? = nil
 
-        for attempt in 1...4 {
+        for attempt in 1...3 {
             do {
-                let run = try runAndScrub(prompt: actualPromptUsed, model: model, reasoningEffort: effort)
+                let runResult = try await runStreamingAndCollect(prompt: actualPromptUsed, model: model, reasoningEffort: effort, sessionId: sessionId)
+                let run = runResult.run
+                sessionId = runResult.sessionId
                 lastRun = run
                 lastRawOutput = run.stdout
                 let cards = try parseCards(from: run.stdout)
@@ -978,7 +1026,7 @@ final class ChatCLIProvider {
                 if coverageValid && durationValid {
                     parsedCards = normalizedCards
                     let finishedAt = run.finishedAt
-                    logSuccess(ctx: makeCtx(batchId: batchId, operation: "generate_cards", startedAt: callStart), finishedAt: finishedAt, stdout: run.stdout, stderr: run.stderr, responseHeaders: tokenHeaders(from: run.usage))
+                    logSuccess(ctx: makeCtx(batchId: batchId, operation: "generate_cards", startedAt: callStart, attempt: attempt), finishedAt: finishedAt, stdout: run.stdout, stderr: run.stderr, responseHeaders: tokenHeaders(from: run.usage))
                     let llmCall = makeLLMCall(start: callStart, end: finishedAt, input: actualPromptUsed, output: run.stdout)
                     return (parsedCards, llmCall)
                 }
@@ -1011,18 +1059,23 @@ final class ChatCLIProvider {
                 }
                 let combinedError = errorMessages.joined(separator: "\n\n")
                 lastError = CardParseError.validationFailed(details: combinedError, rawOutput: run.stdout)
-                actualPromptUsed = basePrompt + "\n\nPREVIOUS ATTEMPT FAILED - CRITICAL REQUIREMENTS NOT MET:\n\n" + combinedError + "\n\nPlease fix these issues and ensure your output meets all requirements."
+                if sessionId == nil {
+                    actualPromptUsed = basePrompt + "\n\nPREVIOUS ATTEMPT FAILED - CRITICAL REQUIREMENTS NOT MET:\n\n" + combinedError + "\n\nPlease fix these issues and ensure your output meets all requirements."
+                } else {
+                    actualPromptUsed = buildCardsCorrectionPrompt(validationError: combinedError)
+                }
                 print("[ChatCLI] generate_cards validation failed (attempt " + String(attempt) + "): " + combinedError)
             } catch {
                 lastError = error
                 print("[ChatCLI] generate_cards attempt " + String(attempt) + " failed: " + error.localizedDescription + " — retrying")
                 actualPromptUsed = basePrompt
+                sessionId = nil
             }
         }
 
         let finishedAt = lastRun?.finishedAt ?? Date()
         let finalError = lastError ?? CardParseError.decodeFailure(rawOutput: lastRawOutput)
-        logFailure(ctx: makeCtx(batchId: batchId, operation: "generate_cards", startedAt: callStart), finishedAt: finishedAt, error: finalError, stdout: lastRawOutput, stderr: lastRun?.stderr)
+        logFailure(ctx: makeCtx(batchId: batchId, operation: "generate_cards", startedAt: callStart, attempt: 3), finishedAt: finishedAt, error: finalError, stdout: lastRawOutput, stderr: lastRun?.stderr)
         throw finalError
     }
 
@@ -1138,6 +1191,22 @@ final class ChatCLIProvider {
             }
           }
         ]
+        """
+    }
+
+    private func buildCardsCorrectionPrompt(validationError: String) -> String {
+        """
+        The previous JSON output has validation errors. Fix the existing output using the context from our ongoing conversation.
+
+        Issues:
+        \(validationError)
+
+        Requirements:
+        - Return the FULL corrected JSON output (not a diff).
+        - Preserve the same overall time coverage: no gaps or overlaps.
+        - Each card must be 10-60 minutes, except the final card may be shorter.
+        - If a mid-card is too short, merge it with an adjacent card and update title/summary accordingly.
+        - Output JSON only. No code fences or extra text.
         """
     }
 
@@ -1262,22 +1331,6 @@ final class ChatCLIProvider {
         throw NSError(domain: "ChatCLI", code: -32, userInfo: [NSLocalizedDescriptionKey: "Failed to decode activity cards"])
     }
 
-    // MARK: - Frame processing and merging
-
-    private struct FrameData {
-        let timestamp: TimeInterval
-        let path: String
-    }
-
-    private struct FrameDescriptionResponse: Codable {
-        let description: String
-    }
-
-    private struct FrameDescriptionsEnvelope: Codable {
-        struct Item: Codable { let index: Int; let description: String }
-        let frames: [Item]
-    }
-
     private struct SegmentMergeResponse: Codable {
         struct Segment: Codable {
             let start: String
@@ -1285,342 +1338,6 @@ final class ChatCLIProvider {
             let description: String
         }
         let segments: [Segment]
-    }
-
-    private func describeFramesBatch(_ frames: [FrameData], overrideModel: String? = nil, overrideEffort: String? = nil) throws -> ([(FrameData, String)], TokenUsage?) {
-        guard !frames.isEmpty else { return ([], nil) }
-
-        let prompt = """
-        You will see multiple computer screen snapshots attached in the order provided.
-        Describe what you see on this computer screen in 1-2 sentences.
-        Focus on: what application/site is open, what the user is doing, and any relevant details visible.
-        Be specific and factual.
-        
-        GOOD EXAMPLES:
-        ✓ "VS Code open with index.js file, writing a React component for user authentication."
-        ✓ "Gmail compose window writing email to client@company.com about project timeline."
-        ✓ "Slack conversation in #engineering channel discussing API rate limiting issues."
-        
-        BAD EXAMPLES:
-        ✗ "User is coding" (too vague)
-        ✗ "Looking at a website" (doesn't identify which site)
-        ✗ "Working on computer" (completely non-specific)
-        Reply ONLY with JSON: {"frames":[{"index":1,"description":"<one sentence about the visible activity/app/site>"}]}.
-        Include one entry per image in the same order (1 = first image you received). No prose, no extra keys.
-        
-        """
-
-        let model: String
-        let effort: String?
-        if let overrideModel {
-            model = overrideModel
-            effort = overrideEffort
-        } else {
-            switch tool {
-            case .claude:
-                model = "haiku"
-                effort = nil
-            case .codex:
-                model = "gpt-5.2"
-                effort = "low"
-            }
-        }
-
-        let run = try runAndScrub(prompt: prompt, imagePaths: frames.map { $0.path }, model: model, reasoningEffort: effort)
-
-        // Full, untrimmed logs for debugging
-        print("\n[ChatCLI][describeFramesBatch] model=\(model) effort=\(effort ?? "default") frames=\(frames.count)")
-        print("[ChatCLI][describeFramesBatch] stdout:\n\(run.stdout)")
-        if !run.stderr.isEmpty {
-            print("[ChatCLI][describeFramesBatch] stderr:\n\(run.stderr)")
-        }
-        guard run.exitCode == 0 else {
-            throw NSError(domain: "ChatCLI", code: Int(run.exitCode), userInfo: [
-                NSLocalizedDescriptionKey: "CLI exited with code \(run.exitCode). stdout: \(run.stdout) | stderr: \(run.stderr)"
-            ])
-        }
-
-        // Try strict JSON decode first
-        if let data = run.stdout.data(using: .utf8),
-           let parsed = try? JSONDecoder().decode(FrameDescriptionsEnvelope.self, from: data),
-           !parsed.frames.isEmpty {
-            var results: [(FrameData, String)] = []
-            for (idx, frame) in frames.enumerated() {
-                if let match = parsed.frames.first(where: { $0.index == idx + 1 }) {
-                    let desc = match.description.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !desc.isEmpty { results.append((frame, desc)) }
-                }
-            }
-            if !results.isEmpty { return (results, run.usage) }
-        }
-
-        // Fallback: try to strip code fences and decode again
-        let stripped = run.stdout.replacingOccurrences(of: "```json", with: "").replacingOccurrences(of: "```", with: "")
-        if let data = stripped.data(using: .utf8),
-           let parsed = try? JSONDecoder().decode(FrameDescriptionsEnvelope.self, from: data),
-           !parsed.frames.isEmpty {
-            var results: [(FrameData, String)] = []
-            for (idx, frame) in frames.enumerated() {
-                if let match = parsed.frames.first(where: { $0.index == idx + 1 }) {
-                    let desc = match.description.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !desc.isEmpty { results.append((frame, desc)) }
-                }
-            }
-            if !results.isEmpty { return (results, run.usage) }
-        }
-
-        // Last resort: split lines -> descriptions by order
-        var results: [(FrameData, String)] = []
-        let lines = run.stdout.split(whereSeparator: { $0.isNewline })
-        for (idx, frame) in frames.enumerated() {
-            if idx < lines.count {
-                let desc = String(lines[idx]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !desc.isEmpty { results.append((frame, desc)) }
-            }
-        }
-
-        // If we still have no results after all parsing attempts, throw with the raw output
-        guard !results.isEmpty else {
-            // Capture richer diagnostics to PostHog so we can debug Codex vs Claude failures
-            let fullStdout = run.stdout
-            let fullStderr = run.stderr
-
-            Task { @MainActor in
-                AnalyticsService.shared.capture("llm_cli_failure", [
-                    "provider": "chat_cli",
-                    "model": tool.rawValue,
-                    "operation": "describe_frames",
-                    "error_message": "Failed to parse frame descriptions",
-                    "stdout_preview": fullStdout,
-                    "stderr_preview": fullStderr
-                ])
-            }
-
-            throw NSError(domain: "ChatCLI", code: -98, userInfo: [
-                NSLocalizedDescriptionKey: "Failed to parse frame descriptions. Raw stdout: \(fullStdout)\nRaw stderr: \(fullStderr)"
-            ])
-        }
-
-        return (results, run.usage)
-    }
-
-    private func mergeFrameDescriptionsWithCLI(_ frames: [(timestamp: TimeInterval, description: String)],
-                                               batchStartTime: Date,
-                                               videoDuration: TimeInterval,
-                                               batchId: Int64?,
-                                               callStart: Date) throws -> (observations: [Observation], usage: TokenUsage?, rawOutput: String) {
-        let logPrefix = "[ChatCLI][merge]"
-        let timeFormatter = DateFormatter()
-        timeFormatter.dateFormat = "h:mm:ss a"
-        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
-        timeFormatter.timeZone = TimeZone.current
-
-        guard !frames.isEmpty else {
-            print("\(logPrefix) ⚠️ No frames to merge, returning empty")
-            return ([], nil, "")
-        }
-
-        // === INPUT LOGGING ===
-        print("\n\(logPrefix) ═══════════════════════════════════════════════════════")
-        print("\(logPrefix) 📥 INPUT:")
-        print("\(logPrefix)   batchId: \(batchId ?? -1)")
-        print("\(logPrefix)   batchStartTime: \(timeFormatter.string(from: batchStartTime)) (epoch: \(Int(batchStartTime.timeIntervalSince1970)))")
-        print("\(logPrefix)   videoDuration: \(formatSeconds(videoDuration)) (\(Int(videoDuration)) seconds)")
-        print("\(logPrefix)   frameCount: \(frames.count)")
-        print("\(logPrefix)   frames:")
-        for (i, frame) in frames.enumerated() {
-            let frameTime = batchStartTime.addingTimeInterval(frame.timestamp)
-            print("\(logPrefix)     [\(i)] \(formatSeconds(frame.timestamp)) → \(timeFormatter.string(from: frameTime)): \(frame.description.prefix(80))...")
-        }
-
-        let durationString = formatSeconds(videoDuration)
-        let lines = frames.map { "- " + formatSeconds($0.timestamp) + ": " + $0.description }.joined(separator: "\n")
-        let prompt = "You are given timestamped screen descriptions from a video (" + durationString + ").\n" +
-            "Produce 2-5 segments that cover the video. Respond ONLY with JSON:\n" +
-            "{\"segments\":[{\"start\":\"HH:MM:SS\",\"end\":\"HH:MM:SS\",\"description\":\"...\"}]}\n" +
-            "Rules:\n" +
-            "- Segments must be in order, non-overlapping, within 00:00:00-" + durationString + ".\n" +
-            "- Cover at least 80% of the timeline; merge short gaps.\n" +
-            "- No text outside the JSON.\n" +
-            "Snapshots:\n" + lines
-
-        let model: String
-        let effort: String?
-        switch tool {
-        case .claude:
-            model = "sonnet"
-            effort = nil
-        case .codex:
-            model = "gpt-5.2"
-            effort = "low"
-        }
-
-        print("\(logPrefix) 🤖 Calling LLM (model: \(model), effort: \(effort ?? "default"))...")
-        let run = try runAndScrub(prompt: prompt, model: model, reasoningEffort: effort)
-
-        // === LLM OUTPUT LOGGING ===
-        print("\(logPrefix) 📤 LLM OUTPUT:")
-        print("\(logPrefix)   exitCode: \(run.exitCode)")
-        print("\(logPrefix)   stdout: \(run.stdout)")
-        if !run.stderr.isEmpty {
-            print("\(logPrefix)   stderr: \(run.stderr)")
-        }
-
-        // Strip markdown code fences that Claude often adds
-        let cleanOutput = run.stdout
-            .replacingOccurrences(of: "```json", with: "")
-            .replacingOccurrences(of: "```", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard run.exitCode == 0 else {
-            print("\(logPrefix) ⚠️ LLM failed (exitCode: \(run.exitCode)), using fallback")
-            return (fallbackObservations(frames: frames, batchId: batchId, batchStartTime: batchStartTime, videoDuration: videoDuration), run.usage, run.stdout)
-        }
-
-        // Try direct decode first
-        var parsed: SegmentMergeResponse?
-        var parseMethod = "none"
-        if let data = cleanOutput.data(using: .utf8) {
-            parsed = try? JSONDecoder().decode(SegmentMergeResponse.self, from: data)
-            if parsed != nil { parseMethod = "direct" }
-        }
-
-        // Fallback: extract JSON object between first { and last } (handles "Here is the answer: {...}")
-        if parsed == nil || parsed!.segments.isEmpty {
-            if let firstBrace = cleanOutput.firstIndex(of: "{"),
-               let lastBrace = cleanOutput.lastIndex(of: "}"),
-               firstBrace < lastBrace {
-                let jsonSlice = String(cleanOutput[firstBrace...lastBrace])
-                if let sliceData = jsonSlice.data(using: .utf8) {
-                    parsed = try? JSONDecoder().decode(SegmentMergeResponse.self, from: sliceData)
-                    if parsed != nil { parseMethod = "brace-extraction" }
-                }
-            }
-        }
-
-        guard let parsed, !parsed.segments.isEmpty else {
-            print("\(logPrefix) ⚠️ Failed to parse segments (parseMethod: \(parseMethod)), using fallback")
-            print("\(logPrefix)   cleanOutput: \(cleanOutput)")
-            return (fallbackObservations(frames: frames, batchId: batchId, batchStartTime: batchStartTime, videoDuration: videoDuration), run.usage, run.stdout)
-        }
-
-        // === PARSED SEGMENTS LOGGING ===
-        print("\(logPrefix) 🔍 PARSED SEGMENTS (parseMethod: \(parseMethod), count: \(parsed.segments.count)):")
-        for (i, seg) in parsed.segments.enumerated() {
-            let durationSec = parseVideoTimestamp(seg.end) - parseVideoTimestamp(seg.start)
-            print("\(logPrefix)   [\(i)] \(seg.start) → \(seg.end) (duration: \(durationSec)s): \(seg.description.prefix(60))...")
-        }
-
-        // === SEGMENT → OBSERVATION CONVERSION ===
-        print("\(logPrefix) 🔄 CONVERTING SEGMENTS TO OBSERVATIONS:")
-        var observations: [Observation] = []
-        for (i, seg) in parsed.segments.enumerated() {
-            let startSeconds = TimeInterval(parseVideoTimestamp(seg.start))
-            let endSeconds = TimeInterval(parseVideoTimestamp(seg.end))
-
-            print("\(logPrefix)   [\(i)] Processing segment '\(seg.start)' → '\(seg.end)'")
-            print("\(logPrefix)       startSeconds: \(startSeconds), endSeconds: \(endSeconds)")
-
-            guard endSeconds > startSeconds else {
-                print("\(logPrefix)       ⚠️ SKIPPED: endSeconds <= startSeconds")
-                continue
-            }
-
-            let clampedEndSeconds = videoDuration > 0 ? min(endSeconds, videoDuration) : endSeconds
-            let startDate = batchStartTime.addingTimeInterval(startSeconds)
-            let endDate = batchStartTime.addingTimeInterval(clampedEndSeconds)
-
-            let startEpoch = Int(startDate.timeIntervalSince1970)
-            let endEpoch = max(startEpoch + 1, Int(endDate.timeIntervalSince1970))
-            let durationMinutes = Double(endEpoch - startEpoch) / 60.0
-
-            print("\(logPrefix)       clampedEndSeconds: \(clampedEndSeconds)")
-            print("\(logPrefix)       startDate: \(timeFormatter.string(from: startDate)) (epoch: \(startEpoch))")
-            print("\(logPrefix)       endDate: \(timeFormatter.string(from: endDate)) (epoch: \(endEpoch))")
-            print("\(logPrefix)       → Observation duration: \(String(format: "%.1f", durationMinutes)) minutes")
-
-            observations.append(
-                Observation(
-                    id: nil,
-                    batchId: batchId ?? -1,
-                    startTs: startEpoch,
-                    endTs: endEpoch,
-                    observation: seg.description,
-                    metadata: nil,
-                    llmModel: tool.rawValue,
-                    createdAt: Date()
-                )
-            )
-        }
-
-        // === FINAL OUTPUT LOGGING ===
-        if observations.isEmpty {
-            print("\(logPrefix) ⚠️ No valid observations created, using fallback")
-            return (fallbackObservations(frames: frames, batchId: batchId, batchStartTime: batchStartTime, videoDuration: videoDuration), run.usage, run.stdout)
-        }
-
-        print("\(logPrefix) ✅ FINAL OBSERVATIONS (count: \(observations.count)):")
-        for (i, obs) in observations.enumerated() {
-            let startTime = timeFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(obs.startTs)))
-            let endTime = timeFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(obs.endTs)))
-            let durationMin = Double(obs.endTs - obs.startTs) / 60.0
-            print("\(logPrefix)   [\(i)] \(startTime) → \(endTime) (\(String(format: "%.1f", durationMin)) min): \(obs.observation.prefix(50))...")
-        }
-        print("\(logPrefix) ═══════════════════════════════════════════════════════\n")
-
-        return (observations, run.usage, run.stdout)
-    }
-
-    private func fallbackObservations(frames: [(timestamp: TimeInterval, description: String)],
-                                      batchId: Int64?,
-                                      batchStartTime: Date,
-                                      videoDuration: TimeInterval) -> [Observation] {
-        let logPrefix = "[ChatCLI][merge][fallback]"
-        let timeFormatter = DateFormatter()
-        timeFormatter.dateFormat = "h:mm:ss a"
-        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
-        timeFormatter.timeZone = TimeZone.current
-
-        print("\(logPrefix) ⚠️ USING FALLBACK - Creating per-frame observations")
-        print("\(logPrefix)   frameCount: \(frames.count)")
-        print("\(logPrefix)   batchStartTime: \(timeFormatter.string(from: batchStartTime))")
-        print("\(logPrefix)   videoDuration: \(Int(videoDuration))s")
-        print("\(logPrefix)   screenshotInterval: \(screenshotInterval)s")
-
-        let sorted = frames.sorted { $0.timestamp < $1.timestamp }
-        var result: [Observation] = []
-        for (i, item) in sorted.enumerated() {
-            let startSeconds = max(0.0, item.timestamp)
-            let endSeconds = startSeconds + screenshotInterval
-            let clampedEndSeconds = videoDuration > 0 ? min(videoDuration, endSeconds) : endSeconds
-
-            let startDate = batchStartTime.addingTimeInterval(startSeconds)
-            let endDate = batchStartTime.addingTimeInterval(max(clampedEndSeconds, startSeconds + 1))
-
-            let startEpoch = Int(startDate.timeIntervalSince1970)
-            let endEpoch = max(startEpoch + 1, Int(endDate.timeIntervalSince1970))
-
-            let startTime = timeFormatter.string(from: startDate)
-            let endTime = timeFormatter.string(from: endDate)
-            let durationSec = endEpoch - startEpoch
-            print("\(logPrefix)   [\(i)] \(startTime) → \(endTime) (\(durationSec)s): \(item.description.prefix(40))...")
-
-            result.append(
-                Observation(
-                    id: nil,
-                    batchId: batchId ?? -1,
-                    startTs: startEpoch,
-                    endTs: endEpoch,
-                    observation: item.description,
-                    metadata: nil,
-                    llmModel: tool.rawValue,
-                    createdAt: Date()
-                )
-            )
-        }
-
-        print("\(logPrefix) Created \(result.count) fallback observations")
-        return result
     }
 
     private func formatSeconds(_ seconds: TimeInterval) -> String {
@@ -1859,11 +1576,11 @@ final class ChatCLIProvider {
 
     // MARK: - Logging helpers
 
-    private func makeCtx(batchId: Int64?, operation: String, startedAt: Date) -> LLMCallContext {
+    private func makeCtx(batchId: Int64?, operation: String, startedAt: Date, attempt: Int = 1) -> LLMCallContext {
         LLMCallContext(
             batchId: batchId,
             callGroupId: nil,
-            attempt: 1,
+            attempt: attempt,
             provider: "chat_cli",
             model: tool.rawValue,
             operation: operation,
@@ -1955,7 +1672,121 @@ final class ChatCLIProvider {
 
     // MARK: - Screenshot Transcription
 
-    /// Transcribe observations from screenshots.
+    private func buildScreenshotTranscriptionPrompt(numFrames: Int, duration: String, startTime: String, endTime: String) -> String {
+        return """
+        Analyze these \(numFrames) screenshots from a \(duration) screen recording
+        (\(startTime) to \(endTime)).
+
+        Create an activity log detailed enough that someone could reconstruct what
+        the user did.
+
+        For each segment, ask yourself: "What EXACTLY did they do? What SPECIFIC
+        things can I see?"
+
+        Capture from screenshots:
+        - Exact app/site names visible
+        - Exact file names, URLs, page titles
+        - Exact usernames, search queries, messages
+        - Exact numbers, stats, prices shown
+
+        Bad: "Checked email"
+        Good: "Gmail: Read email from boss@company.com 'RE: Budget approval' - replied 'Looks good'"
+
+        Bad: "Browsing Twitter"
+        Good: "Twitter/X: Scrolled feed - viewed posts by @pmarca about AI, @sama thread on GPT-5 (12 tweets)"
+
+        Bad: "Working on code"
+        Good: "VS Code: Editing StorageManager.swift - fixed type error on line 47, changed String to String?"
+
+        3-8 segments total.
+        You may use 1 segment only if the user appears idle for most of the recording.
+        Group by GOAL not app (debugging across IDE+Terminal+Browser = 1 segment).
+
+        Timestamps must start at \(startTime) and end at \(endTime). No gaps.
+
+        Return JSON only:
+        {"segments":[{"start":"HH:MM:SS","end":"HH:MM:SS","description":"..."}]}
+        """
+    }
+
+    private func parseSegments(from output: String) throws -> [SegmentMergeResponse.Segment] {
+        let cleaned = output
+            .replacingOccurrences(of: "```json", with: "")
+            .replacingOccurrences(of: "```", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let data = cleaned.data(using: .utf8),
+           let parsed = try? JSONDecoder().decode(SegmentMergeResponse.self, from: data),
+           !parsed.segments.isEmpty {
+            return parsed.segments
+        }
+
+        if let data = cleaned.data(using: .utf8),
+           let parsed = try? JSONDecoder().decode([SegmentMergeResponse.Segment].self, from: data),
+           !parsed.isEmpty {
+            return parsed
+        }
+
+        if let firstBrace = cleaned.firstIndex(of: "{"),
+           let lastBrace = cleaned.lastIndex(of: "}"),
+           firstBrace < lastBrace {
+            let slice = String(cleaned[firstBrace...lastBrace])
+            if let data = slice.data(using: .utf8),
+               let parsed = try? JSONDecoder().decode(SegmentMergeResponse.self, from: data),
+               !parsed.segments.isEmpty {
+                return parsed.segments
+            }
+        }
+
+        throw NSError(domain: "ChatCLI", code: -31, userInfo: [NSLocalizedDescriptionKey: "Failed to decode segments JSON"])
+    }
+
+    private func validateSegments(_ segments: [SegmentMergeResponse.Segment], duration: TimeInterval) -> String? {
+        guard !segments.isEmpty else { return "No segments returned." }
+
+        let tolerance: TimeInterval = 2.0
+        var parsed: [(start: TimeInterval, end: TimeInterval, description: String)] = []
+
+        for segment in segments {
+            let startSeconds = TimeInterval(parseVideoTimestamp(segment.start))
+            let endSeconds = TimeInterval(parseVideoTimestamp(segment.end))
+            if endSeconds <= startSeconds {
+                return "Segment end time must be after start time: \(segment.start) -> \(segment.end)"
+            }
+            if startSeconds < 0 {
+                return "Segment start time must be >= 00:00:00 (got \(segment.start))."
+            }
+            if duration > 0, endSeconds > duration + tolerance {
+                return "Segment out of bounds: \(segment.start) -> \(segment.end) (duration \(formatSeconds(duration)))"
+            }
+            parsed.append((startSeconds, endSeconds, segment.description))
+        }
+
+        let ordered = parsed.sorted { $0.start < $1.start }
+        if duration > 0, let first = ordered.first, first.start > tolerance {
+            return "First segment must start at 00:00:00 (starts at \(formatSeconds(first.start)))."
+        }
+
+        for i in 1..<ordered.count {
+            let prev = ordered[i - 1]
+            let next = ordered[i]
+            let gap = next.start - prev.end
+            if gap > tolerance {
+                return "Gap detected between segments: \(formatSeconds(prev.end)) -> \(formatSeconds(next.start))"
+            }
+            if gap < -tolerance {
+                return "Overlap detected between segments: \(formatSeconds(next.start)) starts before \(formatSeconds(prev.end))"
+            }
+        }
+
+        if duration > 0, let last = ordered.last, duration - last.end > tolerance {
+            return "Last segment must end at \(formatSeconds(duration)) (ends at \(formatSeconds(last.end)))."
+        }
+
+        return nil
+    }
+
+    /// Transcribe observations from screenshots using a single-shot prompt.
     func transcribeScreenshots(_ screenshots: [Screenshot], batchStartTime: Date, batchId: Int64?) async throws -> (observations: [Observation], log: LLMCall) {
         guard !screenshots.isEmpty else {
             throw NSError(domain: "ChatCLI", code: -96, userInfo: [NSLocalizedDescriptionKey: "No screenshots to transcribe"])
@@ -1969,26 +1800,21 @@ final class ChatCLIProvider {
         let strideAmount = max(1, sortedScreenshots.count / targetSamples)
         let sampledScreenshots = Swift.stride(from: 0, to: sortedScreenshots.count, by: strideAmount).map { sortedScreenshots[$0] }
 
-        // Calculate "video duration" from timestamp range
-        let firstTs = sampledScreenshots.first!.capturedAt
-        let lastTs = sampledScreenshots.last!.capturedAt
-        let videoDuration = TimeInterval(lastTs - firstTs)
+        let firstTs = sortedScreenshots.first!.capturedAt
+        let lastTs = sortedScreenshots.last!.capturedAt
+        let durationSeconds = TimeInterval(lastTs - firstTs)
+        let durationString = formatSeconds(durationSeconds)
 
-        // Convert screenshots to FrameData (reuse existing paths — no need to copy files)
-        let frames: [FrameData] = sampledScreenshots.compactMap { screenshot in
-            // Calculate timestamp relative to batch start (like video frames)
-            let relativeTimestamp = TimeInterval(screenshot.capturedAt - firstTs)
-
-            // Verify the file exists
+        let imagePaths: [String] = sampledScreenshots.compactMap { screenshot in
             guard FileManager.default.fileExists(atPath: screenshot.filePath) else {
                 print("[ChatCLI] ⚠️ Screenshot file not found: \(screenshot.filePath)")
                 return nil
             }
 
-            return FrameData(timestamp: relativeTimestamp, path: screenshot.filePath)
+            return screenshot.filePath
         }
 
-        guard !frames.isEmpty else {
+        guard !imagePaths.isEmpty else {
             throw NSError(
                 domain: "ChatCLI",
                 code: -97,
@@ -1996,131 +1822,108 @@ final class ChatCLIProvider {
             )
         }
 
-        // Note: Don't cleanup these frames since they're the original screenshot files, not temp copies!
+        let model: String
+        let effort: String?
+        switch tool {
+        case .claude:
+            model = "haiku"
+            effort = nil
+        case .codex:
+            model = "gpt-5.1-codex-mini"
+            effort = "low"
+        }
 
-        var usageTotal = TokenUsage.zero
-        var sawUsage = false
-        var lastMergeRawOutput = ""
+        let basePrompt = buildScreenshotTranscriptionPrompt(
+            numFrames: imagePaths.count,
+            duration: durationString,
+            startTime: "00:00:00",
+            endTime: durationString
+        )
+        var actualPrompt = basePrompt
+        var lastError: Error?
+        var lastRun: ChatCLIRunResult?
 
-        // Retry loop for entire transcription pipeline (2 retries)
         let maxTranscribeAttempts = 3
-        for transcribeAttempt in 1...maxTranscribeAttempts {
+        for attempt in 1...maxTranscribeAttempts {
             do {
-                // Per-frame descriptions via CLI (reuse existing batching logic)
-                var frameDescriptions: [(timestamp: TimeInterval, description: String)] = []
-                let batchSize = 10
-                for chunk in stride(from: 0, to: frames.count, by: batchSize) {
-                    let slice = Array(frames[chunk..<min(chunk+batchSize, frames.count)])
+                let run = try runAndScrub(prompt: actualPrompt, imagePaths: imagePaths, model: model, reasoningEffort: effort)
+                lastRun = run
 
-                    var localPairs: [(FrameData, String)] = []
-                    var localUsage: TokenUsage? = nil
-                    var lastError: Error? = nil
+                let segments = try parseSegments(from: run.stdout)
+                if let validationError = validateSegments(segments, duration: durationSeconds) {
+                    lastError = NSError(domain: "ChatCLI", code: -98, userInfo: [NSLocalizedDescriptionKey: validationError])
+                    actualPrompt = basePrompt + "\n\nPREVIOUS ATTEMPT FAILED - FIX THE FOLLOWING:\n" + validationError + "\n\nReturn JSON only."
+                    if attempt < maxTranscribeAttempts {
+                        print("[ChatCLI] Screenshot transcribe validation failed (attempt \(attempt)): \(validationError)")
+                        let backoffSeconds = pow(2.0, Double(attempt - 1)) * 2.0
+                        try await Task.sleep(nanoseconds: UInt64(backoffSeconds * 1_000_000_000))
+                        continue
+                    }
+                } else {
+                    let ordered = segments.sorted { parseVideoTimestamp($0.start) < parseVideoTimestamp($1.start) }
+                    var observations: [Observation] = []
+                    for segment in ordered {
+                        let startSeconds = TimeInterval(parseVideoTimestamp(segment.start))
+                        let endSeconds = TimeInterval(parseVideoTimestamp(segment.end))
+                        let clampedStart = max(0.0, startSeconds)
+                        let clampedEnd = durationSeconds > 0 ? min(endSeconds, durationSeconds) : endSeconds
+                        guard clampedEnd > clampedStart else { continue }
 
-                    // Try initial call
-                    do {
-                        let (initialPairs, initialUsage) = try describeFramesBatch(slice)
-                        localPairs = initialPairs
-                        localUsage = initialUsage
-                    } catch {
-                        lastError = error
-                        // Retry with more powerful model
-                        if tool == .codex {
-                            do {
-                                let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "gpt-5.2", overrideEffort: "high")
-                                localPairs = retryPairs
-                                localUsage = retryUsage
-                                lastError = nil
-                            } catch {
-                                lastError = error
-                            }
-                        } else if tool == .claude {
-                            do {
-                                let (retryPairs, retryUsage) = try describeFramesBatch(slice, overrideModel: "sonnet")
-                                localPairs = retryPairs
-                                localUsage = retryUsage
-                                lastError = nil
-                            } catch {
-                                lastError = error
-                            }
+                        let startDate = batchStartTime.addingTimeInterval(clampedStart)
+                        let endDate = batchStartTime.addingTimeInterval(clampedEnd)
+                        let startEpoch = Int(startDate.timeIntervalSince1970)
+                        let endEpoch = max(startEpoch + 1, Int(endDate.timeIntervalSince1970))
+
+                        let trimmedDescription = segment.description.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if trimmedDescription.isEmpty { continue }
+
+                        observations.append(
+                            Observation(
+                                id: nil,
+                                batchId: batchId ?? -1,
+                                startTs: startEpoch,
+                                endTs: endEpoch,
+                                observation: trimmedDescription,
+                                metadata: nil,
+                                llmModel: tool.rawValue,
+                                createdAt: Date()
+                            )
+                        )
+                    }
+
+                    if observations.isEmpty {
+                        lastError = NSError(domain: "ChatCLI", code: -99, userInfo: [NSLocalizedDescriptionKey: "No observations could be created from segments."])
+                        if attempt < maxTranscribeAttempts {
+                            let backoffSeconds = pow(2.0, Double(attempt - 1)) * 2.0
+                            try await Task.sleep(nanoseconds: UInt64(backoffSeconds * 1_000_000_000))
+                            continue
                         }
+                    } else {
+                        let finishedAt = run.finishedAt
+                        logSuccess(ctx: makeCtx(batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart, attempt: attempt), finishedAt: finishedAt, stdout: run.stdout, stderr: run.stderr, responseHeaders: tokenHeaders(from: run.usage))
+                        let llmCall = makeLLMCall(start: callStart, end: finishedAt, input: actualPrompt, output: run.stdout)
+                        return (observations, llmCall)
                     }
-
-                    if let error = lastError {
-                        throw error
-                    }
-
-                    if let localUsage { usageTotal = usageTotal.adding(localUsage); sawUsage = true }
-                    for (frame, desc) in localPairs {
-                        frameDescriptions.append((timestamp: frame.timestamp, description: desc))
-                    }
-                }
-
-                // Merge descriptions into observations via CLI text prompt
-                let (observations, mergeUsage, mergeRawOutput) = try mergeFrameDescriptionsWithCLI(
-                    frameDescriptions,
-                    batchStartTime: batchStartTime,
-                    videoDuration: videoDuration,
-                    batchId: batchId,
-                    callStart: callStart
-                )
-
-                if let mergeUsage { usageTotal = usageTotal.adding(mergeUsage); sawUsage = true }
-
-                // Check if we got observations
-                if !observations.isEmpty {
-                    let finishedAt = Date()
-                    let headers = sawUsage ? tokenHeaders(from: usageTotal) : nil
-                    logSuccess(ctx: makeCtx(batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart), finishedAt: finishedAt, stdout: mergeRawOutput, stderr: "", responseHeaders: headers)
-                    let llmCall = makeLLMCall(start: callStart, end: finishedAt, input: "screenshots \(screenshots.count)", output: "obs \(observations.count)")
-                    return (observations, llmCall)
-                }
-
-                // Store raw output for potential failure logging
-                lastMergeRawOutput = mergeRawOutput
-
-                // Empty observations - log and maybe retry
-                if transcribeAttempt < maxTranscribeAttempts {
-                    print("[ChatCLI] Screenshot transcribe attempt \(transcribeAttempt) returned 0 observations from \(frames.count) screenshots, retrying...")
-                    // Capture values before Task to avoid mutating var across async boundary
-                    let frameDescriptionsCount = frameDescriptions.count
-                    let screenshotCount = screenshots.count
-                    Task { @MainActor in
-                        AnalyticsService.shared.capture("transcribe_screenshots_empty_retry", [
-                            "batch_id": batchId as Any,
-                            "attempt": transcribeAttempt,
-                            "screenshot_count": screenshotCount,
-                            "frame_descriptions_count": frameDescriptionsCount,
-                            "tool": tool.rawValue
-                        ])
-                    }
-                    let backoffSeconds = pow(2.0, Double(transcribeAttempt - 1)) * 2.0
-                    try await Task.sleep(nanoseconds: UInt64(backoffSeconds * 1_000_000_000))
-                    usageTotal = TokenUsage.zero
-                    sawUsage = false
                 }
             } catch {
-                if transcribeAttempt < maxTranscribeAttempts {
-                    print("[ChatCLI] Screenshot transcribe attempt \(transcribeAttempt) failed: \(error.localizedDescription) — retrying")
-                    let backoffSeconds = pow(2.0, Double(transcribeAttempt - 1)) * 2.0
+                lastError = error
+                if attempt < maxTranscribeAttempts {
+                    print("[ChatCLI] Screenshot transcribe attempt \(attempt) failed: \(error.localizedDescription) — retrying")
+                    let backoffSeconds = pow(2.0, Double(attempt - 1)) * 2.0
                     try await Task.sleep(nanoseconds: UInt64(backoffSeconds * 1_000_000_000))
-                    usageTotal = TokenUsage.zero
-                    sawUsage = false
                     continue
                 }
 
-                let finishedAt = Date()
-                logFailure(ctx: makeCtx(batchId: batchId, operation: "describe_screenshots", startedAt: callStart), finishedAt: finishedAt, error: error)
-                throw error
+                break
             }
         }
 
-        // All attempts returned empty observations
-        let finishedAt = Date()
-        let emptyError = NSError(domain: "ChatCLI", code: -99, userInfo: [
-            NSLocalizedDescriptionKey: "Screenshot transcription produced 0 observations after \(maxTranscribeAttempts) attempts from \(screenshots.count) screenshots"
+        let finishedAt = lastRun?.finishedAt ?? Date()
+        let finalError = lastError ?? NSError(domain: "ChatCLI", code: -99, userInfo: [
+            NSLocalizedDescriptionKey: "Screenshot transcription failed after \(maxTranscribeAttempts) attempts from \(imagePaths.count) screenshots"
         ])
-        logFailure(ctx: makeCtx(batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart), finishedAt: finishedAt, error: emptyError, stdout: lastMergeRawOutput)
-        throw emptyError
+        logFailure(ctx: makeCtx(batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart, attempt: maxTranscribeAttempts), finishedAt: finishedAt, error: finalError, stdout: lastRun?.stdout, stderr: lastRun?.stderr)
+        throw finalError
     }
 
     // MARK: - Text Generation (Streaming)
@@ -2210,7 +2013,7 @@ final class ChatCLIProvider {
             throw error
         }
 
-        logSuccess(ctx: ctx, finishedAt: run.finishedAt, stdout: run.stdout, stderr: run.stderr)
+        logSuccess(ctx: ctx, finishedAt: run.finishedAt, stdout: run.stdout, stderr: run.stderr, responseHeaders: tokenHeaders(from: run.usage))
 
         // Parse thinking - Codex puts it in stdout, Claude in stderr
         let thinking: String?
