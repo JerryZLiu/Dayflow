@@ -265,11 +265,11 @@ final class LLMService: LLMServicing {
                 
                 // Calculate time window (30 minutes before current batch end time)
                 let currentTime = Date(timeIntervalSince1970: TimeInterval(batchEndTs))
-                let oneHourAgo = currentTime.addingTimeInterval(-1800) // 30 minutes = 1800 seconds
+                let thirtyMinutesAgo = currentTime.addingTimeInterval(-1800) // 30 minutes = 1800 seconds
                 
-                // Fetch all observations from the last hour (instead of just current batch)
+                // Fetch all observations from the last 30 minutes (instead of just current batch)
                 let recentObservations = StorageManager.shared.fetchObservationsByTimeRange(
-                    from: oneHourAgo,
+                    from: thirtyMinutesAgo,
                     to: currentTime
                 )
 
@@ -279,9 +279,9 @@ final class LLMService: LLMServicing {
                     print("       observation: \(obs.observation)")
                 }
                 
-                // Fetch existing timeline cards that overlap with the last hour
+                // Fetch existing timeline cards that overlap with the last 30 minutes
                 let existingTimelineCards = StorageManager.shared.fetchTimelineCardsByTimeRange(
-                    from: oneHourAgo,
+                    from: thirtyMinutesAgo,
                     to: currentTime
                 )
                 
@@ -325,7 +325,7 @@ final class LLMService: LLMServicing {
                 
                 // Replace old cards with new ones in the time range
                 let (insertedCardIds, deletedVideoPaths) = StorageManager.shared.replaceTimelineCardsInRange(
-                    from: oneHourAgo,
+                    from: thirtyMinutesAgo,
                     to: currentTime,
                     with: cards.map { card in
                         TimelineCardShell(
