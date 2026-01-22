@@ -34,6 +34,7 @@ final class ScreenshotSequencePlayerModel: ObservableObject {
     private var imageGeneration: Int = 0
     private var playbackStartClock: TimeInterval = 0
     private var playbackStartTime: Double = 0
+    private var pendingPlay = false
     private let loadQueue = DispatchQueue(label: "com.dayflow.screenshotplayer", qos: .userInitiated)
 
     var isEmpty: Bool { screenshots.isEmpty }
@@ -76,7 +77,11 @@ final class ScreenshotSequencePlayerModel: ObservableObject {
     }
 
     func play() {
-        guard !screenshots.isEmpty else { return }
+        guard !screenshots.isEmpty else {
+            pendingPlay = true
+            return
+        }
+        pendingPlay = false
         if didReachEnd {
             seek(to: 0, resume: false)
         }
@@ -155,6 +160,9 @@ final class ScreenshotSequencePlayerModel: ObservableObject {
 
         if sorted.isEmpty == false {
             updateFrame(index: 0)
+            if pendingPlay {
+                play()
+            }
         }
     }
 
