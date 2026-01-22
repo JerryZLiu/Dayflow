@@ -42,21 +42,91 @@ enum ChatCLIPromptDefaults {
     static let titleBlock = """
 TITLE GUIDELINES:
 Your title should help the user mentally reconstruct what they did. Be specific, but concise.
+Rule 1: Lead with a strong verb
+Strong verbs say what actually happened:
 
-Good titles are specific:
-- "Fixed auth bug in login flow"
-- "Planned Tokyo trip with Sarah"
-- "Debugged why notifications weren't sending"
-- "Coordinated launch timeline with marketing team"
-- "Researched competitors for pitch deck"
+built, implemented, fixed, debugged, shipped
+booked, planned, coordinated, scheduled
+watched, played, browsed, read
+drafted, wrote, edited
+researched, investigated, diagnosed
 
-Bad titles are vague or clichéd:
-- "Product discussion with Sarah" (vague—what about?)
-- "Analytics work" (what were you actually doing?)
-- "Deep dive into X" / "X rabbit hole" (cliché)
-- "Coding + emails + Twitter" (lazy, pick the main thing)
+Weak verbs hide what happened:
 
-Avoid "+" unless two activities are truly equal weight. Usually one thing is primary—title that, mention the rest in summary.
+"worked on" → worked on what? doing what to it?
+"looked at" → were you reviewing? debugging? reading?
+"handled" → did you fix it? respond to it? ignore it?
+"dealt with" → means nothing
+"did some" → means nothing
+
+Examples:
+
+Bad: "Worked on UI" → Good: "Fixed dropdown overflow in settings page"
+Bad: "Looked at analytics" → Good: "Built retention dashboard in Amplitude"
+Bad: "Handled customer issue" → Good: "Debugged sync failure for enterprise user"
+Bad: "Did some research" → Good: "Researched Stripe vs Paddle for payments"
+
+
+Rule 2: Name the specific thing
+Every title needs a concrete noun—the thing you acted on:
+
+A feature: "onboarding flow," "search filters," "export modal"
+A bug: "login timeout," "memory leak," "race condition"
+A file: "UserService.ts" (only if the file IS the work)
+A person: "with Mike," "with the design team" (for conversations)
+A place/event: "dinner at Nobu," "SFO flight for Tuesday"
+A decision: "pricing tiers," "API versioning strategy"
+
+The more specific, the better:
+
+Bad: "Fixed bug" → Good: "Fixed OAuth token refresh on mobile"
+Bad: "Had meeting" → Good: "Planned launch timeline with marketing"
+Bad: "Made reservation" → Good: "Booked dinner at Resy for Saturday"
+Bad: "Played games" → Good: "Played Elden Ring, cleared Rennala boss"
+Bad: "Watched videos" → Good: "Watched UFC 300 highlights"
+
+
+Rule 3: One throughline per title
+Ask: what's the ONE main thing? Everything else goes in summary.
+Signs you have two things crammed together:
+
+"and" between unrelated activities
+"+" connecting topics
+"while" or "before" forcing a connection
+Title longer than ~10 words
+
+Bad examples and fixes:
+
+Bad: "Fixed bug and answered emails" → Good: "Fixed checkout timeout" (emails go in summary)
+Bad: "Booked flights + reviewed PRs" → Good: "Booked SFO flight for Tuesday" (PRs go in summary)
+Bad: "Wrote docs while on support" → Good: "Wrote API migration guide" (support is a distraction)
+Bad: "Talked to Lisa and checked metrics" → Good: "Scoped Q2 roadmap with Lisa" (metrics is secondary)
+
+Exception: "and" is okay when both things are part of the same goal:
+
+OK: "Diagnosed memory leak and deployed hotfix" (both are fixing the issue)
+OK: "Designed and prototyped new nav" (same feature)
+
+
+Rule 4: Avoid clichés and corporate speak
+Banned phrases:
+
+"deep dive" → just say what you researched
+"rabbit hole" → just name what you looked at
+"sync" / "aligned" / "circled back" → say what you decided or discussed
+"product discussion" → discussion about what?
+"analytics work" → what metric? what question?
+"various" / "multiple" / "several" → name them or pick the main one
+
+Examples:
+
+Bad: "Deep dive into performance" → Good: "Profiled slow queries in orders table"
+Bad: "Synced with team on launch" → Good: "Finalized launch checklist with ops"
+Bad: "Did various research" → Good: "Compared AWS vs GCP pricing for video hosting"
+
+
+The test
+Before finalizing a title, ask: "If I read this title next week, would I know what I actually did?"
 """
 
     static let summaryBlock = """
