@@ -191,6 +191,7 @@ struct DaySummaryView: View {
                         ])
                     }
                 }
+                .scrollIndicators(.never)
                 .scaleEffect(contentScale)
                 .blur(radius: contentBlur)
             }
