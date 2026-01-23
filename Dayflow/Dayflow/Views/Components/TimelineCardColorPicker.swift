@@ -610,35 +610,6 @@ fileprivate struct ColorAssignmentCard: View {
     }
 }
 
-private struct ScrollViewHider: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        hideScrollIndicators(for: view)
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        hideScrollIndicators(for: nsView)
-    }
-
-    private func hideScrollIndicators(for view: NSView) {
-        DispatchQueue.main.async {
-            var ancestor: NSView? = view
-            while let current = ancestor {
-                if let scrollView = current as? NSScrollView {
-                    scrollView.hasVerticalScroller = false
-                    scrollView.hasHorizontalScroller = false
-                    scrollView.verticalScroller?.alphaValue = 0
-                    scrollView.horizontalScroller?.alphaValue = 0
-                    scrollView.scrollerStyle = .overlay
-                    break
-                }
-                ancestor = current.superview
-            }
-        }
-    }
-}
-
 struct ColorOrganizerRoot: View {
     enum PresentationStyle {
         case embedded
