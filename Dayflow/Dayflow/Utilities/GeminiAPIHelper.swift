@@ -15,6 +15,7 @@ class GeminiAPIHelper {
     
     enum APIError: Error, LocalizedError {
         case invalidAPIKey
+        case apiError(String)
         case networkError(String)
         case invalidResponse
         
@@ -22,6 +23,8 @@ class GeminiAPIHelper {
             switch self {
             case .invalidAPIKey:
                 return "Invalid or missing API key"
+            case .apiError(let message):
+                return message
             case .networkError(let message):
                 return "Network error: \(message)"
             case .invalidResponse:
@@ -110,6 +113,19 @@ class GeminiAPIHelper {
         }
         
         if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
+            if let message = extractErrorMessage(from: data) {
+                LLMLogger.logFailure(
+                    ctx: ctx,
+                    http: LLMHTTPInfo(httpStatus: httpResponse.statusCode, responseHeaders: httpResponse.allHeaderFields.reduce(into: [:]) { acc, kv in
+                        if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible { acc[k] = v.description }
+                    }, responseBody: data),
+                    finishedAt: Date(),
+                    errorDomain: "GeminiAPIHelper",
+                    errorCode: httpResponse.statusCode,
+                    errorMessage: message
+                )
+                throw APIError.apiError(message)
+            }
             if let body = String(data: data, encoding: .utf8) {
                 print("🔎 GEMINI DEBUG: testConnection unauthorized (\(httpResponse.statusCode)) body=\(body)")
             }
@@ -173,6 +189,16 @@ class GeminiAPIHelper {
         }
         
         return text
+    }
+
+    private func extractErrorMessage(from data: Data) -> String? {
+        guard let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let error = errorData["error"] as? [String: Any],
+              let message = error["message"] as? String,
+              !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return message
     }
 
     private func encodeJSON(_ obj: Any) -> String? {
