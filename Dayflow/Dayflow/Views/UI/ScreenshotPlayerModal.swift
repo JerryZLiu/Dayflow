@@ -8,6 +8,12 @@
 import AppKit
 import SwiftUI
 
+private let screenshotPlayerTimeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "h:mm a"
+    return formatter
+}()
+
 struct ScreenshotPlayerModal: View {
     var title: String? = nil
     var startTime: Date? = nil
@@ -31,7 +37,7 @@ struct ScreenshotPlayerModal: View {
                                 .fontWeight(.semibold)
                         }
                         if let startTime, let endTime {
-                            Text("\(timeFormatter.string(from: startTime)) to \(timeFormatter.string(from: endTime))")
+                            Text("\(screenshotPlayerTimeFormatter.string(from: startTime)) to \(screenshotPlayerTimeFormatter.string(from: endTime))")
                                 .font(.caption)
                                 .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
                         }
@@ -234,9 +240,4 @@ struct ScreenshotPlayerModal: View {
         }
     }
 
-    private var timeFormatter: DateFormatter {
-        let f = DateFormatter()
-        f.dateFormat = "h:mm a"
-        return f
-    }
 }

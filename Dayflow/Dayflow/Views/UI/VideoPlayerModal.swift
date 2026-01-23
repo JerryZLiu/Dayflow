@@ -9,6 +9,12 @@ import SwiftUI
 import AVKit
 import AppKit
 
+private let videoPlayerTimeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "h:mm a"
+    return formatter
+}()
+
 // MARK: - Hero Animation State (Emil Kowalski: shared element transitions)
 
 /// Manages the hero animation state for video thumbnail-to-modal expansion
@@ -211,7 +217,7 @@ struct VideoExpansionOverlay: View {
                         .fontWeight(.semibold)
                 }
                 if let startTime = expansionState.startTime, let endTime = expansionState.endTime {
-                    Text("\(timeFormatter.string(from: startTime)) to \(timeFormatter.string(from: endTime))")
+                    Text("\(videoPlayerTimeFormatter.string(from: startTime)) to \(videoPlayerTimeFormatter.string(from: endTime))")
                         .font(.caption)
                         .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
                 }
@@ -503,11 +509,6 @@ struct VideoExpansionOverlay: View {
         }
     }
 
-    private var timeFormatter: DateFormatter {
-        let f = DateFormatter()
-        f.dateFormat = "h:mm a"
-        return f
-    }
 }
 
 struct ScaleButtonStyle: ButtonStyle {
@@ -713,7 +714,7 @@ struct VideoPlayerModal: View {
                                 .fontWeight(.semibold)
                         }
                         if let startTime = startTime, let endTime = endTime {
-                            Text("\(timeFormatter.string(from: startTime)) to \(timeFormatter.string(from: endTime))")
+                            Text("\(videoPlayerTimeFormatter.string(from: startTime)) to \(videoPlayerTimeFormatter.string(from: endTime))")
                                 .font(.caption)
                                 .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
                         }
@@ -941,9 +942,4 @@ struct VideoPlayerModal: View {
 }
 
 extension VideoPlayerModal {
-    private var timeFormatter: DateFormatter {
-        let f = DateFormatter()
-        f.dateFormat = "h:mm a"
-        return f
-    }
 }
