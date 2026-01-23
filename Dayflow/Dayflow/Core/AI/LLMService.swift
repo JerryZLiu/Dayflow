@@ -65,6 +65,14 @@ final class LLMService: LLMServicing {
         }
     }
 
+    private func makeGemmaBackupProvider() -> GemmaBackupProvider? {
+        if let apiKey = KeychainManager.shared.retrieve(for: "gemini"), !apiKey.isEmpty {
+            return GemmaBackupProvider(apiKey: apiKey)
+        }
+        print("❌ [LLMService] Failed to retrieve Gemini API key for Gemma fallback")
+        return nil
+    }
+
     private func makeDayflowProvider(endpoint: String) -> DayflowBackendProvider? {
         if let token = KeychainManager.shared.retrieve(for: "dayflow"), !token.isEmpty {
             return DayflowBackendProvider(token: token, endpoint: endpoint)
@@ -104,9 +112,38 @@ final class LLMService: LLMServicing {
         switch providerType {
         case .geminiDirect:
             guard let provider = makeGeminiProvider() else { throw noProviderError() }
+            let gemmaProvider = makeGemmaBackupProvider()
+            let fallbackState = GemmaFallbackState()
+
             return BatchProviderActions(
-                transcribeScreenshots: provider.transcribeScreenshots,
-                generateActivityCards: provider.generateActivityCards
+                transcribeScreenshots: { [weak self] screenshots, batchStartTime, batchId in
+                    if fallbackState.preferGemma, let gemmaProvider {
+                        return try await gemmaProvider.transcribeScreenshots(screenshots, batchStartTime: batchStartTime, batchId: batchId)
+                    }
+
+                    do {
+                        return try await provider.transcribeScreenshots(screenshots, batchStartTime: batchStartTime, batchId: batchId)
+                    } catch {
+                        guard let gemmaProvider else { throw error }
+                        fallbackState.preferGemma = true
+                        self?.logGemmaFallback(operation: "transcribe", error: error, batchId: batchId)
+                        return try await gemmaProvider.transcribeScreenshots(screenshots, batchStartTime: batchStartTime, batchId: batchId)
+                    }
+                },
+                generateActivityCards: { [weak self] observations, context, batchId in
+                    if fallbackState.preferGemma, let gemmaProvider {
+                        return try await gemmaProvider.generateActivityCards(observations: observations, context: context, batchId: batchId)
+                    }
+
+                    do {
+                        return try await provider.generateActivityCards(observations: observations, context: context, batchId: batchId)
+                    } catch {
+                        guard let gemmaProvider else { throw error }
+                        fallbackState.preferGemma = true
+                        self?.logGemmaFallback(operation: "generate_cards", error: error, batchId: batchId)
+                        return try await gemmaProvider.generateActivityCards(observations: observations, context: context, batchId: batchId)
+                    }
+                }
             )
         case .dayflowBackend(let endpoint):
             guard let provider = makeDayflowProvider(endpoint: endpoint) else { throw noProviderError() }
@@ -127,6 +164,23 @@ final class LLMService: LLMServicing {
                 generateActivityCards: provider.generateActivityCards
             )
         }
+    }
+
+    private final class GemmaFallbackState {
+        var preferGemma = false
+    }
+
+    private func logGemmaFallback(operation: String, error: Error, batchId: Int64?) {
+        let nsError = error as NSError
+        AnalyticsService.shared.capture("llm_fallback_used", [
+            "provider": "gemini",
+            "fallback_provider": "gemma",
+            "operation": operation,
+            "error_domain": nsError.domain,
+            "error_code": nsError.code,
+            "error_message": nsError.localizedDescription,
+            "batch_id": batchId as Any
+        ])
     }
 
     private func makeTextProvider() throws -> TextProviderActions {
