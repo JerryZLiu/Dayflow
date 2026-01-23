@@ -41,92 +41,57 @@ enum ChatCLIPromptPreferences {
 enum ChatCLIPromptDefaults {
     static let titleBlock = """
 TITLE GUIDELINES:
-Your title should help the user mentally reconstruct what they did. Be specific, but concise.
-Rule 1: Lead with a strong verb
-Strong verbs say what actually happened:
-
-built, implemented, fixed, debugged, shipped
-booked, planned, coordinated, scheduled
-watched, played, browsed, read
-drafted, wrote, edited
-researched, investigated, diagnosed
-
-Weak verbs hide what happened:
-
-"worked on" → worked on what? doing what to it?
-"looked at" → were you reviewing? debugging? reading?
-"handled" → did you fix it? respond to it? ignore it?
-"dealt with" → means nothing
-"did some" → means nothing
-
-Examples:
+Core principle: If you read this title next week, would you know what you actually did?
+Be specific:
+Every title needs concrete details—the feature, the bug, the person, the thing you were working on.
 
 Bad: "Worked on UI" → Good: "Fixed dropdown overflow in settings page"
-Bad: "Looked at analytics" → Good: "Built retention dashboard in Amplitude"
-Bad: "Handled customer issue" → Good: "Debugged sync failure for enterprise user"
-Bad: "Did some research" → Good: "Researched Stripe vs Paddle for payments"
-
-
-Rule 2: Name the specific thing
-Every title needs a concrete noun—the thing you acted on:
-
-A feature: "onboarding flow," "search filters," "export modal"
-A bug: "login timeout," "memory leak," "race condition"
-A file: "UserService.ts" (only if the file IS the work)
-A person: "with Mike," "with the design team" (for conversations)
-A place/event: "dinner at Nobu," "SFO flight for Tuesday"
-A decision: "pricing tiers," "API versioning strategy"
-
-The more specific, the better:
-
-Bad: "Fixed bug" → Good: "Fixed OAuth token refresh on mobile"
-Bad: "Had meeting" → Good: "Planned launch timeline with marketing"
-Bad: "Made reservation" → Good: "Booked dinner at Resy for Saturday"
-Bad: "Played games" → Good: "Played Elden Ring, cleared Rennala boss"
+Bad: "Had a meeting" → Good: "Planned launch timeline with Sarah"
+Bad: "Did research" → Good: "Compared Stripe vs Paddle pricing"
 Bad: "Watched videos" → Good: "Watched UFC 300 highlights"
+Bad: "Debugged issues" → Good: "Fixed OAuth token refresh on mobile"
+Bad: "Chatted with team" → Good: "Decided on API versioning strategy with backend team"
+Bad: "Played games" → Good: "Elden Ring — cleared Rennala boss"
+Bad: "Made a reservation" → Good: "Booked dinner at Resy for Saturday"
+Bad: "Browsed internet" → Good: "Researched visa requirements for Japan"
+Bad: "Coded" → Good: "Built CSV export for dashboard"
 
+Avoid vague words:
+These words hide what actually happened:
 
-Rule 3: One throughline per title
-Ask: what's the ONE main thing? Everything else goes in summary.
-Signs you have two things crammed together:
+"worked on" → doing what to it?
+"looked at" → reviewing? debugging? reading?
+"handled" → fixed? ignored? escalated?
+"dealt with" → means nothing
+"various" / "some" / "multiple" → name them or pick the main one
+"deep dive" / "rabbit hole" → just say what you researched
+"sync" / "aligned" / "circled back" → say what you discussed or decided
 
-"and" between unrelated activities
-"+" connecting topics
-"while" or "before" forcing a connection
-Title longer than ~10 words
+Avoid repetitive structure:
+Don't start every title with a verb. Don't follow a formula. Mix it up naturally based on what the activity actually was:
 
-Bad examples and fixes:
+Verb-first: "Fixed login timeout on mobile"
+Noun-led: "SwiftUI scroll fixes"
+Person-anchored: "Call with Sarah about pricing"
+Topic-focused: "Gemini rate limits research"
+Gerund: "Planning the beta access flow"
+Casual: "Elden Ring — cleared Rennala boss"
+Event: "Flight booking for Tokyo trip"
+Conversational: "Trevor chat about launch timing"
 
-Bad: "Fixed bug and answered emails" → Good: "Fixed checkout timeout" (emails go in summary)
-Bad: "Booked flights + reviewed PRs" → Good: "Booked SFO flight for Tuesday" (PRs go in summary)
-Bad: "Wrote docs while on support" → Good: "Wrote API migration guide" (support is a distraction)
-Bad: "Talked to Lisa and checked metrics" → Good: "Scoped Q2 roadmap with Lisa" (metrics is secondary)
+If you notice several titles in a row starting with verbs like "Fixed... Debugged... Built... Implemented..." — vary the structure.
+Use "and" sparingly:
+Don't use "and" to connect unrelated things. If you have two unrelated activities, pick the more important one for the title. The other goes in the summary.
 
-Exception: "and" is okay when both things are part of the same goal:
+Bad: "Fixed bug and replied to emails" → Good: "Fixed checkout timeout" (emails in summary)
+Bad: "Booked flights + reviewed PRs" → Good: "Booked SFO flight for Tuesday" (PRs in summary)
+Bad: "Watched YouTube and coded" → Good: Title the main activity, YouTube is a distraction
 
-OK: "Diagnosed memory leak and deployed hotfix" (both are fixing the issue)
+"And" is okay when both parts serve the same goal:
+
 OK: "Designed and prototyped new nav" (same feature)
-
-
-Rule 4: Avoid clichés and corporate speak
-Banned phrases:
-
-"deep dive" → just say what you researched
-"rabbit hole" → just name what you looked at
-"sync" / "aligned" / "circled back" → say what you decided or discussed
-"product discussion" → discussion about what?
-"analytics work" → what metric? what question?
-"various" / "multiple" / "several" → name them or pick the main one
-
-Examples:
-
-Bad: "Deep dive into performance" → Good: "Profiled slow queries in orders table"
-Bad: "Synced with team on launch" → Good: "Finalized launch checklist with ops"
-Bad: "Did various research" → Good: "Compared AWS vs GCP pricing for video hosting"
-
-
-The test
-Before finalizing a title, ask: "If I read this title next week, would I know what I actually did?"
+OK: "Researched and booked Tokyo hotel" (same task)
+OK: "Wrote and shipped the migration script" (same deliverable)
 """
 
     static let summaryBlock = """
