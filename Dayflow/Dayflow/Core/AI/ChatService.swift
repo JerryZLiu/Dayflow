@@ -9,6 +9,31 @@
 import Foundation
 import Combine
 
+private let chatServiceLongDateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "EEEE, MMMM d, yyyy"
+    return formatter
+}()
+
+private let chatServiceTimeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "h:mm a"
+    return formatter
+}()
+
+private let chatServiceDayFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    return formatter
+}()
+
+private let chatServiceDisplayDayFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "MMM d"
+    return formatter
+}()
+
 /// A debug log entry for the chat debug panel
 struct ChatDebugEntry: Identifiable {
     let id = UUID()
@@ -406,13 +431,8 @@ final class ChatService: ObservableObject {
 
     private func buildSystemPrompt() -> String {
         let now = Date()
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "EEEE, MMMM d, yyyy"
-        let currentDate = dateFormatter.string(from: now)
-
-        let timeFormatter = DateFormatter()
-        timeFormatter.dateFormat = "h:mm a"
-        let currentTime = timeFormatter.string(from: now)
+        let currentDate = chatServiceLongDateFormatter.string(from: now)
+        let currentTime = chatServiceTimeFormatter.string(from: now)
 
         // Use full path (~ doesn't expand in sqlite3)
         let dbPath = NSHomeDirectory() + "/Library/Application Support/Dayflow/chunks.sqlite"
@@ -576,23 +596,17 @@ final class ChatService: ObservableObject {
     }
 
     private func todayDate() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Date())
+        chatServiceDayFormatter.string(from: Date())
     }
 
     private func yesterdayDate() -> String {
         let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: yesterday)
+        return chatServiceDayFormatter.string(from: yesterday)
     }
 
     private func weekAgoDate() -> String {
         let weekAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: weekAgo)
+        return chatServiceDayFormatter.string(from: weekAgo)
     }
 
     // MARK: - Helpers
@@ -643,15 +657,8 @@ final class ChatService: ObservableObject {
     }
 
     private func formatDateDisplay(_ dateString: String) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-
-        guard let date = formatter.date(from: dateString) else { return dateString }
-
-        let displayFormatter = DateFormatter()
-        displayFormatter.dateFormat = "MMM d"  // e.g., "Jan 7"
-        return displayFormatter.string(from: date)
+        guard let date = chatServiceDayFormatter.date(from: dateString) else { return dateString }
+        return chatServiceDisplayDayFormatter.string(from: date)
     }
 
     // MARK: - Suggestions Parsing

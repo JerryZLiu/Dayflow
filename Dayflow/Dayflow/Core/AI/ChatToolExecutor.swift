@@ -7,6 +7,26 @@
 
 import Foundation
 
+private let chatToolDayFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    return formatter
+}()
+
+private let chatToolTimeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "h:mm a"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    return formatter
+}()
+
+private let chatToolDisplayDateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "EEEE, MMM d"
+    return formatter
+}()
+
 /// Available tools the chat LLM can invoke
 enum ChatTool: String, Codable, CaseIterable {
     case fetchTimeline = "fetchTimeline"
@@ -217,13 +237,9 @@ final class ChatToolExecutor {
     private func formatObservationsForLLM(_ observations: [Observation], date: String) -> String {
         var output = "Detailed observations for \(date):\n\n"
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-
         for obs in observations {
-            let startTime = formatter.string(from: Date(timeIntervalSince1970: TimeInterval(obs.startTs)))
-            let endTime = formatter.string(from: Date(timeIntervalSince1970: TimeInterval(obs.endTs)))
+            let startTime = chatToolTimeFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(obs.startTs)))
+            let endTime = chatToolTimeFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(obs.endTs)))
             output += "[\(startTime) - \(endTime)]\n"
             output += "\(obs.observation)\n\n"
         }
@@ -234,19 +250,12 @@ final class ChatToolExecutor {
     // MARK: - Date Helpers
 
     private func isValidDateFormat(_ dateString: String) -> Bool {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        return formatter.date(from: dateString) != nil
+        chatToolDayFormatter.date(from: dateString) != nil
     }
 
     /// Convert "YYYY-MM-DD" to day boundaries (4 AM to 4 AM next day)
     private func dayBoundaries(for dateString: String) -> (start: Date, end: Date)? {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-
-        guard let date = formatter.date(from: dateString) else { return nil }
+        guard let date = chatToolDayFormatter.date(from: dateString) else { return nil }
 
         let calendar = Calendar.current
         var startComponents = calendar.dateComponents([.year, .month, .day], from: date)
@@ -264,15 +273,8 @@ final class ChatToolExecutor {
 
     /// Format date for human-readable display
     private func formatDateForDisplay(_ dateString: String) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-
-        guard let date = formatter.date(from: dateString) else { return dateString }
-
-        let displayFormatter = DateFormatter()
-        displayFormatter.dateFormat = "EEEE, MMM d"  // e.g., "Tuesday, Jan 7"
-        return displayFormatter.string(from: date)
+        guard let date = chatToolDayFormatter.date(from: dateString) else { return dateString }
+        return chatToolDisplayDateFormatter.string(from: date)
     }
 }
 
