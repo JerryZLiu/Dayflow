@@ -9,6 +9,12 @@ import SwiftUI
 import Charts
 import AppKit
 
+private let chatViewDebugTimestampFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "HH:mm:ss.SSS"
+    return formatter
+}()
+
 struct ChatView: View {
     @ObservedObject private var chatService = ChatService.shared
     @State private var inputText = ""
@@ -565,11 +571,8 @@ struct ChatView: View {
     }
 
     private func copyDebugLog() {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss.SSS"
-
         let text = chatService.debugLog.map { entry in
-            "[\(formatter.string(from: entry.timestamp))] \(entry.type.rawValue)\n\(entry.content)"
+            "[\(chatViewDebugTimestampFormatter.string(from: entry.timestamp))] \(entry.type.rawValue)\n\(entry.content)"
         }.joined(separator: "\n\n---\n\n")
 
         NSPasteboard.general.clearContents()
@@ -1702,9 +1705,7 @@ private struct DebugLogEntry: View {
     }
 
     private func formatTimestamp(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss.SSS"
-        return formatter.string(from: date)
+        chatViewDebugTimestampFormatter.string(from: date)
     }
 }
 
