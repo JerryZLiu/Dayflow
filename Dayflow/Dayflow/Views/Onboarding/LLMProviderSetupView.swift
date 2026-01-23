@@ -161,8 +161,6 @@ struct LLMProviderSetupView: View {
     @StateObject private var setupState = ProviderSetupState()
     @State private var sidebarOpacity: Double = 0
     @State private var contentOpacity: Double = 0
-    @State private var nextButtonHovered: Bool = false // legacy, unused after refactor
-    @State private var googleButtonHovered: Bool = false // legacy, unused after refactor
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -442,6 +440,31 @@ struct LLMProviderSetupView: View {
                         return key.hasPrefix("AIza") && key.count > 30
                     }
                 )
+                .onChange(of: setupState.apiKey) { _, _ in
+                    setupState.clearGeminiAPIKeySaveError()
+                }
+
+                if let message = setupState.geminiAPIKeySaveError {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(Color(hex: "E91515"))
+
+                        Text(message)
+                            .font(.custom("Nunito", size: 13))
+                            .foregroundColor(Color(hex: "E91515"))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color(hex: "E91515").opacity(0.1))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color(hex: "E91515").opacity(0.3), lineWidth: 1)
+                    )
+                }
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Choose your Gemini model. If you're on the free tier, pick 3 Flash, it's the most powerful model and is completely free to use. If you're on a paid plan, which is not recommended, I recommend 2.5 Flash-Lite to minimize costs.")
@@ -795,6 +818,7 @@ class ProviderSetupState: ObservableObject {
     @Published var steps: [SetupStep] = []
     @Published var currentStepIndex: Int = 0
     @Published var apiKey: String = ""
+    @Published var geminiAPIKeySaveError: String?
     @Published var hasTestedConnection: Bool = false
     @Published var testSuccessful: Bool = false
     @Published var geminiModel: GeminiModel
@@ -937,11 +961,7 @@ class ProviderSetupState: ObservableObject {
     func goNext() {
         // Save API key to keychain when moving from API key input step
         if currentStep.contentType.isApiKeyInput && !apiKey.isEmpty {
-            KeychainManager.shared.store(apiKey, for: "gemini")
-            // Reset test state when API key changes
-            hasTestedConnection = false
-            testSuccessful = false
-            persistGeminiModelSelection(source: "onboarding_step")
+            guard persistGeminiAPIKey(source: "onboarding_step") else { return }
         }
 
         if currentStepIndex < steps.count - 1 {
@@ -957,6 +977,9 @@ class ProviderSetupState: ObservableObject {
     
     func navigateToStep(_ stepId: String) {
         if let index = steps.firstIndex(where: { $0.id == stepId }) {
+            if currentStep.contentType.isApiKeyInput && stepId != currentStep.id {
+                guard persistGeminiAPIKey(source: "onboarding_sidebar") else { return }
+            }
             // Reset test state when navigating to test step
             if stepId == "verify" || stepId == "test" {
                 hasTestedConnection = false
@@ -988,6 +1011,34 @@ class ProviderSetupState: ObservableObject {
         // Changing models should prompt the user to re-run the connection test
         hasTestedConnection = false
         testSuccessful = false
+    }
+
+    func clearGeminiAPIKeySaveError() {
+        geminiAPIKeySaveError = nil
+    }
+
+    @discardableResult
+    func persistGeminiAPIKey(source: String) -> Bool {
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            geminiAPIKeySaveError = nil
+            return true
+        }
+
+        if trimmed != apiKey {
+            apiKey = trimmed
+        }
+
+        let stored = KeychainManager.shared.store(trimmed, for: "gemini")
+        if stored {
+            geminiAPIKeySaveError = nil
+            hasTestedConnection = false
+            testSuccessful = false
+            persistGeminiModelSelection(source: source)
+        } else {
+            geminiAPIKeySaveError = "Couldn't save your API key to Keychain. Please unlock Keychain and try again."
+        }
+        return stored
     }
     
     private var isSelectedCLIToolReady: Bool {
@@ -2262,96 +2313,5 @@ struct ChatCLIToolStatusRow: View {
         default:
             return "Install"
         }
-    }
-}
-
-struct DebugField: View {
-    let label: String
-    let value: String
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(.custom("Nunito", size: 11))
-                .fontWeight(.semibold)
-                .foregroundColor(.black.opacity(0.55))
-            ScrollView(.vertical, showsIndicators: true) {
-                Text(value)
-                    .font(.system(.footnote, design: .monospaced))
-                    .foregroundColor(.black.opacity(0.75))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                    .background(Color.white.opacity(0.85))
-                    .cornerRadius(6)
-            }
-            .frame(maxHeight: 100)
-        }
-    }
-}
-
-struct DebugCommandConsole: View {
-    @Binding var command: String
-    let output: String
-    let isRunning: Bool
-    let runAction: () -> Void
-    
-    private let accentColor = Color(red: 0.25, green: 0.17, blue: 0)
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Run a command as Dayflow")
-                .font(.custom("Nunito", size: 13))
-                .fontWeight(.semibold)
-                .foregroundColor(.black.opacity(0.7))
-            Text("Helpful for checking PATH differences. We run using the same environment as the detection step.")
-                .font(.custom("Nunito", size: 12))
-                .foregroundColor(.black.opacity(0.55))
-            HStack(spacing: 10) {
-                TextField("Command", text: $command)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.body, design: .monospaced))
-                DayflowSurfaceButton(
-                    action: runAction,
-                    content: {
-                        HStack(spacing: 6) {
-                            if isRunning {
-                                ProgressView().scaleEffect(0.7)
-                            } else {
-                                Image(systemName: "play.fill").font(.system(size: 12, weight: .semibold))
-                            }
-                            Text(isRunning ? "Running..." : "Run")
-                                .font(.custom("Nunito", size: 13))
-                                .fontWeight(.semibold)
-                        }
-                    },
-                    background: accentColor,
-                    foreground: .white,
-                    borderColor: .clear,
-                    cornerRadius: 8,
-                    horizontalPadding: 14,
-                    verticalPadding: 10,
-                    showOverlayStroke: true
-                )
-                .disabled(isRunning)
-            }
-            ScrollView {
-                Text(output.isEmpty ? "Output will appear here" : output)
-                    .font(.system(.footnote, design: .monospaced))
-                    .foregroundColor(.black.opacity(output.isEmpty ? 0.4 : 0.75))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(Color.white.opacity(0.85))
-                    .cornerRadius(8)
-            }
-            .frame(maxHeight: 160)
-        }
-        .padding(16)
-        .background(Color.white.opacity(0.55))
-        .cornerRadius(16)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.black.opacity(0.05), lineWidth: 1)
-        )
     }
 }
