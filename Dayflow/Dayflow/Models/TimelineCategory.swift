@@ -129,46 +129,8 @@ final class CategoryStore: ObservableObject {
         save()
     }
 
-    func reorderCategories(_ idsInOrder: [UUID]) {
-        var newCategories: [TimelineCategory] = []
-        var order = 0
-        for id in idsInOrder {
-            guard let idx = categories.firstIndex(where: { $0.id == id }) else { continue }
-            var cat = categories[idx]
-            cat.order = order
-            cat.updatedAt = Date()
-            newCategories.append(cat)
-            order += 1
-        }
-        let untouched = categories.filter { idsInOrder.contains($0.id) == false }
-        categories = (newCategories + untouched).sorted { $0.order < $1.order }
-        save()
-    }
-
     func persist() {
         save()
-    }
-
-    func snapshotForLLM() -> [LLMCategoryDescriptor] {
-        categories
-            .sorted { $0.order < $1.order }
-            .map { cat in
-                LLMCategoryDescriptor(
-                    id: cat.id,
-                    name: cat.name,
-                    description: catDescription(cat),
-                    isSystem: cat.isSystem,
-                    isIdle: cat.isIdle
-                )
-            }
-    }
-
-    private func catDescription(_ category: TimelineCategory) -> String? {
-        if category.isIdle {
-            return "Mark sessions where the user is idle for more than half of the time."
-        }
-        let trimmed = category.details.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func load() {

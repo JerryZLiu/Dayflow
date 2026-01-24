@@ -532,7 +532,7 @@ final class GeminiDirectProvider {
         case .shortBackoff:
             return pow(2.0, Double(attempt)) * 2.0  // 2s, 4s, 8s
         case .longBackoff:
-            return pow(2.0, Double(attempt)) * 30.0 // 30s, 60s, 120s
+            return Double(min(3, attempt + 1)) // 1s, 2s, 3s (capped)
         case .enhancedPrompt:
             return 1.0  // Brief delay for enhanced prompt
         case .noRetry:
@@ -1856,12 +1856,6 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
             displayHour = 12
         }
         return String(format: "%d:%02d %@", displayHour, mins, period)
-    }
-    
-    private func formatTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss"
-        return formatter.string(from: date)
     }
     
     private func parseVideoTimestamp(_ timestamp: String) -> Int {

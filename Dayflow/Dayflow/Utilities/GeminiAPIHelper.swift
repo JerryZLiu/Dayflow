@@ -201,23 +201,4 @@ class GeminiAPIHelper {
         return message
     }
 
-    private func encodeJSON(_ obj: Any) -> String? {
-        guard JSONSerialization.isValidJSONObject(obj) else {
-            // Try to coerce header dictionaries with AnyHashable keys
-            if let map = obj as? [AnyHashable: Any] {
-                var strMap: [String: String] = [:]
-                for (k, v) in map {
-                    if let ks = k as? String, let vs = v as? CustomStringConvertible { strMap[ks] = vs.description }
-                }
-                if JSONSerialization.isValidJSONObject(strMap), let data = try? JSONSerialization.data(withJSONObject: strMap, options: [.sortedKeys]) {
-                    return String(data: data, encoding: .utf8)
-                }
-            }
-            return nil
-        }
-        if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]) {
-            return String(data: data, encoding: .utf8)
-        }
-        return nil
-    }
 }
