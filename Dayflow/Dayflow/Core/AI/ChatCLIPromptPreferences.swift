@@ -40,21 +40,31 @@ enum ChatCLIPromptPreferences {
 
 enum ChatCLIPromptDefaults {
     static let titleBlock = """
-TITLE GUIDELINES:
+TITLE GUIDELINES
 Core principle: If you read this title next week, would you know what you actually did?
-Be specific:
-Every title needs concrete details—the feature, the bug, the person, the thing you were working on.
+Be specific, but concise:
+Every title needs concrete details. Name the actual thing—the show, the person, the feature, the file, the game. But keep it scannable—aim for roughly 5-10 words. Extra details belong in the summary.
 
-Bad: "Worked on UI" → Good: "Fixed dropdown overflow in settings page"
-Bad: "Had a meeting" → Good: "Planned launch timeline with Sarah"
-Bad: "Did research" → Good: "Compared Stripe vs Paddle pricing"
-Bad: "Watched videos" → Good: "Watched UFC 300 highlights"
-Bad: "Debugged issues" → Good: "Fixed OAuth token refresh on mobile"
-Bad: "Chatted with team" → Good: "Decided on API versioning strategy with backend team"
-Bad: "Played games" → Good: "Elden Ring — cleared Rennala boss"
-Bad: "Made a reservation" → Good: "Booked dinner at Resy for Saturday"
-Bad: "Browsed internet" → Good: "Researched visa requirements for Japan"
-Bad: "Coded" → Good: "Built CSV export for dashboard"
+Bad: "Watched videos" → Good: "The Office bloopers on YouTube"
+Bad: "Worked on UI" → Good: "Fixed navbar overlap on mobile"
+Bad: "Had a call" → Good: "Call with James about venue options"
+Bad: "Did research" → Good: "Comparing gyms near the new apartment"
+Bad: "Debugged issues" → Good: "Tracked down Stripe webhook failures"
+Bad: "Played games" → Good: "Civilization VI — finally beat Deity difficulty"
+Bad: "Browsed YouTube" → Good: "Veritasium video on turbulence"
+Bad: "Chatted with team" → Good: "Slack debate about monorepo vs multirepo"
+Bad: "Made a reservation" → Good: "Booked Nobu for Saturday 7pm"
+Bad: "Coded" → Good: "Built CSV export for transactions"
+
+Don't overload the title:
+If you're using em-dashes, parentheses, or listing 3+ things—you're probably cramming summary content into the title.
+
+Bad: "Apartment hunting — Zillow listings in Brooklyn, StreetEasy saved searches, and broker fee research"
+Good: "Apartment hunting in Brooklyn"
+Bad: "Weekly metrics review — signups, churn rate, MRR growth, and cohort retention"
+Good: "Weekly metrics review"
+Bad: "Call with Mom — talked about Dad's birthday, her knee surgery, and Aunt Linda's visit"
+Good: "Call with Mom"
 
 Avoid vague words:
 These words hide what actually happened:
@@ -66,32 +76,42 @@ These words hide what actually happened:
 "various" / "some" / "multiple" → name them or pick the main one
 "deep dive" / "rabbit hole" → just say what you researched
 "sync" / "aligned" / "circled back" → say what you discussed or decided
+"browsing" / "iterations" / "analytics" → what specifically?
 
 Avoid repetitive structure:
-Don't start every title with a verb. Don't follow a formula. Mix it up naturally based on what the activity actually was:
+Don't start every title with a verb. Mix it up naturally:
 
-Verb-first: "Fixed login timeout on mobile"
-Noun-led: "SwiftUI scroll fixes"
-Person-anchored: "Call with Sarah about pricing"
-Topic-focused: "Gemini rate limits research"
-Gerund: "Planning the beta access flow"
-Casual: "Elden Ring — cleared Rennala boss"
-Event: "Flight booking for Tokyo trip"
-Conversational: "Trevor chat about launch timing"
+"Fixed the infinite scroll bug on search results"
+"Breaking Bad rewatch — season 3 finale"
+"Call with recruiter about the Stripe role"
+"AWS cost spike investigation"
+"Planning the bachelor party itinerary"
+"Stardew Valley — finished the community center"
+"iPhone vs Pixel camera comparison for Mom"
+"Morning coffee + Hacker News catch-up"
 
-If you notice several titles in a row starting with verbs like "Fixed... Debugged... Built... Implemented..." — vary the structure.
+If several titles in a row start with "Fixed... Debugged... Built... Reviewed..." — vary the structure.
 Use "and" sparingly:
-Don't use "and" to connect unrelated things. If you have two unrelated activities, pick the more important one for the title. The other goes in the summary.
+Don't use "and" to connect unrelated things. Pick the main activity for the title; the rest goes in the summary.
 
-Bad: "Fixed bug and replied to emails" → Good: "Fixed checkout timeout" (emails in summary)
-Bad: "Booked flights + reviewed PRs" → Good: "Booked SFO flight for Tuesday" (PRs in summary)
-Bad: "Watched YouTube and coded" → Good: Title the main activity, YouTube is a distraction
+Bad: "Fixed bug and replied to emails" → Good: "Fixed pagination crash" (emails in summary)
+Bad: "YouTube then coded" → Good: "Built the settings modal" (YouTube is a distraction)
+Bad: "Read articles, watched TikTok, checked Discord" → Good: "Scattered browsing" (it was scattered, just say that)
 
 "And" is okay when both parts serve the same goal:
 
-OK: "Designed and prototyped new nav" (same feature)
-OK: "Researched and booked Tokyo hotel" (same task)
-OK: "Wrote and shipped the migration script" (same deliverable)
+OK: "Designed and prototyped the onboarding flow"
+OK: "Researched and booked the Airbnb in Lisbon"
+OK: "Drafted and sent the investor update"
+
+When it's genuinely scattered:
+If there was no main focus—just bouncing between tabs—don't force a fake throughline:
+
+"YouTube and Twitter browsing"
+"Scattered browsing break"
+"Catching up on Reddit and Discord"
+
+Before finalizing: would this title help you remember what you actually did?
 """
 
     static let summaryBlock = """
