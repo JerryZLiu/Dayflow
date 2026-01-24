@@ -836,20 +836,10 @@ class ProviderSetupState: ObservableObject {
     @Published var debugCommandInput: String = "which codex"
     @Published var debugCommandOutput: String = ""
     @Published var isRunningDebugCommand: Bool = false
-    @Published var cliPrompt: String = "Say hello"
-    @Published var codexStreamOutput: String = ""
-    @Published var claudeStreamOutput: String = ""
-    @Published var isRunningCodexStream: Bool = false
-    @Published var isRunningClaudeStream: Bool = false
     @Published var preferredCLITool: CLITool? = ProviderSetupState.loadStoredPreferredCLITool()
 
     private var lastSavedGeminiModel: GeminiModel
     private var hasStartedCLICheck = false
-    private let codexStreamer = StreamingCLI()
-    private let claudeStreamer = StreamingCLI()
-    private var codexStartTask: Task<Void, Never>?
-    private var claudeStartTask: Task<Void, Never>?
-
     init() {
         let preference = GeminiModelPreference.load()
         self.geminiModel = preference.primary
@@ -939,11 +929,6 @@ class ProviderSetupState: ObservableObject {
             claudeCLIReport = nil
             isCheckingCLIStatus = false
             hasStartedCLICheck = false
-            cancelCodexStream()
-            cancelClaudeStream()
-            codexStreamOutput = ""
-            claudeStreamOutput = ""
-            cliPrompt = "Say hello"
         default: // gemini
             steps = [
                 SetupStep(id: "getkey", title: "Get API key",
@@ -1157,117 +1142,6 @@ class ProviderSetupState: ObservableObject {
     
     private static let cliPreferenceKey = "chatCLIPreferredTool"
     
-    func runCodexStream() {
-        guard !isRunningCodexStream else { return }
-        codexStartTask?.cancel()
-        isRunningCodexStream = true
-        codexStreamOutput = "Checking for Codex CLI...\n"
-
-        codexStartTask = Task { @MainActor in
-            let installed = await Task.detached(priority: .utility) {
-                CLIDetector.isInstalled(.codex)
-            }.value
-
-            guard !Task.isCancelled else { return }
-
-            guard installed else {
-                codexStreamOutput = "Codex CLI not found. Install it and run 'codex auth' in Terminal."
-                isRunningCodexStream = false
-                codexStartTask = nil
-                return
-            }
-
-            let prompt = cliPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Say hello" : cliPrompt
-            codexStreamOutput = "Running codex with prompt: \(prompt)\n\n"
-            codexStartTask = nil
-
-            // Build args with dynamic MCP disable flags
-            var streamArgs = ["exec", "--skip-git-repo-check", "-c", "model_reasoning_effort=high"]
-            let mcpServers = LoginShellRunner.getCodexMCPServerNames()
-            for serverName in mcpServers {
-                streamArgs.append(contentsOf: ["--config", "mcp_servers.\(serverName).enabled=false"])
-            }
-            streamArgs.append(contentsOf: ["-c", "rmcp_client=false", "-c", "features.web_search_request=false", "--", prompt])
-
-            codexStreamer.run(
-                command: "codex",
-                args: streamArgs,
-                onStdout: { [weak self] chunk in
-                    self?.codexStreamOutput.append(chunk)
-                },
-                onStderr: { [weak self] chunk in
-                    self?.codexStreamOutput.append("\n[stderr] \(chunk)")
-                },
-                onFinish: { [weak self] code in
-                    guard let self else { return }
-                    self.codexStreamOutput.append("\n\nExited \(code)\n")
-                    self.isRunningCodexStream = false
-                }
-            )
-        }
-    }
-    
-    func cancelCodexStream() {
-        codexStartTask?.cancel()
-        codexStartTask = nil
-        codexStreamer.cancel()
-        if isRunningCodexStream {
-            codexStreamOutput.append("\n\nCancelled.\n")
-        }
-        isRunningCodexStream = false
-    }
-    
-    func runClaudeStream() {
-        guard !isRunningClaudeStream else { return }
-        claudeStartTask?.cancel()
-        isRunningClaudeStream = true
-        claudeStreamOutput = "Checking for Claude CLI...\n"
-
-        claudeStartTask = Task { @MainActor in
-            let installed = await Task.detached(priority: .utility) {
-                CLIDetector.isInstalled(.claude)
-            }.value
-
-            guard !Task.isCancelled else { return }
-
-            guard installed else {
-                claudeStreamOutput = "Claude CLI not found. Install it and run 'claude login' in Terminal."
-                isRunningClaudeStream = false
-                claudeStartTask = nil
-                return
-            }
-
-            let prompt = cliPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Say hello" : cliPrompt
-            claudeStreamOutput = "Running claude with prompt: \(prompt)\n\n"
-            claudeStartTask = nil
-
-            claudeStreamer.run(
-                command: "claude",
-                args: ["--print", "--output-format", "json", "--strict-mcp-config", "--", prompt],
-                onStdout: { [weak self] chunk in
-                    self?.claudeStreamOutput.append(chunk)
-                },
-                onStderr: { [weak self] chunk in
-                    self?.claudeStreamOutput.append("\n[stderr] \(chunk)")
-                },
-                onFinish: { [weak self] code in
-                    guard let self else { return }
-                    self.claudeStreamOutput.append("\n\nExited \(code)\n")
-                    self.isRunningClaudeStream = false
-                }
-            )
-        }
-    }
-    
-    func cancelClaudeStream() {
-        claudeStartTask?.cancel()
-        claudeStartTask = nil
-        claudeStreamer.cancel()
-        if isRunningClaudeStream {
-            claudeStreamOutput.append("\n\nCancelled.\n")
-        }
-        isRunningClaudeStream = false
-    }
 }
 
 struct SetupStep: Identifiable {

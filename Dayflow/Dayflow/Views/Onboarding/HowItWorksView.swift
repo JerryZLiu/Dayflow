@@ -12,7 +12,6 @@ struct HowItWorksView: View {
     @State private var cardOffsets: [CGFloat] = [50, 50, 50]
     @State private var cardOpacities: [Double] = [0, 0, 0]
     @State private var buttonsOpacity: Double = 0
-    @State private var isHoveringGitHub: Bool = false
 
     private let fullText = "How Dayflow Works"
     
@@ -123,10 +122,6 @@ struct HowItWorksView: View {
             }
             .preferredColorScheme(.light)
     }
-}
-
-private func clamp<T: Comparable>(_ value: T, _ limits: ClosedRange<T>) -> T {
-    min(max(value, limits.lowerBound), limits.upperBound)
 }
 
 private extension HowItWorksView {
