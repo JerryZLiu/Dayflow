@@ -599,15 +599,6 @@ final class ChatService: ObservableObject {
         chatServiceDayFormatter.string(from: Date())
     }
 
-    private func yesterdayDate() -> String {
-        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
-        return chatServiceDayFormatter.string(from: yesterday)
-    }
-
-    private func weekAgoDate() -> String {
-        let weekAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
-        return chatServiceDayFormatter.string(from: weekAgo)
-    }
 
     // MARK: - Helpers
 
@@ -654,11 +645,6 @@ final class ChatService: ObservableObject {
         let rows = trimmed.split(whereSeparator: \.isNewline).count
         let rowLabel = rows == 1 ? "1 row" : "\(rows) rows"
         return "\(base) returned \(rowLabel)"
-    }
-
-    private func formatDateDisplay(_ dateString: String) -> String {
-        guard let date = chatServiceDayFormatter.date(from: dateString) else { return dateString }
-        return chatServiceDisplayDayFormatter.string(from: date)
     }
 
     // MARK: - Suggestions Parsing

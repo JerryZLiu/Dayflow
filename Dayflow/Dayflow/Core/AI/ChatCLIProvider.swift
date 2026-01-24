@@ -41,8 +41,6 @@ final class ChatCLIProvider {
     private let tool: ChatCLITool
     private let runner = ChatCLIProcessRunner()
     private let config = ChatCLIConfigManager.shared
-    /// Screenshot interval used for fallback observation duration calculation
-    private let screenshotInterval: TimeInterval = 10.0
 
     init(tool: ChatCLITool) {
         self.tool = tool
@@ -327,7 +325,7 @@ final class ChatCLIProvider {
         You are synthesizing a user's activity log into timeline cards. Each card represents one main thing they did.
 
         CORE PRINCIPLE:
-        Each card = one coherent activity. Time is a constraint (10-60 min), not a goal. Don't stuff unrelated activities into one card just to fill time.
+        Each card = one coherent activity. Time is a constraint (10-60 min), not a goal. 
 
         SPLITTING RULES:
         - Minimum card length: 10 minutes
@@ -455,35 +453,6 @@ final class ChatCLIProvider {
     }
 
     // MARK: - Parsing
-
-    private func parseObservations(from output: String, batchId: Int64?, batchStartTime: Date) -> [Observation] {
-        guard let data = output.data(using: .utf8),
-              let envelope = try? JSONDecoder().decode(ChatCLIObservationsEnvelope.self, from: data) else {
-            return []
-        }
-        return envelope.observations.compactMap { item in
-            let startSeconds = TimeInterval(parseVideoTimestamp(item.start))
-            let endSeconds = TimeInterval(parseVideoTimestamp(item.end))
-            guard endSeconds > startSeconds else { return nil }
-
-            let startDate = batchStartTime.addingTimeInterval(startSeconds)
-            let endDate = batchStartTime.addingTimeInterval(endSeconds)
-
-            let startEpoch = Int(startDate.timeIntervalSince1970)
-            let endEpoch = max(startEpoch + 1, Int(endDate.timeIntervalSince1970))
-
-            return Observation(
-                id: nil,
-                batchId: batchId ?? -1,
-                startTs: startEpoch,
-                endTs: endEpoch,
-                observation: item.text,
-                metadata: nil,
-                llmModel: tool.rawValue,
-                createdAt: Date()
-            )
-        }
-    }
 
     private func parseCards(from output: String) throws -> [ActivityCardData] {
         guard let data = output.data(using: .utf8) else {
@@ -943,7 +912,7 @@ final class ChatCLIProvider {
         Good: "VS Code: Editing StorageManager.swift - fixed type error on line 47, changed String to String?"
 
         3-8 segments total.
-        You may use 1 segment only if the user appears idle for most of the recording.
+        Exception: You may use 1 segment only if the user appears idle for most of the recording.
         Group by GOAL not app (debugging across IDE+Terminal+Browser = 1 segment).
 
         Timestamps must start at \(startTime) and end at \(endTime). No gaps.
