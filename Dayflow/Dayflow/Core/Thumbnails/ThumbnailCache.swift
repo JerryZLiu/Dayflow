@@ -34,11 +34,6 @@ final class ThumbnailCache {
         }
     }
 
-    /// No-op for API compatibility (prefetching makes no sense without a cache).
-    func prefetch(videoURL: String, targetSize: CGSize) {
-        // Intentionally empty - no cache to warm
-    }
-
     private func normalize(urlString: String) -> String {
         urlString.hasPrefix("file://") ? urlString : "file://" + urlString
     }

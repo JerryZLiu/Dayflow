@@ -221,13 +221,6 @@ final class JournalDayManager: ObservableObject {
         }
     }
 
-    /// Update summary text (for editing)
-    func updateSummary(_ summary: String) {
-        formSummary = summary
-        storage.updateJournalSummary(day: currentDay, summary: summary)
-        entry = storage.fetchJournalEntry(forDay: currentDay)
-    }
-
     // MARK: - Flow State Transitions
 
     /// Manually transition to intentions edit
