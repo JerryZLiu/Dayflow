@@ -4,7 +4,6 @@ import AppKit
 @MainActor
 struct StatusMenuView: View {
     let dismissMenu: () -> Void
-    @ObservedObject private var appState = AppState.shared
     @ObservedObject private var pauseManager = PauseManager.shared
     private let updaterManager = UpdaterManager.shared
 

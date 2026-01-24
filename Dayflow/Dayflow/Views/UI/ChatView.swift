@@ -677,17 +677,6 @@ private struct MessageBubble: View {
         }
     }
 
-    private func renderMarkdownText(_ content: String) -> Text {
-        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-        if let parsed = try? AttributedString(markdown: normalized, options: options) {
-            return Text(parsed)
-        }
-        return Text(content)
-    }
-
     private func renderMarkdownLines(_ content: String) -> some View {
         // Convert markdown bullets to bullet characters for display
         let normalized = content
@@ -1760,7 +1749,6 @@ private struct FlowLayout: Layout {
 
 private struct ThinkingIndicator: View {
     @State private var dotScale: [CGFloat] = [1, 1, 1]
-    @State private var isAnimating = false
 
     var body: some View {
         HStack(spacing: 4) {

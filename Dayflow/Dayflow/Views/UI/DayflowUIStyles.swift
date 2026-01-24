@@ -8,23 +8,7 @@
 import SwiftUI
 
 
-struct DayflowShadowModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        content
-            .shadow(color: Color(red: 0.57, green: 0.57, blue: 0.57).opacity(0.05), radius: 3.08853, x: -1.23541, y: 2.47082)
-            .shadow(color: Color(red: 0.57, green: 0.57, blue: 0.57).opacity(0.04), radius: 5.55935, x: -4.32394, y: 10.501)
-            .shadow(color: Color(red: 0.57, green: 0.57, blue: 0.57).opacity(0.03), radius: 7.41247, x: -9.26558, y: 22.85511)
-            .shadow(color: Color(red: 0.57, green: 0.57, blue: 0.57).opacity(0.01), radius: 8.95673, x: -16.67805, y: 40.76858)
-            .shadow(color: Color(red: 0.57, green: 0.57, blue: 0.57).opacity(0), radius: 9.57444, x: -25.94364, y: 63.62368)
-    }
-}
-
 extension View {
-    /// Applies Dayflow's signature shadow stack
-    func dayflowShadow() -> some View {
-        modifier(DayflowShadowModifier())
-    }
-    
     /// Applies complete Dayflow style with rounded rectangle shape
     func dayflowStyle(
         cornerRadius: CGFloat = 735.4068,
