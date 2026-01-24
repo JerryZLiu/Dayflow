@@ -233,9 +233,6 @@ struct OnboardingFlow: View {
         }
     }
     
-    private func requestScreenPerm() async throws {
-        _ = try await SCShareableContent.current                 // triggers prompt
-    }
 }
 
 
