@@ -25,6 +25,7 @@ struct TimelineActivity: Identifiable {
     let videoSummaryURL: String?
     let screenshot: NSImage?
     let appSites: AppSites?
+    let isBackupGenerated: Bool?
 
     static func stableId(recordId: Int64?, batchId: Int64?, startTime: Date, endTime: Date, title: String, category: String, subcategory: String) -> String {
         if let recordId {
@@ -60,7 +61,8 @@ struct TimelineActivity: Identifiable {
             distractions: distractions,
             videoSummaryURL: videoSummaryURL,
             screenshot: screenshot,
-            appSites: appSites
+            appSites: appSites,
+            isBackupGenerated: isBackupGenerated
         )
     }
 }

@@ -108,14 +108,14 @@ final class LLMService: LLMServicing {
         )
     }
 
-    private func makeBatchProvider() throws -> BatchProviderActions {
+    private func makeBatchProvider() throws -> (actions: BatchProviderActions, fallbackState: GemmaFallbackState?) {
         switch providerType {
         case .geminiDirect:
             guard let provider = makeGeminiProvider() else { throw noProviderError() }
             let gemmaProvider = makeGemmaBackupProvider()
             let fallbackState = GemmaFallbackState()
 
-            return BatchProviderActions(
+            return (actions: BatchProviderActions(
                 transcribeScreenshots: { [weak self] screenshots, batchStartTime, batchId in
                     if fallbackState.preferGemma, let gemmaProvider {
                         return try await gemmaProvider.transcribeScreenshots(screenshots, batchStartTime: batchStartTime, batchId: batchId)
@@ -132,6 +132,7 @@ final class LLMService: LLMServicing {
                 },
                 generateActivityCards: { [weak self] observations, context, batchId in
                     if fallbackState.preferGemma, let gemmaProvider {
+                        fallbackState.usedGemmaForCardGeneration = true
                         return try await gemmaProvider.generateActivityCards(observations: observations, context: context, batchId: batchId)
                     }
 
@@ -140,34 +141,36 @@ final class LLMService: LLMServicing {
                     } catch {
                         guard let gemmaProvider else { throw error }
                         fallbackState.preferGemma = true
+                        fallbackState.usedGemmaForCardGeneration = true
                         self?.logGemmaFallback(operation: "generate_cards", error: error, batchId: batchId)
                         return try await gemmaProvider.generateActivityCards(observations: observations, context: context, batchId: batchId)
                     }
                 }
-            )
+            ), fallbackState: fallbackState)
         case .dayflowBackend(let endpoint):
             guard let provider = makeDayflowProvider(endpoint: endpoint) else { throw noProviderError() }
-            return BatchProviderActions(
+            return (actions: BatchProviderActions(
                 transcribeScreenshots: provider.transcribeScreenshots,
                 generateActivityCards: provider.generateActivityCards
-            )
+            ), fallbackState: nil)
         case .ollamaLocal(let endpoint):
             let provider = makeOllamaProvider(endpoint: endpoint)
-            return BatchProviderActions(
+            return (actions: BatchProviderActions(
                 transcribeScreenshots: provider.transcribeScreenshots,
                 generateActivityCards: provider.generateActivityCards
-            )
+            ), fallbackState: nil)
         case .chatGPTClaude:
             let provider = makeChatCLIProvider()
-            return BatchProviderActions(
+            return (actions: BatchProviderActions(
                 transcribeScreenshots: provider.transcribeScreenshots,
                 generateActivityCards: provider.generateActivityCards
-            )
+            ), fallbackState: nil)
         }
     }
 
     private final class GemmaFallbackState {
         var preferGemma = false
+        var usedGemmaForCardGeneration = false
     }
 
     private func logGemmaFallback(operation: String, error: Error, batchId: Int64?) {
@@ -265,7 +268,9 @@ final class LLMService: LLMServicing {
                     "llm_provider": providerName()
                 ])
 
-                let batchProvider = try makeBatchProvider()
+                let providerBundle = try makeBatchProvider()
+                let batchProvider = providerBundle.actions
+                let fallbackState = providerBundle.fallbackState
                 
                 // Mark batch as processing
                 StorageManager.shared.updateBatch(batchId, status: "processing")
@@ -375,6 +380,7 @@ final class LLMService: LLMServicing {
 
                 // Generate activity cards using sliding window observations
                 let (cards, _) = try await batchProvider.generateActivityCards(recentObservations, context, batchId)
+                let isBackupGenerated = fallbackState?.usedGemmaForCardGeneration == true
                 // Note: card generation log is not persisted per-batch yet
                 
                 // Replace old cards with new ones in the time range
@@ -391,7 +397,8 @@ final class LLMService: LLMServicing {
                             summary: card.summary,
                             detailedSummary: card.detailedSummary,
                             distractions: card.distractions,
-                            appSites: card.appSites
+                            appSites: card.appSites,
+                            isBackupGenerated: isBackupGenerated ? true : nil
                         )
                     },
                     batchId: batchId

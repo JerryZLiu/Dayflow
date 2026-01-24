@@ -240,6 +240,43 @@ struct TimelineCard: Codable, Sendable, Identifiable {
     let videoSummaryURL: String? // Optional link to primary video summary
     let otherVideoSummaryURLs: [String]? // For merged cards, subsequent video URLs
     let appSites: AppSites?
+    let isBackupGenerated: Bool?
+
+    init(
+        id: UUID = UUID(),
+        recordId: Int64?,
+        batchId: Int64?,
+        startTimestamp: String,
+        endTimestamp: String,
+        category: String,
+        subcategory: String,
+        title: String,
+        summary: String,
+        detailedSummary: String,
+        day: String,
+        distractions: [Distraction]?,
+        videoSummaryURL: String?,
+        otherVideoSummaryURLs: [String]?,
+        appSites: AppSites?,
+        isBackupGenerated: Bool? = nil
+    ) {
+        self.id = id
+        self.recordId = recordId
+        self.batchId = batchId
+        self.startTimestamp = startTimestamp
+        self.endTimestamp = endTimestamp
+        self.category = category
+        self.subcategory = subcategory
+        self.title = title
+        self.summary = summary
+        self.detailedSummary = detailedSummary
+        self.day = day
+        self.distractions = distractions
+        self.videoSummaryURL = videoSummaryURL
+        self.otherVideoSummaryURLs = otherVideoSummaryURLs
+        self.appSites = appSites
+        self.isBackupGenerated = isBackupGenerated
+    }
 }
 
 /// Metadata about a single LLM request/response cycle
@@ -321,14 +358,40 @@ struct TimelineCardShell: Sendable {
     let detailedSummary: String
     let distractions: [Distraction]? // Keep this, it's part of the initial save
     let appSites: AppSites?
+    let isBackupGenerated: Bool?
     // No videoSummaryURL here, as it's added later
     // No batchId here, as it's passed as a separate parameter to the save function
+
+    init(
+        startTimestamp: String,
+        endTimestamp: String,
+        category: String,
+        subcategory: String,
+        title: String,
+        summary: String,
+        detailedSummary: String,
+        distractions: [Distraction]?,
+        appSites: AppSites?,
+        isBackupGenerated: Bool? = nil
+    ) {
+        self.startTimestamp = startTimestamp
+        self.endTimestamp = endTimestamp
+        self.category = category
+        self.subcategory = subcategory
+        self.title = title
+        self.summary = summary
+        self.detailedSummary = detailedSummary
+        self.distractions = distractions
+        self.appSites = appSites
+        self.isBackupGenerated = isBackupGenerated
+    }
 }
 
 // New metadata envelope to support multiple fields under one JSON column
 private struct TimelineMetadata: Codable {
     let distractions: [Distraction]?
     let appSites: AppSites?
+    let isBackupGenerated: Bool?
 }
 
 struct AnalysisBatchDebugEntry: Sendable {
@@ -1086,7 +1149,11 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         try? timedWrite("saveTimelineCardShell") {
             db in
             // Encode metadata as an object for forward-compatibility
-            let meta = TimelineMetadata(distractions: card.distractions, appSites: card.appSites)
+            let meta = TimelineMetadata(
+                distractions: card.distractions,
+                appSites: card.appSites,
+                isBackupGenerated: card.isBackupGenerated
+            )
             let metadataString: String? = (try? encoder.encode(meta)).flatMap { String(data: $0, encoding: .utf8) }
 
             // Calculate the day string using 4 AM boundary rules
@@ -1374,7 +1441,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let encoder = JSONEncoder()
         let meta = TimelineMetadata(
             distractions: nil,
-            appSites: AppSites(primary: "dayflow.so", secondary: nil)
+            appSites: AppSites(primary: "dayflow.so", secondary: nil),
+            isBackupGenerated: nil
         )
         let metadataString: String? = (try? encoder.encode(meta)).flatMap { String(data: $0, encoding: .utf8) }
 
@@ -1443,11 +1511,13 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             """, arguments: [batchId]).map { row in
                 var distractions: [Distraction]? = nil
                 var appSites: AppSites? = nil
+                var isBackupGenerated: Bool? = nil
                 if let metadataString: String = row["metadata"],
                    let jsonData = metadataString.data(using: .utf8) {
                     if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
                         distractions = meta.distractions
                         appSites = meta.appSites
+                        isBackupGenerated = meta.isBackupGenerated
                     } else if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
                         distractions = legacy
                     }
@@ -1466,7 +1536,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     distractions: distractions,
                     videoSummaryURL: row["video_summary_url"],
                     otherVideoSummaryURLs: nil,
-                    appSites: appSites
+                    appSites: appSites,
+                    isBackupGenerated: isBackupGenerated
                 )
             }
         }) ?? []
@@ -1544,11 +1615,13 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 // Decode metadata JSON (supports object or legacy array)
                 var distractions: [Distraction]? = nil
                 var appSites: AppSites? = nil
+                var isBackupGenerated: Bool? = nil
                 if let metadataString: String = row["metadata"],
                    let jsonData = metadataString.data(using: .utf8) {
                     if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
                         distractions = meta.distractions
                         appSites = meta.appSites
+                        isBackupGenerated = meta.isBackupGenerated
                     } else if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
                         distractions = legacy
                     }
@@ -1569,7 +1642,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     distractions: distractions,
                     videoSummaryURL: row["video_summary_url"],
                     otherVideoSummaryURLs: nil,
-                    appSites: appSites
+                    appSites: appSites,
+                    isBackupGenerated: isBackupGenerated
                 )
             }
         }
@@ -1595,11 +1669,13 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 // Decode metadata JSON (supports object or legacy array)
                 var distractions: [Distraction]? = nil
                 var appSites: AppSites? = nil
+                var isBackupGenerated: Bool? = nil
                 if let metadataString: String = row["metadata"],
                    let jsonData = metadataString.data(using: .utf8) {
                     if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
                         distractions = meta.distractions
                         appSites = meta.appSites
+                        isBackupGenerated = meta.isBackupGenerated
                     } else if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
                         distractions = legacy
                     }
@@ -1620,7 +1696,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     distractions: distractions,
                     videoSummaryURL: row["video_summary_url"],
                     otherVideoSummaryURLs: nil,
-                    appSites: appSites
+                    appSites: appSites,
+                    isBackupGenerated: isBackupGenerated
                 )
             }
         }
@@ -1872,7 +1949,11 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             // Insert new cards
             for card in newCards {
                 // Encode metadata object with distractions and appSites
-                let meta = TimelineMetadata(distractions: card.distractions, appSites: card.appSites)
+                let meta = TimelineMetadata(
+                    distractions: card.distractions,
+                    appSites: card.appSites,
+                    isBackupGenerated: card.isBackupGenerated
+                )
                 let metadataString: String? = (try? encoder.encode(meta)).flatMap { String(data: $0, encoding: .utf8) }
 
                 // Resolve clock-only timestamps by picking the nearest day to the window midpoint
@@ -2006,22 +2087,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     }
     
     
-    func getChunkFilesForBatch(batchId: Int64) -> [String] {
-        return (try? db.read { db in
-            let sql = """
-                SELECT c.file_url
-                FROM chunks c
-                JOIN batch_chunks bc ON c.id = bc.chunk_id
-                WHERE bc.batch_id = ?
-                  AND (c.is_deleted = 0 OR c.is_deleted IS NULL)
-                ORDER BY c.start_ts
-            """
-
-            let rows = try Row.fetchAll(db, sql: sql, arguments: [batchId])
-            return rows.compactMap { $0["file_url"] as? String }
-        }) ?? []
-    }
-    
     func updateBatch(_ batchId: Int64, status: String, reason: String? = nil) {
         try? db.write { db in
             let sql = """
@@ -2030,17 +2095,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 WHERE id = ?
             """
             try db.execute(sql: sql, arguments: [status, reason, batchId])
-        }
-    }
-    
-    func updateBatchMetadata(_ batchId: Int64, metadata: String) {
-        try? db.write { db in
-            let sql = """
-                UPDATE analysis_batches
-                SET llm_metadata = ?
-                WHERE id = ?
-            """
-            try db.execute(sql: sql, arguments: [metadata, batchId])
         }
     }
     
@@ -2328,19 +2382,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }) ?? []
     }
     
-    func resetSpecificBatchStatuses(batchIds: [Int64]) {
-        guard !batchIds.isEmpty else { return }
-
-        try? db.write { db in
-            let placeholders = Array(repeating: "?", count: batchIds.count).joined(separator: ",")
-            try db.execute(sql: """
-                UPDATE analysis_batches
-                SET status = 'pending', reason = NULL, llm_metadata = NULL
-                WHERE id IN (\(placeholders))
-            """, arguments: StatementArguments(batchIds))
-        }
-    }
-
     // MARK: - Journal Entry Methods
 
     /// Fetch journal entry for a specific day (using 4AM boundary format)

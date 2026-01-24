@@ -27,7 +27,6 @@ final class VideoExpansionState: ObservableObject {
     @Published var thumbnailFrame: CGRect = .zero
     @Published var containerSize: CGSize = .zero
     @Published var isHoveringVideo: Bool = false
-    @Published var usesScreenshots: Bool = false
     @Published var heroId: String = ""
 
     // Animation phase tracking for choreographed entrance
@@ -55,7 +54,6 @@ final class VideoExpansionState: ObservableObject {
         self.endTime = endTime
         self.thumbnailFrame = thumbnailFrame
         self.containerSize = containerSize
-        self.usesScreenshots = false
         self.heroId = "heroVideo_\(videoURL)"
 
         // Immediate expansion with spring animation - no delays
@@ -73,31 +71,7 @@ final class VideoExpansionState: ObservableObject {
         self.title = nil
         self.startTime = nil
         self.endTime = nil
-        self.usesScreenshots = false
         self.heroId = ""
-    }
-
-    func expandScreenshots(
-        sourceId: String,
-        title: String?,
-        startTime: Date?,
-        endTime: Date?,
-        thumbnailFrame: CGRect,
-        containerSize: CGSize
-    ) {
-        self.videoURL = ""
-        self.title = title
-        self.startTime = startTime
-        self.endTime = endTime
-        self.thumbnailFrame = thumbnailFrame
-        self.containerSize = containerSize
-        self.usesScreenshots = true
-        self.heroId = "heroScreenshot_\(sourceId)"
-
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            self.isExpanded = true
-            self.animationPhase = .expanded
-        }
     }
 }
 
@@ -107,7 +81,6 @@ struct VideoExpansionOverlay: View {
     @ObservedObject var expansionState: VideoExpansionState
     let namespace: Namespace.ID
     @StateObject private var viewModel = VideoPlayerViewModel()
-    @StateObject private var screenshotModel = ScreenshotSequencePlayerModel()
     @State private var keyMonitor: Any?
     @State private var didStartPlay = false
 
@@ -181,11 +154,7 @@ struct VideoExpansionOverlay: View {
                     Color.white
                     HStack(spacing: 0) {
                         Spacer(minLength: 0)
-                        if expansionState.usesScreenshots {
-                            screenshotPlayerView(width: vw, height: vh)
-                        } else {
-                            videoPlayerView(width: vw, height: vh)
-                        }
+                        videoPlayerView(width: vw, height: vh)
                         Spacer(minLength: 0)
                     }
                     .contentShape(Rectangle())
@@ -295,99 +264,10 @@ struct VideoExpansionOverlay: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.isPlaying)
     }
 
-    private func screenshotPlayerView(width: CGFloat, height: CGFloat) -> some View {
-        ZStack {
-            if let frame = screenshotModel.currentFrame {
-                Image(nsImage: frame)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: width, height: height)
-                    .background(Color.white)
-            } else if screenshotModel.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundColor(.gray.opacity(0.6))
-                    Text("No screenshots")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.gray.opacity(0.6))
-                }
-                .frame(width: width, height: height)
-            } else {
-                ProgressView()
-                    .progressViewStyle(CircularProgressViewStyle(tint: .gray))
-                    .frame(width: width, height: height)
-            }
-
-            if !screenshotModel.isPlaying {
-                Button(action: { screenshotModel.togglePlayPause() }) {
-                    ZStack {
-                        Circle()
-                            .strokeBorder(Color.white.opacity(0.9), lineWidth: 2)
-                            .frame(width: 64, height: 64)
-                            .background(Circle().fill(Color.black.opacity(0.35)))
-                        Image(systemName: "play.fill")
-                            .foregroundColor(.white)
-                            .font(.system(size: 24, weight: .bold))
-                    }
-                }
-                .buttonStyle(ScaleButtonStyle())
-                .transition(.scale.combined(with: .opacity))
-            }
-        }
-        .frame(width: width, height: height)
-        .overlay(alignment: .bottomTrailing) {
-            if expansionState.isHoveringVideo {
-                Button(action: { screenshotModel.cycleSpeed() }) {
-                    Text("\(Int(screenshotModel.playbackSpeed * 20))x")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.black.opacity(0.85))
-                        .cornerRadius(4)
-                }
-                .buttonStyle(ScaleButtonStyle())
-                .padding(12)
-                .accessibilityLabel("Playback speed")
-                .transition(
-                    .asymmetric(
-                        insertion: .opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)),
-                        removal: .opacity
-                    )
-                )
-            }
-        }
-        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: expansionState.isHoveringVideo)
-        .onHover { hovering in expansionState.isHoveringVideo = hovering }
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: screenshotModel.isPlaying)
-        .onAppear {
-            screenshotModel.setTargetSize(CGSize(width: width, height: height))
-        }
-        .onChange(of: width) { _, _ in
-            screenshotModel.setTargetSize(CGSize(width: width, height: height))
-        }
-        .onChange(of: height) { _, _ in
-            screenshotModel.setTargetSize(CGSize(width: width, height: height))
-        }
-    }
-
     @ViewBuilder
     private var scrubberView: some View {
         VStack(spacing: 12) {
-            if expansionState.usesScreenshots {
-                ScreenshotScrubberView(
-                    screenshots: screenshotModel.screenshots,
-                    duration: max(0.001, screenshotModel.duration),
-                    currentTime: screenshotModel.currentTime,
-                    onSeek: { t in screenshotModel.seek(to: t) },
-                    onScrubStateChange: { dragging in screenshotModel.isDragging = dragging },
-                    absoluteStart: expansionState.startTime,
-                    absoluteEnd: expansionState.endTime
-                )
-                .padding(.horizontal)
-                .padding(.bottom, 12)
-            } else if let url = scrubberURL {
+            if let url = scrubberURL {
                 ScrubberView(
                     url: url,
                     duration: max(0.001, viewModel.duration),
@@ -439,7 +319,7 @@ struct VideoExpansionOverlay: View {
 
     // Player setup
     private var activeAspectRatio: CGFloat {
-        expansionState.usesScreenshots ? screenshotModel.aspectRatio : viewModel.videoAspect
+        viewModel.videoAspect
     }
 
     private var scrubberURL: URL? {
@@ -448,22 +328,17 @@ struct VideoExpansionOverlay: View {
     }
 
     private func setupPlayback() {
-        if expansionState.usesScreenshots {
-            screenshotModel.loadScreenshots(startTime: expansionState.startTime, endTime: expansionState.endTime)
-        } else {
-            let processedURL = expansionState.videoURL.hasPrefix("file://") ? expansionState.videoURL : "file://" + expansionState.videoURL
-            guard let url = URL(string: processedURL) else { return }
-            if url.isFileURL {
-                let path = url.path
-                guard FileManager.default.fileExists(atPath: path) else { return }
-            }
-            viewModel.setupPlayer(url: url)
+        let processedURL = expansionState.videoURL.hasPrefix("file://") ? expansionState.videoURL : "file://" + expansionState.videoURL
+        guard let url = URL(string: processedURL) else { return }
+        if url.isFileURL {
+            let path = url.path
+            guard FileManager.default.fileExists(atPath: path) else { return }
         }
+        viewModel.setupPlayer(url: url)
     }
 
     private func cleanupPlayback() {
         viewModel.cleanup()
-        screenshotModel.cleanup()
     }
 
     private func setupKeyMonitor() {
@@ -502,11 +377,7 @@ struct VideoExpansionOverlay: View {
     }
 
     private func togglePlayback() {
-        if expansionState.usesScreenshots {
-            screenshotModel.togglePlayPause()
-        } else {
-            viewModel.togglePlayPause()
-        }
+        viewModel.togglePlayPause()
     }
 
 }
@@ -935,10 +806,6 @@ struct VideoPlayerModal: View {
         }
     }
     
-    private func showControlsTemporarily() {
-        showControls = true
-        startControlsTimer()
-    }
 }
 
 extension VideoPlayerModal {

@@ -195,17 +195,9 @@ struct ActivityCard: View {
                     .lineLimit(1)
             }
 
-            // Timelapse thumbnail (video or screenshot pipeline)
+            // Timelapse thumbnail (video pipeline)
             // Uses hero animation for smooth expansion (Emil Kowalski: shared element transitions)
-            if TimelapsePlaybackConfig.useScreenshotPlayback {
-                ScreenshotThumbnailView(
-                    activity: activity,
-                    namespace: videoNamespace,
-                    expansionState: videoExpansionState
-                )
-                .id(activity.id)
-                .frame(height: 200)
-            } else if let videoURL = activity.videoSummaryURL {
+            if let videoURL = activity.videoSummaryURL {
                 VideoThumbnailView(
                     videoURL: videoURL,
                     title: activity.title,
