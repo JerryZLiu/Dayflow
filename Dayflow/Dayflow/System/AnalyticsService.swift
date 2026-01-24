@@ -192,10 +192,14 @@ final class AnalyticsService {
         capture("llm_validation_failed", props)
     }
 
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
     func dayString(_ date: Date) -> String {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd"
-        return fmt.string(from: date)
+        Self.dayFormatter.string(from: date)
     }
 
     private func registerInitialSuperProperties() {
