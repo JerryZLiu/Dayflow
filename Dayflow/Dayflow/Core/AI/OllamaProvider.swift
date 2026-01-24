@@ -157,79 +157,6 @@ final class OllamaProvider {
         return (allCards, combinedLog)
     }
     
-    private func parseActivityCards(from data: Data) throws -> [ActivityCardData] {
-        // Define response structure
-        struct ResponseCard: Codable {
-            let startTime: String
-            let endTime: String
-            let category: String
-            let subcategory: String
-            let title: String
-            let summary: String
-            let detailedSummary: String
-            let distractions: [ResponseDistraction]?
-        }
-        
-        struct ResponseDistraction: Codable {
-            let startTime: String
-            let endTime: String
-            let title: String
-            let summary: String
-        }
-        
-        // Helper function to convert ResponseCard to ActivityCardData
-        func convertCard(_ card: ResponseCard) -> ActivityCardData {
-            return ActivityCardData(
-                startTime: card.startTime,
-                endTime: card.endTime,
-                category: card.category,
-                subcategory: card.subcategory,
-                title: card.title,
-                summary: card.summary,
-                detailedSummary: card.detailedSummary,
-                distractions: card.distractions?.map { d in
-                    Distraction(
-                        startTime: d.startTime,
-                        endTime: d.endTime,
-                        title: d.title,
-                        summary: d.summary
-                    )
-                },
-                appSites: nil
-            )
-        }
-        
-        // First try to decode as array
-        do {
-            let responseCards = try JSONDecoder().decode([ResponseCard].self, from: data)
-            return responseCards.map(convertCard)
-        } catch {
-            // Try to decode as single object
-            do {
-                let singleCard = try JSONDecoder().decode(ResponseCard.self, from: data)
-                return [convertCard(singleCard)]
-            } catch {
-                // If that fails, try to extract JSON from the response
-            
-            guard let responseString = String(data: data, encoding: .utf8) else {
-                throw NSError(domain: "OllamaProvider", code: 6, userInfo: [NSLocalizedDescriptionKey: "Failed to decode response as string"])
-            }
-            
-            // Try to find JSON array in the response
-            if let startIndex = responseString.firstIndex(of: "["),
-               let endIndex = responseString.lastIndex(of: "]") {
-                let jsonSubstring = responseString[startIndex...endIndex]
-                if let jsonData = jsonSubstring.data(using: .utf8) {
-                    let responseCards = try JSONDecoder().decode([ResponseCard].self, from: jsonData)
-                    return responseCards.map(convertCard)
-                }
-            }
-            
-                throw NSError(domain: "OllamaProvider", code: 7, userInfo: [NSLocalizedDescriptionKey: "Could not find valid JSON array in response: \(error.localizedDescription)"])
-            }
-        }
-    }
-    
     
     private struct FrameData {
         let image: Data  // Base64 encoded image
@@ -999,14 +926,6 @@ final class OllamaProvider {
 
         var errorDescription: String? {
             "Segments only cover \(percentage)% of video (expected >80%). Video is \(durationString) long. LLM needs to generate observations that span the full video duration."
-        }
-
-        func asNSError() -> NSError {
-            NSError(
-                domain: "OllamaProvider",
-                code: 12,
-                userInfo: [NSLocalizedDescriptionKey: errorDescription ?? "Segments failed coverage validation."]
-            )
         }
     }
 

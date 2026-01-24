@@ -598,43 +598,6 @@ final class AnalysisManager: AnalysisManaging {
         return store.saveBatchWithScreenshots(startTs: batch.start, endTs: batch.end, screenshotIds: ids)
     }
 
-    // Parses a video timestamp like "05:30" into seconds
-    private func parseVideoTimestamp(_ timestamp: String) -> TimeInterval? {
-        let components = timestamp.components(separatedBy: ":")
-        guard components.count == 2,
-              let minutes = Int(components[0]),
-              let seconds = Int(components[1]) else {
-            return nil
-        }
-
-        return TimeInterval(minutes * 60 + seconds)
-    }
-
-    // Formats a Date as a clock time like "11:37 AM"
-    private func formatAsClockTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a" // e.g., "11:37 AM"
-        formatter.timeZone = TimeZone.current
-        return formatter.string(from: date)
-    }
-
-    // Parses a clock time like "11:37 AM" to a Date
-    private func parseClockTime(_ timeString: String, baseDate: Date) -> Date? {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-
-        guard let time = formatter.date(from: timeString) else { return nil }
-
-        let calendar = Calendar.current
-        let timeComponents = calendar.dateComponents([.hour, .minute], from: time)
-
-        return calendar.date(bySettingHour: timeComponents.hour ?? 0,
-                           minute: timeComponents.minute ?? 0,
-                           second: 0,
-                           of: baseDate)
-    }
-
     // Formats a duration in seconds to a human-readable string
     private func formatDuration(_ seconds: TimeInterval) -> String {
         let minutes = Int(seconds) / 60
