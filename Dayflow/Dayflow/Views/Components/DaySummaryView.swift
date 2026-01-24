@@ -833,16 +833,6 @@ struct DaySummaryView: View {
         return minutes + (Design.minutesPerDay - Design.timelineDayStartMinutes)
     }
 
-    private func durationSeconds(start: String, end: String) -> TimeInterval {
-        guard let startMinutes = timelineMinutes(for: start),
-              let endMinutes = timelineMinutes(for: end) else { return 0 }
-        var adjustedEnd = endMinutes
-        if adjustedEnd < startMinutes {
-            adjustedEnd += Design.minutesPerDay
-        }
-        return TimeInterval(adjustedEnd - startMinutes) * 60
-    }
-
     private func formatDurationTitleCase(_ seconds: TimeInterval) -> String {
         let totalMinutes = Int(seconds / 60)
         let hours = totalMinutes / 60

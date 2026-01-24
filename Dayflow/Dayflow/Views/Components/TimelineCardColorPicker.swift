@@ -1034,25 +1034,6 @@ struct ColorOrganizerRoot: View {
         }
     }
 
-    private func shapedIconButton(label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(Font.custom("Instrument Serif", size: 20))
-                .foregroundColor(Color(red: 0.33, green: 0.33, blue: 0.33))
-                .frame(width: 36, height: 36)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.white.opacity(0.8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color(red: 0.93, green: 0.9, blue: 0.86), lineWidth: 1)
-                        )
-                )
-        }
-        .buttonStyle(.plain)
-        .shadow(color: Color.black.opacity(0.08), radius: 2, x: 0, y: 1)
-    }
-
     private struct SetupSecondaryButton: View {
         let title: String
         let isEnabled: Bool
