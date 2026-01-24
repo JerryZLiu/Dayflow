@@ -15,7 +15,6 @@ struct APIKeyInputView: View {
     let onValidate: (String) -> Bool
     
     @State private var showPassword = false
-    @State private var isValidating = false
     @State private var validationState: ValidationState = .none
     @FocusState private var isFocused: Bool
     

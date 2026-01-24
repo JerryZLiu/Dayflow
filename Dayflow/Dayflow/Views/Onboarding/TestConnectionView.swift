@@ -12,8 +12,6 @@ struct TestConnectionView: View {
 
     @State private var isTesting = false
     @State private var testResult: TestResult?
-    @State private var isHovered = false
-
     init(onTestComplete: ((Bool) -> Void)? = nil) {
         self.onTestComplete = onTestComplete
     }

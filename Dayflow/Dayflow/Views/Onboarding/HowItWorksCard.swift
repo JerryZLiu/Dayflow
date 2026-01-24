@@ -12,8 +12,6 @@ struct HowItWorksCard: View {
     let title: String
     let description: String
     
-    @State private var isHovered = false
-    
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             // Icon

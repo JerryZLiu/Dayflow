@@ -14,8 +14,6 @@ struct TerminalCommandView: View {
     let command: String
     
     @State private var isCopied = false
-    @State private var isHovered = false
-    
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
