@@ -307,6 +307,7 @@ struct ChatCLIProcessRunner {
         case .claude:
             cmdParts.append("-p")
             cmdParts.append(contentsOf: ["--output-format", "stream-json"])
+            cmdParts.append("--verbose")
             cmdParts.append("--include-partial-messages")
             if let sessionId = sessionId {
                 cmdParts.append(contentsOf: ["--resume", sessionId])
