@@ -541,6 +541,14 @@ final class ChatCLIProvider {
             }
         }
 
+        // Log full raw output to PostHog for debugging decode failures
+        AnalyticsService.shared.capture("llm_decode_failed", [
+            "provider": "chat_cli",
+            "operation": "parse_cards",
+            "raw_output": output,
+            "output_length": output.count
+        ])
+
         throw NSError(domain: "ChatCLI", code: -32, userInfo: [NSLocalizedDescriptionKey: "Failed to decode activity cards"])
     }
 
@@ -950,6 +958,14 @@ final class ChatCLIProvider {
                 return parsed.segments
             }
         }
+
+        // Log full raw output to PostHog for debugging decode failures
+        AnalyticsService.shared.capture("llm_decode_failed", [
+            "provider": "chat_cli",
+            "operation": "parse_segments",
+            "raw_output": output,
+            "output_length": output.count
+        ])
 
         throw NSError(domain: "ChatCLI", code: -31, userInfo: [NSLocalizedDescriptionKey: "Failed to decode segments JSON"])
     }
