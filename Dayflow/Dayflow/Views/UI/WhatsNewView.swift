@@ -47,7 +47,7 @@ enum WhatsNewConfiguration {
     /// Returns the configured release when it matches the app version and hasn't been shown yet.
     static func pendingReleaseForCurrentBuild() -> ReleaseNote? {
         guard let release = configuredRelease else { return nil }
-        guard release.version == currentAppVersion else { return nil }
+        guard isVersion(release.version, lessThanOrEqualTo: currentAppVersion) else { return nil }
         let defaults = UserDefaults.standard
         let lastSeen = defaults.string(forKey: seenKey)
 
@@ -75,6 +75,20 @@ enum WhatsNewConfiguration {
 
     private static var currentAppVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+    }
+
+    /// Compare two semantic version strings. Returns true if lhs <= rhs.
+    private static func isVersion(_ lhs: String, lessThanOrEqualTo rhs: String) -> Bool {
+        let lhsParts = lhs.split(separator: ".").compactMap { Int($0) }
+        let rhsParts = rhs.split(separator: ".").compactMap { Int($0) }
+
+        for i in 0..<max(lhsParts.count, rhsParts.count) {
+            let lhsVal = i < lhsParts.count ? lhsParts[i] : 0
+            let rhsVal = i < rhsParts.count ? rhsParts[i] : 0
+            if lhsVal < rhsVal { return true }
+            if lhsVal > rhsVal { return false }
+        }
+        return true // equal
     }
 }
 
