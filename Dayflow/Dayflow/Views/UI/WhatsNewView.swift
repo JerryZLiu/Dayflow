@@ -28,19 +28,17 @@ enum WhatsNewConfiguration {
     private static let seenKey = "lastSeenWhatsNewVersion"
 
     /// Override with the specific release number you want to show.
-    private static let versionOverride: String? = "1.5.0"
+    private static let versionOverride: String? = "1.6.0"
 
     /// Update this content before shipping each release. Return nil to disable the modal entirely.
     static var configuredRelease: ReleaseNote? {
         ReleaseNote(
             version: targetVersion,
-            title: "Happy Holidays! Big updates + Gemini Flash 3",
+            title: "Dashboard Beta + Quality improvements",
             highlights: [
-                "We've been cooking up a mini version of Dashboard in the timeline right panel - it's in early access and you may see bugs. Please report any issues/feedback you might have!",
-                "There's also a unique interface we've been prototyping to help you reflect more deeply on your time, you can find it on the bottom of the timeline.",
-                "Gemini 3 Flash was released - this is a huge intelligence boost and now replaces Gemini 2.5 Pro as the best model.",
-                "Gemini 3 Flash comes with it's own free tier rate limits - this means that you should see a 50% boost in how long you can use Dayflow before running into limits.",
-                "Improved retry system. Now when you retry, it automatically queues up all the cards that failed to process!"
+                "Better card quality for Gemini, Claude, and ChatGPT users. Please reach out with any feedback!",
+                "Dashboard (beta): a new place to ask questions about your Dayflow data and generate charts/graphs of your time - limited to ChatGPT and Claude for now.",
+                "Gemini rate limits: automatic Gemma backup so you stay unblocked."
             ],
             imageName: nil
         )
@@ -85,6 +83,10 @@ enum WhatsNewConfiguration {
 struct WhatsNewView: View {
     let releaseNote: ReleaseNote
     let onDismiss: () -> Void
+
+    @AppStorage("whatsNewSurveyFriendVersion") private var submittedFriendVersion: String = ""
+    @State private var disappointmentSelection: DisappointmentOption? = nil
+    @State private var friendDescription: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -131,6 +133,8 @@ struct WhatsNewView: View {
                 }
             }
 
+            surveySection
+
         }
         .padding(.horizontal, 44)
         .padding(.vertical, 36)
@@ -142,6 +146,9 @@ struct WhatsNewView: View {
         )
         .onAppear {
             AnalyticsService.shared.screen("whats_new")
+            if disappointmentSelection == nil {
+                disappointmentSelection = storedDisappointmentSelection
+            }
         }
     }
 
@@ -152,6 +159,167 @@ struct WhatsNewView: View {
 
         onDismiss()
     }
+
+    private var surveySection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("If Dayflow has been helpful, could you answer two quick questions?")
+                .font(.custom("Nunito", size: 13))
+                .foregroundColor(.black.opacity(0.6))
+                .fixedSize(horizontal: false, vertical: true)
+            disappointmentQuestion
+            friendDescriptionQuestion
+        }
+        .padding(.top, 10)
+    }
+
+    private var disappointmentQuestion: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("How would you feel if you could no longer use Dayflow?")
+                .font(.custom("Nunito", size: 15))
+                .fontWeight(.semibold)
+                .foregroundColor(.black.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(spacing: 10) {
+                ForEach(DisappointmentOption.allCases, id: \.self) { option in
+                    Button(action: { selectDisappointment(option) }) {
+                        HStack(spacing: 10) {
+                            Image(systemName: disappointmentSelection == option ? "largecircle.fill.circle" : "circle")
+                                .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
+
+                            Text(option.title)
+                                .font(.custom("Nunito", size: 14))
+                                .foregroundColor(.black.opacity(0.8))
+
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(disappointmentSelection == option ? Color(red: 1.0, green: 0.95, blue: 0.9) : Color.white)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(Color(red: 0.25, green: 0.17, blue: 0).opacity(disappointmentSelection == option ? 0.22 : 0.1), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+
+            if disappointmentSelection != nil {
+                Label("Thanks for sharing!", systemImage: "checkmark.circle.fill")
+                    .font(.custom("Nunito", size: 14))
+                    .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
+            }
+        }
+    }
+
+    private var friendDescriptionQuestion: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("How would you describe Dayflow to a friend?")
+                .font(.custom("Nunito", size: 15))
+                .fontWeight(.semibold)
+                .foregroundColor(.black.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+
+            TextField("Type your response here", text: $friendDescription)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .font(.custom("Nunito", size: 13))
+                .padding(.horizontal, 4)
+
+            HStack {
+                Spacer()
+                DayflowSurfaceButton(
+                    action: submitFriendDescription,
+                    content: {
+                        Text("Submit")
+                            .font(.custom("Nunito", size: 15))
+                            .fontWeight(.semibold)
+                    },
+                    background: canSubmitFriendDescription ? Color(red: 0.25, green: 0.17, blue: 0) : Color.black.opacity(0.08),
+                    foreground: .white.opacity(canSubmitFriendDescription ? 1 : 0.7),
+                    borderColor: .clear,
+                    cornerRadius: 8,
+                    horizontalPadding: 34,
+                    verticalPadding: 12,
+                    minWidth: 160,
+                    showOverlayStroke: true
+                )
+                .disabled(!canSubmitFriendDescription)
+                .opacity(canSubmitFriendDescription ? 1 : 0.8)
+            }
+
+            if hasSubmittedFriend {
+                Label("Thanks for sharing!", systemImage: "checkmark.circle.fill")
+                    .font(.custom("Nunito", size: 14))
+                    .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
+            }
+        }
+    }
+
+    private var hasSubmittedFriend: Bool {
+        submittedFriendVersion == releaseNote.version
+    }
+
+    private var canSubmitFriendDescription: Bool {
+        !hasSubmittedFriend && !friendDescriptionTrimmed.isEmpty
+    }
+
+    private var friendDescriptionTrimmed: String {
+        friendDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func selectDisappointment(_ option: DisappointmentOption) {
+        let previousSelection = storedDisappointmentSelection
+        disappointmentSelection = option
+        UserDefaults.standard.set(option.rawValue, forKey: disappointmentStorageKey)
+        guard previousSelection != option else { return }
+
+        AnalyticsService.shared.capture("whats_new_survey_disappointment_selected", [
+            "version": releaseNote.version,
+            "option": option.analyticsValue
+        ])
+    }
+
+    private func submitFriendDescription() {
+        let trimmed = friendDescriptionTrimmed
+        guard !trimmed.isEmpty, !hasSubmittedFriend else { return }
+        let response = String(trimmed.prefix(280))
+
+        AnalyticsService.shared.capture("whats_new_survey_friend_desc_submitted", [
+            "version": releaseNote.version,
+            "response": response
+        ])
+
+        submittedFriendVersion = releaseNote.version
+    }
+
+    private var disappointmentStorageKey: String {
+        "whatsNewSurveyDisappointmentSelection_\(releaseNote.version)"
+    }
+
+    private var storedDisappointmentSelection: DisappointmentOption? {
+        guard let storedValue = UserDefaults.standard.string(forKey: disappointmentStorageKey) else { return nil }
+        return DisappointmentOption(rawValue: storedValue)
+    }
+}
+
+private enum DisappointmentOption: String, CaseIterable {
+    case veryDisappointed = "very_disappointed"
+    case somewhatDisappointed = "somewhat_disappointed"
+    case notDisappointed = "not_disappointed"
+
+    var title: String {
+        switch self {
+        case .veryDisappointed: return "Very disappointed"
+        case .somewhatDisappointed: return "Somewhat disappointed"
+        case .notDisappointed: return "Not disappointed"
+        }
+    }
+
+    var analyticsValue: String { rawValue }
 }
 
 // MARK: - Preview
