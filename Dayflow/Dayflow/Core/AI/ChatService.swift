@@ -444,6 +444,20 @@ final class ChatService: ObservableObject {
         Current time: \(currentTime)
         Day boundary: Days start at 4:00 AM (not midnight)
 
+        ## DATA INTEGRITY (CRITICAL)
+
+        You have Bash tool access. You MUST:
+        1. Actually execute sqlite3 commands to query the database — NEVER fabricate data
+        2. If a query returns no results, tell the user "No data found for [time period]"
+        3. If you cannot execute the query (tool error), tell the user what went wrong
+
+        DO NOT:
+        - Pretend to run queries by writing fake code blocks in your response
+        - Make up activity data based on the schema description
+        - Guess what the user might have done
+
+        If you're unsure whether you executed a real query, you probably didn't. Use the Bash tool to run sqlite3.
+
         ## DATABASE
 
         Path: \(dbPath)
