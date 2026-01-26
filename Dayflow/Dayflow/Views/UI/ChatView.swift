@@ -31,7 +31,11 @@ struct ChatView: View {
     @State private var conversationId: UUID?
 
     private var isUnlocked: Bool {
-        hasBetaAccepted && cliDetected
+        hasBetaAccepted
+    }
+
+    private var cliEnabled: Bool {
+        hasBetaAccepted || cliDetected
     }
 
     var body: some View {
@@ -53,6 +57,7 @@ struct ChatView: View {
         .task {
             guard !didCheckCLI else { return }
             didCheckCLI = true
+            guard !hasBetaAccepted else { return }
             await detectCLIInstallation()
         }
         .onDisappear {
@@ -483,14 +488,14 @@ struct ChatView: View {
             ProviderTogglePill(
                 title: "Codex",
                 isSelected: selectedTool == "codex",
-                isEnabled: cliDetected
+                isEnabled: cliEnabled
             ) {
                 handleToolSelection("codex")
             }
             ProviderTogglePill(
                 title: "Claude",
                 isSelected: selectedTool == "claude",
-                isEnabled: cliDetected
+                isEnabled: cliEnabled
             ) {
                 handleToolSelection("claude")
             }
@@ -504,9 +509,9 @@ struct ChatView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(Color(hex: "E6E6E6"), lineWidth: 1)
         )
-        .opacity(cliDetected ? 1.0 : 0.6)
-        .help(cliDetected ? "Choose CLI provider" : "Install Codex or Claude CLI to enable")
-        .allowsHitTesting(cliDetected)
+        .opacity(cliEnabled ? 1.0 : 0.6)
+        .help(cliEnabled ? "Choose CLI provider" : "Install Codex or Claude CLI to enable")
+        .allowsHitTesting(cliEnabled)
     }
 
     private var statusInsertionIndex: Int? {
