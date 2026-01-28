@@ -575,6 +575,8 @@ final class ChatService: ObservableObject {
         - Place the chart block where you want it to appear in the response
         - If a chart isn't helpful, omit it
 
+        \(categoryColorsSection())
+
         ## RESPONSE STYLE
 
         - **Brief and scannable** - A few key points, not a wall of text. Use bullets if they help organize.
@@ -587,7 +589,7 @@ final class ChatService: ObservableObject {
         "Pulled today's cards.
         - **Morning:** research/UX work, then about an hour of personal downtime
         - **Midday:** mostly personal—shorts, threads, feed browsing
-        - **Afternoon/evening:** back to work on code with a couple League matches mixed in"
+        - **Afternoon/evening:** back to work on code with a couple videos mixed in"
 
         BAD example:
         "Morning focus started with a 9:20–10:04 work block researching Dayflow/ChatCLI logging and UX notes, then shifted into about an hour of personal/break time watching League clips, YouTube Shorts..."
@@ -613,6 +615,19 @@ final class ChatService: ObservableObject {
         chatServiceDayFormatter.string(from: Date())
     }
 
+    private func categoryColorsSection() -> String {
+        let descriptors = CategoryStore.descriptorsForLLM()
+        guard !descriptors.isEmpty else { return "" }
+
+        var lines = ["## CHART COLORS", ""]
+        lines.append("When creating charts based on activity categories, use these exact colors:")
+        for desc in descriptors {
+            lines.append("- \(desc.name): \(desc.colorHex)")
+        }
+        lines.append("")
+        lines.append("For other charts (not category-based), choose a warm, pastel, harmonious palette.")
+        return lines.joined(separator: "\n")
+    }
 
     // MARK: - Helpers
 

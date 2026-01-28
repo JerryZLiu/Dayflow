@@ -41,6 +41,7 @@ struct TimelineCategory: Identifiable, Codable, Equatable, Sendable {
 struct LLMCategoryDescriptor: Codable, Equatable, Hashable, Sendable {
     let id: UUID
     let name: String
+    let colorHex: String
     let description: String?
     let isSystem: Bool
     let isIdle: Bool
@@ -159,6 +160,7 @@ extension CategoryStore {
                 LLMCategoryDescriptor(
                     id: category.id,
                     name: category.name,
+                    colorHex: category.colorHex,
                     description: {
                         if category.isIdle {
                             return "Use when the user is idle for more than half of this period."
