@@ -239,7 +239,7 @@ final class ChatCLIProvider {
                 sessionId = runResult.sessionId
                 lastRun = run
                 lastRawOutput = run.stdout
-                let cards = try parseCards(from: run.stdout)
+                let cards = try parseCards(from: run.stdout, stderr: run.stderr)
                 guard !cards.isEmpty else { throw CardParseError.empty(rawOutput: run.stdout) }
 
                 let normalizedCards = normalizeCards(cards, descriptors: context.categories)
@@ -454,7 +454,7 @@ final class ChatCLIProvider {
 
     // MARK: - Parsing
 
-    private func parseCards(from output: String) throws -> [ActivityCardData] {
+    private func parseCards(from output: String, stderr: String) throws -> [ActivityCardData] {
         guard let data = output.data(using: .utf8) else {
             throw NSError(domain: "ChatCLI", code: -31, userInfo: [NSLocalizedDescriptionKey: "No stdout to parse"])
         }
@@ -545,8 +545,11 @@ final class ChatCLIProvider {
         AnalyticsService.shared.capture("llm_decode_failed", [
             "provider": "chat_cli",
             "operation": "parse_cards",
+            "tool": tool.rawValue,
             "raw_output": output,
-            "output_length": output.count
+            "output_length": output.count,
+            "stderr": stderr,
+            "stderr_length": stderr.count
         ])
 
         throw NSError(domain: "ChatCLI", code: -32, userInfo: [NSLocalizedDescriptionKey: "Failed to decode activity cards"])
@@ -930,7 +933,7 @@ final class ChatCLIProvider {
         """
     }
 
-    private func parseSegments(from output: String) throws -> [SegmentMergeResponse.Segment] {
+    private func parseSegments(from output: String, stderr: String) throws -> [SegmentMergeResponse.Segment] {
         let cleaned = output
             .replacingOccurrences(of: "```json", with: "")
             .replacingOccurrences(of: "```", with: "")
@@ -963,8 +966,11 @@ final class ChatCLIProvider {
         AnalyticsService.shared.capture("llm_decode_failed", [
             "provider": "chat_cli",
             "operation": "parse_segments",
+            "tool": tool.rawValue,
             "raw_output": output,
-            "output_length": output.count
+            "output_length": output.count,
+            "stderr": stderr,
+            "stderr_length": stderr.count
         ])
 
         throw NSError(domain: "ChatCLI", code: -31, userInfo: [NSLocalizedDescriptionKey: "Failed to decode segments JSON"])
@@ -1078,7 +1084,7 @@ final class ChatCLIProvider {
                 let run = try runAndScrub(prompt: actualPrompt, imagePaths: imagePaths, model: model, reasoningEffort: effort)
                 lastRun = run
 
-                let segments = try parseSegments(from: run.stdout)
+                let segments = try parseSegments(from: run.stdout, stderr: run.stderr)
                 if let validationError = validateSegments(segments, duration: durationSeconds) {
                     lastError = NSError(domain: "ChatCLI", code: -98, userInfo: [NSLocalizedDescriptionKey: validationError])
                     actualPrompt = basePrompt + "\n\nPREVIOUS ATTEMPT FAILED - FIX THE FOLLOWING:\n" + validationError + "\n\nReturn JSON only."
