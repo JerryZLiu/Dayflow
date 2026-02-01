@@ -454,7 +454,86 @@ final class ChatCLIProvider {
 
     // MARK: - Parsing
 
+    /// Strip OSC (Operating System Command) escape sequences from CLI output.
+    /// These are injected by terminal integrations like iTerm2 and pollute JSON responses.
+    /// Examples: ]1337;RemoteHost=user@host, ]9;4;0;, ]1337;CurrentDir=/path
+    /// Safety: Only strips if semicolon appears within first 5 chars (real OSC always has it)
+    private func stripOSCEscapes(_ input: String) -> String {
+        var result = ""
+        var i = input.startIndex
+        while i < input.endIndex {
+            if input[i] == "]" {
+                let next = input.index(after: i)
+                if next < input.endIndex, input[next].isNumber {
+                    // Look ahead to see if there's a semicolon within first 5 chars (OSC signature)
+                    var hasSemicolon = false
+                    var lookAhead = next
+                    var lookCount = 0
+                    while lookAhead < input.endIndex, lookCount < 5 {
+                        if input[lookAhead] == ";" {
+                            hasSemicolon = true
+                            break
+                        }
+                        if !input[lookAhead].isNumber { break }
+                        lookAhead = input.index(after: lookAhead)
+                        lookCount += 1
+                    }
+
+                    if hasSemicolon {
+                        // This is a real OSC sequence - skip it
+                        var j = next
+                        while j < input.endIndex {
+                            let c = input[j]
+                            if c.isNumber || c == ";" || c == "=" || c.isLetter || c == "@" || c == "." || c == "-" || c == "_" || c == "/" {
+                                j = input.index(after: j)
+                            } else {
+                                break
+                            }
+                        }
+                        i = j
+                        continue
+                    }
+                }
+            }
+            result.append(input[i])
+            i = input.index(after: i)
+        }
+        return result
+    }
+
+    /// Extract user-facing error message from CLI stderr/stdout.
+    /// Returns the actual error message from the CLI tool if found, nil otherwise.
+    private func extractCLIError(stdout: String, stderr: String) -> String? {
+        // Check stderr for ERROR: lines (Codex format)
+        // e.g. "ERROR: You've hit your usage limit..."
+        // e.g. "ERROR: Your access token could not be refreshed..."
+        for line in stderr.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("ERROR:") {
+                return trimmed
+            }
+        }
+
+        // Check stdout for API Error messages (Claude format)
+        // e.g. "API Error: The SSO session associated with this profile has expired..."
+        // e.g. "You've hit your limit · resets 3pm (Asia/Shanghai)"
+        // e.g. "Invalid API key · Please run /login"
+        for line in stdout.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("API Error:") ||
+               trimmed.hasPrefix("Invalid API key") ||
+               trimmed.hasPrefix("You've hit your limit") {
+                // Strip trailing escape sequences like ]9;4;0;
+                let cleaned = trimmed.replacingOccurrences(of: #"\][\d;]+$"#, with: "", options: .regularExpression)
+                return cleaned
+            }
+        }
+
+        return nil
+    }
+
     private func parseCards(from output: String, stderr: String) throws -> [ActivityCardData] {
+        // Try parsing without modifications first, OSC stripping is a fallback
         guard let data = output.data(using: .utf8) else {
             throw NSError(domain: "ChatCLI", code: -31, userInfo: [NSLocalizedDescriptionKey: "No stdout to parse"])
         }
@@ -541,6 +620,22 @@ final class ChatCLIProvider {
             }
         }
 
+        // Strategy 4 (fallback): Strip OSC escapes and retry bracket extraction
+        let oscCleaned = stripOSCEscapes(output)
+        if let lastBracket = oscCleaned.lastIndex(of: "]"),
+           let firstBracket = findBalancedArrayStart(oscCleaned, endBracket: lastBracket) {
+            let sliced = String(oscCleaned[firstBracket...lastBracket])
+                .replacingOccurrences(of: "```json", with: "")
+                .replacingOccurrences(of: "```", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if let slicedData = sliced.data(using: .utf8) {
+                if let arrayCards = try? decoder.decode([ActivityCardData].self, from: slicedData) {
+                    return arrayCards
+                }
+            }
+        }
+
         // Log full raw output to PostHog for debugging decode failures
         AnalyticsService.shared.capture("llm_decode_failed", [
             "provider": "chat_cli",
@@ -551,6 +646,11 @@ final class ChatCLIProvider {
             "stderr": stderr,
             "stderr_length": stderr.count
         ])
+
+        // Surface CLI error messages to the user if available
+        if let cliError = extractCLIError(stdout: output, stderr: stderr) {
+            throw NSError(domain: "ChatCLI", code: -33, userInfo: [NSLocalizedDescriptionKey: cliError])
+        }
 
         throw NSError(domain: "ChatCLI", code: -32, userInfo: [NSLocalizedDescriptionKey: "Failed to decode activity cards"])
     }
@@ -934,32 +1034,56 @@ final class ChatCLIProvider {
     }
 
     private func parseSegments(from output: String, stderr: String) throws -> [SegmentMergeResponse.Segment] {
-        let cleaned = output
+        // First try parsing without any modifications
+        let basicCleaned = output
             .replacingOccurrences(of: "```json", with: "")
             .replacingOccurrences(of: "```", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if let data = cleaned.data(using: .utf8),
+        var lastDecodeError: String?
+
+        // Strategy 1: Direct decode
+        if let data = basicCleaned.data(using: .utf8),
            let parsed = try? JSONDecoder().decode(SegmentMergeResponse.self, from: data),
            !parsed.segments.isEmpty {
             return parsed.segments
         }
 
-        if let data = cleaned.data(using: .utf8),
+        // Strategy 2: Array decode
+        if let data = basicCleaned.data(using: .utf8),
            let parsed = try? JSONDecoder().decode([SegmentMergeResponse.Segment].self, from: data),
            !parsed.isEmpty {
             return parsed
         }
 
-        if let firstBrace = cleaned.firstIndex(of: "{"),
-           let lastBrace = cleaned.lastIndex(of: "}"),
+        // Strategy 3: Brace extraction
+        if let firstBrace = basicCleaned.firstIndex(of: "{"),
+           let lastBrace = basicCleaned.lastIndex(of: "}"),
            firstBrace < lastBrace {
-            let slice = String(cleaned[firstBrace...lastBrace])
+            let slice = String(basicCleaned[firstBrace...lastBrace])
             if let data = slice.data(using: .utf8),
                let parsed = try? JSONDecoder().decode(SegmentMergeResponse.self, from: data),
                !parsed.segments.isEmpty {
                 return parsed.segments
             }
+        }
+
+        // Strategy 4 (fallback): Strip OSC escapes and retry brace extraction
+        let oscCleaned = stripOSCEscapes(basicCleaned)
+        if let firstBrace = oscCleaned.firstIndex(of: "{"),
+           let lastBrace = oscCleaned.lastIndex(of: "}"),
+           firstBrace < lastBrace {
+            let slice = String(oscCleaned[firstBrace...lastBrace])
+            if let data = slice.data(using: .utf8) {
+                do {
+                    let parsed = try JSONDecoder().decode(SegmentMergeResponse.self, from: data)
+                    if !parsed.segments.isEmpty { return parsed.segments }
+                } catch {
+                    lastDecodeError = "Strategy 4 (OSC strip + brace): \(error.localizedDescription)"
+                }
+            }
+        } else {
+            lastDecodeError = "No JSON object found in output"
         }
 
         // Log full raw output to PostHog for debugging decode failures
@@ -970,8 +1094,14 @@ final class ChatCLIProvider {
             "raw_output": output,
             "output_length": output.count,
             "stderr": stderr,
-            "stderr_length": stderr.count
+            "stderr_length": stderr.count,
+            "decode_error": lastDecodeError ?? "no JSON found"
         ])
+
+        // Surface CLI error messages to the user if available
+        if let cliError = extractCLIError(stdout: output, stderr: stderr) {
+            throw NSError(domain: "ChatCLI", code: -33, userInfo: [NSLocalizedDescriptionKey: cliError])
+        }
 
         throw NSError(domain: "ChatCLI", code: -31, userInfo: [NSLocalizedDescriptionKey: "Failed to decode segments JSON"])
     }
