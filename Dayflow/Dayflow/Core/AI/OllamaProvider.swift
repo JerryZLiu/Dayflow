@@ -169,6 +169,11 @@ final class OllamaProvider {
         var temperature: Double = 0.7
         var max_tokens: Int = 4000
         var stream: Bool = false
+        var options: ChatOptions? = nil
+    }
+
+    private struct ChatOptions: Codable {
+        let num_ctx: Int
     }
     
     private struct ChatMessage: Codable {
@@ -196,6 +201,17 @@ final class OllamaProvider {
         struct ResponseMessage: Codable {
             let content: String
         }
+    }
+
+    private var preferredContextSize: Int? {
+        let stored = UserDefaults.standard.integer(forKey: "llmLocalContextSize")
+        if stored > 0 { return stored }
+        return 8192
+    }
+
+    private func makeLocalOptions() -> ChatOptions? {
+        guard let size = preferredContextSize, size > 0 else { return nil }
+        return ChatOptions(num_ctx: size)
     }
     
     private func getSimpleFrameDescription(_ frame: FrameData, batchId: Int64?) async -> String? {
@@ -232,7 +248,8 @@ final class OllamaProvider {
             model: savedModelId,
             messages: [
                 ChatMessage(role: "user", content: content)
-            ]
+            ],
+            options: makeLocalOptions()
         )
         
         do {
@@ -412,7 +429,8 @@ final class OllamaProvider {
             messages: [
                 ChatMessage(role: "system", content: [MessageContent(type: "text", text: systemPrompt, image_url: nil)]),
                 ChatMessage(role: "user", content: [MessageContent(type: "text", text: prompt, image_url: nil)])
-            ]
+            ],
+            options: makeLocalOptions()
         )
         
         let response = try await callChatAPI(request, operation: operation, batchId: batchId, maxRetries: maxRetries)

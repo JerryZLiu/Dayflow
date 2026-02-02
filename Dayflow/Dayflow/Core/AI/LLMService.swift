@@ -606,6 +606,9 @@ final class LLMService: LLMServicing {
         let errorDescription = error.localizedDescription.lowercased()
         
         switch true {
+        case errorDescription.contains("context window") || errorDescription.contains("context length") || errorDescription.contains("max context") || errorDescription.contains("num_ctx"):
+            return "The local AI hit its context limit. Increase the context size in your local model settings (e.g., LM Studio or Ollama) or process a shorter recording."
+
         case errorDescription.contains("rate limit") || errorDescription.contains("429"):
             return "The AI service is temporarily overwhelmed. This usually resolves itself in a few minutes."
             
