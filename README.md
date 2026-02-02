@@ -50,12 +50,15 @@ It's lightweight (25MB app size) and uses ~100MB of RAM and <1% cpu.
 
 ## Why Dayflow
 
-Most time trackers only log app usage. Dayflow understands context — the difference between "researching on YouTube" and "watching cat videos" — so your timeline reflects real work, not just which window was open.
+Most time trackers only log app usage. Dayflow understands context - the difference between "researching on YouTube" and "watching cat videos" - so your timeline reflects real work, not just which window was open.
 
 It's fully open‑source and extensible: inspect the codebase, audit how data is handled, and build it yourself for maximum security.
 
 ## How people get value
 
+- **Founders:** See where days disappear, balance maker vs. manager time, and spot hidden context switching.
+- **Engineers:** Verify what really shipped, generate a standup recap in minutes, and reduce interruption drag.
+- **Students:** Make study sessions visible, reduce distraction drift, and build better routines.
 - **AI researchers:** See where time actually went across experiments vs. reading vs. coding, and tighten your research loop.
 - **Marketing:** Track time by campaign/channel, protect creative blocks, and cut hidden ops overhead.
 - **Sales:** Make calls, follow‑ups, and CRM time visible; prep pipeline recaps fast.
@@ -67,13 +70,13 @@ It's fully open‑source and extensible: inspect the codebase, audit how data is
 ## Features
 
 - **Automatic timeline** of your day with concise summaries.
-- **Context‑aware tracking** — more than app usage; understands what you were doing.
-- **Extraordinarily battery‑efficient** by design — stays out of your way.
+- **Context‑aware tracking** - more than app usage; understands what you were doing.
+- **Extraordinarily battery‑efficient** by design - stays out of your way.
 - **Watch timelapses of your day**.
 - **Distraction highlights** to see what pulled you off‑task.
-- **Timeline export** — export your timeline as Markdown for any date range.
-- **Local‑first privacy** — data stays on your Mac; choose your AI provider.
-- **Open‑source & extensible** — inspect the codebase or build it yourself.
+- **Timeline export** - export your timeline as Markdown for any date range.
+- **Local‑first privacy** - data stays on your Mac; choose your AI provider.
+- **Open‑source & extensible** - inspect the codebase or build it yourself.
 - **Native UX** built with **SwiftUI**.
 - **Automatic storage cleanup** with configurable limits.
 
@@ -85,17 +88,17 @@ Set intentions, reflect on your day, and get AI-generated summaries of your acti
   <img src="docs/images/JournalPreview.png" alt="Dayflow journal preview" width="800">
 </div>
 
-- **Morning intentions** — plan what you want to accomplish.
-- **Evening reflections** — review how your day actually went.
-- **AI summaries** — get auto-generated insights from your timeline.
-- **Scheduled reminders** — configurable notifications for intentions and reflections.
-- **Weekly view** — see patterns across your week.
+- **Morning intentions** - plan what you want to accomplish.
+- **Evening reflections** - review how your day actually went.
+- **AI summaries** - get auto-generated insights from your timeline.
+- **Scheduled reminders** - configurable notifications for intentions and reflections.
+- **Weekly view** - see patterns across your week.
 
 > **Note:** Journal is currently in beta with limited access. Enter your access code in the app to unlock it.
 
 ### Coming soon
 
-- **Dashboard (beta — ChatGPT/Claude only)** — ask any question about your workday, pipe the answers into tiles you arrange yourself, and track trends over time.
+- **Dashboard (beta - ChatGPT/Claude only)** - ask any question about your workday, pipe the answers into tiles you arrange yourself, and track trends over time.
 
   <div align="center">
     <img src="docs/images/DashboardPreview.png" alt="Dayflow dashboard preview" width="800">
@@ -103,11 +106,11 @@ Set intentions, reflect on your day, and get AI-generated summaries of your acti
 
 ## How it works
 
-1) **Capture** — Watches your screen in lightweight chunks.
-2) **Analyze** — Periodically sends recent activity to your chosen AI provider.
-3) **Generate** — AI creates timeline cards with activity summaries.
-4) **Display** — Shows your day as a visual timeline.
-5) **Cleanup** — Auto-manages storage based on your configured limits (1GB–20GB or unlimited).
+1) **Capture** - Watches your screen in lightweight chunks.
+2) **Analyze** - Periodically sends recent activity to your chosen AI provider.
+3) **Generate** - AI creates timeline cards with activity summaries.
+4) **Display** - Shows your day as a visual timeline.
+5) **Cleanup** - Auto-manages storage based on your configured limits (1GB–20GB or unlimited).
 
 ### AI Processing Pipeline
 
@@ -150,7 +153,7 @@ flowchart LR
     class GD,LD2,CD result
 ```
 
-**Gemini** leverages native video understanding for direct analysis. **Local models** reconstruct understanding from individual frame descriptions. **ChatGPT/Claude** uses CLI tools to batch-process extracted frames with frontier reasoning models—balancing quality and efficiency.
+**Gemini** leverages native video understanding for direct analysis. **Local models** reconstruct understanding from individual frame descriptions. **ChatGPT/Claude** uses CLI tools to batch-process extracted frames with frontier reasoning models - balancing quality and efficiency.
 
 
 ---
@@ -225,12 +228,12 @@ All Dayflow data is stored in:
 - **Purge / reset tip:** Quit Dayflow. Then delete the entire `Dayflow/` folder to remove recordings and analysis artifacts. Relaunch to start fresh.
 
 ### Processing modes & providers
-- **Gemini (cloud, BYO key)** — Dayflow sends batch payloads to **Google's Gemini API** for analysis.
-- **Local models (Ollama / LM Studio)** — Processing stays **on‑device**; Dayflow talks to a **local server** you run.
-- **ChatGPT / Claude (CLI-based, paid plan required)** — Dayflow drives the **Codex CLI** (ChatGPT) or **Claude Code CLI** directly on your Mac. **Requires an active ChatGPT Plus/Pro or Claude Pro subscription.** Uses frontier reasoning models for best-in-class narrative quality.
+- **Gemini (cloud, BYO key)** - Dayflow sends batch payloads to **Google's Gemini API** for analysis.
+- **Local models (Ollama / LM Studio)** - Processing stays **on‑device**; Dayflow talks to a **local server** you run.
+- **ChatGPT / Claude (CLI-based, paid plan required)** - Dayflow drives the **Codex CLI** (ChatGPT) or **Claude Code CLI** directly on your Mac. **Requires an active ChatGPT Plus/Pro or Claude Pro subscription.** Uses frontier reasoning models for best-in-class narrative quality.
 
 ### TL;DR: Gemini data handling (my reading of Google’s ToS)
-- **Short answer: There is a way to prevent Google from training on your data.** If you **enable Cloud Billing** on **at least one** Gemini API project, Google treats **all of your Gemini API and Google AI Studio usage** under the **“Paid Services”** data‑use rules — **even when you’re using unpaid/free quota**. Under Paid Services, **Google does not use your prompts/responses to improve Google products/models**.  
+- **Short answer: There is a way to prevent Google from training on your data.** If you **enable Cloud Billing** on **at least one** Gemini API project, Google treats **all of your Gemini API and Google AI Studio usage** under the **“Paid Services”** data‑use rules - **even when you’re using unpaid/free quota**. Under Paid Services, **Google does not use your prompts/responses to improve Google products/models**.  
   - Terms: “When you activate a Cloud Billing account, all use of Gemini API and Google AI Studio is a ‘Paid Service’ with respect to how Google Uses Your Data, even when using Services that are offered free of charge.” ([Gemini API Additional Terms](https://ai.google.dev/gemini-api/terms#paid-services-how-google-uses-your-data))  
   - Abuse monitoring: even under Paid Services, Google **logs prompts/responses for a limited period** for **policy enforcement and legal compliance**. ([Same Terms](https://ai.google.dev/gemini-api/terms#paid-services-how-google-uses-your-data))  
   - **EEA/UK/Switzerland:** the **Paid‑style data handling applies by default** to **all Services** (including AI Studio and unpaid quota) **even without billing**. ([Same Terms](https://ai.google.dev/gemini-api/terms#unpaid-services-how-google-uses-your-data))
@@ -283,8 +286,8 @@ Apple’s docs: https://support.apple.com/guide/mac-help/control-access-screen-s
 Dayflow registers a `dayflow://` URL scheme so you can trigger common actions from Shortcuts, hotkey launchers, or scripts.
 
 **Supported URLs**
-- `dayflow://start-recording` — enable capture (no-op if already recording)
-- `dayflow://stop-recording` — pause capture (no-op if already paused)
+- `dayflow://start-recording` - enable capture (no-op if already recording)
+- `dayflow://stop-recording` - pause capture (no-op if already paused)
 
 **Quick checks**
 - From Terminal: `open dayflow://start-recording` or `open dayflow://stop-recording`
@@ -321,7 +324,7 @@ Dayflow/
 ## Roadmap
 
 - [ ] V1 of the Dashboard (track answers to custom questions)
-- [x] V1 of the daily journal — _now in beta!_
+- [x] V1 of the daily journal - _now in beta!_
 - [ ] Fine-tuning a small VLM for improved local model quality 
 
 ---
