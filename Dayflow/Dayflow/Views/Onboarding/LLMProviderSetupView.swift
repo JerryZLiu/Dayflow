@@ -1714,7 +1714,7 @@ struct ChatCLITestView: View {
             }
             codexArgs.append(contentsOf: [
                 "-c", "rmcp_client=false",
-                "-c", "features.web_search_request=false",
+                "-c", "web_search=disabled",
                 "--",
                 prompt
             ])

@@ -300,7 +300,7 @@ struct ChatCLIProcessRunner {
             for serverName in mcpServers {
                 cmdParts.append(contentsOf: ["--config", "mcp_servers.\(serverName).enabled=false"])
             }
-            cmdParts.append(contentsOf: ["-c", "rmcp_client=false", "-c", "features.web_search_request=false"])
+            cmdParts.append(contentsOf: ["-c", "rmcp_client=false", "-c", "web_search=disabled"])
             cmdParts.append("--")
             cmdParts.append(LoginShellRunner.shellEscape(prompt))
 
@@ -603,7 +603,7 @@ struct ChatCLIProcessRunner {
             for serverName in mcpServers {
                 cmdParts.append(contentsOf: ["--config", "mcp_servers.\(serverName).enabled=false"])
             }
-            cmdParts.append(contentsOf: ["-c", "rmcp_client=false", "-c", "features.web_search_request=false"])
+            cmdParts.append(contentsOf: ["-c", "rmcp_client=false", "-c", "web_search=disabled"])
             for path in imagePaths { cmdParts.append(contentsOf: ["--image", LoginShellRunner.shellEscape(path)]) }
             cmdParts.append("--")
             cmdParts.append(LoginShellRunner.shellEscape(prompt))
