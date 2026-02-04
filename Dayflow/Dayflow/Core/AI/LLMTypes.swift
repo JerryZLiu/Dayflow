@@ -19,6 +19,87 @@ enum LLMProviderType: Codable {
     case chatGPTClaude
 }
 
+enum LLMProviderID: String, Codable, CaseIterable {
+    case gemini
+    case dayflow
+    case ollama
+    case chatGPTClaude = "chatgpt_claude"
+
+    var analyticsName: String {
+        switch self {
+        case .gemini:
+            return "gemini"
+        case .dayflow:
+            return "dayflow"
+        case .ollama:
+            return "ollama"
+        case .chatGPTClaude:
+            return "chat_cli"
+        }
+    }
+
+    static func from(_ providerType: LLMProviderType) -> LLMProviderID {
+        switch providerType {
+        case .geminiDirect:
+            return .gemini
+        case .dayflowBackend:
+            return .dayflow
+        case .ollamaLocal:
+            return .ollama
+        case .chatGPTClaude:
+            return .chatGPTClaude
+        }
+    }
+
+    func providerLabel(chatTool: ChatCLITool? = nil) -> String {
+        switch self {
+        case .gemini:
+            return "gemini"
+        case .dayflow:
+            return "dayflow"
+        case .ollama:
+            return "local"
+        case .chatGPTClaude:
+            return chatTool == .claude ? "claude" : "chatgpt"
+        }
+    }
+}
+
+enum LLMProviderRoutingPreferences {
+    static let backupProviderDefaultsKey = "llmBackupProviderId"
+    static let backupChatCLIToolDefaultsKey = "llmBackupChatCLITool"
+
+    static func loadBackupProvider(from defaults: UserDefaults = .standard) -> LLMProviderID? {
+        guard let rawValue = defaults.string(forKey: backupProviderDefaultsKey) else {
+            return nil
+        }
+        return LLMProviderID(rawValue: rawValue)
+    }
+
+    static func saveBackupProvider(_ provider: LLMProviderID?, to defaults: UserDefaults = .standard) {
+        if let provider {
+            defaults.set(provider.rawValue, forKey: backupProviderDefaultsKey)
+        } else {
+            defaults.removeObject(forKey: backupProviderDefaultsKey)
+        }
+    }
+
+    static func loadBackupChatCLITool(from defaults: UserDefaults = .standard) -> ChatCLITool? {
+        guard let rawValue = defaults.string(forKey: backupChatCLIToolDefaultsKey) else {
+            return nil
+        }
+        return ChatCLITool(rawValue: rawValue)
+    }
+
+    static func saveBackupChatCLITool(_ tool: ChatCLITool?, to defaults: UserDefaults = .standard) {
+        if let tool {
+            defaults.set(tool.rawValue, forKey: backupChatCLIToolDefaultsKey)
+        } else {
+            defaults.removeObject(forKey: backupChatCLIToolDefaultsKey)
+        }
+    }
+}
+
 struct BatchingConfig {
     let targetDuration: TimeInterval
     let maxGap: TimeInterval
