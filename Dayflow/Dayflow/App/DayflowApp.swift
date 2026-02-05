@@ -235,4 +235,6 @@ extension Notification.Name {
     static let showWhatsNew = Notification.Name("showWhatsNew")
     static let navigateToJournal = Notification.Name("navigateToJournal")
     static let timelineDataUpdated = Notification.Name("timelineDataUpdated")
+    static let showTimelineFailureToast = Notification.Name("showTimelineFailureToast")
+    static let openProvidersSettings = Notification.Name("openProvidersSettings")
 }
