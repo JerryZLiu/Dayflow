@@ -31,7 +31,7 @@ struct SettingsProvidersTabView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     providerSummary
                     DayflowSurfaceButton(
-                        action: { viewModel.setupModalProvider = viewModel.currentProvider },
+                        action: { viewModel.editProviderConfiguration(viewModel.primaryRoutingProviderId) },
                         content: {
                             HStack(spacing: 8) {
                                 Image(systemName: "slider.horizontal.3")
@@ -74,7 +74,7 @@ struct SettingsProvidersTabView: View {
                 }
             }
 
-            SettingsCard(title: "Connection health", subtitle: "Run a quick test for the active provider") {
+            SettingsCard(title: "Connection health", subtitle: "Run a quick test for the primary provider") {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(viewModel.connectionHealthLabel)
                         .font(.custom("Nunito", size: 14))
@@ -110,15 +110,8 @@ struct SettingsProvidersTabView: View {
                 }
             }
 
-            SettingsCard(title: "Provider options", subtitle: "Switch providers at any time") {
-                VStack(spacing: 12) {
-                    ForEach(viewModel.availableProviders, id: \.id) { provider in
-                        CompactProviderRow(
-                            provider: provider,
-                            onSwitch: { viewModel.switchToProvider(provider.id) }
-                        )
-                    }
-                }
+            SettingsCard(title: "Failover routing", subtitle: "Choose primary and secondary providers") {
+                routingMatrix
             }
 
             if viewModel.currentProvider == "gemini" {
@@ -141,6 +134,147 @@ struct SettingsProvidersTabView: View {
                 }
             }
         }
+    }
+
+    private let routingAccentColor = Color(red: 0.25, green: 0.17, blue: 0)
+    private let routingButtonTextWidth: CGFloat = 120
+
+    private var routingMatrix: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(viewModel.routingProviders, id: \.id) { provider in
+                routingProviderCard(provider)
+            }
+        }
+    }
+
+    private func hasPrimaryAndSecondaryActions(
+        isPrimary: Bool,
+        isSecondary: Bool
+    ) -> Bool {
+        !isPrimary && !isSecondary
+    }
+
+    @ViewBuilder
+    private func primaryAndSecondaryActions(
+        provider: CompactProviderInfo,
+        isPrimary: Bool,
+        isSecondary: Bool,
+        canSetSecondary: Bool
+    ) -> some View {
+        if hasPrimaryAndSecondaryActions(isPrimary: isPrimary, isSecondary: isSecondary) {
+            HStack(spacing: 8) {
+                matrixActionButton("Set primary", filled: true) {
+                    viewModel.setPrimaryOrSetup(provider.id)
+                }
+                matrixActionButton("Set secondary", filled: true, enabled: canSetSecondary) {
+                    viewModel.setSecondaryOrSetup(provider.id)
+                }
+            }
+        } else if !isPrimary {
+            HStack(spacing: 8) {
+                matrixActionButton("Set primary", filled: true) {
+                    viewModel.setPrimaryOrSetup(provider.id)
+                }
+            }
+        } else if !isSecondary {
+            HStack(spacing: 8) {
+                matrixActionButton("Set secondary", filled: true, enabled: canSetSecondary) {
+                    viewModel.setSecondaryOrSetup(provider.id)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func routingProviderCard(_ provider: CompactProviderInfo) -> some View {
+        let isConfigured = viewModel.isProviderConfigured(provider.id)
+        let isPrimary = viewModel.primaryRoutingProviderId == provider.id
+        let isSecondary = viewModel.isBackupProvider(provider.id)
+        let canSetSecondary = viewModel.canAssignSecondary(provider.id) || !isConfigured
+
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Text(provider.providerTableName)
+                    .font(.custom("Nunito", size: 15))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.black.opacity(0.82))
+
+                Spacer()
+
+                if isPrimary {
+                    roleTag(text: "PRIMARY", type: .orange)
+                } else if isSecondary {
+                    roleTag(text: "SECONDARY", type: .blue)
+                } else if isConfigured {
+                    roleTag(text: "CONFIGURED", type: .green)
+                } else {
+                    roleTag(text: "NOT SET", type: .green)
+                }
+            }
+
+            Text(provider.summary)
+                .font(.custom("Nunito", size: 12))
+                .foregroundColor(.black.opacity(0.54))
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    if !isConfigured {
+                        matrixActionButton("Setup", filled: false) {
+                            viewModel.beginProviderSetup(provider.id, role: .setupOnly)
+                        }
+                    }
+
+                    matrixActionButton("Edit configuration", filled: false) {
+                        viewModel.editProviderConfiguration(provider.id)
+                    }
+                }
+
+                primaryAndSecondaryActions(
+                    provider: provider,
+                    isPrimary: isPrimary,
+                    isSecondary: isSecondary,
+                    canSetSecondary: canSetSecondary
+                )
+            }
+        }
+        .padding(14)
+        .background(Color.white.opacity(0.52))
+        .cornerRadius(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+        )
+    }
+
+    private func matrixActionButton(
+        _ title: String,
+        filled: Bool,
+        enabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        DayflowSurfaceButton(
+            action: action,
+            content: {
+                Text(title)
+                    .font(.custom("Nunito", size: 12))
+                    .fontWeight(.semibold)
+                    .frame(width: routingButtonTextWidth, alignment: .center)
+            },
+            background: filled ? routingAccentColor : Color.white,
+            foreground: filled ? .white : .black,
+            borderColor: filled ? .clear : Color.black.opacity(0.14),
+            cornerRadius: 7,
+            horizontalPadding: 10,
+            verticalPadding: 5,
+            showOverlayStroke: filled
+        )
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.45)
+    }
+
+    private func roleTag(text: String, type: BadgeType) -> some View {
+        BadgeView(text: text, type: type)
     }
 
     private var geminiPromptCustomizationView: some View {
@@ -375,7 +509,22 @@ struct SettingsProvidersTabView: View {
     @ViewBuilder
     private var providerSummary: some View {
         VStack(alignment: .leading, spacing: 12) {
-            summaryRow(label: "Active provider", value: viewModel.providerDisplayName(viewModel.currentProvider))
+            summaryRoleRow(
+                label: "Primary provider",
+                value: viewModel.providerDisplayName(viewModel.primaryRoutingProviderId),
+                roleText: "PRIMARY",
+                roleType: .orange
+            )
+            if let backupProvider = viewModel.secondaryRoutingProviderId {
+                summaryRoleRow(
+                    label: "Secondary provider",
+                    value: viewModel.providerDisplayName(backupProvider),
+                    roleText: "SECONDARY",
+                    roleType: .blue
+                )
+            } else {
+                summaryRow(label: "Secondary provider", value: "Not configured")
+            }
 
             switch viewModel.currentProvider {
             case "ollama":
@@ -396,6 +545,19 @@ struct SettingsProvidersTabView: View {
         }
     }
 
+    private func summaryRoleRow(label: String, value: String, roleText: String, roleType: BadgeType) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.custom("Nunito", size: 13))
+                .foregroundColor(.black.opacity(0.55))
+                .frame(width: 150, alignment: .leading)
+            Text(value)
+                .font(.custom("Nunito", size: 14))
+                .foregroundColor(.black.opacity(0.78))
+            roleTag(text: roleText, type: roleType)
+        }
+    }
+
     private func summaryRow(label: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(label)
@@ -406,97 +568,6 @@ struct SettingsProvidersTabView: View {
                 .font(.custom("Nunito", size: 14))
                 .foregroundColor(.black.opacity(0.78))
         }
-    }
-}
-
-private struct CompactProviderRow: View {
-    let provider: CompactProviderInfo
-    let onSwitch: () -> Void
-
-    private let accentColor = Color(red: 0.25, green: 0.17, blue: 0)
-
-    var body: some View {
-        HStack(spacing: 14) {
-            iconView
-                .frame(width: iconContainerWidth, height: 36)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(provider.title)
-                    .font(.custom("Nunito", size: 15))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.black.opacity(0.85))
-                Text(provider.summary)
-                    .font(.custom("Nunito", size: 12))
-                    .foregroundColor(.black.opacity(0.55))
-            }
-
-            Spacer()
-
-            BadgeView(text: provider.badgeText, type: provider.badgeType)
-
-            DayflowSurfaceButton(
-                action: onSwitch,
-                content: {
-                    Text("Switch")
-                        .font(.custom("Nunito", size: 13))
-                        .fontWeight(.semibold)
-                },
-                background: accentColor,
-                foreground: .white,
-                borderColor: .clear,
-                cornerRadius: 8,
-                horizontalPadding: 16,
-                verticalPadding: 8,
-                showOverlayStroke: true
-            )
-        }
-        .padding(16)
-        .background(Color.white.opacity(0.5))
-        .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.black.opacity(0.06), lineWidth: 1)
-        )
-    }
-
-    @ViewBuilder
-    private var iconView: some View {
-        switch provider.icon {
-        case "gemini_asset":
-            logoBox(name: "GeminiLogo")
-        case "chatgpt_claude_asset":
-            HStack(spacing: 6) {
-                logoBox(name: "ChatGPTLogo")
-                logoBox(name: "ClaudeLogo")
-            }
-        default:
-            Image(systemName: provider.icon)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.black.opacity(0.7))
-        }
-    }
-
-    private var iconContainerWidth: CGFloat {
-        provider.icon == "chatgpt_claude_asset" ? 80 : 36
-    }
-
-    @ViewBuilder
-    private func logoBox(name: String) -> some View {
-        Image(name)
-            .resizable()
-            .renderingMode(.original)
-            .interpolation(.high)
-            .antialiased(true)
-            .scaledToFit()
-            .frame(width: 22, height: 22)
-            .padding(6)
-            .background(Color.white.opacity(0.9))
-            .cornerRadius(6)
-            .shadow(color: Color.black.opacity(0.05), radius: 1.5, x: 0, y: 1.5)
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color.black.opacity(0.05), lineWidth: 0.5)
-            )
     }
 }
 

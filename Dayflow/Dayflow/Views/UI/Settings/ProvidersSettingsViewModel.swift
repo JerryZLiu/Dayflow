@@ -9,7 +9,16 @@ final class ProvidersSettingsViewModel: ObservableObject {
             applyProviderChangeSideEffects(for: currentProvider)
         }
     }
-    @Published var setupModalProvider: String?
+    @Published var backupProvider: String?
+    @Published var backupChatCLITool: CLITool?
+    @Published var setupModalProvider: String? {
+        didSet {
+            if setupModalProvider == nil {
+                pendingSetupRole = nil
+                pendingSetupDisplayProviderId = nil
+            }
+        }
+    }
 
     @Published var selectedGeminiModel: GeminiModel
     @Published var localEngine: LocalEngine {
@@ -72,6 +81,8 @@ final class ProvidersSettingsViewModel: ObservableObject {
 
     private var hasLoadedProvider = false
     private var savedGeminiModel: GeminiModel
+    private var pendingSetupRole: ProviderRoutingRole?
+    private var pendingSetupDisplayProviderId: String?
 
     init() {
         let preference = GeminiModelPreference.load()
@@ -101,6 +112,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
 
     func handleOnAppear() {
         loadCurrentProvider()
+        loadBackupProvider()
         reloadLocalProviderSettings()
         LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
         refreshUpgradeBannerState()
@@ -128,6 +140,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
 
     func applyProviderChangeSideEffects(for provider: String) {
         reloadLocalProviderSettings()
+        ensureBackupProviderIsValid(primaryProvider: provider)
         if provider == "gemini" {
             loadGeminiPromptOverridesIfNeeded(force: true)
         } else if provider == "ollama" {
@@ -217,20 +230,246 @@ final class ProvidersSettingsViewModel: ObservableObject {
         hasLoadedProvider = true
     }
 
-    func switchToProvider(_ providerId: String) {
-        if providerId == "dayflow" { return }
-
-        let isEditingCurrent = providerId == currentProvider
-        if isEditingCurrent {
-            AnalyticsService.shared.capture("provider_edit_initiated", ["provider": providerId])
-        } else {
-            AnalyticsService.shared.capture("provider_switch_initiated", ["from": currentProvider, "to": providerId])
+    func loadBackupProvider() {
+        let stored = LLMProviderRoutingPreferences.loadBackupProvider()
+        guard let stored else {
+            backupProvider = nil
+            backupChatCLITool = nil
+            return
         }
 
-        setupModalProvider = providerId
+        let raw = stored.rawValue
+        guard raw != currentProvider else {
+            backupProvider = nil
+            backupChatCLITool = nil
+            LLMProviderRoutingPreferences.saveBackupProvider(nil)
+            LLMProviderRoutingPreferences.saveBackupChatCLITool(nil)
+            return
+        }
+
+        // Dayflow backend is not available in settings right now.
+        guard stored != .dayflow else {
+            backupProvider = nil
+            backupChatCLITool = nil
+            LLMProviderRoutingPreferences.saveBackupProvider(nil)
+            LLMProviderRoutingPreferences.saveBackupChatCLITool(nil)
+            return
+        }
+
+        backupProvider = raw
+        if stored == .chatGPTClaude {
+            let backupTool = LLMProviderRoutingPreferences.loadBackupChatCLITool()
+            backupChatCLITool = backupTool.flatMap { CLITool(rawValue: $0.rawValue) } ?? preferredCLITool
+        } else {
+            backupChatCLITool = nil
+            LLMProviderRoutingPreferences.saveBackupChatCLITool(nil)
+        }
     }
 
-    func completeProviderSwitch(_ providerId: String) {
+    var routingProviders: [CompactProviderInfo] {
+        providerCatalog
+    }
+
+    func beginProviderSetup(_ providerId: String, role: ProviderRoutingRole) {
+        guard providerCatalog.contains(where: { $0.id == providerId }) else { return }
+        pendingSetupRole = role
+        pendingSetupDisplayProviderId = providerId
+        setupModalProvider = canonicalProviderId(for: providerId)
+    }
+
+    func editProviderConfiguration(_ providerId: String) {
+        guard providerCatalog.contains(where: { $0.id == providerId }) else { return }
+        pendingSetupRole = .setupOnly
+        pendingSetupDisplayProviderId = providerId
+        setupModalProvider = canonicalProviderId(for: providerId)
+    }
+
+    func handleProviderSetupCompletion(_ providerId: String) {
+        recordProviderSetupCompleted(providerId)
+
+        let role = pendingSetupRole ?? .setupOnly
+        let displayProviderId = pendingSetupDisplayProviderId ?? displayProviderId(
+            canonicalProviderId: providerId,
+            preferredTool: preferredCLITool
+        )
+        pendingSetupRole = nil
+        pendingSetupDisplayProviderId = nil
+
+        switch role {
+        case .primary:
+            assignPrimaryProvider(displayProviderId)
+        case .secondary:
+            assignSecondaryProvider(displayProviderId)
+        case .setupOnly:
+            break
+        }
+    }
+
+    func setPrimaryOrSetup(_ providerId: String) {
+        if isProviderConfigured(providerId) {
+            assignPrimaryProvider(providerId)
+        } else {
+            beginProviderSetup(providerId, role: .primary)
+        }
+    }
+
+    func setSecondaryOrSetup(_ providerId: String) {
+        if isProviderConfigured(providerId) {
+            assignSecondaryProvider(providerId)
+        } else {
+            beginProviderSetup(providerId, role: .secondary)
+        }
+    }
+
+    var primaryRoutingProviderId: String {
+        displayProviderId(canonicalProviderId: currentProvider, preferredTool: preferredCLITool)
+    }
+
+    var secondaryRoutingProviderId: String? {
+        guard let backupProvider else { return nil }
+        return displayProviderId(
+            canonicalProviderId: backupProvider,
+            preferredTool: backupChatCLITool ?? preferredCLITool
+        )
+    }
+
+    func assignPrimaryProvider(_ providerId: String) {
+        guard canAssignPrimary(providerId) else { return }
+
+        let previousPrimaryDisplay = primaryRoutingProviderId
+        let shouldSwapWithSecondary = secondaryRoutingProviderId == providerId
+        let canonicalId = canonicalProviderId(for: providerId)
+        let selectedTool = chatTool(for: providerId)
+
+        applyPrimaryProvider(canonicalId, preferredChatTool: selectedTool)
+        if shouldSwapWithSecondary {
+            persistBackupSelection(displayProviderId: previousPrimaryDisplay, emitAnalytics: true)
+        }
+
+        AnalyticsService.shared.capture("provider_primary_updated", [
+            "from_provider": previousPrimaryDisplay,
+            "to_provider": providerId,
+            "underlying_provider": canonicalId,
+            "swapped_with_secondary": shouldSwapWithSecondary
+        ])
+    }
+
+    func assignSecondaryProvider(_ providerId: String) {
+        guard canAssignSecondary(providerId) else { return }
+
+        let currentPrimaryProviderId = primaryRoutingProviderId
+        if providerId == currentPrimaryProviderId {
+            guard let existingBackup = secondaryRoutingProviderId else { return }
+            let previousPrimary = currentPrimaryProviderId
+
+            applyPrimaryProvider(
+                canonicalProviderId(for: existingBackup),
+                preferredChatTool: chatTool(for: existingBackup)
+            )
+            persistBackupSelection(displayProviderId: previousPrimary, emitAnalytics: true)
+
+            AnalyticsService.shared.capture("provider_secondary_updated", [
+                "secondary_provider": previousPrimary,
+                "mode": "swap_with_primary"
+            ])
+            return
+        }
+
+        persistBackupSelection(displayProviderId: providerId, emitAnalytics: true)
+        AnalyticsService.shared.capture("provider_secondary_updated", [
+            "secondary_provider": providerId,
+            "underlying_provider": canonicalProviderId(for: providerId),
+            "mode": "set"
+        ])
+    }
+
+    func canAssignPrimary(_ providerId: String) -> Bool {
+        providerId != primaryRoutingProviderId && isProviderConfigured(providerId)
+    }
+
+    func canAssignSecondary(_ providerId: String) -> Bool {
+        guard isProviderConfigured(providerId) else { return false }
+
+        let currentPrimaryProviderId = primaryRoutingProviderId
+        if providerId == currentPrimaryProviderId {
+            return secondaryRoutingProviderId != nil
+        }
+
+        let targetCanonical = canonicalProviderId(for: providerId)
+        let primaryCanonical = canonicalProviderId(for: currentPrimaryProviderId)
+        if targetCanonical == primaryCanonical {
+            return false
+        }
+
+        return true
+    }
+
+    func isProviderConfigured(_ providerId: String) -> Bool {
+        if providerId == primaryRoutingProviderId {
+            return true
+        }
+
+        switch canonicalProviderId(for: providerId) {
+        case "gemini":
+            if let key = KeychainManager.shared.retrieve(for: "gemini") {
+                return !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            return UserDefaults.standard.bool(forKey: "geminiSetupComplete")
+        case "ollama":
+            if UserDefaults.standard.bool(forKey: "ollamaSetupComplete") {
+                return true
+            }
+            let baseURL = (UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let modelId = (UserDefaults.standard.string(forKey: "llmLocalModelId") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return !baseURL.isEmpty && !modelId.isEmpty
+        case "chatgpt_claude":
+            if UserDefaults.standard.bool(forKey: "chatgpt_claudeSetupComplete") {
+                return true
+            }
+            let preferredTool = (UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return !preferredTool.isEmpty
+        default:
+            return false
+        }
+    }
+
+    func setBackupProvider(_ providerId: String?) {
+        guard let providerId, !providerId.isEmpty else {
+            persistBackupSelection(displayProviderId: nil, emitAnalytics: true)
+            return
+        }
+
+        guard canAssignSecondary(providerId) else {
+            return
+        }
+
+        persistBackupSelection(displayProviderId: providerId, emitAnalytics: true)
+    }
+
+    func clearBackupProvider() {
+        setBackupProvider(nil)
+    }
+
+    func isBackupProvider(_ providerId: String) -> Bool {
+        secondaryRoutingProviderId == providerId
+    }
+
+    var backupProviderDisplayName: String {
+        guard let backupProvider = secondaryRoutingProviderId else { return "Not configured" }
+        return providerDisplayName(backupProvider)
+    }
+
+    private func ensureBackupProviderIsValid(primaryProvider: String) {
+        guard let backupProvider else { return }
+        if backupProvider == primaryProvider {
+            persistBackupSelection(displayProviderId: nil, emitAnalytics: false)
+        }
+    }
+
+    private func applyPrimaryProvider(_ providerId: String, preferredChatTool: CLITool? = nil) {
         let providerType: LLMProviderType
         switch providerId {
         case "ollama":
@@ -255,12 +494,58 @@ final class ProvidersSettingsViewModel: ObservableObject {
             currentProvider = providerId
         }
 
+        if providerId == "chatgpt_claude", let preferredChatTool {
+            preferredCLITool = preferredChatTool
+            UserDefaults.standard.set(preferredChatTool.rawValue, forKey: "chatCLIPreferredTool")
+        }
+
         if providerId == "gemini" {
             let preference = GeminiModelPreference.load()
             selectedGeminiModel = preference.primary
             savedGeminiModel = preference.primary
         }
 
+        AnalyticsService.shared.setPersonProperties(["current_llm_provider": providerId])
+    }
+
+    private func persistBackupSelection(displayProviderId: String?, emitAnalytics: Bool) {
+        guard let displayProviderId, !displayProviderId.isEmpty else {
+            backupProvider = nil
+            backupChatCLITool = nil
+            LLMProviderRoutingPreferences.saveBackupProvider(nil)
+            LLMProviderRoutingPreferences.saveBackupChatCLITool(nil)
+            if emitAnalytics {
+                AnalyticsService.shared.capture("provider_backup_updated", [
+                    "backup_provider": "none",
+                    "primary_provider": currentProvider
+                ])
+            }
+            return
+        }
+
+        let providerId = canonicalProviderId(for: displayProviderId)
+        guard providerId != currentProvider,
+              let provider = LLMProviderID(rawValue: providerId),
+              provider != .dayflow else {
+            return
+        }
+
+        let backupTool = chatTool(for: displayProviderId) ?? preferredCLITool
+        backupProvider = providerId
+        backupChatCLITool = backupTool
+        LLMProviderRoutingPreferences.saveBackupProvider(provider)
+        let routingTool = backupTool.flatMap { ChatCLITool(rawValue: $0.rawValue) }
+        LLMProviderRoutingPreferences.saveBackupChatCLITool(routingTool)
+        if emitAnalytics {
+            AnalyticsService.shared.capture("provider_backup_updated", [
+                "backup_provider": displayProviderId,
+                "underlying_provider": providerId,
+                "primary_provider": currentProvider
+            ])
+        }
+    }
+
+    private func recordProviderSetupCompleted(_ providerId: String) {
         var props: [String: Any] = ["provider": providerId]
         if providerId == "ollama" {
             let localEngineValue = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
@@ -271,9 +556,10 @@ final class ProvidersSettingsViewModel: ObservableObject {
             props["model_id"] = localModelValue
             props["base_url"] = localBaseValue
             props["has_api_key"] = !localAPIKeyValue.isEmpty
+        } else if providerId == "chatgpt_claude" {
+            props["chat_cli_tool"] = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "unknown"
         }
         AnalyticsService.shared.capture("provider_setup_completed", props)
-        AnalyticsService.shared.setPersonProperties(["current_llm_provider": providerId])
     }
 
     func persistGeminiModelSelection(_ model: GeminiModel, source: String) {
@@ -289,11 +575,11 @@ final class ProvidersSettingsViewModel: ObservableObject {
         }
     }
 
-    var availableProviders: [CompactProviderInfo] {
+    private var providerCatalog: [CompactProviderInfo] {
         [
             CompactProviderInfo(
                 id: "ollama",
-                title: "Use local AI",
+                title: "Local",
                 summary: "Private & offline • 16GB+ RAM • less intelligent",
                 badgeText: "MOST PRIVATE",
                 badgeType: .green,
@@ -308,20 +594,29 @@ final class ProvidersSettingsViewModel: ObservableObject {
                 icon: "gemini_asset"
             ),
             CompactProviderInfo(
-                id: "chatgpt_claude",
-                title: "Use ChatGPT or Claude",
-                summary: "Free if you're already on a paid plan • hooks into their CLI tools",
+                id: "chatgpt",
+                title: "ChatGPT",
+                summary: "Uses Codex CLI through your existing ChatGPT plan",
                 badgeText: "NEW",
                 badgeType: .blue,
-                icon: "chatgpt_claude_asset"
+                icon: "ChatGPTLogo"
+            ),
+            CompactProviderInfo(
+                id: "claude",
+                title: "Claude",
+                summary: "Uses Claude Code through your existing Claude plan",
+                badgeText: "NEW",
+                badgeType: .blue,
+                icon: "ClaudeLogo"
             )
-        ].filter { $0.id != currentProvider }
+        ]
     }
 
     func statusText(for providerId: String) -> String? {
-        guard currentProvider == providerId else { return nil }
+        let canonicalId = canonicalProviderId(for: providerId)
+        guard currentProvider == canonicalId else { return nil }
 
-        switch providerId {
+        switch canonicalId {
         case "ollama":
             let engineName: String
             switch localEngine {
@@ -335,6 +630,12 @@ final class ProvidersSettingsViewModel: ObservableObject {
         case "gemini":
             return selectedGeminiModel.displayName
         case "chatgpt_claude":
+            if providerId == "chatgpt" {
+                return "ChatGPT – Codex CLI"
+            }
+            if providerId == "claude" {
+                return "Claude Code CLI"
+            }
             return chatCLIStatusLabel()
         default:
             return nil
@@ -371,11 +672,46 @@ final class ProvidersSettingsViewModel: ObservableObject {
 
     func providerDisplayName(_ id: String) -> String {
         switch id {
-        case "ollama": return "Use local AI"
+        case "ollama": return "Local"
         case "gemini": return "Gemini"
-        case "chatgpt_claude": return "ChatGPT or Claude"
+        case "chatgpt": return "ChatGPT"
+        case "claude": return "Claude"
+        case "chatgpt_claude":
+            if let preferredCLITool {
+                return preferredCLITool == .codex ? "ChatGPT" : "Claude"
+            }
+            return "ChatGPT or Claude"
         case "dayflow": return "Dayflow Pro"
         default: return id.capitalized
+        }
+    }
+
+    private func canonicalProviderId(for displayProviderId: String) -> String {
+        switch displayProviderId {
+        case "chatgpt", "claude", "chatgpt_claude":
+            return "chatgpt_claude"
+        default:
+            return displayProviderId
+        }
+    }
+
+    private func displayProviderId(canonicalProviderId: String, preferredTool: CLITool?) -> String {
+        if canonicalProviderId == "chatgpt_claude" {
+            return preferredTool == .claude ? "claude" : "chatgpt"
+        }
+        return canonicalProviderId
+    }
+
+    private func chatTool(for providerId: String) -> CLITool? {
+        switch providerId {
+        case "chatgpt":
+            return .codex
+        case "claude":
+            return .claude
+        case "chatgpt_claude":
+            return preferredCLITool
+        default:
+            return nil
         }
     }
 
@@ -546,4 +882,21 @@ struct CompactProviderInfo: Identifiable {
     let badgeText: String
     let badgeType: BadgeType
     let icon: String
+
+    var providerTableName: String {
+        switch id {
+        case "ollama": return "Local"
+        case "gemini": return "Gemini"
+        case "chatgpt": return "ChatGPT"
+        case "claude": return "Claude"
+        case "chatgpt_claude": return "ChatGPT / Claude"
+        default: return title
+        }
+    }
+}
+
+enum ProviderRoutingRole {
+    case primary
+    case secondary
+    case setupOnly
 }
