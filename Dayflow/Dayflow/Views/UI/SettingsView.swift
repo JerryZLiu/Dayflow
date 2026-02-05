@@ -63,7 +63,7 @@ struct SettingsView: View {
                     providerType: wrapper.id,
                     onBack: { providersViewModel.setupModalProvider = nil },
                     onComplete: {
-                        providersViewModel.completeProviderSwitch(wrapper.id)
+                        providersViewModel.handleProviderSetupCompletion(wrapper.id)
                         providersViewModel.setupModalProvider = nil
                     }
                 )
@@ -100,6 +100,13 @@ struct SettingsView: View {
                     storageViewModel.refreshStorageIfNeeded(isStorageTab: true)
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .openProvidersSettings)) { _ in
+                guard selectedTab != .providers else { return }
+                tabTransitionDirection = .trailing
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+                    selectedTab = .providers
+                }
+            }
     }
 
     private var mainContent: some View {
@@ -110,6 +117,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     tabContent
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 24)
                 .padding(.trailing, 16)
                 .padding(.bottom, 24)

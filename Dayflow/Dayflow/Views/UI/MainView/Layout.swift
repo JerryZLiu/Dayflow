@@ -12,6 +12,18 @@ extension MainView {
             .ignoresSafeArea()
             // Hero animation overlay for video expansion (Emil Kowalski: shared element transitions)
             .overlay { overlayContent }
+            .overlay(alignment: .bottomTrailing) {
+                if let payload = timelineFailureToastPayload {
+                    TimelineFailureToastView(
+                        message: payload.message,
+                        onOpenSettings: { handleTimelineFailureToastOpenSettings(payload) },
+                        onDismiss: { handleTimelineFailureToastDismiss(payload) }
+                    )
+                    .padding(.trailing, 24)
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
             .sheet(isPresented: $showDatePicker) {
                 DatePickerSheet(
                     selectedDate: Binding(
@@ -123,6 +135,15 @@ extension MainView {
                     selectedIcon = .journal
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .showTimelineFailureToast)) { notification in
+                guard let userInfo = notification.userInfo,
+                      let payload = TimelineFailureToastPayload(userInfo: userInfo) else {
+                    return
+                }
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+                    timelineFailureToastPayload = payload
+                }
+            }
             .onChange(of: selectedDate) { _, newDate in
                 // If changed via picker, emit navigation now
                 if let method = lastDateNavMethod, method == "picker" {
@@ -175,6 +196,24 @@ extension MainView {
             }
             .overlay { categoryEditorOverlay }
             .environmentObject(retryCoordinator)
+    }
+
+    private func handleTimelineFailureToastOpenSettings(_ payload: TimelineFailureToastPayload) {
+        AnalyticsService.shared.capture("llm_timeline_failure_toast_clicked_settings", payload.analyticsProps)
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+            selectedIcon = .settings
+            timelineFailureToastPayload = nil
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NotificationCenter.default.post(name: .openProvidersSettings, object: nil)
+        }
+    }
+
+    private func handleTimelineFailureToastDismiss(_ payload: TimelineFailureToastPayload) {
+        AnalyticsService.shared.capture("llm_timeline_failure_toast_dismissed", payload.analyticsProps)
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.92)) {
+            timelineFailureToastPayload = nil
+        }
     }
 
     private var contentStack: some View {
@@ -652,5 +691,64 @@ private struct ShrinkButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
             .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
             .opacity(1)
+    }
+}
+
+private struct TimelineFailureToastView: View {
+    let message: String
+    let onOpenSettings: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(Color(hex: "C04A00"))
+                    .padding(.top, 2)
+
+                Text(message)
+                    .font(.custom("Nunito", size: 13))
+                    .foregroundColor(.black.opacity(0.82))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.black.opacity(0.45))
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.plain)
+            }
+
+            DayflowSurfaceButton(
+                action: onOpenSettings,
+                content: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 12))
+                        Text("Open Provider Settings")
+                            .font(.custom("Nunito", size: 12))
+                            .fontWeight(.semibold)
+                    }
+                },
+                background: Color(red: 0.25, green: 0.17, blue: 0),
+                foreground: .white,
+                borderColor: .clear,
+                cornerRadius: 8,
+                horizontalPadding: 14,
+                verticalPadding: 8,
+                showOverlayStroke: true
+            )
+        }
+        .padding(14)
+        .frame(width: 360, alignment: .leading)
+        .background(Color(hex: "FFF8F2"))
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(hex: "F3D9C2"), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 6)
     }
 }
