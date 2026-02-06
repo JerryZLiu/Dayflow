@@ -88,7 +88,7 @@ final class OllamaProvider {
             summary: titleSummary.summary,
             detailedSummary: "",
             distractions: nil,
-            appSites: nil
+            appSites: titleSummary.appSites
         )
         
         var allCards = context.existingCards
@@ -425,12 +425,26 @@ final class OllamaProvider {
         let title: String
         let summary: String
         let category: String
+        let appSites: AppSites?
     }
 
     private struct SummaryResponse: Codable {
         let reasoning: String
         let summary: String
         let category: String
+        let appSites: AppSitesResponse?
+
+        struct AppSitesResponse: Codable {
+            let primary: String?
+            let secondary: String?
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case reasoning
+            case summary
+            case category
+            case appSites = "app_sites"
+        }
     }
 
     private struct TitleResponse: Codable {
@@ -441,7 +455,6 @@ final class OllamaProvider {
     private struct MergeDecision: Codable {
         let reason: String
         let combine: Bool
-        let confidence: Double
     }
 
     private func normalizeCategory(_ raw: String, categories: [LLMCategoryDescriptor]) -> String {
@@ -458,6 +471,41 @@ final class OllamaProvider {
             }
         }
         return categories.first?.name ?? cleaned
+    }
+
+    private func normalizeTitleText(_ response: String) -> String {
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+
+        let firstLine = trimmed.split(whereSeparator: \.isNewline).first.map(String.init) ?? trimmed
+        var result = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if result.hasPrefix("\""), result.hasSuffix("\""), result.count >= 2 {
+            result = String(result.dropFirst().dropLast())
+        }
+
+        let lowercased = result.lowercased()
+        if lowercased.hasPrefix("title:") {
+            let dropped = String(result.dropFirst("title:".count))
+            result = dropped.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return result
+    }
+
+    private func buildAppSites(from response: SummaryResponse.AppSitesResponse?) -> AppSites? {
+        guard let response else { return nil }
+        let primary = response.primary?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let secondary = response.secondary?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let cleanedPrimary = primary?.isEmpty == false ? primary : nil
+        let cleanedSecondary = secondary?.isEmpty == false ? secondary : nil
+
+        if cleanedPrimary == nil && cleanedSecondary == nil {
+            return nil
+        }
+
+        return AppSites(primary: cleanedPrimary, secondary: cleanedSecondary)
     }
 
 
@@ -486,6 +534,9 @@ final class OllamaProvider {
 
         let promptSections = OllamaPromptSections(overrides: OllamaPromptPreferences.load())
 
+        let languageBlock = LLMOutputLanguagePreferences.languageInstruction(forJSON: true)
+            .map { "\n\n\($0)" } ?? ""
+
         let basePrompt = """
         You are analyzing someone's computer activity from the last 15 minutes.
 
@@ -500,6 +551,15 @@ final class OllamaProvider {
         Choose exactly one:
         \(categoriesSection)
 
+        APP SITES (Website Logos)
+        Identify the main app or website used for this period. Output the canonical DOMAIN, not the app name.
+        - primary: canonical domain of the main app/website used.
+        - secondary: another meaningful app used, if relevant.
+        - Format: lower-case, no protocol, no query or fragments.
+        - Use product subdomains/paths when canonical (e.g., docs.google.com).
+        - If you cannot determine a secondary, omit it.
+        - Do not invent brands; rely on evidence from observations.
+
           REASONING:
           Explain your thinking process:
           1. What were the main activities and how much time was spent on each?
@@ -507,11 +567,14 @@ final class OllamaProvider {
           3. Which category best fits based on the MAJORITY of time and focus?
           4. How did you structure the summary to capture the most important activities?
 
+        \(languageBlock)
+
         Return JSON:
         {
           "reasoning": "Your step-by-step thinking process",
           "summary": "Your 2-3 sentence summary",
-          "category": "\(allowedValues)"
+          "category": "\(allowedValues)",
+          "app_sites": {"primary": "domain.com", "secondary": "domain.com"}
         }
         """
 
@@ -542,7 +605,7 @@ final class OllamaProvider {
 
 
                 PREVIOUS ATTEMPT FAILED — The response was invalid (error: \(error.localizedDescription)).
-                Respond with ONLY the JSON object described above. Ensure it contains "reasoning", "summary", and "category" fields.
+                Respond with ONLY the JSON object described above. Ensure it contains "reasoning", "summary", "category", and "app_sites" fields.
                 """
             }
         }
@@ -551,25 +614,22 @@ final class OllamaProvider {
     }
 
 
-    private func generateTitle(summary: String, batchId: Int64?) async throws -> (TitleResponse, String) {
+    private func generateTitle(observations: [Observation], batchId: Int64?) async throws -> (TitleResponse, String) {
         let promptSections = OllamaPromptSections(overrides: OllamaPromptPreferences.load())
+        let languageBlock = LLMOutputLanguagePreferences.languageInstruction(forJSON: false)
+            .map { "\n\n\($0)" } ?? ""
+        let observationsText = observations
+            .map { $0.observation.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { "- \($0)" }
+            .joined(separator: "\n")
 
         let basePrompt = """
-        Create a casual, conversational title for this activity summary.
-
-        INPUT SUMMARY:
-        "\(summary)"
-
         \(promptSections.title)
+        \(languageBlock)
 
-        Return JSON:
-        {
-          "reasoning": "Explain how you chose the title",
-          "title": "5-8 word conversational title highlighting one standout activity (optionally plus one other dominant action) using only summary facts"
-        }
-
-        Avoid comma-separated lists or multiple conjunctions; only mention a second activity if it clearly shares the spotlight without turning into a checklist.
-        Always describe what happened (e.g., "Reviewed GitHub PRs") instead of just naming apps or panes.
+        OBSERVATIONS:
+        \(observationsText)
         """
 
         let maxAttempts = 3
@@ -578,14 +638,13 @@ final class OllamaProvider {
 
         for attempt in 1...maxAttempts {
             do {
-                let response = try await callTextAPI(prompt, operation: "generate_title", expectJSON: true, batchId: batchId)
-
-                guard let data = response.data(using: .utf8) else {
-                    throw NSError(domain: "OllamaProvider", code: 12, userInfo: [NSLocalizedDescriptionKey: "Failed to parse title response"])
+                let response = try await callTextAPI(prompt, operation: "generate_title", expectJSON: false, batchId: batchId)
+                let title = normalizeTitleText(response)
+                guard !title.isEmpty else {
+                    throw NSError(domain: "OllamaProvider", code: 12, userInfo: [NSLocalizedDescriptionKey: "Empty title response"])
                 }
 
-                let result = try parseJSONResponse(TitleResponse.self, from: data)
-
+                let result = TitleResponse(reasoning: "Generated from observations.", title: title)
                 return (result, response)
             } catch {
                 lastError = error
@@ -599,7 +658,7 @@ final class OllamaProvider {
 
 
                 PREVIOUS ATTEMPT FAILED — The response was invalid (error: \(error.localizedDescription)).
-                Respond with ONLY the JSON object described above. Ensure the title uses 5-8 words drawn from the summary details.
+                Respond with ONLY the title text on a single line. Do not include JSON or quotes.
                 """
             }
         }
@@ -615,15 +674,18 @@ final class OllamaProvider {
             batchId: batchId
         )
 
-        // Step 2: Generate title from summary
-        let (titleResult, titleLog) = try await generateTitle(summary: summaryResult.summary, batchId: batchId)
+        // Step 2: Generate title from observations
+        let (titleResult, titleLog) = try await generateTitle(observations: observations, batchId: batchId)
+
+        let appSites = buildAppSites(from: summaryResult.appSites)
 
         // Combine into the expected response format
         let combinedResult = TitleSummaryResponse(
             reasoning: "Summary: \(summaryResult.reasoning) | Title: \(titleResult.reasoning)",
             title: titleResult.title,
             summary: summaryResult.summary,
-            category: summaryResult.category
+            category: summaryResult.category,
+            appSites: appSites
         )
 
         // Combine logs
@@ -635,7 +697,7 @@ final class OllamaProvider {
 
     private func checkShouldMerge(previousCard: ActivityCardData, newCard: ActivityCardData, batchId: Int64?) async throws -> (Bool, String) {
         let basePrompt = """
-        Look at these two consecutive activity periods and decide if they should be combined into one card.
+        Decide if two consecutive activity cards should be merged.
 
         Previous activity (\(previousCard.startTime) - \(previousCard.endTime)):
         Title: \(previousCard.title)
@@ -645,55 +707,42 @@ final class OllamaProvider {
         Title: \(newCard.title)
         Summary: \(newCard.summary)
 
-        MERGE DECISION RULE:
-        The Golden Rule: When merged, they should tell one coherent story, not two different ones
+        Merge ONLY if they clearly describe the same ongoing task or intent.
+        - Tool/app switches are allowed if they support the same goal (e.g., doc writing + research).
+        - Do NOT merge if there’s a context switch to a different intent (social feed, chat, video, gaming, email, shopping, unrelated reading).
+        - If unsure, do NOT merge.
 
-        MERGE ONLY IF:
-        ✓ Same project or closely related task
-        ✓ Not a context switch
-        ✓ You're 80%+ confident they're the same activity
+        Return JSON only:
+        {"combine": true/false, "reason": "1 short sentence explaining the decision"}
 
-        GOOD MERGING EXAMPLES:
-        ✓ MERGE: "Debugging auth flow in VS Code" + "Testing auth endpoints in Postman"
-          (Same exact auth bug work continuing, confidence: 0.95)
-        ✓ MERGE: "Writing Q3 report in Docs" + "Adding charts to Q3 report"
-          (Same document, natural progression, confidence: 0.92)
-        ✓ MERGE: "Refactoring UserProfile component" + "Testing UserProfile after refactor"
-          (Same component, testing what was just built, confidence: 0.91)
+        EXAMPLES (5):
 
-        BAD MERGING EXAMPLES:
-        ✗ DON'T MERGE: "Debugging Dayflow timeline cards" + "Checking Twitter & Reddit"
-          (Work interrupted by social media = context switch, confidence: 0.4)
-        ✗ DON'T MERGE: "Fixed CORS bug in API" + "Started implementing user dashboard"
-          (Different features, even same project, confidence: 0.6)
-        ✗ DON'T MERGE: "Writing docs for API" + "Debugging API endpoints"
-          (Documentation vs. coding = different mental modes, confidence: 0.7)
-        ✗ DON'T MERGE: "Reviewing PR comments" + "Working on new feature"
-          (Review work vs. creation work, confidence: 0.5)
-        ✗ DON'T MERGE: "Python data analysis" + "Answering Slack messages"
-          (Deep work vs. communication, confidence: 0.3)
-        ✗ DON'T MERGE: "Researching React patterns" + "Implementing React component"
-          (Research/learning vs. actual coding, confidence: 0.8)
-        ✗ DON'T MERGE: "Email, Twitter, general browsing" + "More email and browsing"
-          (Too vague - what emails? what browsing?, confidence: 0.4)
+        1) MERGE
+        Prev: "Drafted onboarding doc in Google Docs. Looked up API details in the Stripe docs."
+        New:  "Continued the onboarding doc, then cross-checked examples in Stripe docs."
+        → {"combine": true, "reason": "Same intent: onboarding doc + supporting research."}
 
-        CONFIDENCE SCORING:
-        - 0.9-1.0: Same exact activity continuing (merge)
-        - 0.7-0.9: Related but slightly different (probably don't merge)
-        - 0.5-0.7: Somewhat related (don't merge)
-        - 0.0-0.5: Different activities (definitely don't merge)
+        2) MERGE
+        Prev: "Analyzed retention curves in Claude. Adjusted questions for clarity."
+        New:  "Kept refining retention metrics in Claude and Notion."
+        → {"combine": true, "reason": "Same intent: retention analysis across tools."}
 
-        Remember: You need 0.8+ confidence to merge!
+        3) MERGE
+        Prev: "Fixed React auth bug in VS Code. Ran local tests."
+        New:  "Validated the auth fix in Postman and added notes to the PR."
+        → {"combine": true, "reason": "Same task: auth fix and verification."}
 
-        Return JSON:
-        {
-          "reason": "Brief explanation of your decision",
-          "combine": true or false,
-          "confidence": 0.0 to 1.0
-        }
+        4) DON'T MERGE
+        Prev: "Reviewed VC blog post on trohan.com."
+        New:  "Watched League of Legends stream and chatted on Messenger."
+        → {"combine": false, "reason": "Different intent: research vs entertainment/chat."}
+
+        5) DON'T MERGE
+        Prev: "Drafted email reply about product launch."
+        New:  "Scrolled X.com and watched a YouTube clip."
+        → {"combine": false, "reason": "Context switch to social/video."}
         """
 
-        let confidenceThreshold = 0.8
         let maxAttempts = 3
         var prompt = basePrompt
         var lastError: Error?
@@ -708,7 +757,7 @@ final class OllamaProvider {
 
                 let decision = try parseJSONResponse(MergeDecision.self, from: data)
 
-                let shouldMerge = decision.combine && decision.confidence >= confidenceThreshold
+                let shouldMerge = decision.combine
 
                 return (shouldMerge, response)
             } catch {
@@ -723,7 +772,7 @@ final class OllamaProvider {
 
 
                 PREVIOUS ATTEMPT FAILED — The response was invalid (error: \(error.localizedDescription)).
-                Return ONLY the JSON object described above with "reason", "combine", and "confidence" fields.
+                Return ONLY the JSON object described above with "reason" and "combine" fields.
                 """
             }
         }
@@ -745,10 +794,22 @@ final class OllamaProvider {
         Summary: \(newCard.summary)
 
         Create a unified title and summary that covers the entire period from \(previousCard.startTime) to \(newCard.endTime).
-        Title: 5-8 words, conversational, spotlight the main through-line. You may mention one other equally dominant action, but connect it with a quick “while” or em dash—never comma lists or “and” chains. Cite only the most important apps/sites rather than every noun.
+        Title rules (use ONLY the titles and summaries above):
+        - 5-10 words, natural and specific, single line
+        - Choose the dominant activity (most time), not necessarily the first
+        - Ignore brief interruptions (<3 minutes) mentioned in the summaries
+        - Include a second activity only if both take ~5+ minutes
+        - If 3+ unrelated activities appear, output exactly: "Scattered apps and sites"
+        - Prefer proper nouns/topics (Bookface, Claude, League of Legends, Paul Graham, etc.)
+        - Never use: worked on, looked at, handled, various, some, multiple, browsing, browse, multitasking, tabs, brief, quick, short
+        - Do NOT use the word "browsing"; use "scrolling" or "reading" instead
+        - Avoid long lists; no more than one conjunction
+        - In the JSON below, the "title" field must contain only the title text (no extra labels or quotes)
         Summary: Two sentences max, first-person perspective without using the word I. Retell how the work flowed from the first card into the second with concrete verbs (debugged, reviewed, watched) and name the stand-out tools/topics once each. Skip laundry lists, filler like “various tasks,” and bullet points.
         Avoid the words social, media, platform, platforms, interaction, interactions, various, engaged, blend, activity, activities.
         Do not refer to the user; write from the user’s perspective.
+
+        \(LLMOutputLanguagePreferences.languageInstruction(forJSON: true) ?? "")
 
           GOOD EXAMPLES:
           Card 1: Customer interviews wrap-up + Card 2: Insights deck synthesis
@@ -806,7 +867,7 @@ final class OllamaProvider {
                     summary: merged.summary,
                     detailedSummary: previousCard.detailedSummary,
                     distractions: previousCard.distractions,
-                    appSites: previousCard.appSites
+                    appSites: previousCard.appSites ?? newCard.appSites
                 )
 
                 return (mergedCard, response)
@@ -1315,9 +1376,7 @@ extension OllamaProvider {
 
     /// Load a screenshot file and convert it to FrameData for description
     private func loadScreenshotAsFrameData(_ screenshot: Screenshot, relativeTo baseTimestamp: Int) -> FrameData? {
-        let url = URL(fileURLWithPath: screenshot.filePath)
-
-        guard let imageData = try? Data(contentsOf: url) else {
+        guard let imageData = loadScreenshotDataForOllama(screenshot) else {
             return nil
         }
 
@@ -1326,5 +1385,61 @@ extension OllamaProvider {
         let relativeTimestamp = TimeInterval(screenshot.capturedAt - baseTimestamp)
 
         return FrameData(image: base64Data, timestamp: relativeTimestamp)
+    }
+
+    private func loadScreenshotDataForOllama(_ screenshot: Screenshot, maxHeight: Double = 720, jpegQuality: CGFloat = 0.85) -> Data? {
+        let url = URL(fileURLWithPath: screenshot.filePath)
+
+        guard let image = NSImage(contentsOf: url) else {
+            return try? Data(contentsOf: url)
+        }
+
+        let rep = image.representations.compactMap { $0 as? NSBitmapImageRep }.first ?? image.representations.first
+        let pixelsWide = rep?.pixelsWide ?? Int(image.size.width)
+        let pixelsHigh = rep?.pixelsHigh ?? Int(image.size.height)
+
+        if pixelsHigh <= Int(maxHeight) {
+            return try? Data(contentsOf: url)
+        }
+
+        let scale = maxHeight / Double(pixelsHigh)
+        let targetW = max(2, Int((Double(pixelsWide) * scale).rounded(.toNearestOrAwayFromZero)))
+        let targetH = Int(maxHeight)
+
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: targetW,
+            pixelsHigh: targetH,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .calibratedRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return nil
+        }
+
+        bitmap.size = NSSize(width: targetW, height: targetH)
+        NSGraphicsContext.saveGraphicsState()
+        guard let ctx = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            NSGraphicsContext.restoreGraphicsState()
+            return nil
+        }
+        NSGraphicsContext.current = ctx
+        image.draw(
+            in: NSRect(x: 0, y: 0, width: CGFloat(targetW), height: CGFloat(targetH)),
+            from: NSRect(origin: .zero, size: image.size),
+            operation: .copy,
+            fraction: 1.0,
+            respectFlipped: true,
+            hints: [.interpolation: NSImageInterpolation.high]
+        )
+        ctx.flushGraphics()
+        NSGraphicsContext.restoreGraphicsState()
+
+        let props: [NSBitmapImageRep.PropertyKey: Any] = [.compressionFactor: jpegQuality]
+        return bitmap.representation(using: NSBitmapImageRep.FileType.jpeg, properties: props)
     }
 }
