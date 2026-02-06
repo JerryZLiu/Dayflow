@@ -557,6 +557,9 @@ final class GeminiDirectProvider {
         let existingCardsString = String(data: existingCardsJSON, encoding: .utf8) ?? "[]"
         let promptSections = GeminiPromptSections(overrides: GeminiPromptPreferences.load())
 
+        let languageBlock = LLMOutputLanguagePreferences.languageInstruction(forJSON: true)
+            .map { "\n\n\($0)" } ?? ""
+
         let basePrompt = """
         You are a digital anthropologist, observing a user's raw activity log. Your goal is to synthesize this log into a high-level, human-readable story of their session, presented as a series of timeline cards.
         THE GOLDEN RULE:
@@ -577,6 +580,8 @@ final class GeminiDirectProvider {
         \(categoriesSection(from: context.categories))
 
         \(promptSections.detailedSummary)
+
+        \(languageBlock)
 
         APP SITES (Website Logos)
         Identify the main app or website used for each card and include an appSites object.

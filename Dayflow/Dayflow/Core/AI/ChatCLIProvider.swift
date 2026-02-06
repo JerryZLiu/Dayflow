@@ -321,6 +321,9 @@ final class ChatCLIProvider {
         // Build prompt with explicit concatenation to avoid GRDB SQL interpolation pollution
         let categoriesSectionText = categoriesSection(from: context.categories)
 
+        let languageBlock = LLMOutputLanguagePreferences.languageInstruction(forJSON: true)
+            .map { "\n\n\($0)" } ?? ""
+
         return """
         You are synthesizing a user's activity log into timeline cards. Each card represents one main thing they did.
 
@@ -346,6 +349,7 @@ final class ChatCLIProvider {
 
         """ + promptSections.detailedSummary + """
 
+        """ + languageBlock + """
 
         DISTRACTIONS
 
