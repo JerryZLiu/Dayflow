@@ -24,6 +24,14 @@ final class OtherSettingsViewModel: ObservableObject {
             NSApp.setActivationPolicy(showDockIcon ? .regular : .accessory)
         }
     }
+    @Published var showTimelineAppIcons: Bool {
+        didSet {
+            guard showTimelineAppIcons != oldValue else { return }
+            UserDefaults.standard.set(showTimelineAppIcons, forKey: "showTimelineAppIcons")
+        }
+    }
+    @Published var outputLanguageOverride: String
+    @Published var isOutputLanguageOverrideSaved: Bool = true
 
     @Published var exportStartDate: Date
     @Published var exportEndDate: Date
@@ -41,9 +49,30 @@ final class OtherSettingsViewModel: ObservableObject {
         analyticsEnabled = AnalyticsService.shared.isOptedIn
         showJournalDebugPanel = UserDefaults.standard.object(forKey: "showJournalDebugPanel") as? Bool ?? false
         showDockIcon = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
+        showTimelineAppIcons = UserDefaults.standard.object(forKey: "showTimelineAppIcons") as? Bool ?? true
+        outputLanguageOverride = LLMOutputLanguagePreferences.override
         exportStartDate = timelineDisplayDate(from: Date())
         exportEndDate = timelineDisplayDate(from: Date())
         reprocessDayDate = timelineDisplayDate(from: Date())
+    }
+
+    func markOutputLanguageOverrideEdited() {
+        let trimmed = outputLanguageOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+        let savedValue = LLMOutputLanguagePreferences.override
+        isOutputLanguageOverrideSaved = trimmed == savedValue
+    }
+
+    func saveOutputLanguageOverride() {
+        let trimmed = outputLanguageOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+        outputLanguageOverride = trimmed
+        LLMOutputLanguagePreferences.override = trimmed
+        isOutputLanguageOverrideSaved = true
+    }
+
+    func resetOutputLanguageOverride() {
+        outputLanguageOverride = ""
+        LLMOutputLanguagePreferences.override = ""
+        isOutputLanguageOverrideSaved = true
     }
 
     func refreshAnalyticsState() {

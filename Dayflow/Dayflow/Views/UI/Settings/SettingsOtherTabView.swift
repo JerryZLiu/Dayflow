@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsOtherTabView: View {
     @ObservedObject var viewModel: OtherSettingsViewModel
     @ObservedObject var launchAtLoginManager: LaunchAtLoginManager
+    @FocusState private var isOutputLanguageFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
@@ -48,6 +49,77 @@ struct SettingsOtherTabView: View {
                     Text("When off, Dayflow runs as a menu bar–only app.")
                         .font(.custom("Nunito", size: 11.5))
                         .foregroundColor(.black.opacity(0.5))
+
+                    Toggle(isOn: $viewModel.showTimelineAppIcons) {
+                        Text("Show app/website icons in timeline")
+                            .font(.custom("Nunito", size: 13))
+                            .foregroundColor(.black.opacity(0.7))
+                    }
+                    .toggleStyle(.switch)
+
+                    Text("When off, timeline cards won't show app or website icons.")
+                        .font(.custom("Nunito", size: 11.5))
+                        .foregroundColor(.black.opacity(0.5))
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Output language override")
+                            .font(.custom("Nunito", size: 13))
+                            .foregroundColor(.black.opacity(0.7))
+                        HStack(spacing: 10) {
+                            TextField("English", text: $viewModel.outputLanguageOverride)
+                                .textFieldStyle(.roundedBorder)
+                                .disableAutocorrection(true)
+                                .frame(maxWidth: 220)
+                                .focused($isOutputLanguageFocused)
+                                .onChange(of: viewModel.outputLanguageOverride) {
+                                    viewModel.markOutputLanguageOverrideEdited()
+                                }
+                            DayflowSurfaceButton(
+                                action: {
+                                    viewModel.saveOutputLanguageOverride()
+                                    isOutputLanguageFocused = false
+                                },
+                                content: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: viewModel.isOutputLanguageOverrideSaved ? "checkmark" : "square.and.arrow.down")
+                                            .font(.system(size: 12, weight: .semibold))
+                                        Text(viewModel.isOutputLanguageOverrideSaved ? "Saved" : "Save")
+                                            .font(.custom("Nunito", size: 12))
+                                    }
+                                    .padding(.horizontal, 2)
+                                },
+                                background: Color.white,
+                                foreground: Color(red: 0.25, green: 0.17, blue: 0),
+                                borderColor: Color(hex: "FFE0A5"),
+                                cornerRadius: 8,
+                                horizontalPadding: 12,
+                                verticalPadding: 7,
+                                showOverlayStroke: true
+                            )
+                            .disabled(viewModel.isOutputLanguageOverrideSaved)
+                            DayflowSurfaceButton(
+                                action: {
+                                    viewModel.resetOutputLanguageOverride()
+                                    isOutputLanguageFocused = false
+                                },
+                                content: {
+                                    Text("Reset")
+                                        .font(.custom("Nunito", size: 11))
+                                },
+                                background: Color.white,
+                                foreground: Color(red: 0.25, green: 0.17, blue: 0),
+                                borderColor: Color(hex: "FFE0A5"),
+                                cornerRadius: 8,
+                                horizontalPadding: 10,
+                                verticalPadding: 6,
+                                showOverlayStroke: true
+                            )
+                        }
+                        Text("The default language is English. You can specify any language here (examples: English, 简体中文, Español, 日本語, 한국어, Français).")
+                            .font(.custom("Nunito", size: 11.5))
+                            .foregroundColor(.black.opacity(0.5))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
 
                     Text("Dayflow v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")")
                         .font(.custom("Nunito", size: 12))
