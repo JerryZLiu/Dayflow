@@ -244,7 +244,7 @@ struct WhatsNewView: View {
                 .foregroundColor(.black.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
 
-            TextField("Optional feedback", text: $timelineQualityFeedback)
+            TextField("Would be really helpful if you could elaborate, especially if you think the quality isn't great - feel free to write about other stuff as well.", text: $timelineQualityFeedback)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .font(.custom("Nunito", size: 13))
                 .padding(.horizontal, 4)
@@ -360,7 +360,7 @@ private enum TimelineQualityOption: String, CaseIterable {
         case .solid: return "It's pretty solid, very useful"
         case .mixed: return "It's usable, but still inconsistent"
         case .inaccurate: return "It's often inaccurate and needs corrections"
-        case .poor: return "It's poor right now"
+        case .poor: return "Poor, consistently hallucinates."
         }
     }
 
