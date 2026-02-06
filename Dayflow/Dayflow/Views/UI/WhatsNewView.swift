@@ -28,17 +28,17 @@ enum WhatsNewConfiguration {
     private static let seenKey = "lastSeenWhatsNewVersion"
 
     /// Override with the specific release number you want to show.
-    private static let versionOverride: String? = "1.6.0"
+    private static let versionOverride: String? = "1.7.0"
 
     /// Update this content before shipping each release. Return nil to disable the modal entirely.
     static var configuredRelease: ReleaseNote? {
         ReleaseNote(
             version: targetVersion,
-            title: "Dashboard Beta + Quality improvements",
+            title: "Set a backup provider · Improved quality for local LLMs · New language toggle",
             highlights: [
-                "Better card quality for Gemini, Claude, and ChatGPT users. Please reach out with any feedback!",
-                "Dashboard (beta): a new place to ask questions about your Dayflow data and generate charts/graphs of your time - limited to ChatGPT and Claude for now.",
-                "Gemini rate limits: automatic Gemma backup so you stay unblocked."
+                "You can improve reliability of timeline generation by setting a backup provider in Settings.",
+                "Set your preferred language output in Settings with the new language toggle.",
+                "Local LLM quality is better: titles and grouping are more accurate with optimized prompts. Local mode now also pulls app/site icons, and you can turn icons off in Settings for additional privacy."
             ],
             imageName: nil
         )
@@ -98,9 +98,9 @@ struct WhatsNewView: View {
     let releaseNote: ReleaseNote
     let onDismiss: () -> Void
 
-    @AppStorage("whatsNewSurveyFriendVersion") private var submittedFriendVersion: String = ""
-    @State private var disappointmentSelection: DisappointmentOption? = nil
-    @State private var friendDescription: String = ""
+    @AppStorage("whatsNewTimelineQualitySubmittedVersion") private var submittedTimelineQualityVersion: String = ""
+    @State private var timelineQualitySelection: TimelineQualityOption? = nil
+    @State private var timelineQualityFeedback: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -160,15 +160,18 @@ struct WhatsNewView: View {
         )
         .onAppear {
             AnalyticsService.shared.screen("whats_new")
-            if disappointmentSelection == nil {
-                disappointmentSelection = storedDisappointmentSelection
+            if timelineQualitySelection == nil {
+                timelineQualitySelection = storedTimelineQualitySelection
             }
         }
+        .environment(\.colorScheme, .light)
+        .preferredColorScheme(.light)
     }
 
     private func dismiss() {
         AnalyticsService.shared.capture("whats_new_dismissed", [
-            "version": releaseNote.version
+            "version": releaseNote.version,
+            "provider_label": currentProviderLabel
         ])
 
         onDismiss()
@@ -176,29 +179,32 @@ struct WhatsNewView: View {
 
     private var surveySection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("If Dayflow has been helpful, could you answer two quick questions?")
-                .font(.custom("Nunito", size: 13))
-                .foregroundColor(.black.opacity(0.6))
-                .fixedSize(horizontal: false, vertical: true)
-            disappointmentQuestion
-            friendDescriptionQuestion
+            timelineQualityQuestion
+            timelineQualityFeedbackQuestion
         }
         .padding(.top, 10)
     }
 
-    private var disappointmentQuestion: some View {
+    private var timelineQualityQuestion: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("How would you feel if you could no longer use Dayflow?")
+            Text("How would you grade the quality of your timeline cards?")
                 .font(.custom("Nunito", size: 15))
                 .fontWeight(.semibold)
                 .foregroundColor(.black.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
 
-            VStack(spacing: 10) {
-                ForEach(DisappointmentOption.allCases, id: \.self) { option in
-                    Button(action: { selectDisappointment(option) }) {
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(minimum: 0, maximum: .infinity), spacing: 12),
+                    GridItem(.flexible(minimum: 0, maximum: .infinity), spacing: 12)
+                ],
+                alignment: .leading,
+                spacing: 10
+            ) {
+                ForEach(TimelineQualityOption.allCases, id: \.self) { option in
+                    Button(action: { selectTimelineQuality(option) }) {
                         HStack(spacing: 10) {
-                            Image(systemName: disappointmentSelection == option ? "largecircle.fill.circle" : "circle")
+                            Image(systemName: timelineQualitySelection == option ? "largecircle.fill.circle" : "circle")
                                 .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
 
                             Text(option.title)
@@ -211,18 +217,18 @@ struct WhatsNewView: View {
                         .padding(.horizontal, 12)
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(disappointmentSelection == option ? Color(red: 1.0, green: 0.95, blue: 0.9) : Color.white)
+                                .fill(timelineQualitySelection == option ? Color(red: 1.0, green: 0.95, blue: 0.9) : Color.white)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(Color(red: 0.25, green: 0.17, blue: 0).opacity(disappointmentSelection == option ? 0.22 : 0.1), lineWidth: 1)
+                                .stroke(Color(red: 0.25, green: 0.17, blue: 0).opacity(timelineQualitySelection == option ? 0.22 : 0.1), lineWidth: 1)
                         )
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
             }
 
-            if disappointmentSelection != nil {
+            if timelineQualitySelection != nil {
                 Label("Thanks for sharing!", systemImage: "checkmark.circle.fill")
                     .font(.custom("Nunito", size: 14))
                     .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
@@ -230,15 +236,15 @@ struct WhatsNewView: View {
         }
     }
 
-    private var friendDescriptionQuestion: some View {
+    private var timelineQualityFeedbackQuestion: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("How would you describe Dayflow to a friend?")
+            Text("What do you like most, or what should we improve?")
                 .font(.custom("Nunito", size: 15))
                 .fontWeight(.semibold)
                 .foregroundColor(.black.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
 
-            TextField("Type your response here", text: $friendDescription)
+            TextField("Optional feedback", text: $timelineQualityFeedback)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .font(.custom("Nunito", size: 13))
                 .padding(.horizontal, 4)
@@ -246,14 +252,14 @@ struct WhatsNewView: View {
             HStack {
                 Spacer()
                 DayflowSurfaceButton(
-                    action: submitFriendDescription,
+                    action: submitTimelineQualitySurvey,
                     content: {
                         Text("Submit")
                             .font(.custom("Nunito", size: 15))
                             .fontWeight(.semibold)
                     },
-                    background: canSubmitFriendDescription ? Color(red: 0.25, green: 0.17, blue: 0) : Color.black.opacity(0.08),
-                    foreground: .white.opacity(canSubmitFriendDescription ? 1 : 0.7),
+                    background: canSubmitTimelineQualitySurvey ? Color(red: 0.25, green: 0.17, blue: 0) : Color.black.opacity(0.08),
+                    foreground: .white.opacity(canSubmitTimelineQualitySurvey ? 1 : 0.7),
                     borderColor: .clear,
                     cornerRadius: 8,
                     horizontalPadding: 34,
@@ -261,11 +267,11 @@ struct WhatsNewView: View {
                     minWidth: 160,
                     showOverlayStroke: true
                 )
-                .disabled(!canSubmitFriendDescription)
-                .opacity(canSubmitFriendDescription ? 1 : 0.8)
+                .disabled(!canSubmitTimelineQualitySurvey)
+                .opacity(canSubmitTimelineQualitySurvey ? 1 : 0.8)
             }
 
-            if hasSubmittedFriend {
+            if hasSubmittedTimelineQualitySurvey {
                 Label("Thanks for sharing!", systemImage: "checkmark.circle.fill")
                     .font(.custom("Nunito", size: 14))
                     .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
@@ -273,63 +279,88 @@ struct WhatsNewView: View {
         }
     }
 
-    private var hasSubmittedFriend: Bool {
-        submittedFriendVersion == releaseNote.version
+    private var hasSubmittedTimelineQualitySurvey: Bool {
+        submittedTimelineQualityVersion == releaseNote.version
     }
 
-    private var canSubmitFriendDescription: Bool {
-        !hasSubmittedFriend && !friendDescriptionTrimmed.isEmpty
+    private var canSubmitTimelineQualitySurvey: Bool {
+        !hasSubmittedTimelineQualitySurvey && timelineQualitySelection != nil
     }
 
-    private var friendDescriptionTrimmed: String {
-        friendDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var timelineQualityFeedbackTrimmed: String {
+        timelineQualityFeedback.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func selectDisappointment(_ option: DisappointmentOption) {
-        let previousSelection = storedDisappointmentSelection
-        disappointmentSelection = option
-        UserDefaults.standard.set(option.rawValue, forKey: disappointmentStorageKey)
+    private func selectTimelineQuality(_ option: TimelineQualityOption) {
+        let previousSelection = storedTimelineQualitySelection
+        timelineQualitySelection = option
+        UserDefaults.standard.set(option.rawValue, forKey: timelineQualityStorageKey)
         guard previousSelection != option else { return }
 
-        AnalyticsService.shared.capture("whats_new_survey_disappointment_selected", [
+        AnalyticsService.shared.capture("whats_new_survey_timeline_quality_selected", [
             "version": releaseNote.version,
-            "option": option.analyticsValue
+            "option": option.analyticsValue,
+            "provider_label": currentProviderLabel
         ])
     }
 
-    private func submitFriendDescription() {
-        let trimmed = friendDescriptionTrimmed
-        guard !trimmed.isEmpty, !hasSubmittedFriend else { return }
+    private func submitTimelineQualitySurvey() {
+        guard let selection = timelineQualitySelection, !hasSubmittedTimelineQualitySurvey else { return }
+        let trimmed = timelineQualityFeedbackTrimmed
         let response = String(trimmed.prefix(280))
 
-        AnalyticsService.shared.capture("whats_new_survey_friend_desc_submitted", [
+        AnalyticsService.shared.capture("whats_new_survey_timeline_quality_submitted", [
             "version": releaseNote.version,
-            "response": response
+            "rating": selection.analyticsValue,
+            "feedback": response,
+            "provider_label": currentProviderLabel
         ])
 
-        submittedFriendVersion = releaseNote.version
+        submittedTimelineQualityVersion = releaseNote.version
     }
 
-    private var disappointmentStorageKey: String {
-        "whatsNewSurveyDisappointmentSelection_\(releaseNote.version)"
+    private var timelineQualityStorageKey: String {
+        "whatsNewTimelineQualitySelection_\(releaseNote.version)"
     }
 
-    private var storedDisappointmentSelection: DisappointmentOption? {
-        guard let storedValue = UserDefaults.standard.string(forKey: disappointmentStorageKey) else { return nil }
-        return DisappointmentOption(rawValue: storedValue)
+    private var storedTimelineQualitySelection: TimelineQualityOption? {
+        guard let storedValue = UserDefaults.standard.string(forKey: timelineQualityStorageKey) else { return nil }
+        return TimelineQualityOption(rawValue: storedValue)
+    }
+
+    private var currentProviderLabel: String {
+        let providerID = LLMProviderID.from(currentProviderType)
+        return providerID.providerLabel(chatTool: providerID == .chatGPTClaude ? preferredChatCLITool : nil)
+    }
+
+    private var currentProviderType: LLMProviderType {
+        guard let data = UserDefaults.standard.data(forKey: "llmProviderType"),
+              let providerType = try? JSONDecoder().decode(LLMProviderType.self, from: data) else {
+            return .geminiDirect
+        }
+        return providerType
+    }
+
+    private var preferredChatCLITool: ChatCLITool {
+        let preferredTool = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "codex"
+        return preferredTool == "claude" ? .claude : .codex
     }
 }
 
-private enum DisappointmentOption: String, CaseIterable {
-    case veryDisappointed = "very_disappointed"
-    case somewhatDisappointed = "somewhat_disappointed"
-    case notDisappointed = "not_disappointed"
+private enum TimelineQualityOption: String, CaseIterable {
+    case extraordinary = "extraordinary"
+    case solid = "solid"
+    case mixed = "mixed"
+    case inaccurate = "inaccurate"
+    case poor = "poor"
 
     var title: String {
         switch self {
-        case .veryDisappointed: return "Very disappointed"
-        case .somewhatDisappointed: return "Somewhat disappointed"
-        case .notDisappointed: return "Not disappointed"
+        case .extraordinary: return "It's extraordinarily accurate, feels like magic"
+        case .solid: return "It's pretty solid, very useful"
+        case .mixed: return "It's usable, but still inconsistent"
+        case .inaccurate: return "It's often inaccurate and needs corrections"
+        case .poor: return "It's poor right now"
         }
     }
 
