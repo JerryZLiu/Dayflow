@@ -2070,7 +2070,14 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                 screenshots: sortedScreenshots,
                 outputURL: tempVideoURL,
                 fps: 1,
-                useCompressedTimeline: true  // Each frame = 1 second
+                useCompressedTimeline: true,  // Each frame = 1 second
+                options: .init(
+                    maxOutputHeight: 720,
+                    frameStride: 1,
+                    averageBitRate: 1_200_000,
+                    codec: .h264,
+                    keyframeIntervalSeconds: 10
+                )
             )
         } catch {
             print("[Gemini] ❌ Failed to composite screenshots into video: \(error.localizedDescription)")

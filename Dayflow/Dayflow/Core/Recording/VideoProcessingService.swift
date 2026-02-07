@@ -1,8 +1,7 @@
 @preconcurrency import AVFoundation
 import Foundation
 import CoreGraphics
-
-import AppKit
+import ImageIO
 
 enum VideoProcessingError: Error {
     case invalidInputURL
@@ -26,8 +25,37 @@ enum VideoProcessingError: Error {
 }
 
 actor VideoProcessingService {
+    enum VideoCodec: String, Sendable {
+        case h264
+        case hevc
+
+        var avCodecType: AVVideoCodecType {
+            switch self {
+            case .h264: return .h264
+            case .hevc: return .hevc
+            }
+        }
+    }
+
+    struct VideoEncodingOptions: Sendable {
+        var maxOutputHeight: Int?
+        var frameStride: Int
+        var averageBitRate: Int
+        var codec: VideoCodec
+        var keyframeIntervalSeconds: Int
+
+        static let `default` = VideoEncodingOptions(
+            maxOutputHeight: nil,
+            frameStride: 1,
+            averageBitRate: 2_000_000,
+            codec: .h264,
+            keyframeIntervalSeconds: 10
+        )
+    }
+
     private let fileManager = FileManager.default
     private let persistentTimelapsesRootURL: URL
+    private let colorSpace = CGColorSpaceCreateDeviceRGB()
 
     init() {
         // Create a persistent directory for timelapses within Application Support
@@ -87,7 +115,8 @@ actor VideoProcessingService {
         screenshots: [Screenshot],
         outputURL: URL,
         fps: Int = 1,
-        useCompressedTimeline: Bool = true
+        useCompressedTimeline: Bool = true,
+        options: VideoEncodingOptions = .default
     ) async throws {
         guard !screenshots.isEmpty else {
             throw VideoProcessingError.noInputFiles
@@ -95,38 +124,18 @@ actor VideoProcessingService {
 
         let overallStart = Date()
         let scanStart = Date()
-
-        // 1. Find the widest screenshot to use as canvas dimensions
-        //    This ensures all aspect ratios are preserved via letterboxing/pillarboxing
-        var canvasWidth = 0
-        var canvasHeight = 0
-
-        for screenshot in screenshots {
-            guard let imageData = try? Data(contentsOf: screenshot.fileURL),
-                  let nsImage = NSImage(data: imageData),
-                  let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-                continue
-            }
-
-            if cgImage.width > canvasWidth {
-                canvasWidth = cgImage.width
-                canvasHeight = cgImage.height
-            }
+        let frameStride = max(1, options.frameStride)
+        let selectedScreenshots = sampleScreenshots(screenshots, stride: frameStride)
+        guard !selectedScreenshots.isEmpty else {
+            throw VideoProcessingError.noInputFiles
         }
 
-        // Fallback to first image if scanning failed
-        guard canvasWidth > 0 && canvasHeight > 0 else {
+        guard let firstFrameSize = firstValidImageSize(in: selectedScreenshots) else {
             throw VideoProcessingError.invalidImageData
         }
-
+        let (width, height) = resolvedCanvasSize(sourceWidth: firstFrameSize.width, sourceHeight: firstFrameSize.height, maxOutputHeight: options.maxOutputHeight)
+        let decodeMaxPixel = max(width, height)
         let scanDuration = Date().timeIntervalSince(scanStart)
-
-        // Ensure even dimensions for H.264 codec
-        canvasWidth = makeEven(canvasWidth)
-        canvasHeight = makeEven(canvasHeight)
-
-        let width = canvasWidth
-        let height = canvasHeight
 
         // Ensure output directory exists
         let outputDir = outputURL.deletingLastPathComponent()
@@ -142,15 +151,20 @@ actor VideoProcessingService {
             throw VideoProcessingError.assetWriterCreationFailed(nil)
         }
 
+        let safeFPS = max(1, fps)
+        var compressionProperties: [String: Any] = [
+            AVVideoAverageBitRateKey: max(100_000, options.averageBitRate),
+            AVVideoMaxKeyFrameIntervalKey: safeFPS * max(1, options.keyframeIntervalSeconds)
+        ]
+        if options.codec == .h264 {
+            compressionProperties[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel
+        }
+
         let videoSettings: [String: Any] = [
-            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoCodecKey: options.codec.avCodecType,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: 2_000_000,  // 2 Mbps
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
-                AVVideoMaxKeyFrameIntervalKey: fps * 10  // Keyframe every 10 seconds
-            ]
+            AVVideoCompressionPropertiesKey: compressionProperties
         ]
 
         let writerInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
@@ -179,20 +193,18 @@ actor VideoProcessingService {
         let encodeStart = Date()
         var frameIndex = 0
         var skippedFrames = 0
-        let baseTimestamp = screenshots.first!.capturedAt
+        let baseTimestamp = selectedScreenshots.first!.capturedAt
+        let pixelBufferPool = adaptor.pixelBufferPool
 
-        for screenshot in screenshots {
-            // Load image
-            guard let imageData = try? Data(contentsOf: screenshot.fileURL),
-                  let nsImage = NSImage(data: imageData),
-                  let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        for screenshot in selectedScreenshots {
+            guard let cgImage = loadCGImage(from: screenshot.fileURL, maxPixelSize: decodeMaxPixel) else {
                 print("⚠️ Skipping invalid image: \(screenshot.fileURL.lastPathComponent)")
                 skippedFrames += 1
                 continue
             }
 
             // Create pixel buffer with aspect-fit compositing (letterbox/pillarbox as needed)
-            guard let pixelBuffer = createPixelBuffer(from: cgImage, canvasWidth: width, canvasHeight: height) else {
+            guard let pixelBuffer = createPixelBuffer(from: cgImage, canvasWidth: width, canvasHeight: height, pixelBufferPool: pixelBufferPool) else {
                 print("⚠️ Failed to create pixel buffer for: \(screenshot.fileURL.lastPathComponent)")
                 skippedFrames += 1
                 continue
@@ -203,7 +215,7 @@ actor VideoProcessingService {
             if useCompressedTimeline {
                 // Compressed: each frame is 1/fps seconds apart
                 // e.g., fps=2 means each frame is 0.5s apart (2 frames per second)
-                let frameTime = Double(frameIndex) / Double(fps)
+                let frameTime = Double(frameIndex) / Double(safeFPS)
                 presentationTime = CMTime(seconds: frameTime, preferredTimescale: 600)
             } else {
                 // Real timeline: use actual capture timestamps
@@ -240,18 +252,22 @@ actor VideoProcessingService {
             throw VideoProcessingError.exportFailed(writer.error)
         }
 
-        let videoDuration = useCompressedTimeline ? frameIndex : (screenshots.last!.capturedAt - baseTimestamp)
+        let videoDuration = useCompressedTimeline ? Double(frameIndex) / Double(safeFPS) : Double(selectedScreenshots.last!.capturedAt - baseTimestamp)
         print("✅ Generated \(useCompressedTimeline ? "compressed" : "realtime") video from \(frameIndex) screenshots (\(videoDuration)s): \(outputURL.lastPathComponent)")
 
         let totalDuration = Date().timeIntervalSince(overallStart)
         let timingSummary = String(
-            format: "TIMING timelapse frames=%d/%d skipped=%d size=%dx%d fps=%d scan=%.2fs encode=%.2fs finalize=%.2fs total=%.2fs output=%@",
+            format: "TIMING timelapse frames=%d/%d sampled=%d stride=%d skipped=%d size=%dx%d fps=%d bitrate=%d codec=%@ scan=%.2fs encode=%.2fs finalize=%.2fs total=%.2fs output=%@",
             frameIndex,
             screenshots.count,
+            selectedScreenshots.count,
+            frameStride,
             skippedFrames,
             width,
             height,
-            fps,
+            safeFPS,
+            max(100_000, options.averageBitRate),
+            options.codec.rawValue,
             scanDuration,
             encodeDuration,
             finalizeDuration,
@@ -294,6 +310,82 @@ actor VideoProcessingService {
         try await generateVideoFromScreenshots(screenshots: screenshots, outputURL: outputURL, fps: fps)
     }
 
+    private func sampleScreenshots(_ screenshots: [Screenshot], stride: Int) -> [Screenshot] {
+        let safeStride = max(1, stride)
+        guard safeStride > 1 else { return screenshots }
+
+        var sampled: [Screenshot] = []
+        sampled.reserveCapacity(max(1, screenshots.count / safeStride))
+        var index = 0
+        while index < screenshots.count {
+            sampled.append(screenshots[index])
+            index += safeStride
+        }
+        return sampled
+    }
+
+    private func firstValidImageSize(in screenshots: [Screenshot]) -> (width: Int, height: Int)? {
+        for screenshot in screenshots {
+            if let size = imageSize(at: screenshot.fileURL) {
+                return size
+            }
+        }
+        return nil
+    }
+
+    private func imageSize(at url: URL) -> (width: Int, height: Int)? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int,
+              width > 0,
+              height > 0 else {
+            return nil
+        }
+        return (width, height)
+    }
+
+    private func resolvedCanvasSize(sourceWidth: Int, sourceHeight: Int, maxOutputHeight: Int?) -> (Int, Int) {
+        let safeSourceWidth = max(2, sourceWidth)
+        let safeSourceHeight = max(2, sourceHeight)
+
+        guard let maxOutputHeight, maxOutputHeight > 0 else {
+            return (makeEven(safeSourceWidth), makeEven(safeSourceHeight))
+        }
+
+        if safeSourceHeight <= maxOutputHeight {
+            return (makeEven(safeSourceWidth), makeEven(safeSourceHeight))
+        }
+
+        let scale = Double(maxOutputHeight) / Double(safeSourceHeight)
+        let scaledWidth = Int((Double(safeSourceWidth) * scale).rounded())
+        return (makeEven(max(2, scaledWidth)), makeEven(maxOutputHeight))
+    }
+
+    private func loadCGImage(from url: URL, maxPixelSize: Int) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+            return nil
+        }
+
+        // Prefer full decode and downscale during draw. In practice this can be
+        // faster than ImageIO thumbnail generation for high frame-count batches.
+        let fullDecodeOptions: [CFString: Any] = [
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceShouldCache: true
+        ]
+        if let fullImage = CGImageSourceCreateImageAtIndex(source, 0, fullDecodeOptions as CFDictionary) {
+            return fullImage
+        }
+
+        let safeMaxPixelSize = max(64, maxPixelSize)
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: safeMaxPixelSize
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
     private func parseTimestampFromFilename(_ filename: String) -> Int? {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd_HHmmssSSS"
@@ -305,22 +397,26 @@ actor VideoProcessingService {
 
     /// Creates a pixel buffer with the image composited onto a canvas using aspect-fit.
     /// The image is centered and letterboxed/pillarboxed with black if aspect ratios differ.
-    private func createPixelBuffer(from cgImage: CGImage, canvasWidth: Int, canvasHeight: Int) -> CVPixelBuffer? {
+    private func createPixelBuffer(from cgImage: CGImage, canvasWidth: Int, canvasHeight: Int, pixelBufferPool: CVPixelBufferPool?) -> CVPixelBuffer? {
         var pixelBuffer: CVPixelBuffer?
 
-        let attrs: [String: Any] = [
-            kCVPixelBufferCGImageCompatibilityKey as String: true,
-            kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
-        ]
-
-        let status = CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            canvasWidth,
-            canvasHeight,
-            kCVPixelFormatType_32ARGB,
-            attrs as CFDictionary,
-            &pixelBuffer
-        )
+        let status: CVReturn
+        if let pixelBufferPool {
+            status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pixelBufferPool, &pixelBuffer)
+        } else {
+            let attrs: [String: Any] = [
+                kCVPixelBufferCGImageCompatibilityKey as String: true,
+                kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
+            ]
+            status = CVPixelBufferCreate(
+                kCFAllocatorDefault,
+                canvasWidth,
+                canvasHeight,
+                kCVPixelFormatType_32ARGB,
+                attrs as CFDictionary,
+                &pixelBuffer
+            )
+        }
 
         guard status == kCVReturnSuccess, let buffer = pixelBuffer else {
             return nil
@@ -335,7 +431,7 @@ actor VideoProcessingService {
             height: canvasHeight,
             bitsPerComponent: 8,
             bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
-            space: CGColorSpaceCreateDeviceRGB(),
+            space: colorSpace,
             bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
         ) else {
             return nil
