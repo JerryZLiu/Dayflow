@@ -678,6 +678,9 @@ private struct MessageBubble: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(Color(hex: "E8E8E8"), lineWidth: 1)
             )
+            .environment(\.openURL, OpenURLAction { url in
+                handleAssistantLinkTap(url)
+            })
             Spacer(minLength: 60)
         }
     }
@@ -708,6 +711,49 @@ private struct MessageBubble: View {
             .foregroundColor(Color(hex: "333333"))
             .textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func handleAssistantLinkTap(_ url: URL) -> OpenURLAction.Result {
+        guard let externalURL = normalizedExternalURL(from: url) else {
+            print("[ChatView] Blocked unsupported URL: \(url.absoluteString)")
+            return .discarded
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.open(externalURL, configuration: configuration) { _, error in
+            if let error {
+                print("[ChatView] Failed opening URL \(externalURL.absoluteString): \(error.localizedDescription)")
+            }
+        }
+        return .handled
+    }
+
+    private func normalizedExternalURL(from rawURL: URL) -> URL? {
+        if let scheme = rawURL.scheme?.lowercased() {
+            switch scheme {
+            case "http", "https", "mailto":
+                return rawURL
+            default:
+                return nil
+            }
+        }
+
+        let trimmed = rawURL.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let prefixed = trimmed.hasPrefix("//")
+            ? "https:\(trimmed)"
+            : "https://\(trimmed)"
+
+        guard let normalized = URL(string: prefixed),
+              let scheme = normalized.scheme?.lowercased(),
+              (scheme == "http" || scheme == "https"),
+              let host = normalized.host,
+              !host.isEmpty else {
+            return nil
+        }
+
+        return normalized
     }
 }
 
