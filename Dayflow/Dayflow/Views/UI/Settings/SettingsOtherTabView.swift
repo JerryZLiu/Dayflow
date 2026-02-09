@@ -4,6 +4,9 @@ struct SettingsOtherTabView: View {
     @ObservedObject var viewModel: OtherSettingsViewModel
     @ObservedObject var launchAtLoginManager: LaunchAtLoginManager
     @FocusState private var isOutputLanguageFocused: Bool
+    @State private var isExportStartDatePickerPresented = false
+    @State private var isExportEndDatePickerPresented = false
+    @State private var isReprocessDatePickerPresented = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
@@ -138,19 +141,33 @@ struct SettingsOtherTabView: View {
             let rangeInvalid = timelineDisplayDate(from: viewModel.exportStartDate) > timelineDisplayDate(from: viewModel.exportEndDate)
 
             VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 14) {
-                    DatePicker("Start", selection: $viewModel.exportStartDate, displayedComponents: .date)
-                        .datePickerStyle(.compact)
-                        .labelsHidden()
-                        .accessibilityLabel(Text("Export start date"))
+                HStack(alignment: .bottom, spacing: 12) {
+                    datePopoverField(
+                        label: "From",
+                        date: $viewModel.exportStartDate,
+                        isPresented: $isExportStartDatePickerPresented,
+                        accessibilityLabel: "Export start date",
+                        onOpen: {
+                            isExportEndDatePickerPresented = false
+                            isReprocessDatePickerPresented = false
+                        }
+                    )
 
                     Image(systemName: "arrow.right")
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.black.opacity(0.35))
+                        .padding(.bottom, 12)
 
-                    DatePicker("End", selection: $viewModel.exportEndDate, displayedComponents: .date)
-                        .datePickerStyle(.compact)
-                        .labelsHidden()
-                        .accessibilityLabel(Text("Export end date"))
+                    datePopoverField(
+                        label: "To",
+                        date: $viewModel.exportEndDate,
+                        isPresented: $isExportEndDatePickerPresented,
+                        accessibilityLabel: "Export end date",
+                        onOpen: {
+                            isExportStartDatePickerPresented = false
+                            isReprocessDatePickerPresented = false
+                        }
+                    )
                 }
 
                 Text("Includes titles, summaries, and details for each card.")
@@ -213,13 +230,18 @@ struct SettingsOtherTabView: View {
             let dayString = DateFormatter.yyyyMMdd.string(from: normalizedDate)
 
             VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 12) {
-                    DatePicker("Day", selection: $viewModel.reprocessDayDate, displayedComponents: .date)
-                        .datePickerStyle(.compact)
-                        .labelsHidden()
-                        .accessibilityLabel(Text("Reprocess day"))
-                        .disabled(viewModel.isReprocessingDay)
-
+                VStack(alignment: .leading, spacing: 8) {
+                    datePopoverField(
+                        label: "Day",
+                        date: $viewModel.reprocessDayDate,
+                        isPresented: $isReprocessDatePickerPresented,
+                        accessibilityLabel: "Reprocess day",
+                        disabled: viewModel.isReprocessingDay,
+                        onOpen: {
+                            isExportStartDatePickerPresented = false
+                            isExportEndDatePickerPresented = false
+                        }
+                    )
                     Text(dayString)
                         .font(.custom("Nunito", size: 12))
                         .foregroundColor(.black.opacity(0.5))
@@ -281,4 +303,97 @@ struct SettingsOtherTabView: View {
             }
         }
     }
+
+    private func formattedTimelineDate(_ date: Date) -> String {
+        Self.dateLabelFormatter.string(from: timelineDisplayDate(from: date))
+    }
+
+    @ViewBuilder
+    private func datePopoverField(
+        label: String,
+        date: Binding<Date>,
+        isPresented: Binding<Bool>,
+        accessibilityLabel: String,
+        disabled: Bool = false,
+        onOpen: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(label)
+                .font(.custom("Nunito", size: 11.5))
+                .foregroundColor(.black.opacity(0.52))
+
+            Button {
+                guard !disabled else { return }
+                onOpen()
+                isPresented.wrappedValue.toggle()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0).opacity(disabled ? 0.4 : 0.75))
+
+                    Text(formattedTimelineDate(date.wrappedValue))
+                        .font(.custom("Nunito", size: 14))
+                        .foregroundColor(.black.opacity(disabled ? 0.35 : 0.82))
+
+                    Spacer(minLength: 4)
+
+                    Image(systemName: isPresented.wrappedValue ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.black.opacity(disabled ? 0.2 : 0.35))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .frame(minWidth: 176)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.white.opacity(disabled ? 0.45 : 0.88))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(
+                                    isPresented.wrappedValue
+                                        ? Color(hex: "F9C36B")
+                                        : Color(hex: "FFE0A5"),
+                                    lineWidth: 1.2
+                                )
+                        )
+                )
+                .shadow(color: .black.opacity(disabled ? 0 : 0.05), radius: 6, x: 0, y: 2)
+            }
+            .buttonStyle(.plain)
+            .disabled(disabled)
+            .accessibilityLabel(Text(accessibilityLabel))
+            .popover(isPresented: isPresented, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text(label)
+                            .font(.custom("Nunito", size: 13))
+                            .foregroundColor(.black.opacity(0.65))
+                        Spacer()
+                        Button("Done") {
+                            isPresented.wrappedValue = false
+                        }
+                        .buttonStyle(.plain)
+                        .font(.custom("Nunito", size: 12))
+                        .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
+                    }
+
+                    DatePicker("", selection: date, displayedComponents: .date)
+                        .datePickerStyle(.graphical)
+                        .labelsHidden()
+                        .onChange(of: date.wrappedValue) { _, _ in
+                            isPresented.wrappedValue = false
+                        }
+                }
+                .padding(14)
+                .frame(width: 300)
+            }
+        }
+    }
+
+    private static let dateLabelFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("MMM d, yyyy")
+        return formatter
+    }()
 }
