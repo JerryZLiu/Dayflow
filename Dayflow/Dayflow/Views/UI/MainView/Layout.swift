@@ -488,9 +488,7 @@ extension MainView {
                             if selectedActivity?.batchId == batchId {
                                 selectedActivity = nil
                             }
-                        },
-                        videoNamespace: videoHeroNamespace,
-                        videoExpansionState: videoExpansionState
+                        }
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(!feedbackModalVisible)

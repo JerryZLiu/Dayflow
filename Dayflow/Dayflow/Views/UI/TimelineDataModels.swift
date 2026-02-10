@@ -65,6 +65,26 @@ struct TimelineActivity: Identifiable {
             isBackupGenerated: isBackupGenerated
         )
     }
+
+    func withVideoSummaryURL(_ newVideoSummaryURL: String?) -> TimelineActivity {
+        TimelineActivity(
+            id: id,
+            recordId: recordId,
+            batchId: batchId,
+            startTime: startTime,
+            endTime: endTime,
+            title: title,
+            summary: summary,
+            detailedSummary: detailedSummary,
+            category: category,
+            subcategory: subcategory,
+            distractions: distractions,
+            videoSummaryURL: newVideoSummaryURL,
+            screenshot: screenshot,
+            appSites: appSites,
+            isBackupGenerated: isBackupGenerated
+        )
+    }
 }
 
 
