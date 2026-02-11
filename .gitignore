@@ -28,3 +28,28 @@ tools/
 # Eval frameworks
 claudeeval/
 codexeval/
+
+# Python artifacts
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.spec
+dist/
+dist-installer/
+
+# Windows app/runtime artifacts
+*.sqlite
+*.sqlite3
+*.db
+*.log
+*.tmp
+Thumbs.db
+
+# Local screenshots or exports generated during app runs
+screenshots/
+exports/
+
+# Local editor/IDE state
+.vscode/
+.idea/
