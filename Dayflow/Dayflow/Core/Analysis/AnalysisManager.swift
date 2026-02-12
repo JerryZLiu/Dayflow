@@ -24,12 +24,10 @@ protocol AnalysisManaging {
 
 final class AnalysisManager: AnalysisManaging {
     static let shared = AnalysisManager()
-    private let videoProcessingService: VideoProcessingService
 
     private init() {
         store = StorageManager.shared
         llmService = LLMService.shared
-        videoProcessingService = VideoProcessingService()
     }
 
     private let store: any StorageManaging
@@ -410,7 +408,6 @@ final class AnalysisManager: AnalysisManaging {
             switch result {
             case .success(let processedResult):
                 let activityCards = processedResult.cards
-                let cardIds = processedResult.cardIds
                 print("LLM succeeded for Batch \(batchId). Processing \(activityCards.count) activity cards for day \(currentLogicalDayString).")
 
                 // Finish performance transaction - LLM processing completed successfully
@@ -429,65 +426,7 @@ final class AnalysisManager: AnalysisManaging {
 
                 // Mark batch as completed immediately
                 self.updateBatchStatus(batchId: batchId, status: "completed")
-
-                let cardCount = activityCards.count
-
-                // Generate timelapses asynchronously for each timeline card off the main thread
-                Task.detached(priority: .utility) { [weak self, cardIds, cardCount, batchId] in
-                    guard let self else { return }
-
-                    for (index, cardId) in cardIds.enumerated() {
-                        if index >= cardCount { continue }
-
-                        // Fetch the saved timeline card to get Unix timestamps
-                        guard let timelineCard = self.store.fetchTimelineCard(byId: cardId) else {
-                            print("Warning: Could not fetch timeline card \(cardId)")
-                            continue
-                        }
-
-                        // Fetch screenshots for this card's time range
-                        let screenshots = self.store.fetchScreenshotsInTimeRange(
-                            startTs: timelineCard.startTs,
-                            endTs: timelineCard.endTs
-                        )
-
-                        if screenshots.isEmpty {
-                            print("No screenshots found for timeline card \(cardId) [\(timelineCard.startTimestamp) - \(timelineCard.endTimestamp)]")
-                            continue
-                        }
-
-                        do {
-                            print("Generating timelapse for card \(cardId): '\(timelineCard.title)' [\(timelineCard.startTimestamp) - \(timelineCard.endTimestamp)]")
-                            print("  Found \(screenshots.count) screenshots in time range")
-
-                            // Generate timelapse URL
-                            let timelapseURL = await self.videoProcessingService.generatePersistentTimelapseURL(
-                                for: Date(timeIntervalSince1970: TimeInterval(timelineCard.startTs)),
-                                originalFileName: String(cardId)
-                            )
-
-                            // Directly composite screenshots into timelapse at correct fps
-                            // Screenshots are 10s apart. For 20x base speed: fps = 20/10 = 2
-                            // Player can then do 1x (20x real), 2x (40x real), 3x (60x real)
-                            try await self.videoProcessingService.generateVideoFromScreenshots(
-                                screenshots: screenshots,
-                                outputURL: timelapseURL,
-                                fps: 2,
-                                useCompressedTimeline: true
-                            )
-
-                            // Update timeline card with timelapse URL
-                            let videoPath = timelapseURL.path
-                            DispatchQueue.global(qos: .utility).async { [store = self.store] in
-                                store.updateTimelineCardVideoURL(cardId: cardId, videoSummaryURL: videoPath)
-                            }
-                            print("✅ Generated timelapse for card \(cardId): \(videoPath)")
-                        } catch {
-                            print("❌ Error generating timelapse for card \(cardId): \(error)")
-                        }
-                    }
-                    print("✅ Timelapse generation complete for batch \(batchId)")
-                }
+                // Timelapses are generated on demand from the UI to avoid background battery drain.
 
                 completion?(.success(()))
 
