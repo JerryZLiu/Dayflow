@@ -38,6 +38,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ note: Notification) {
         // Block termination by default; only specific flows enable it.
         AppDelegate.allowTermination = false
+        applySavedDockIconPreference()
 
         // Configure crash reporting (Sentry)
         let info = Bundle.main.infoDictionary
@@ -217,6 +218,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func applySavedDockIconPreference() {
+        let showDockIcon = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
+        NSApp.setActivationPolicy(showDockIcon ? .regular : .accessory)
+    }
+
     // Start Gemini analysis as a background task
     private func setupGeminiAnalysis() {
         // Perform after a short delay to ensure other initialization completes
@@ -225,16 +231,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             print("AppDelegate: Gemini analysis job started")
             AnalyticsService.shared.capture("analysis_job_started", [
                 "provider": {
-                    if let data = UserDefaults.standard.data(forKey: "llmProviderType"),
-                       let providerType = try? JSONDecoder().decode(LLMProviderType.self, from: data) {
-                        switch providerType {
-                        case .geminiDirect: return "gemini"
-                        case .dayflowBackend: return "dayflow"
-                        case .ollamaLocal: return "ollama"
-                        case .chatGPTClaude: return "chat_cli"
-                        }
+                    switch LLMProviderType.load() {
+                    case .geminiDirect: return "gemini"
+                    case .dayflowBackend: return "dayflow"
+                    case .ollamaLocal: return "ollama"
+                    case .chatGPTClaude: return "chat_cli"
                     }
-                    return "unknown"
                 }()
             ])
         }
