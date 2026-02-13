@@ -17,6 +17,82 @@ enum LLMProviderType: Codable {
     case dayflowBackend(endpoint: String = "https://api.dayflow.app")
     case ollamaLocal(endpoint: String = "http://localhost:11434")
     case chatGPTClaude
+
+    private static let providerDefaultsKey = "llmProviderType"
+    private static let selectedProviderDefaultsKey = "selectedLLMProvider"
+    private static let localBaseURLDefaultsKey = "llmLocalBaseURL"
+    private static let chatCLIPreferredToolDefaultsKey = "chatCLIPreferredTool"
+
+    static func load(from defaults: UserDefaults = .standard) -> LLMProviderType {
+        if let savedData = defaults.data(forKey: providerDefaultsKey),
+           let decoded = try? JSONDecoder().decode(LLMProviderType.self, from: savedData) {
+            return decoded
+        }
+
+        guard let migrated = migrateLegacySelection(from: defaults) else {
+            return .geminiDirect
+        }
+
+        migrated.persist(to: defaults)
+        return migrated
+    }
+
+    func persist(to defaults: UserDefaults = .standard) {
+        if let encoded = try? JSONEncoder().encode(self) {
+            defaults.set(encoded, forKey: Self.providerDefaultsKey)
+        }
+        defaults.set(canonicalProviderID, forKey: Self.selectedProviderDefaultsKey)
+    }
+
+    var canonicalProviderID: String {
+        switch self {
+        case .geminiDirect:
+            return "gemini"
+        case .dayflowBackend:
+            return "dayflow"
+        case .ollamaLocal:
+            return "ollama"
+        case .chatGPTClaude:
+            return "chatgpt_claude"
+        }
+    }
+
+    private static func migrateLegacySelection(from defaults: UserDefaults) -> LLMProviderType? {
+        guard let rawSelection = defaults.string(forKey: selectedProviderDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+              !rawSelection.isEmpty else {
+            return nil
+        }
+
+        switch rawSelection {
+        case "gemini":
+            return .geminiDirect
+        case "dayflow":
+            return .dayflowBackend()
+        case "ollama":
+            let endpoint = defaults.string(forKey: localBaseURLDefaultsKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let endpoint, !endpoint.isEmpty {
+                return .ollamaLocal(endpoint: endpoint)
+            }
+            return .ollamaLocal()
+        case "chatgpt":
+            if defaults.string(forKey: chatCLIPreferredToolDefaultsKey) == nil {
+                defaults.set("codex", forKey: chatCLIPreferredToolDefaultsKey)
+            }
+            return .chatGPTClaude
+        case "claude":
+            if defaults.string(forKey: chatCLIPreferredToolDefaultsKey) == nil {
+                defaults.set("claude", forKey: chatCLIPreferredToolDefaultsKey)
+            }
+            return .chatGPTClaude
+        case "chatgpt_claude":
+            return .chatGPTClaude
+        default:
+            return nil
+        }
+    }
 }
 
 enum LLMProviderID: String, Codable, CaseIterable {
@@ -104,7 +180,6 @@ struct BatchingConfig {
     let targetDuration: TimeInterval
     let maxGap: TimeInterval
 
-    static let gemini = BatchingConfig(targetDuration: 30 * 60, maxGap: 5 * 60)   // 30 min batches, 5 min gap
     static let standard = BatchingConfig(targetDuration: 15 * 60, maxGap: 2 * 60) // 15 min batches, 2 min gap
 }
 
