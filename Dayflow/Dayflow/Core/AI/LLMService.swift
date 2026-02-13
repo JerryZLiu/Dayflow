@@ -55,16 +55,7 @@ final class LLMService: LLMServicing {
     }
 
     private var providerType: LLMProviderType {
-        guard let savedData = UserDefaults.standard.data(forKey: "llmProviderType") else {
-            return .geminiDirect
-        }
-
-        do {
-            return try JSONDecoder().decode(LLMProviderType.self, from: savedData)
-        } catch {
-            print("❌ [LLMService] Failed to decode provider type: \(error)")
-            return .geminiDirect
-        }
+        LLMProviderType.load()
     }
     
     private func makeGeminiProvider() -> GeminiDirectProvider? {
@@ -455,12 +446,7 @@ final class LLMService: LLMServicing {
     }
 
     var batchingConfig: BatchingConfig {
-        switch providerType {
-        case .geminiDirect:
-            return .gemini    // 30 min batches, 5 min gap (rate limited)
-        default:
-            return .standard  // 15 min batches, 2 min gap
-        }
+        .standard
     }
     
     // Keep the existing processBatch implementation for backward compatibility
@@ -580,13 +566,13 @@ final class LLMService: LLMServicing {
                 
                 // SLIDING WINDOW CARD GENERATION - Replace old card generation with sliding window approach
                 
-                // Calculate time window (30 minutes before current batch end time)
+                // Calculate time window using the shared batching duration.
                 let currentTime = Date(timeIntervalSince1970: TimeInterval(batchEndTs))
-                let thirtyMinutesAgo = currentTime.addingTimeInterval(-1800) // 30 minutes = 1800 seconds
+                let windowStartTime = currentTime.addingTimeInterval(-batchingConfig.targetDuration)
                 
-                // Fetch all observations from the last 30 minutes (instead of just current batch)
+                // Fetch observations from the recent batching window (instead of just current batch).
                 let recentObservations = StorageManager.shared.fetchObservationsByTimeRange(
-                    from: thirtyMinutesAgo,
+                    from: windowStartTime,
                     to: currentTime
                 )
 
@@ -596,9 +582,9 @@ final class LLMService: LLMServicing {
                     print("       observation: \(obs.observation)")
                 }
                 
-                // Fetch existing timeline cards that overlap with the last 30 minutes
+                // Fetch existing timeline cards that overlap with the recent batching window.
                 let existingTimelineCards = StorageManager.shared.fetchTimelineCardsByTimeRange(
-                    from: thirtyMinutesAgo,
+                    from: windowStartTime,
                     to: currentTime
                 )
                 
@@ -656,7 +642,7 @@ final class LLMService: LLMServicing {
                 
                 // Replace old cards with new ones in the time range
                 let (insertedCardIds, deletedVideoPaths) = StorageManager.shared.replaceTimelineCardsInRange(
-                    from: thirtyMinutesAgo,
+                    from: windowStartTime,
                     to: currentTime,
                     with: cards.map { card in
                         TimelineCardShell(
@@ -959,28 +945,7 @@ final class LLMService: LLMServicing {
     // MARK: - Rich Chat Streaming (ChatCLI only)
 
     func generateChatStreaming(prompt: String, sessionId: String? = nil) -> AsyncThrowingStream<ChatStreamEvent, Error> {
-        // For ChatCLI, use the rich streaming API with session support
-        if case .chatGPTClaude = providerType {
-            let chatCLI = makeChatCLIProvider()
-            return chatCLI.generateChatStreaming(prompt: prompt, sessionId: sessionId)
-        }
-
-        let stream = generateTextStreaming(prompt: prompt)
-        return AsyncThrowingStream { continuation in
-            Task {
-                var accumulatedText = ""
-                do {
-                    for try await chunk in stream {
-                        accumulatedText += chunk
-                        continuation.yield(.textDelta(chunk))
-                    }
-                    continuation.yield(.complete(text: accumulatedText))
-                    continuation.finish()
-                } catch {
-                    continuation.yield(.error(error.localizedDescription))
-                    continuation.finish(throwing: error)
-                }
-            }
-        }
+        let chatCLI = makeChatCLIProvider()
+        return chatCLI.generateChatStreaming(prompt: prompt, sessionId: sessionId)
     }
 }
