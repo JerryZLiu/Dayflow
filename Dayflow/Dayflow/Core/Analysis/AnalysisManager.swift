@@ -37,7 +37,7 @@ final class AnalysisManager: AnalysisManaging {
 
     private let checkInterval: TimeInterval = 60          // every minute
     private let maxLookback: TimeInterval   = 24*60*60    // only last 24h
-    // Note: targetBatchDuration and maxGap are now provider-specific via llmService.batchingConfig
+    // Note: target batch duration and max gap are controlled via llmService.batchingConfig.
 
     private var analysisTimer: Timer?
     private var isProcessing = false
