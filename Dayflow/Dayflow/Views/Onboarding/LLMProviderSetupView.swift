@@ -754,16 +754,12 @@ struct LLMProviderSetupView: View {
     private func persistLocalSettings() {
         let endpoint = setupState.localBaseURL
         let type = LLMProviderType.ollamaLocal(endpoint: endpoint)
-        if let encoded = try? JSONEncoder().encode(type) {
-            UserDefaults.standard.set(encoded, forKey: "llmProviderType")
-        }
+        type.persist()
         // Store model id for local engines
         UserDefaults.standard.set(setupState.localModelId, forKey: "llmLocalModelId")
         LocalModelPreferences.syncPreset(for: setupState.localEngine, modelId: setupState.localModelId)
         // Store local engine selection for header/model defaults
         UserDefaults.standard.set(setupState.localEngine.rawValue, forKey: "llmLocalEngine")
-        // Store selected provider key for robustness across relaunches
-        UserDefaults.standard.set("ollama", forKey: "selectedLLMProvider")
         // Also store the endpoint explicitly for other parts of the app if needed
         UserDefaults.standard.set(endpoint, forKey: "llmLocalBaseURL")
         persistLocalAPIKey(setupState.localAPIKey)
