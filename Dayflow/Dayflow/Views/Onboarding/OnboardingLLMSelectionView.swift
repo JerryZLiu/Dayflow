@@ -277,10 +277,7 @@ struct OnboardingLLMSelectionView: View {
             providerType = .geminiDirect
         }
         
-        UserDefaults.standard.set(selectedProvider, forKey: "selectedLLMProvider")
-        if let encoded = try? JSONEncoder().encode(providerType) {
-            UserDefaults.standard.set(encoded, forKey: "llmProviderType")
-        }
+        providerType.persist()
     }
     
     private func animateContent() {
