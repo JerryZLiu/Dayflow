@@ -144,6 +144,18 @@ extension MainView {
                     timelineFailureToastPayload = payload
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .timelineDataUpdated)) { notification in
+                guard selectedIcon == .timeline else { return }
+
+                if let refreshedDay = notification.userInfo?["dayString"] as? String {
+                    let selectedTimelineDay = DateFormatter.yyyyMMdd.string(
+                        from: timelineDisplayDate(from: selectedDate, now: Date())
+                    )
+                    guard refreshedDay == selectedTimelineDay else { return }
+                }
+
+                updateCardsToReviewCount()
+            }
             .onChange(of: selectedDate) { _, newDate in
                 // If changed via picker, emit navigation now
                 if let method = lastDateNavMethod, method == "picker" {
