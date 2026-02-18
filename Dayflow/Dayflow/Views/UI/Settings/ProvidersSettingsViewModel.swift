@@ -211,21 +211,19 @@ final class ProvidersSettingsViewModel: ObservableObject {
     func loadCurrentProvider() {
         guard !hasLoadedProvider else { return }
 
-        if let data = UserDefaults.standard.data(forKey: "llmProviderType"),
-           let providerType = try? JSONDecoder().decode(LLMProviderType.self, from: data) {
-            switch providerType {
-            case .geminiDirect:
-                currentProvider = "gemini"
-                let preference = GeminiModelPreference.load()
-                selectedGeminiModel = preference.primary
-                savedGeminiModel = preference.primary
-            case .dayflowBackend:
-                currentProvider = "dayflow"
-            case .ollamaLocal:
-                currentProvider = "ollama"
-            case .chatGPTClaude:
-                currentProvider = "chatgpt_claude"
-            }
+        let providerType = LLMProviderType.load()
+        switch providerType {
+        case .geminiDirect:
+            currentProvider = "gemini"
+            let preference = GeminiModelPreference.load()
+            selectedGeminiModel = preference.primary
+            savedGeminiModel = preference.primary
+        case .dayflowBackend:
+            currentProvider = "dayflow"
+        case .ollamaLocal:
+            currentProvider = "ollama"
+        case .chatGPTClaude:
+            currentProvider = "chatgpt_claude"
         }
         hasLoadedProvider = true
     }
@@ -485,10 +483,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
             return
         }
 
-        if let encoded = try? JSONEncoder().encode(providerType) {
-            UserDefaults.standard.set(encoded, forKey: "llmProviderType")
-        }
-        UserDefaults.standard.set(providerId, forKey: "selectedLLMProvider")
+        providerType.persist()
 
         withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
             currentProvider = providerId
