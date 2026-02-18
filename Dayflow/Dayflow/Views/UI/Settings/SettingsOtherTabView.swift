@@ -4,9 +4,13 @@ struct SettingsOtherTabView: View {
     @ObservedObject var viewModel: OtherSettingsViewModel
     @ObservedObject var launchAtLoginManager: LaunchAtLoginManager
     @FocusState private var isOutputLanguageFocused: Bool
-    @State private var isExportStartDatePickerPresented = false
-    @State private var isExportEndDatePickerPresented = false
-    @State private var isReprocessDatePickerPresented = false
+    @State private var activeExportDatePicker: ExportDatePicker?
+    @State private var isReprocessDatePickerExpanded = false
+
+    private enum ExportDatePicker {
+        case start
+        case end
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
@@ -142,14 +146,16 @@ struct SettingsOtherTabView: View {
 
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .bottom, spacing: 12) {
-                    datePopoverField(
+                    datePillField(
                         label: "From",
-                        date: $viewModel.exportStartDate,
-                        isPresented: $isExportStartDatePickerPresented,
+                        date: viewModel.exportStartDate,
+                        isExpanded: activeExportDatePicker == .start,
                         accessibilityLabel: "Export start date",
-                        onOpen: {
-                            isExportEndDatePickerPresented = false
-                            isReprocessDatePickerPresented = false
+                        onTap: {
+                            withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+                                activeExportDatePicker = activeExportDatePicker == .start ? nil : .start
+                                isReprocessDatePickerExpanded = false
+                            }
                         }
                     )
 
@@ -158,16 +164,31 @@ struct SettingsOtherTabView: View {
                         .foregroundColor(.black.opacity(0.35))
                         .padding(.bottom, 12)
 
-                    datePopoverField(
+                    datePillField(
                         label: "To",
-                        date: $viewModel.exportEndDate,
-                        isPresented: $isExportEndDatePickerPresented,
+                        date: viewModel.exportEndDate,
+                        isExpanded: activeExportDatePicker == .end,
                         accessibilityLabel: "Export end date",
-                        onOpen: {
-                            isExportStartDatePickerPresented = false
-                            isReprocessDatePickerPresented = false
+                        onTap: {
+                            withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+                                activeExportDatePicker = activeExportDatePicker == .end ? nil : .end
+                                isReprocessDatePickerExpanded = false
+                            }
                         }
                     )
+                }
+
+                if let activeExportDatePicker {
+                    inlineCalendarField(
+                        label: activeExportDatePicker == .start ? "Start date" : "End date",
+                        date: exportDateBinding(for: activeExportDatePicker),
+                        onDateSelected: {
+                            withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+                                self.activeExportDatePicker = nil
+                            }
+                        }
+                    )
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
                 Text("Includes titles, summaries, and details for each card.")
@@ -231,17 +252,34 @@ struct SettingsOtherTabView: View {
 
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 8) {
-                    datePopoverField(
+                    datePillField(
                         label: "Day",
-                        date: $viewModel.reprocessDayDate,
-                        isPresented: $isReprocessDatePickerPresented,
+                        date: viewModel.reprocessDayDate,
+                        isExpanded: isReprocessDatePickerExpanded,
                         accessibilityLabel: "Reprocess day",
                         disabled: viewModel.isReprocessingDay,
-                        onOpen: {
-                            isExportStartDatePickerPresented = false
-                            isExportEndDatePickerPresented = false
+                        onTap: {
+                            withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+                                isReprocessDatePickerExpanded.toggle()
+                                activeExportDatePicker = nil
+                            }
                         }
                     )
+
+                    if isReprocessDatePickerExpanded {
+                        inlineCalendarField(
+                            label: "Day",
+                            date: $viewModel.reprocessDayDate,
+                            disabled: viewModel.isReprocessingDay,
+                            onDateSelected: {
+                                withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+                                    isReprocessDatePickerExpanded = false
+                                }
+                            }
+                        )
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+
                     Text(dayString)
                         .font(.custom("Nunito", size: 12))
                         .foregroundColor(.black.opacity(0.5))
@@ -308,14 +346,22 @@ struct SettingsOtherTabView: View {
         Self.dateLabelFormatter.string(from: timelineDisplayDate(from: date))
     }
 
-    @ViewBuilder
-    private func datePopoverField(
+    private func exportDateBinding(for picker: ExportDatePicker) -> Binding<Date> {
+        switch picker {
+        case .start:
+            return $viewModel.exportStartDate
+        case .end:
+            return $viewModel.exportEndDate
+        }
+    }
+
+    private func datePillField(
         label: String,
-        date: Binding<Date>,
-        isPresented: Binding<Bool>,
+        date: Date,
+        isExpanded: Bool,
         accessibilityLabel: String,
         disabled: Bool = false,
-        onOpen: @escaping () -> Void
+        onTap: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(label)
@@ -324,21 +370,20 @@ struct SettingsOtherTabView: View {
 
             Button {
                 guard !disabled else { return }
-                onOpen()
-                isPresented.wrappedValue.toggle()
+                onTap()
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "calendar")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0).opacity(disabled ? 0.4 : 0.75))
 
-                    Text(formattedTimelineDate(date.wrappedValue))
+                    Text(formattedTimelineDate(date))
                         .font(.custom("Nunito", size: 14))
                         .foregroundColor(.black.opacity(disabled ? 0.35 : 0.82))
 
                     Spacer(minLength: 4)
 
-                    Image(systemName: isPresented.wrappedValue ? "chevron.up" : "chevron.down")
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.black.opacity(disabled ? 0.2 : 0.35))
                 }
@@ -351,7 +396,7 @@ struct SettingsOtherTabView: View {
                         .overlay(
                             RoundedRectangle(cornerRadius: 10)
                                 .stroke(
-                                    isPresented.wrappedValue
+                                    isExpanded
                                         ? Color(hex: "F9C36B")
                                         : Color(hex: "FFE0A5"),
                                     lineWidth: 1.2
@@ -363,32 +408,40 @@ struct SettingsOtherTabView: View {
             .buttonStyle(.plain)
             .disabled(disabled)
             .accessibilityLabel(Text(accessibilityLabel))
-            .popover(isPresented: isPresented, arrowEdge: .bottom) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text(label)
-                            .font(.custom("Nunito", size: 13))
-                            .foregroundColor(.black.opacity(0.65))
-                        Spacer()
-                        Button("Done") {
-                            isPresented.wrappedValue = false
-                        }
-                        .buttonStyle(.plain)
-                        .font(.custom("Nunito", size: 12))
-                        .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
-                    }
-
-                    DatePicker("", selection: date, displayedComponents: .date)
-                        .datePickerStyle(.graphical)
-                        .labelsHidden()
-                        .onChange(of: date.wrappedValue) { _, _ in
-                            isPresented.wrappedValue = false
-                        }
-                }
-                .padding(14)
-                .frame(width: 300)
-            }
         }
+    }
+
+    private func inlineCalendarField(
+        label: String,
+        date: Binding<Date>,
+        disabled: Bool = false,
+        onDateSelected: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.custom("Nunito", size: 11.5))
+                .foregroundColor(.black.opacity(0.5))
+
+            DatePicker("", selection: date, displayedComponents: .date)
+                .datePickerStyle(.graphical)
+                .labelsHidden()
+                .onChange(of: date.wrappedValue) { _, _ in
+                    onDateSelected()
+                }
+                .frame(maxWidth: 290, alignment: .leading)
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white.opacity(disabled ? 0.45 : 0.82))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color(hex: "FFE0A5"), lineWidth: 1.2)
+                        )
+                )
+                .shadow(color: .black.opacity(disabled ? 0 : 0.04), radius: 7, x: 0, y: 2)
+                .disabled(disabled)
+        }
+        .opacity(disabled ? 0.7 : 1)
     }
 
     private static let dateLabelFormatter: DateFormatter = {
