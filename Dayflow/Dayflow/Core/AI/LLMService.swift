@@ -566,9 +566,9 @@ final class LLMService: LLMServicing {
                 
                 // SLIDING WINDOW CARD GENERATION - Replace old card generation with sliding window approach
                 
-                // Calculate time window using the shared batching duration.
+                // Calculate card-generation lookback window.
                 let currentTime = Date(timeIntervalSince1970: TimeInterval(batchEndTs))
-                let windowStartTime = currentTime.addingTimeInterval(-batchingConfig.targetDuration)
+                let windowStartTime = currentTime.addingTimeInterval(-batchingConfig.cardLookbackDuration)
                 
                 // Fetch observations from the recent batching window (instead of just current batch).
                 let recentObservations = StorageManager.shared.fetchObservationsByTimeRange(
