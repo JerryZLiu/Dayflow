@@ -50,7 +50,6 @@ struct SettingsView: View {
 
     var body: some View {
         contentWithSheets
-            .preferredColorScheme(.light)
     }
 
     private var contentWithSheets: some View {
@@ -168,6 +167,7 @@ struct SettingsView: View {
                 .buttonStyle(PlainButtonStyle())
                 .foregroundColor(Color(red: 0.45, green: 0.26, blue: 0.04))
                 .padding(.leading, 10)
+                .pointingHandCursor()
             }
         }
         .padding(.top, 0)
@@ -221,6 +221,7 @@ struct SettingsView: View {
             }
         }
         .buttonStyle(PlainButtonStyle())
+        .pointingHandCursor()
     }
 
     @ViewBuilder
