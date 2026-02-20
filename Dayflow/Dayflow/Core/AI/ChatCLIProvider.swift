@@ -330,13 +330,22 @@ final class ChatCLIProvider {
         CORE PRINCIPLE:
         Each card = one coherent activity. Time is a constraint (10-60 min), not a goal. 
 
-        SPLITTING RULES:
+        CARD BOUNDARIES:
         - Minimum card length: 10 minutes
         - Maximum card length: 60 minutes
-        - If an activity clearly shifts focus, start a new card (even if current card is short)
-        - If you need "and" to connect two unrelated activities in a title, that's two cards
         - Brief interruptions (<5 min) that don't change your focus = distractions within the card
-        - Sustained different activities (>10 min) = new card, not a distraction
+
+        WHEN TO SPLIT (new card):
+        - The user's GOAL changes, not just their tool/app
+        - You'd need "and" to connect two genuinely unrelated activities in the title
+
+        WHEN TO MERGE (same card):
+        - Consecutive activities serve the same project or goal (e.g., reviewing mockups → discussing those mockups → iterating on those mockups = one design session)
+        - Switching apps/tools within the same task (Figma → Meet → Figma for one design review)
+        - Back-to-back games of the same game = one gaming session
+        - Debugging across IDE + Terminal + Browser = one debugging session
+
+        BIAS: Default to MERGING. Ask "would the user describe this as one sitting/session?" If yes, it's one card. Fewer rich cards are better than many granular ones.
 
         CONTINUITY RULE:
         Never introduce gaps or overlaps. Adjacent cards should meet cleanly. Preserve any original gaps from the source timeline.
