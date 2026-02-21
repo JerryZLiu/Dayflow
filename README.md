@@ -208,7 +208,7 @@ open Dayflow.xcodeproj
 If you are using [Homebrew](https://brew.sh/), you can install [Dayflow](https://formulae.brew.sh/cask/dayflow) with:
 
 ```bash
-$ brew install --cask dayflow
+brew install --cask dayflow
 ```
 
 ---
