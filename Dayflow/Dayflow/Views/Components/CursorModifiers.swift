@@ -1,42 +1,67 @@
 import SwiftUI
 
 #if os(macOS)
-import AppKit
 
-// Overlay-based cursor rect so SwiftUI doesn't override push/pop states
-private struct PointingHandCursorView: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { CursorNSView() }
-    func updateNSView(_ nsView: NSView, context: Context) {}
+private struct HoverScaleModifier: ViewModifier {
+    let enabled: Bool
+    let scale: CGFloat
+    let animation: Animation
+    @State private var isHovering = false
 
-    private class CursorNSView: NSView {
-        override func resetCursorRects() {
-            discardCursorRects()
-            addCursorRect(bounds, cursor: .pointingHand)
-        }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            window?.invalidateCursorRects(for: self)
-        }
-
-        override func setFrameSize(_ newSize: NSSize) {
-            super.setFrameSize(newSize)
-            window?.invalidateCursorRects(for: self)
-        }
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(isHovering ? scale : 1)
+            .animation(animation, value: isHovering)
+            .onHover { hovering in
+                isHovering = enabled ? hovering : false
+            }
+            .onChange(of: enabled) { _, isEnabled in
+                if !isEnabled {
+                    isHovering = false
+                }
+            }
     }
 }
 
 extension View {
-    // Shows a pointing hand cursor over the view's bounds.
-    // Using an overlay-backed NSView so SwiftUI state changes don't pop our cursor.
+    // Uses native SwiftUI pointer style on macOS 15+.
+    // For macOS 14, this is intentionally a no-op.
+    @ViewBuilder
     func pointingHandCursor(enabled: Bool = true) -> some View {
-        overlay(
-            Group {
-                if enabled {
-                    PointingHandCursorView().allowsHitTesting(false)
-                }
+        if enabled {
+            if #available(macOS 15.0, *) {
+                self.pointerStyle(.link)
+            } else {
+                self
             }
-        )
+        } else {
+            self
+        }
+    }
+
+    // Kept for API compatibility with existing call sites.
+    func pointingHandCursorOnHover(enabled: Bool = true, reassertOnPressEnd: Bool = false) -> some View {
+        _ = reassertOnPressEnd
+        return pointingHandCursor(enabled: enabled)
+    }
+
+    func hoverScaleEffect(
+        enabled: Bool = true,
+        scale: CGFloat = 1.02,
+        animation: Animation = .spring(response: 0.24, dampingFraction: 0.82)
+    ) -> some View {
+        modifier(HoverScaleModifier(enabled: enabled, scale: scale, animation: animation))
+    }
+
+    func pointingHandCursorWithHoverScale(
+        enabled: Bool = true,
+        scale: CGFloat = 1.01,
+        animation: Animation = .spring(response: 0.24, dampingFraction: 0.82),
+        reassertOnPressEnd: Bool = true
+    ) -> some View {
+        _ = reassertOnPressEnd
+        return hoverScaleEffect(enabled: enabled, scale: scale, animation: animation)
+            .pointingHandCursor(enabled: enabled)
     }
 }
 #endif

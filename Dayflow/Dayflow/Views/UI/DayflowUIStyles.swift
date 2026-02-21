@@ -53,6 +53,8 @@ struct DayflowCircleButton<Content: View>: View {
         .frame(width: size.width, height: size.height)
         .dayflowCircleStyle()
         .contentShape(Circle())
+        .hoverScaleEffect(scale: 1.02)
+        .pointingHandCursorOnHover(reassertOnPressEnd: true)
     }
 }
 

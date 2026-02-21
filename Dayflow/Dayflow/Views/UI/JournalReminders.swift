@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 import UserNotifications
 
 struct JournalRemindersView: View {
@@ -545,7 +544,6 @@ private struct HoverInteractionModifier: ViewModifier {
     let scale: CGFloat
 
     @State private var hovering = false
-    @State private var cursorPushed = false
 
     func body(content: Content) -> some View {
         content
@@ -553,20 +551,8 @@ private struct HoverInteractionModifier: ViewModifier {
             .animation(.easeInOut(duration: 0.12), value: hovering)
             .onHover { inside in
                 hovering = inside
-                if inside, cursorPushed == false {
-                    NSCursor.pointingHand.push()
-                    cursorPushed = true
-                } else if !inside, cursorPushed {
-                    NSCursor.pop()
-                    cursorPushed = false
-                }
             }
-            .onDisappear {
-                if cursorPushed {
-                    NSCursor.pop()
-                    cursorPushed = false
-                }
-            }
+            .pointingHandCursor()
     }
 }
 
