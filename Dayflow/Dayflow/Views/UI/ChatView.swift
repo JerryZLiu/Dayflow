@@ -19,7 +19,8 @@ struct ChatView: View {
     @ObservedObject private var chatService = ChatService.shared
     @State private var inputText = ""
     @State private var showWorkDetails = false
-    @FocusState private var isInputFocused: Bool
+    @State private var isInputFocused = false
+    @State private var composerFocusToken = 0
     @Namespace private var bottomID
     @AppStorage("chatCLIPreferredTool") private var selectedTool: String = "codex"
     @AppStorage("hasChatBetaAccepted") private var hasBetaAccepted: Bool = false
@@ -94,7 +95,6 @@ struct ChatView: View {
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
-        .preferredColorScheme(.light)
         .task {
             guard !didCheckCLI else { return }
             didCheckCLI = true
@@ -142,6 +142,7 @@ struct ChatView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Clear chat")
+                    .pointingHandCursor()
                 }
 
                 // Debug toggle
@@ -152,6 +153,7 @@ struct ChatView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Toggle debug panel")
+                .pointingHandCursor()
             }
             .padding(.trailing, 12)
             .padding(.top, 8)
@@ -250,6 +252,7 @@ struct ChatView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Copy all")
+                .pointingHandCursor()
 
                 Button(action: { chatService.clearDebugLog() }) {
                     Image(systemName: "trash")
@@ -258,6 +261,7 @@ struct ChatView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Clear log")
+                .pointingHandCursor()
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -516,22 +520,14 @@ struct ChatView: View {
     private var inputArea: some View {
         VStack(spacing: 0) {
             // Text input
-            TextField(
-                "",
+            AppKitComposerTextField(
                 text: $inputText,
-                prompt: Text("Ask about your day...")
-                    .foregroundColor(Color(hex: "9B948D"))
+                isFocused: $isInputFocused,
+                focusToken: composerFocusToken,
+                placeholder: "Ask about your day...",
+                onSubmit: submitCurrentInputIfAllowed
             )
-            .textFieldStyle(.plain)
-            .font(.custom("Nunito", size: 16).weight(.medium))
-            .foregroundColor(Color(hex: "2F2A24"))
-            .lineLimit(1)
-            .padding(.horizontal, 16)
             .frame(height: 50, alignment: .leading)
-            .focused($isInputFocused)
-            .onSubmit {
-                submitCurrentInputIfAllowed()
-            }
 
             Rectangle()
                 .fill(Color(hex: "EEE4D8"))
@@ -686,6 +682,7 @@ struct ChatView: View {
                     SuggestionChip(text: suggestion) {
                         inputText = suggestion
                         isInputFocused = true
+                        composerFocusToken += 1
                     }
                 }
             }
@@ -1589,6 +1586,7 @@ private struct WorkStatusCard: View {
                         .foregroundColor(Color(hex: "8B5E3C"))
                     }
                     .buttonStyle(.plain)
+                    .pointingHandCursor()
                 }
 
                 if showDetails, !status.thinkingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1777,6 +1775,210 @@ private struct ToolStatusRow: View {
     }
 }
 
+private struct AppKitComposerTextField: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var isFocused: Bool
+    let focusToken: Int
+    let placeholder: String
+    let onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> ComposerTextField {
+        let textField = ComposerTextField()
+        textField.delegate = context.coordinator
+        textField.stringValue = text
+        textField.font = NSFont(name: "Nunito-Medium", size: 16) ?? NSFont.systemFont(ofSize: 16, weight: .medium)
+        textField.textColor = NSColor(hex: "2F2A24") ?? .labelColor
+        textField.alignment = .left
+        textField.lineBreakMode = .byTruncatingTail
+        textField.maximumNumberOfLines = 1
+        textField.usesSingleLineMode = true
+        textField.focusRingType = .none
+        textField.isBordered = false
+        textField.isBezeled = false
+        textField.drawsBackground = false
+        textField.isEditable = true
+        textField.isSelectable = true
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        textField.configurePlaceholder(
+            placeholder,
+            font: NSFont(name: "Nunito-Medium", size: 16) ?? NSFont.systemFont(ofSize: 16, weight: .medium),
+            color: NSColor(hex: "9B948D") ?? .secondaryLabelColor
+        )
+        return textField
+    }
+
+    func updateNSView(_ nsView: ComposerTextField, context: Context) {
+        context.coordinator.parent = self
+
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+        nsView.refreshPlaceholderVisibility()
+
+        if context.coordinator.lastFocusToken != focusToken {
+            context.coordinator.lastFocusToken = focusToken
+            DispatchQueue.main.async {
+                nsView.window?.makeFirstResponder(nsView)
+            }
+        }
+
+        if isFocused, nsView.window?.firstResponder !== nsView.currentEditor() {
+            DispatchQueue.main.async {
+                nsView.window?.makeFirstResponder(nsView)
+            }
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: AppKitComposerTextField
+        var lastFocusToken: Int = -1
+
+        init(parent: AppKitComposerTextField) {
+            self.parent = parent
+        }
+
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            parent.isFocused = true
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            parent.isFocused = false
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            parent.text = field.stringValue
+            (field as? ComposerTextField)?.refreshPlaceholderVisibility()
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                parent.onSubmit()
+                return true
+            }
+            return false
+        }
+    }
+}
+
+private final class ComposerTextField: NSTextField {
+    private let placeholderLabel = NSTextField(labelWithString: "")
+
+    var composerCell: ComposerTextFieldCell? {
+        cell as? ComposerTextFieldCell
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        cell = ComposerTextFieldCell(textCell: "")
+        composerCell?.horizontalInset = 14
+        composerCell?.verticalInset = 0
+        configurePlaceholderLabel()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        cell = ComposerTextFieldCell(textCell: "")
+        composerCell?.horizontalInset = 14
+        composerCell?.verticalInset = 0
+        configurePlaceholderLabel()
+    }
+
+    override var stringValue: String {
+        didSet {
+            refreshPlaceholderVisibility()
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        guard let cell = composerCell else { return }
+        placeholderLabel.frame = cell.titleRect(forBounds: bounds)
+    }
+
+    func configurePlaceholder(_ text: String, font: NSFont, color: NSColor) {
+        placeholderLabel.stringValue = text
+        placeholderLabel.font = font
+        placeholderLabel.textColor = color
+        refreshPlaceholderVisibility()
+        needsLayout = true
+    }
+
+    func refreshPlaceholderVisibility() {
+        placeholderLabel.isHidden = !stringValue.isEmpty
+    }
+
+    private func configurePlaceholderLabel() {
+        placeholderLabel.isEditable = false
+        placeholderLabel.isSelectable = false
+        placeholderLabel.isBordered = false
+        placeholderLabel.drawsBackground = false
+        placeholderLabel.lineBreakMode = .byTruncatingTail
+        placeholderLabel.maximumNumberOfLines = 1
+        addSubview(placeholderLabel)
+    }
+}
+
+private final class ComposerTextFieldCell: NSTextFieldCell {
+    var horizontalInset: CGFloat = 14
+    var verticalInset: CGFloat = 0
+
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        centeredRect(forBounds: super.drawingRect(forBounds: rect))
+    }
+
+    override func titleRect(forBounds rect: NSRect) -> NSRect {
+        centeredRect(forBounds: super.titleRect(forBounds: rect))
+    }
+
+    override func edit(
+        withFrame aRect: NSRect,
+        in controlView: NSView,
+        editor textObj: NSText,
+        delegate: Any?,
+        event: NSEvent?
+    ) {
+        super.edit(
+            withFrame: titleRect(forBounds: aRect),
+            in: controlView,
+            editor: textObj,
+            delegate: delegate,
+            event: event
+        )
+    }
+
+    override func select(
+        withFrame aRect: NSRect,
+        in controlView: NSView,
+        editor textObj: NSText,
+        delegate: Any?,
+        start selStart: Int,
+        length selLength: Int
+    ) {
+        super.select(
+            withFrame: titleRect(forBounds: aRect),
+            in: controlView,
+            editor: textObj,
+            delegate: delegate,
+            start: selStart,
+            length: selLength
+        )
+    }
+
+    private func centeredRect(forBounds rect: NSRect) -> NSRect {
+        var insetRect = rect.insetBy(dx: horizontalInset, dy: verticalInset)
+        let textHeight = (font?.ascender ?? 10) - (font?.descender ?? -4) + (font?.leading ?? 0)
+        let yOffset = (insetRect.height - textHeight) / 2
+        insetRect.origin.y += max(0, yOffset.rounded(.down) - 0.5)
+        insetRect.size.height = textHeight
+        return insetRect.integral
+    }
+}
+
 private struct WelcomePrompt {
     let icon: String
     let text: String
@@ -1827,6 +2029,7 @@ private struct WelcomeSuggestionRow: View {
             .offset(y: reduceMotion ? 0 : (isHovered ? -1 : 0))
         }
         .buttonStyle(.plain)
+        .pointingHandCursor()
         .onHover { hovering in
             guard !reduceMotion else {
                 isHovered = false
@@ -1865,6 +2068,7 @@ private struct SuggestionChip: View {
                 .scaleEffect(isHovered ? 1.02 : 1.0)
         }
         .buttonStyle(.plain)
+        .pointingHandCursor()
         .onHover { hovering in
             withAnimation(.spring(response: 0.2, dampingFraction: 0.7)) {
                 isHovered = hovering
@@ -1883,6 +2087,7 @@ private struct PressScaleButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed && isEnabled ? 0.97 : 1.0)
             .brightness(configuration.isPressed && isEnabled ? -0.02 : 0)
             .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+            .pointingHandCursor(enabled: isEnabled)
     }
 }
 
@@ -1893,6 +2098,7 @@ private struct BetaButtonStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed && isEnabled ? 0.97 : 1.0)
             .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+            .pointingHandCursor(enabled: isEnabled)
     }
 }
 
@@ -1935,6 +2141,7 @@ private struct ProviderTogglePill: View {
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
+        .pointingHandCursor(enabled: isEnabled)
     }
 }
 
