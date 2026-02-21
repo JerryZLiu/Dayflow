@@ -206,6 +206,8 @@ struct ActivityCard: View {
                                         .frame(width: 24, height: 24)
                                 }
                                 .buttonStyle(PlainButtonStyle())
+                                .hoverScaleEffect(scale: 1.02)
+                                .pointingHandCursorOnHover(reassertOnPressEnd: true)
                                 .accessibilityLabel(Text("Change category"))
                             }
                         }
@@ -395,6 +397,8 @@ struct ActivityCard: View {
             .buttonStyle(PlainButtonStyle())
             .disabled(isDisabled)
             .opacity(isDisabled ? 0.6 : 1)
+            .hoverScaleEffect(enabled: !isDisabled, scale: 1.02)
+            .pointingHandCursorOnHover(enabled: !isDisabled, reassertOnPressEnd: true)
         }
     }
 
@@ -474,6 +478,8 @@ struct ActivityCard: View {
                     }
                     openSlideshow(for: activity, cardId: cardId)
                 }
+                .hoverScaleEffect(scale: 1.02)
+                .pointingHandCursorOnHover(reassertOnPressEnd: true)
                 .id(activity.id)
                 .onAppear {
                     loadTimelapsePreviewThumbnail(for: activity, size: geometry.size)
@@ -618,6 +624,7 @@ private struct ScreenshotSlideshowModal: View {
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var playbackModel: ScreenshotSlideshowPlaybackModel
+    @State private var keyMonitor: Any?
 
     init(
         screenshots: [Screenshot],
@@ -660,6 +667,8 @@ private struct ScreenshotSlideshowModal: View {
                         .foregroundColor(Color.black.opacity(0.5))
                 }
                 .buttonStyle(PlainButtonStyle())
+                .hoverScaleEffect(scale: 1.02)
+                .pointingHandCursorOnHover(reassertOnPressEnd: true)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -679,21 +688,28 @@ private struct ScreenshotSlideshowModal: View {
                     } else {
                         ProgressView()
                             .controlSize(.large)
+                            .allowsHitTesting(false)
                     }
 
-                    if !playbackModel.isPlaying {
-                        Button(action: { playbackModel.togglePlayPause() }) {
-                            ZStack {
-                                Circle()
-                                    .strokeBorder(Color.white.opacity(0.9), lineWidth: 2)
-                                    .frame(width: 68, height: 68)
-                                    .background(Circle().fill(Color.black.opacity(0.35)))
-                                Image(systemName: "play.fill")
-                                    .foregroundColor(.white)
-                                    .font(.system(size: 26, weight: .bold))
-                            }
+                    Rectangle()
+                        .fill(Color.clear)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            playbackModel.togglePlayPause()
                         }
-                        .buttonStyle(PlainButtonStyle())
+                        .pointingHandCursor()
+
+                    if !playbackModel.isPlaying {
+                        ZStack {
+                            Circle()
+                                .strokeBorder(Color.white.opacity(0.9), lineWidth: 2)
+                                .frame(width: 68, height: 68)
+                                .background(Circle().fill(Color.black.opacity(0.35)))
+                            Image(systemName: "play.fill")
+                                .foregroundColor(.white)
+                                .font(.system(size: 26, weight: .bold))
+                        }
+                        .allowsHitTesting(false)
                     }
 
                     VStack {
@@ -710,6 +726,8 @@ private struct ScreenshotSlideshowModal: View {
                                     .cornerRadius(4)
                             }
                             .buttonStyle(PlainButtonStyle())
+                            .hoverScaleEffect(scale: 1.02)
+                            .pointingHandCursorOnHover(reassertOnPressEnd: true)
                             .padding(12)
                         }
                     }
@@ -740,9 +758,41 @@ private struct ScreenshotSlideshowModal: View {
         }
         .frame(minWidth: 960, minHeight: 640)
         .background(Color.white)
-        .onAppear { playbackModel.start() }
+        .onAppear {
+            playbackModel.start()
+            setupKeyMonitor()
+        }
         .onDisappear {
             playbackModel.stop()
+            removeKeyMonitor()
+        }
+    }
+
+    private func setupKeyMonitor() {
+        removeKeyMonitor()
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if let responder = NSApp.keyWindow?.firstResponder {
+                if responder is NSTextField || responder is NSTextView || responder is NSText {
+                    return event
+                }
+                let className = NSStringFromClass(type(of: responder))
+                if className.contains("TextField") || className.contains("TextEditor") || className.contains("TextInput") {
+                    return event
+                }
+            }
+
+            if event.keyCode == 49 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
+                playbackModel.togglePlayPause()
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
         }
     }
 }
