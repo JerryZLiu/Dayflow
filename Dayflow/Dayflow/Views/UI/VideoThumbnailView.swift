@@ -39,6 +39,7 @@ struct VideoThumbnailView: View {
             // Also open the viewer when clicking anywhere on the preview area
             .contentShape(Rectangle())
             .onTapGesture { triggerExpansion(geometry: geometry) }
+            .pointingHandCursor()
             .id(videoURL)
             // Track containing window size to size the modal at 90%
             .background(WindowSizeReader { size in
@@ -117,6 +118,7 @@ struct VideoThumbnailView: View {
                 .accessibilityLabel("Play video summary")
             }
             .buttonStyle(PlainButtonStyle())
+            .pointingHandCursor()
         }
         // Apply matched geometry for hero animation
         .modifier(HeroGeometryModifier(

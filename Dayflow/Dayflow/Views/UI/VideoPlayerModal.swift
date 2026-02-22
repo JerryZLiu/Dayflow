@@ -98,6 +98,7 @@ struct VideoExpansionOverlay: View {
                     .onTapGesture {
                         closeModal()
                     }
+                    .pointingHandCursor()
 
                 // Modal content
                 modalContent
@@ -159,6 +160,7 @@ struct VideoExpansionOverlay: View {
                     }
                     .contentShape(Rectangle())
                     .onTapGesture { togglePlayback() }
+                    .pointingHandCursor()
                 }
             }
             .matchedGeometryEffect(id: matchedId, in: namespace)
@@ -197,7 +199,7 @@ struct VideoExpansionOverlay: View {
                     .font(.system(size: 20))
                     .foregroundColor(Color.black.opacity(0.5))
             }
-            .buttonStyle(ScaleButtonStyle())
+        .buttonStyle(ScaleButtonStyle())
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -388,6 +390,7 @@ struct ScaleButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             // Spring animation for more natural button feel (Emil Kowalski principle)
             .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
+            .pointingHandCursor()
     }
 }
 
@@ -681,6 +684,7 @@ struct VideoPlayerModal: View {
                     }
                     .contentShape(Rectangle())
                     .onTapGesture { viewModel.togglePlayPause() }
+                    .pointingHandCursor()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
