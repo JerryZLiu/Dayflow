@@ -181,6 +181,7 @@ struct SettingsStorageTabView: View {
                     )
                 }
                 .menuStyle(BorderlessButtonMenuStyle())
+                .pointingHandCursor()
             }
 
             if let progress {

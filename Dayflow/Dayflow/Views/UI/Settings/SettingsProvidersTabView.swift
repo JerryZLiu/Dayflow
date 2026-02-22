@@ -454,6 +454,7 @@ struct SettingsProvidersTabView: View {
                 }
             }
             .toggleStyle(SwitchToggleStyle(tint: Color(red: 0.25, green: 0.17, blue: 0)))
+            .pointingHandCursor()
 
             promptEditorBlock(title: "Prompt text", text: text, isEnabled: isEnabled.wrappedValue, defaultText: defaultText)
         }
@@ -710,6 +711,7 @@ struct LocalModelUpgradeSheet: View {
                             .foregroundColor(.black.opacity(0.35))
                     }
                     .buttonStyle(.plain)
+                    .pointingHandCursor()
                 }
 
                 VStack(alignment: .leading, spacing: 6) {

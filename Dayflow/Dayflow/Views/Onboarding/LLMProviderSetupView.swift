@@ -1537,6 +1537,7 @@ struct ChatCLITestView: View {
                                 .underline()
                         }
                         .buttonStyle(.plain)
+                        .pointingHandCursor()
                     }
                 }
                 .padding(.vertical, 6)
@@ -2052,6 +2053,7 @@ struct ChatCLIDetectionStepView<NextButton: View>: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .opacity(enabled ? 1.0 : 0.5)
+        .pointingHandCursor(enabled: enabled)
     }
 }
 

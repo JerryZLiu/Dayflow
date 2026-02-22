@@ -27,6 +27,7 @@ struct SettingsOtherTabView: View {
                             .foregroundColor(.black.opacity(0.7))
                     }
                     .toggleStyle(.switch)
+                    .pointingHandCursor()
 
                     Text("Keeps the menu bar controller running right after you sign in so capture can resume instantly.")
                         .font(.custom("Nunito", size: 11.5))
@@ -38,6 +39,7 @@ struct SettingsOtherTabView: View {
                             .foregroundColor(.black.opacity(0.7))
                     }
                     .toggleStyle(.switch)
+                    .pointingHandCursor()
 
                     Toggle(isOn: $viewModel.showJournalDebugPanel) {
                         Text("Show Journal debug panel")
@@ -45,6 +47,7 @@ struct SettingsOtherTabView: View {
                             .foregroundColor(.black.opacity(0.7))
                     }
                     .toggleStyle(.switch)
+                    .pointingHandCursor()
 
                     Toggle(isOn: $viewModel.showDockIcon) {
                         Text("Show Dock icon")
@@ -52,6 +55,7 @@ struct SettingsOtherTabView: View {
                             .foregroundColor(.black.opacity(0.7))
                     }
                     .toggleStyle(.switch)
+                    .pointingHandCursor()
 
                     Text("When off, Dayflow runs as a menu bar–only app.")
                         .font(.custom("Nunito", size: 11.5))
@@ -63,6 +67,7 @@ struct SettingsOtherTabView: View {
                             .foregroundColor(.black.opacity(0.7))
                     }
                     .toggleStyle(.switch)
+                    .pointingHandCursor()
 
                     Text("When off, timeline cards won't show app or website icons.")
                         .font(.custom("Nunito", size: 11.5))

@@ -181,6 +181,7 @@ private struct DurationOption: View {
                 )
         }
         .buttonStyle(.plain)
+        .pointingHandCursor()
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovering = hovering
@@ -274,6 +275,7 @@ private struct MenuRow: View {
             )
         }
         .buttonStyle(.plain)
+        .pointingHandCursor()
         .onHover { hovering = $0 }
     }
 
