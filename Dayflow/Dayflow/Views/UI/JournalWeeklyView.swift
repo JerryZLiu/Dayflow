@@ -104,6 +104,7 @@ struct JournalWeeklyView: View {
                 )
             }
             .buttonStyle(.plain)
+            .pointingHandCursor()
         }
     }
 
@@ -241,6 +242,7 @@ private struct JournalWeeklyCircleButton: View {
         .buttonStyle(.plain)
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.4 : 1)
+        .pointingHandCursor(enabled: !isDisabled)
     }
 }
 
@@ -268,6 +270,7 @@ private struct JournalWeeklySegmentedControl: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .pointingHandCursor()
             }
         }
         .padding(4)

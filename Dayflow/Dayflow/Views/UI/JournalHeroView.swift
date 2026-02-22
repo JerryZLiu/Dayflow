@@ -159,6 +159,7 @@ private struct JournalHeroPillButtonStyle: ButtonStyle {
             )
             .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
             .animation(.spring(response: 0.25, dampingFraction: 0.85), value: configuration.isPressed)
+            .pointingHandCursor()
     }
 }
 

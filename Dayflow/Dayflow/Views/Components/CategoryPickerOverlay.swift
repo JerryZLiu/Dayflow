@@ -36,6 +36,7 @@ struct CategoryPickerOverlay: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .pointingHandCursor()
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

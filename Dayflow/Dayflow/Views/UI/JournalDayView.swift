@@ -143,6 +143,7 @@ struct JournalPillButtonStyle: ButtonStyle {
             )
             .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
             .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
+            .pointingHandCursor()
     }
 }
 
@@ -533,6 +534,7 @@ private struct IntentionsEditForm: View {
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .pointingHandCursor()
                 Spacer()
             }
             .padding(.horizontal, 12)
@@ -783,6 +785,7 @@ private struct JournalLeftCardView: View {
         .onTapGesture {
             onTap?()
         }
+        .pointingHandCursor(enabled: onTap != nil)
     }
 
     @ViewBuilder
@@ -889,6 +892,7 @@ private struct ReflectionEditorCard: View {
                 Button("Skip", action: onSkip)
                     .buttonStyle(.plain)
                     .foregroundStyle(JournalDayTokens.bodyText.opacity(0.6))
+                    .pointingHandCursor()
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
@@ -940,6 +944,7 @@ private struct ReflectionSavedCard: View {
                         HStack(spacing: 12) {
                             Button("Dismiss") { onDismissError?() }
                                 .buttonStyle(.plain).font(.custom("Nunito-Regular", size: 13)).foregroundStyle(JournalDayTokens.bodyText.opacity(0.6))
+                                .pointingHandCursor()
                             Button("Try again", action: onSummarize)
                                 .buttonStyle(JournalPillButtonStyle(horizontalPadding: 18, verticalPadding: 8))
                         }
@@ -1003,6 +1008,7 @@ private struct SummaryCard: View {
                         .foregroundStyle(JournalDayTokens.sectionHeader)
                 }
                 .buttonStyle(.plain)
+                .pointingHandCursor()
             }
             Spacer(minLength: 0)
         }
@@ -1112,6 +1118,7 @@ private struct JournalDayCircleButton: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
+        .pointingHandCursor(enabled: !isDisabled)
     }
 }
 
@@ -1131,6 +1138,7 @@ private struct JournalDaySegmentedControl: View {
                         .cornerRadius(200)
                 }
                 .buttonStyle(.plain)
+                .pointingHandCursor()
             }
         }
         .padding(2)

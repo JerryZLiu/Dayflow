@@ -151,6 +151,7 @@ struct ReferralSurveyView: View {
                 )
             }
             .buttonStyle(PlainButtonStyle())
+            .pointingHandCursor()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

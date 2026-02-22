@@ -169,6 +169,7 @@ struct JournalView: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .pointingHandCursor()
             }
             .padding(.bottom, 28)
         }
@@ -268,6 +269,7 @@ private struct JournalOnboardingView: View {
                     )
             }
             .buttonStyle(.plain)
+            .pointingHandCursor()
 
             Spacer()
         }

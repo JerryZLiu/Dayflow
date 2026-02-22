@@ -52,6 +52,7 @@ struct CategoryPickerView: View {
                                     .underline()
                             }
                             .buttonStyle(.plain)
+                            .pointingHandCursor()
                             
                             Text(".")
                                 .font(Font.custom("Nunito", size: 10).weight(.medium))
@@ -187,6 +188,7 @@ struct CategoryPill: View {
             )
         }
         .buttonStyle(.plain)
+        .pointingHandCursor()
     }
     
     private var categoryColor: Color {
