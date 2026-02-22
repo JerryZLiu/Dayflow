@@ -37,6 +37,7 @@ struct TimelineFeedbackModal: View {
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
+            .pointingHandCursor()
             .offset(x: -8, y: 6)
         }
         .accessibilityElement(children: .contain)
@@ -148,6 +149,7 @@ struct TimelineFeedbackModal: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .pointingHandCursor()
             }
 
             Button(action: onSubmit) {
@@ -160,6 +162,7 @@ struct TimelineFeedbackModal: View {
                     .cornerRadius(4)
             }
             .buttonStyle(.plain)
+            .pointingHandCursor()
         }
     }
 

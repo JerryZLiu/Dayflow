@@ -112,6 +112,8 @@ struct TabFilterBar: View {
                 .frame(width: editButtonSize, height: editButtonSize)
         }
         .buttonStyle(PlainButtonStyle())
+        .hoverScaleEffect(scale: 1.02)
+        .pointingHandCursorOnHover(reassertOnPressEnd: true)
     }
 
     private var overflowGradient: some View {

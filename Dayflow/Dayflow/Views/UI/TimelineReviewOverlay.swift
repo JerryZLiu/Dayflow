@@ -242,6 +242,7 @@ struct TimelineReviewOverlay: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .pointingHandCursor()
                 .padding(.trailing, 22)
                 .padding(.top, 16)
             }
@@ -391,6 +392,7 @@ struct TimelineReviewOverlay: View {
                     )
             }
             .buttonStyle(.plain)
+            .pointingHandCursor()
         }
         .frame(maxWidth: 500)
     }
@@ -1042,6 +1044,7 @@ private struct TimelineReviewCard: View {
                 .cornerRadius(4)
         }
         .buttonStyle(.plain)
+        .pointingHandCursor()
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -1457,6 +1460,7 @@ private struct TimelineReviewCardMedia: View {
         .onTapGesture {
             onTogglePlayback()
         }
+        .pointingHandCursor()
         .overlay(
             Rectangle()
                 .stroke(Design.mediaBorderColor, lineWidth: 1)
@@ -1733,6 +1737,7 @@ private struct TimelineReviewRatingRow: View {
             }
         }
         .buttonStyle(.plain)
+        .pointingHandCursor()
     }
 
     private func ratingButton(_ rating: TimelineReviewRating) -> some View {
@@ -1747,6 +1752,7 @@ private struct TimelineReviewRatingRow: View {
             }
         }
         .buttonStyle(.plain)
+        .pointingHandCursor()
     }
 }
 

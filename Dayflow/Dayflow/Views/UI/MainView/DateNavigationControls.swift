@@ -33,6 +33,7 @@ struct DateNavigationControls: View {
                 )
             }
             .buttonStyle(PlainButtonStyle())
+            .pointingHandCursor()
 
             DayflowCircleButton {
                 guard canNavigateForward(from: selectedDate) else { return }

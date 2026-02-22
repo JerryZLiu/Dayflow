@@ -286,6 +286,7 @@ struct ScrubberView: View {
                         onScrubStateChange(false)
                     }
             )
+            .pointingHandCursor()
         }
         .frame(height: totalHeight)
         .onAppear { /* filmstrip generation handled above */ }

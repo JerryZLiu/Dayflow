@@ -84,7 +84,7 @@ struct CardsToReviewButton: View {
 
     var body: some View {
         CardsToReviewBadge(count: count)
-            .scaleEffect(isPressed ? 0.97 : (isHovered ? 1.04 : 1.0))
+            .scaleEffect(isPressed ? 0.97 : (isHovered ? 1.02 : 1.0))
             .brightness(isPressed ? -0.03 : 0)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
@@ -108,6 +108,7 @@ struct CardsToReviewButton: View {
                     isPressed = pressing
                 }
             }, perform: {})
+            .pointingHandCursorOnHover(reassertOnPressEnd: true)
     }
 }
 

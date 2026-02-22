@@ -81,6 +81,8 @@ struct TimelineRateSummaryView: View {
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
+        .hoverScaleEffect(enabled: isEnabled, scale: 1.02)
+        .pointingHandCursorOnHover(enabled: isEnabled, reassertOnPressEnd: true)
         .accessibilityLabel(direction == .up ? Text("Thumbs up") : Text("Thumbs down"))
     }
 }

@@ -113,6 +113,7 @@ struct DatePickerSheet: View {
                     isPresented = false
                 }
                 .buttonStyle(.plain)
+                .pointingHandCursor()
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
                 .background(Color.gray.opacity(0.2))
@@ -122,6 +123,7 @@ struct DatePickerSheet: View {
                     isPresented = false
                 }
                 .buttonStyle(.plain)
+                .pointingHandCursor()
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
                 .background(Color.accentColor)

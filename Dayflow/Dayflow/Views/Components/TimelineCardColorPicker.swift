@@ -505,6 +505,7 @@ fileprivate struct EditableCategoryCard: View {
                         .accessibilityLabel("Edit category")
                 }
                 .buttonStyle(.plain)
+                .pointingHandCursor()
 
                 Button {
                     onDelete()
@@ -515,6 +516,7 @@ fileprivate struct EditableCategoryCard: View {
                         .accessibilityLabel("Delete category")
                 }
                 .buttonStyle(.plain)
+                .pointingHandCursor()
             }
         }
         .padding(.horizontal, 20)
@@ -534,6 +536,7 @@ fileprivate struct EditableCategoryCard: View {
                 onStartEdit()
             }
         }
+        .pointingHandCursor(enabled: !category.isSystem)
     }
 }
 

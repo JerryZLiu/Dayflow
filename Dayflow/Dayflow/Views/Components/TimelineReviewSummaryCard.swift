@@ -99,6 +99,14 @@ struct TimelineReviewSummaryCard: View {
                     guard cardsToReviewCount > 0 else { return }
                     onReviewTap?()
                 }
+                .hoverScaleEffect(
+                    enabled: cardsToReviewCount > 0,
+                    scale: 1.02
+                )
+                .pointingHandCursorOnHover(
+                    enabled: cardsToReviewCount > 0,
+                    reassertOnPressEnd: true
+                )
                 .opacity(cardsToReviewCount > 0 ? 1 : 0.9)
         }
     }
