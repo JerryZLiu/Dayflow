@@ -17,6 +17,7 @@ struct DaySummaryView: View {
 
     @State private var timelineCards: [TimelineCard] = []
     @State private var isLoading = true
+    @State private var hasCompletedInitialLoad = false
     @State private var focusCategoryIDs: Set<UUID> = []
     @State private var isEditingFocusCategories = false
     @State private var distractionCategoryIDs: Set<UUID> = []
@@ -75,9 +76,6 @@ struct DaySummaryView: View {
 
         static let titleColor = Color(hex: "333333")
         static let subtitleColor = Color(hex: "707070")
-        static let shareTextColor = Color(hex: "D7A585")
-        static let shareBorderColor = Color(hex: "F7E4CE")
-        static let shareBackground = Color(hex: "FFF5EA")
 
         static let focusTitleColor = Color(hex: "333333")
         static let focusValueColor = Color(hex: "F3854B")
@@ -303,6 +301,7 @@ struct DaySummaryView: View {
                 self.cachedFocusBlocks = blocks
                 self.cachedTotalDistractedTime = totalDistracted
                 self.isLoading = false
+                self.hasCompletedInitialLoad = true
                 self.reviewSummary = summary
             }
         }
@@ -335,37 +334,9 @@ struct DaySummaryView: View {
     private var daySoFarContent: some View {
         VStack(alignment: .leading, spacing: Design.donutSectionSpacing) {
             VStack(alignment: .leading, spacing: Design.headerSpacing) {
-                HStack(alignment: .center) {
-                    Text("Your day so far")
-                        .font(.custom("InstrumentSerif-Regular", size: 24))
-                        .foregroundColor(Design.titleColor)
-
-                    Spacer()
-
-                    Button(action: {
-                        // TODO: Implement share functionality
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.system(size: 10, weight: .medium))
-                            Text("Share")
-                                .font(.custom("Nunito", size: 10).weight(.medium))
-                        }
-                        .foregroundColor(Design.shareTextColor)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Design.shareBackground)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Design.shareBorderColor, lineWidth: 0.75)
-                        )
-                        .frame(height: 19)
-                    }
-                    .buttonStyle(.plain)
-                }
+                Text("Your day so far")
+                    .font(.custom("InstrumentSerif-Regular", size: 24))
+                    .foregroundColor(Design.titleColor)
 
                 Text("This data will update every 15 minutes. Check back throughout the day to gain new understanding on your workflow.")
                     .font(.custom("Nunito", size: 11))
@@ -373,7 +344,7 @@ struct DaySummaryView: View {
                     .lineSpacing(2)
             }
 
-            if isLoading {
+            if isLoading && hasCompletedInitialLoad == false {
                 ProgressView()
                     .frame(width: 205, height: 205)
                     .frame(maxWidth: .infinity)
@@ -498,6 +469,14 @@ struct DaySummaryView: View {
                 .buttonStyle(.plain)
                 .disabled(gatePhase == .requesting)
                 .buttonStyle(SquishButtonStyle())
+                .hoverScaleEffect(
+                    enabled: gatePhase != .requesting,
+                    scale: 1.02
+                )
+                .pointingHandCursorOnHover(
+                    enabled: gatePhase != .requesting,
+                    reassertOnPressEnd: true
+                )
                 .transition(.opacity.animation(.easeOut(duration: 0.2)))
             }
 
@@ -582,6 +561,8 @@ struct DaySummaryView: View {
                         .frame(width: Design.focusEditButtonSize, height: Design.focusEditButtonSize)
                 }
                 .buttonStyle(.plain)
+                .hoverScaleEffect(scale: 1.02)
+                .pointingHandCursorOnHover(reassertOnPressEnd: true)
             }
 
             if isFocusSelectionEmpty {
@@ -633,6 +614,8 @@ struct DaySummaryView: View {
                         .frame(width: Design.focusEditButtonSize, height: Design.focusEditButtonSize)
                 }
                 .buttonStyle(.plain)
+                .hoverScaleEffect(scale: 1.02)
+                .pointingHandCursorOnHover(reassertOnPressEnd: true)
             }
 
             if isDistractionSelectionEmpty {
@@ -1332,6 +1315,8 @@ private struct CategorySelectionEditor: View {
                     .frame(width: 8, height: 8)
             }
             .buttonStyle(.plain)
+            .hoverScaleEffect(scale: 1.02)
+            .pointingHandCursorOnHover(reassertOnPressEnd: true)
             .padding(6)
             .background(
                 Color(red: 0.98, green: 0.98, blue: 0.98).opacity(0.8)
