@@ -5,7 +5,7 @@ struct SettingsOtherTabView: View {
     @ObservedObject var launchAtLoginManager: LaunchAtLoginManager
     @FocusState private var isOutputLanguageFocused: Bool
     @State private var activeExportDatePicker: ExportDatePicker?
-    @State private var isReprocessDatePickerExpanded = false
+
 
     private enum ExportDatePicker {
         case start
@@ -35,14 +35,6 @@ struct SettingsOtherTabView: View {
 
                     Toggle(isOn: $viewModel.analyticsEnabled) {
                         Text("Share crash reports and anonymous usage data")
-                            .font(.custom("Nunito", size: 13))
-                            .foregroundColor(.black.opacity(0.7))
-                    }
-                    .toggleStyle(.switch)
-                    .pointingHandCursor()
-
-                    Toggle(isOn: $viewModel.showJournalDebugPanel) {
-                        Text("Show Journal debug panel")
                             .font(.custom("Nunito", size: 13))
                             .foregroundColor(.black.opacity(0.7))
                     }
@@ -139,9 +131,7 @@ struct SettingsOtherTabView: View {
                 }
             }
 
-            if viewModel.showJournalDebugPanel {
-                reprocessDayCard
-            }
+
         }
     }
 
@@ -159,7 +149,7 @@ struct SettingsOtherTabView: View {
                         onTap: {
                             withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
                                 activeExportDatePicker = activeExportDatePicker == .start ? nil : .start
-                                isReprocessDatePickerExpanded = false
+
                             }
                         }
                     )
@@ -177,7 +167,7 @@ struct SettingsOtherTabView: View {
                         onTap: {
                             withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
                                 activeExportDatePicker = activeExportDatePicker == .end ? nil : .end
-                                isReprocessDatePickerExpanded = false
+
                             }
                         }
                     )
@@ -247,103 +237,6 @@ struct SettingsOtherTabView: View {
                 }
             }
             .padding(.top, 4)
-        }
-    }
-
-    private var reprocessDayCard: some View {
-        SettingsCard(title: "Debug: Reprocess day", subtitle: "Re-run analysis for all batches on a selected day") {
-            let normalizedDate = timelineDisplayDate(from: viewModel.reprocessDayDate)
-            let dayString = DateFormatter.yyyyMMdd.string(from: normalizedDate)
-
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 8) {
-                    datePillField(
-                        label: "Day",
-                        date: viewModel.reprocessDayDate,
-                        isExpanded: isReprocessDatePickerExpanded,
-                        accessibilityLabel: "Reprocess day",
-                        disabled: viewModel.isReprocessingDay,
-                        onTap: {
-                            withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-                                isReprocessDatePickerExpanded.toggle()
-                                activeExportDatePicker = nil
-                            }
-                        }
-                    )
-
-                    if isReprocessDatePickerExpanded {
-                        inlineCalendarField(
-                            label: "Day",
-                            date: $viewModel.reprocessDayDate,
-                            disabled: viewModel.isReprocessingDay,
-                            onDateSelected: {
-                                withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-                                    isReprocessDatePickerExpanded = false
-                                }
-                            }
-                        )
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-
-                    Text(dayString)
-                        .font(.custom("Nunito", size: 12))
-                        .foregroundColor(.black.opacity(0.5))
-                }
-
-                Text("Reprocessing deletes existing timeline cards for the selected day and re-runs analysis.")
-                    .font(.custom("Nunito", size: 11.5))
-                    .foregroundColor(.black.opacity(0.55))
-
-                Text("This will consume a lot of API calls.")
-                    .font(.custom("Nunito", size: 11.5))
-                    .foregroundColor(.black.opacity(0.7))
-
-                HStack(spacing: 10) {
-                    DayflowSurfaceButton(
-                        action: { viewModel.showReprocessDayConfirm = true },
-                        content: {
-                            HStack(spacing: 8) {
-                                if viewModel.isReprocessingDay {
-                                    ProgressView().scaleEffect(0.75)
-                                } else {
-                                    Image(systemName: "arrow.clockwise")
-                                        .font(.system(size: 13, weight: .semibold))
-                                }
-                                Text(viewModel.isReprocessingDay ? "Reprocessing…" : "Reprocess day")
-                                    .font(.custom("Nunito", size: 13))
-                                    .fontWeight(.semibold)
-                            }
-                            .frame(minWidth: 150)
-                        },
-                        background: Color(red: 0.25, green: 0.17, blue: 0),
-                        foreground: .white,
-                        borderColor: .clear,
-                        cornerRadius: 8,
-                        horizontalPadding: 20,
-                        verticalPadding: 10,
-                        showOverlayStroke: true
-                    )
-                    .disabled(viewModel.isReprocessingDay)
-
-                    if let status = viewModel.reprocessStatusMessage {
-                        Text(status)
-                            .font(.custom("Nunito", size: 12))
-                            .foregroundColor(.black.opacity(0.6))
-                    }
-                }
-
-                if let error = viewModel.reprocessErrorMessage {
-                    Text(error)
-                        .font(.custom("Nunito", size: 12))
-                        .foregroundColor(.red.opacity(0.8))
-                }
-            }
-            .alert("Reprocess day?", isPresented: $viewModel.showReprocessDayConfirm) {
-                Button("Cancel", role: .cancel) {}
-                Button("Reprocess", role: .destructive) { viewModel.reprocessSelectedDay() }
-            } message: {
-                Text("This will delete existing timeline cards for \(dayString) and re-run analysis. It will consume a large number of API calls.")
-            }
         }
     }
 

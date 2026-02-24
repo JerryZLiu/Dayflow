@@ -160,8 +160,6 @@ struct JournalDayView: View {
     @State private var transitionDirection: AnyTransition = .identity
     @State private var pageId = UUID()
     
-    @AppStorage("showJournalDebugPanel") private var showDebugPanel = false
-
     init(onSetReminders: (() -> Void)? = nil) {
         self.onSetReminders = onSetReminders
     }
@@ -190,9 +188,7 @@ struct JournalDayView: View {
             .padding(.bottom, 10)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            if showDebugPanel {
-                DebugPanelView(manager: manager)
-            }
+
         }
         .onAppear {
             manager.loadCurrentDay()
@@ -347,33 +343,6 @@ extension JournalDayView {
                 .padding(.trailing, 20)
             }
         }
-    }
-}
-
-// MARK: - Debug Panel
-private struct DebugPanelView: View {
-    @ObservedObject var manager: JournalDayManager
-    @AppStorage("isJournalUnlocked") private var isJournalUnlocked: Bool = false
-    @AppStorage("hasCompletedJournalOnboarding") private var hasCompletedOnboarding: Bool = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Debug")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(.white.opacity(0.7))
-            Button("🔒 Lock") { isJournalUnlocked = false }.font(.system(size: 9))
-            Button("🔄 Reset") { hasCompletedOnboarding = false; isJournalUnlocked = false }.font(.system(size: 9))
-            Divider().background(Color.white.opacity(0.3))
-            Button("→ Intro") { manager.flowState = .intro }.font(.system(size: 9))
-            Button("→ Summary") { manager.flowState = .summary }.font(.system(size: 9))
-            Button("→ Intents") { manager.flowState = .intentionsEdit }.font(.system(size: 9))
-            Button("→ Prompt") { manager.flowState = .reflectionPrompt }.font(.system(size: 9))
-        }
-        .frame(maxWidth: 100)
-        .padding(6)
-        .background(Color.black.opacity(0.75))
-        .cornerRadius(6)
-        .padding(8)
     }
 }
 
