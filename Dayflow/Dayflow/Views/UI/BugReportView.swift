@@ -40,7 +40,7 @@ struct BugReportView: View {
                                 HStack(spacing: 12) {
                                     Image(systemName: "envelope.fill")
                                         .font(.system(size: 18, weight: .semibold))
-                                    Text("Email Jerry")
+                                    Text("Email")
                                         .font(.custom("Nunito", size: 16).weight(.semibold))
                                 }
                             },
