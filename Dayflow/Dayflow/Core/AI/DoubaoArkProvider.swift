@@ -78,17 +78,111 @@ final class DoubaoArkProvider {
 
   // MARK: - API types
 
-  private struct ChatCompletionRequest: Codable {
+  private struct ChatCompletionRequest: Encodable {
     let model: String
     let messages: [ChatMessage]
     let temperature: Double?
     let maxTokens: Int?
+    let responseFormat: ResponseFormat?
 
     enum CodingKeys: String, CodingKey {
       case model
       case messages
       case temperature
       case maxTokens = "max_tokens"
+      case responseFormat = "response_format"
+    }
+  }
+
+  private struct ResponseFormat: Encodable {
+    let type: String
+    let jsonSchema: JSONSchema
+
+    enum CodingKeys: String, CodingKey {
+      case type
+      case jsonSchema = "json_schema"
+    }
+  }
+
+  private struct AnyCodable: Codable {
+    let value: Any
+
+    init<T>(_ value: T?) {
+      self.value = value ?? ()
+    }
+
+    init(from decoder: Decoder) throws {
+      let container = try decoder.singleValueContainer()
+      if container.decodeNil() {
+        self.value = ()
+      } else if let bool = try? container.decode(Bool.self) {
+        self.value = bool
+      } else if let int = try? container.decode(Int.self) {
+        self.value = int
+      } else if let double = try? container.decode(Double.self) {
+        self.value = double
+      } else if let string = try? container.decode(String.self) {
+        self.value = string
+      } else if let array = try? container.decode([AnyCodable].self) {
+        self.value = array.map { $0.value }
+      } else if let dictionary = try? container.decode([String: AnyCodable].self) {
+        self.value = dictionary.mapValues { $0.value }
+      } else {
+        throw DecodingError.dataCorruptedError(
+          in: container, debugDescription: "AnyCodable value cannot be decoded")
+      }
+    }
+
+    func encode(to encoder: Encoder) throws {
+      var container = encoder.singleValueContainer()
+      switch value {
+      case is Void:
+        try container.encodeNil()
+      case let bool as Bool:
+        try container.encode(bool)
+      case let int as Int:
+        try container.encode(int)
+      case let double as Double:
+        try container.encode(double)
+      case let string as String:
+        try container.encode(string)
+      case let array as [Any]:
+        try container.encode(array.map { AnyCodable($0) })
+      case let dictionary as [String: Any]:
+        try container.encode(dictionary.mapValues { AnyCodable($0) })
+      default:
+        throw EncodingError.invalidValue(
+          value,
+          EncodingError.Context(
+            codingPath: container.codingPath, debugDescription: "AnyCodable value cannot be encoded"
+          ))
+      }
+    }
+  }
+
+  private struct JSONSchema: Encodable {
+    let name: String
+    let schema: [String: Any]
+    let strict: Bool
+
+    func encode(to encoder: Encoder) throws {
+      var container = encoder.container(keyedBy: CodingKeys.self)
+      try container.encode(name, forKey: .name)
+      try container.encode(strict, forKey: .strict)
+
+      // Ark expects an object for `schema` (not a JSON string).
+      // AnyCodable handles serializing the hardcoded schema dictionary.
+      try container.encode(AnyCodable(schema), forKey: .schema)
+    }
+
+    init(name: String, schema: [String: Any], strict: Bool) {
+      self.name = name
+      self.schema = schema
+      self.strict = strict
+    }
+
+    enum CodingKeys: String, CodingKey {
+      case name, schema, strict
     }
   }
 
@@ -196,7 +290,7 @@ final class DoubaoArkProvider {
     let log = LLMCall(
       timestamp: callStart, latency: Date().timeIntervalSince(callStart), input: prompt,
       output: output)
-    return (output.trimmingCharacters(in: .whitespacesAndNewlines), log)
+    return (output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), log)
   }
 
   func transcribeScreenshots(_ screenshots: [Screenshot], batchStartTime: Date, batchId: Int64?)
@@ -249,7 +343,7 @@ final class DoubaoArkProvider {
     let durationString = String(format: "%02d:%02d", durationMinutes, durationSeconds)
 
     let finalTranscriptionPrompt = LLMPromptTemplates.screenRecordingTranscriptionPrompt(
-      durationString: durationString)
+      durationString: durationString, schema: LLMSchema.screenRecordingTranscriptionSchema)
 
     let maxRetries = 3
     var attempt = 0
@@ -269,7 +363,11 @@ final class DoubaoArkProvider {
           batchId: batchId,
           attempt: attempt + 1,
           callGroupId: callGroupId,
-          includeRequestBodyInLog: false
+          includeRequestBodyInLog: false,
+          schema: (
+            name: "screen_recording_transcription",
+            definition: LLMSchema.screenRecordingTranscriptionSchema
+          )
         )
 
         let transcripts = try LLMTranscriptUtilities.decodeTranscriptChunks(
@@ -352,7 +450,7 @@ final class DoubaoArkProvider {
       transcriptText: transcriptText,
       categoriesSection: categoriesSection(from: context.categories),
       promptSections: promptSections,
-      languageBlock: languageBlock
+      languageBlock: languageBlock, schema: LLMSchema.activityCardsSchema
     )
 
     let maxRetries = 4
@@ -371,7 +469,8 @@ final class DoubaoArkProvider {
           batchId: batchId,
           attempt: attempt + 1,
           callGroupId: callGroupId,
-          includeRequestBodyInLog: true
+          includeRequestBodyInLog: true,
+          schema: (name: "activity_cards", definition: LLMSchema.activityCardsSchema)
         )
 
         let cards = try parseCards(from: output)
@@ -454,7 +553,8 @@ final class DoubaoArkProvider {
     batchId: Int64?,
     attempt: Int = 1,
     callGroupId: String? = nil,
-    includeRequestBodyInLog: Bool
+    includeRequestBodyInLog: Bool,
+    schema: (name: String, definition: String)? = nil
   ) async throws -> String {
     guard let url = ArkEndpointUtilities.chatCompletionsURL(baseURL: endpoint) else {
       throw NSError(
@@ -469,8 +569,27 @@ final class DoubaoArkProvider {
     request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
     request.timeoutInterval = 120
 
+    let responseFormat: ResponseFormat? = schema.flatMap { schema in
+      let schemaData = Data(schema.definition.utf8)
+      guard
+        let schemaJSON = try? JSONSerialization.jsonObject(with: schemaData, options: [])
+          as? [String: Any]
+      else {
+        assertionFailure("Hardcoded LLMSchema is not valid JSON: \(schema.name)")
+        return nil
+      }
+      return ResponseFormat(
+        type: "json_schema",
+        jsonSchema: JSONSchema(name: schema.name, schema: schemaJSON, strict: true))
+    }
+
     let body = ChatCompletionRequest(
-      model: modelId, messages: messages, temperature: 0.3, maxTokens: 8192)
+      model: modelId,
+      messages: messages,
+      temperature: 0.3,
+      maxTokens: 8192,
+      responseFormat: responseFormat
+    )
     let encoder = JSONEncoder()
     let bodyData = try encoder.encode(body)
     request.httpBody = bodyData

@@ -189,7 +189,7 @@ struct VideoPromptSections {
 ///
 /// When prompts must remain *exactly* identical between providers, keep them here and call these helpers.
 enum LLMPromptTemplates {
-    static func screenRecordingTranscriptionPrompt(durationString: String) -> String {
+	static func screenRecordingTranscriptionPrompt(durationString: String, schema: String) -> String {
         """
         # Screen Recording Transcription (Reconstruct Mode)
 
@@ -221,14 +221,7 @@ enum LLMPromptTemplates {
         - Group by GOAL not app (IDE + Terminal + Browser for the same task = 1 segment)
         - Do not create gaps; cover the full timeline
 
-        Return ONLY JSON in this format:
-        [
-          {
-            "startTimestamp": "MM:SS",
-            "endTimestamp": "MM:SS",
-            "description": "1-3 sentences with specific details"
-          }
-        ]
+        Return a JSON array that follows the schema: \(schema)
         """
     }
 
@@ -237,7 +230,8 @@ enum LLMPromptTemplates {
         transcriptText: String,
         categoriesSection: String,
         promptSections: VideoPromptSections,
-        languageBlock: String
+        languageBlock: String,
+		schema: String,
     ) -> String {
         """
         You are a digital anthropologist, observing a user's raw activity log. Your goal is to synthesize this log into a high-level, human-readable story of their session, presented as a series of timeline cards.
@@ -308,31 +302,8 @@ enum LLMPromptTemplates {
         INPUTS:
         Previous cards: \(existingCardsString)
         New observations: \(transcriptText)
-        Return ONLY a JSON array with this EXACT structure:
-
-                [
-                  {
-                    "startTime": "1:12 AM",
-                    "endTime": "1:30 AM",
-                    "category": "",
-                    "subcategory": "",
-                    "title": "",
-                    "summary": "",
-                    "detailedSummary": "",
-                    "distractions": [
-                      {
-                        "startTime": "1:15 AM",
-                        "endTime": "1:18 AM",
-                        "title": "",
-                        "summary": ""
-                      }
-                    ],
-                    "appSites": {
-                      "primary": "",
-                      "secondary": ""
-                    }
-                  }
-                ]
+        
+        Return a JSON array of activity cards that follows the schema: \(schema)
         """
     }
 }
