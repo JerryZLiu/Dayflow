@@ -1,43 +1,43 @@
 import Foundation
 
 struct OllamaPromptOverrides: Codable, Equatable {
-    var summaryBlock: String?
-    var titleBlock: String?
+  var summaryBlock: String?
+  var titleBlock: String?
 
-    var isEmpty: Bool {
-        [summaryBlock, titleBlock].allSatisfy { value in
-            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return trimmed.isEmpty
-        }
+  var isEmpty: Bool {
+    [summaryBlock, titleBlock].allSatisfy { value in
+      let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      return trimmed.isEmpty
     }
+  }
 }
 
 enum OllamaPromptPreferences {
-    private static let overridesKey = "ollamaPromptOverrides"
-    private static let store = UserDefaults.standard
+  private static let overridesKey = "ollamaPromptOverrides"
+  private static let store = UserDefaults.standard
 
-    static func load() -> OllamaPromptOverrides {
-        guard let data = store.data(forKey: overridesKey) else {
-            return OllamaPromptOverrides()
-        }
-        guard let overrides = try? JSONDecoder().decode(OllamaPromptOverrides.self, from: data) else {
-            return OllamaPromptOverrides()
-        }
-        return overrides
+  static func load() -> OllamaPromptOverrides {
+    guard let data = store.data(forKey: overridesKey) else {
+      return OllamaPromptOverrides()
     }
+    guard let overrides = try? JSONDecoder().decode(OllamaPromptOverrides.self, from: data) else {
+      return OllamaPromptOverrides()
+    }
+    return overrides
+  }
 
-    static func save(_ overrides: OllamaPromptOverrides) {
-        guard let data = try? JSONEncoder().encode(overrides) else { return }
-        store.set(data, forKey: overridesKey)
-    }
+  static func save(_ overrides: OllamaPromptOverrides) {
+    guard let data = try? JSONEncoder().encode(overrides) else { return }
+    store.set(data, forKey: overridesKey)
+  }
 
-    static func reset() {
-        store.removeObject(forKey: overridesKey)
-    }
+  static func reset() {
+    store.removeObject(forKey: overridesKey)
+  }
 }
 
 enum OllamaPromptDefaults {
-    static let summaryBlock = """
+  static let summaryBlock = """
           SUMMARY GUIDELINES:
           - Write in first person without using "I" (like a personal journal entry)
           - 2-3 sentences maximum
@@ -66,7 +66,7 @@ enum OllamaPromptDefaults {
           - "Spent time on multiple applications and websites" (generic, no details)
     """
 
-    static let titleBlock = """
+  static let titleBlock = """
         Write one activity title for a 15-minute window using ONLY the observations.
         Rules:
         - 5-10 words, natural and specific, single line
@@ -83,16 +83,18 @@ enum OllamaPromptDefaults {
 }
 
 struct OllamaPromptSections {
-    let summary: String
-    let title: String
+  let summary: String
+  let title: String
 
-    init(overrides: OllamaPromptOverrides) {
-        self.summary = OllamaPromptSections.compose(defaultBlock: OllamaPromptDefaults.summaryBlock, custom: overrides.summaryBlock)
-        self.title = OllamaPromptSections.compose(defaultBlock: OllamaPromptDefaults.titleBlock, custom: overrides.titleBlock)
-    }
+  init(overrides: OllamaPromptOverrides) {
+    self.summary = OllamaPromptSections.compose(
+      defaultBlock: OllamaPromptDefaults.summaryBlock, custom: overrides.summaryBlock)
+    self.title = OllamaPromptSections.compose(
+      defaultBlock: OllamaPromptDefaults.titleBlock, custom: overrides.titleBlock)
+  }
 
-    private static func compose(defaultBlock: String, custom: String?) -> String {
-        let trimmed = custom?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? defaultBlock : trimmed
-    }
+  private static func compose(defaultBlock: String, custom: String?) -> String {
+    let trimmed = custom?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return trimmed.isEmpty ? defaultBlock : trimmed
+  }
 }
