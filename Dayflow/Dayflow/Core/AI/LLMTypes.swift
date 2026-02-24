@@ -17,6 +17,8 @@ enum LLMProviderType: Codable {
     case dayflowBackend(endpoint: String = "https://api.dayflow.app")
     case ollamaLocal(endpoint: String = "http://localhost:11434")
     case chatGPTClaude
+    /// Volcengine Ark / Doubao (OpenAI-compatible Chat Completions API)
+    case doubaoArk(endpoint: String = "https://ark.cn-beijing.volces.com/api/v3")
 
     private static let providerDefaultsKey = "llmProviderType"
     private static let selectedProviderDefaultsKey = "selectedLLMProvider"
@@ -54,6 +56,8 @@ enum LLMProviderType: Codable {
             return "ollama"
         case .chatGPTClaude:
             return "chatgpt_claude"
+        case .doubaoArk:
+            return "doubao"
         }
     }
 
@@ -89,6 +93,8 @@ enum LLMProviderType: Codable {
             return .chatGPTClaude
         case "chatgpt_claude":
             return .chatGPTClaude
+        case "doubao":
+            return .doubaoArk()
         default:
             return nil
         }
@@ -100,6 +106,7 @@ enum LLMProviderID: String, Codable, CaseIterable {
     case dayflow
     case ollama
     case chatGPTClaude = "chatgpt_claude"
+    case doubao
 
     var analyticsName: String {
         switch self {
@@ -111,6 +118,8 @@ enum LLMProviderID: String, Codable, CaseIterable {
             return "ollama"
         case .chatGPTClaude:
             return "chat_cli"
+        case .doubao:
+            return "doubao"
         }
     }
 
@@ -124,6 +133,8 @@ enum LLMProviderID: String, Codable, CaseIterable {
             return .ollama
         case .chatGPTClaude:
             return .chatGPTClaude
+        case .doubaoArk:
+            return .doubao
         }
     }
 
@@ -137,8 +148,18 @@ enum LLMProviderID: String, Codable, CaseIterable {
             return "local"
         case .chatGPTClaude:
             return chatTool == .claude ? "claude" : "chatgpt"
+        case .doubao:
+            return "doubao"
         }
     }
+}
+
+enum DoubaoPreferences {
+    static let baseURLDefaultsKey = "llmDoubaoBaseURL"
+    static let modelIdDefaultsKey = "llmDoubaoModelId"
+
+    static let defaultBaseURL = "https://ark.cn-beijing.volces.com/api/v3"
+    static let defaultModelId = "doubao-seed-1-6-flash-250828"
 }
 
 enum LLMProviderRoutingPreferences {

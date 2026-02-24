@@ -224,6 +224,8 @@ final class ProvidersSettingsViewModel: ObservableObject {
             currentProvider = "ollama"
         case .chatGPTClaude:
             currentProvider = "chatgpt_claude"
+        case .doubaoArk:
+            currentProvider = "doubao"
         }
         hasLoadedProvider = true
     }
@@ -429,6 +431,15 @@ final class ProvidersSettingsViewModel: ObservableObject {
             let preferredTool = (UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             return !preferredTool.isEmpty
+        case "doubao":
+            if UserDefaults.standard.bool(forKey: "doubaoSetupComplete") {
+                return true
+            }
+            let key = (KeychainManager.shared.retrieve(for: "doubao") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let modelId = (UserDefaults.standard.string(forKey: DoubaoPreferences.modelIdDefaultsKey) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return !key.isEmpty && !modelId.isEmpty
         default:
             return false
         }
@@ -479,6 +490,11 @@ final class ProvidersSettingsViewModel: ObservableObject {
             providerType = .dayflowBackend()
         case "chatgpt_claude":
             providerType = .chatGPTClaude
+        case "doubao":
+            let endpoint = (UserDefaults.standard.string(forKey: DoubaoPreferences.baseURLDefaultsKey) ?? DoubaoPreferences.defaultBaseURL)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedEndpoint = endpoint.isEmpty ? DoubaoPreferences.defaultBaseURL : endpoint
+            providerType = .doubaoArk(endpoint: resolvedEndpoint)
         default:
             return
         }
@@ -553,6 +569,13 @@ final class ProvidersSettingsViewModel: ObservableObject {
             props["has_api_key"] = !localAPIKeyValue.isEmpty
         } else if providerId == "chatgpt_claude" {
             props["chat_cli_tool"] = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "unknown"
+        } else if providerId == "doubao" {
+            let baseURL = UserDefaults.standard.string(forKey: DoubaoPreferences.baseURLDefaultsKey) ?? "unknown"
+            let modelId = UserDefaults.standard.string(forKey: DoubaoPreferences.modelIdDefaultsKey) ?? "unknown"
+            let hasKey = !(KeychainManager.shared.retrieve(for: "doubao") ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            props["base_url"] = baseURL
+            props["model_id"] = modelId
+            props["has_api_key"] = hasKey
         }
         AnalyticsService.shared.capture("provider_setup_completed", props)
     }
@@ -587,6 +610,14 @@ final class ProvidersSettingsViewModel: ObservableObject {
                 badgeText: "RECOMMENDED",
                 badgeType: .orange,
                 icon: "gemini_asset"
+            ),
+            CompactProviderInfo(
+                id: "doubao",
+                title: "Doubao (Ark)",
+                summary: "Volcengine Ark • OpenAI-compatible • bring your own key",
+                badgeText: "BYOK",
+                badgeType: .blue,
+                icon: "globe.asia.australia"
             ),
             CompactProviderInfo(
                 id: "chatgpt",
@@ -624,6 +655,12 @@ final class ProvidersSettingsViewModel: ObservableObject {
             return "\(engineName) - \(truncatedModel)"
         case "gemini":
             return selectedGeminiModel.displayName
+        case "doubao":
+            let model = (UserDefaults.standard.string(forKey: DoubaoPreferences.modelIdDefaultsKey) ?? DoubaoPreferences.defaultModelId)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let displayModel = model.isEmpty ? DoubaoPreferences.defaultModelId : model
+            let truncated = displayModel.count > 30 ? String(displayModel.prefix(27)) + "..." : displayModel
+            return "Ark - \(truncated)"
         case "chatgpt_claude":
             if providerId == "chatgpt" {
                 return "ChatGPT – Codex CLI"
@@ -655,6 +692,8 @@ final class ProvidersSettingsViewModel: ObservableObject {
             return "Gemini API"
         case "ollama":
             return "Local API"
+        case "doubao":
+            return "Doubao (Ark) API"
         case "chatgpt_claude":
             if let tool = preferredCLITool {
                 return "\(tool.shortName) CLI"
@@ -669,6 +708,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
         switch id {
         case "ollama": return "Local"
         case "gemini": return "Gemini"
+        case "doubao": return "Doubao"
         case "chatgpt": return "ChatGPT"
         case "claude": return "Claude"
         case "chatgpt_claude":
@@ -713,7 +753,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
     func loadGeminiPromptOverridesIfNeeded(force: Bool = false) {
         if geminiPromptOverridesLoaded && !force { return }
         isUpdatingGeminiPromptState = true
-        let overrides = GeminiPromptPreferences.load()
+        let overrides = VideoPromptPreferences.load()
 
         let trimmedTitle = overrides.titleBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedSummary = overrides.summaryBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -737,16 +777,16 @@ final class ProvidersSettingsViewModel: ObservableObject {
     }
 
     func persistGeminiPromptOverrides() {
-        let overrides = GeminiPromptOverrides(
+        let overrides = VideoPromptOverrides(
             titleBlock: normalizedOverride(text: geminiTitlePromptText, enabled: useCustomGeminiTitlePrompt),
             summaryBlock: normalizedOverride(text: geminiSummaryPromptText, enabled: useCustomGeminiSummaryPrompt),
             detailedBlock: normalizedOverride(text: geminiDetailedPromptText, enabled: useCustomGeminiDetailedPrompt)
         )
 
         if overrides.isEmpty {
-            GeminiPromptPreferences.reset()
+            VideoPromptPreferences.reset()
         } else {
-            GeminiPromptPreferences.save(overrides)
+            VideoPromptPreferences.save(overrides)
         }
     }
 
@@ -758,7 +798,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
         geminiTitlePromptText = GeminiPromptDefaults.titleBlock
         geminiSummaryPromptText = GeminiPromptDefaults.summaryBlock
         geminiDetailedPromptText = GeminiPromptDefaults.detailedSummaryBlock
-        GeminiPromptPreferences.reset()
+        VideoPromptPreferences.reset()
         isUpdatingGeminiPromptState = false
         geminiPromptOverridesLoaded = true
     }

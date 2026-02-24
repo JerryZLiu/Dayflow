@@ -88,6 +88,14 @@ final class LLMService: LLMServicing {
         OllamaProvider(endpoint: endpoint)
     }
 
+    private func makeDoubaoProvider(endpoint: String, modelId: String) -> DoubaoArkProvider? {
+        if let apiKey = KeychainManager.shared.retrieve(for: "doubao"), !apiKey.isEmpty {
+            return DoubaoArkProvider(apiKey: apiKey, endpoint: endpoint, modelId: modelId)
+        }
+        print("❌ [LLMService] Failed to retrieve Doubao API key from Keychain")
+        return nil
+    }
+
     private func makeChatCLIProvider(preferredToolOverride: ChatCLITool? = nil) -> ChatCLIProvider {
         let tool: ChatCLITool
         if let preferredToolOverride {
@@ -183,6 +191,26 @@ final class LLMService: LLMServicing {
             ), fallbackState: nil)
         case .chatGPTClaude:
             let provider = makeChatCLIProvider(preferredToolOverride: chatToolOverride)
+            return (actions: BatchProviderActions(
+                transcribeScreenshots: provider.transcribeScreenshots,
+                generateActivityCards: provider.generateActivityCards
+            ), fallbackState: nil)
+
+        case .doubao:
+            let endpoint: String
+            if case .doubaoArk(let savedEndpoint) = providerType {
+                endpoint = savedEndpoint
+            } else {
+                endpoint = DoubaoPreferences.defaultBaseURL
+            }
+
+            let modelId = (UserDefaults.standard.string(forKey: DoubaoPreferences.modelIdDefaultsKey) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedModelId = modelId.isEmpty ? DoubaoPreferences.defaultModelId : modelId
+
+            guard let provider = makeDoubaoProvider(endpoint: endpoint, modelId: resolvedModelId) else {
+                throw noProviderError()
+            }
             return (actions: BatchProviderActions(
                 transcribeScreenshots: provider.transcribeScreenshots,
                 generateActivityCards: provider.generateActivityCards
@@ -421,6 +449,16 @@ final class LLMService: LLMServicing {
             return TextProviderActions(
                 generateText: provider.generateText,
                 generateTextStreaming: provider.generateTextStreaming
+            )
+
+        case .doubaoArk(let endpoint):
+            let modelId = (UserDefaults.standard.string(forKey: DoubaoPreferences.modelIdDefaultsKey) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedModelId = modelId.isEmpty ? DoubaoPreferences.defaultModelId : modelId
+            guard let provider = makeDoubaoProvider(endpoint: endpoint, modelId: resolvedModelId) else { throw noProviderError() }
+            return TextProviderActions(
+                generateText: provider.generateText,
+                generateTextStreaming: nil
             )
         }
     }
