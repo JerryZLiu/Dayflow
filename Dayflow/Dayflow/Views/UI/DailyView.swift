@@ -32,6 +32,7 @@ struct DailyView: View {
     @AppStorage("isDailyUnlocked") private var isUnlocked: Bool = false
     @Binding var selectedDate: Date
     @EnvironmentObject private var categoryStore: CategoryStore
+    @Environment(\.openURL) private var openURL
 
     @State private var accessCode: String = ""
     @State private var attempts: Int = 0
@@ -47,7 +48,9 @@ struct DailyView: View {
     @State private var standupCopyResetTask: Task<Void, Never>? = nil
 
     private let requiredCodeHash = "6979ce2825cb3f440f987bbc487d62087c333abb99b56062c561ca557392d960"
-    private let betaNoticeCopy = "We're slowly letting people into the beta as we iterate and improve the experience. If you choose to participate in the beta, you acknowledge that you may encounter bugs and agree to provide feedback."
+    private let betaNoticeCopy = "Daily is a new way to visualize your day and turn it into a standup update fast."
+    private let onboardingNoticeCopy = "Currently doing custom onboarding while we refine the workflow. If you’re interested, book some time and I’ll walk you through it."
+    private let onboardingBookingURL = "https://cal.com/jerry-liu/15min"
 
     var body: some View {
         ZStack {
@@ -63,9 +66,7 @@ struct DailyView: View {
     }
 
     private var lockScreen: some View {
-        VStack(spacing: 24) {
-            Spacer()
-
+        VStack(spacing: 16) {
             HStack(alignment: .top, spacing: 4) {
                 Text("Dayflow Daily")
                     .font(.custom("InstrumentSerif-Italic", size: 38))
@@ -91,14 +92,43 @@ struct DailyView: View {
                 .frame(maxWidth: 480)
                 .padding(.horizontal, 24)
 
-            Spacer().frame(height: 20)
-
             accessCodeCard
                 .modifier(Shake(animatableData: CGFloat(attempts)))
+                .padding(.top, 6)
 
-            Spacer()
+            VStack(spacing: 8) {
+                Text(onboardingNoticeCopy)
+                    .font(.custom("Nunito-Regular", size: 13))
+                    .foregroundColor(Color(red: 0.35, green: 0.22, blue: 0.12).opacity(0.75))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 520)
+                    .padding(.horizontal, 24)
+
+                DayflowSurfaceButton(
+                    action: openManualOnboardingBooking,
+                    content: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "calendar")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("Book a Time")
+                                .font(.custom("Nunito", size: 14))
+                                .fontWeight(.semibold)
+                        }
+                    },
+                    background: Color(red: 0.25, green: 0.17, blue: 0),
+                    foreground: .white,
+                    borderColor: .clear,
+                    cornerRadius: 8,
+                    horizontalPadding: 16,
+                    verticalPadding: 10,
+                    showOverlayStroke: true
+                )
+                .pointingHandCursor()
+            }
         }
-        .padding()
+        .padding(.horizontal, 24)
+        .padding(.vertical, 28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .background(
             GeometryReader { geo in
@@ -247,6 +277,15 @@ struct DailyView: View {
                 accessCode = ""
             }
         }
+    }
+
+    private func openManualOnboardingBooking() {
+        guard let url = URL(string: onboardingBookingURL) else { return }
+        AnalyticsService.shared.capture("daily_manual_onboarding_booking_opened", [
+            "source": "daily_lock_screen",
+            "url": onboardingBookingURL
+        ])
+        openURL(url)
     }
 
     private func topControls(scale: CGFloat) -> some View {
@@ -1674,30 +1713,25 @@ private struct DailyStandupDraft: Codable, Equatable, Sendable {
         tasks: DailyContent.todayTasks,
         addTaskLabel: "",
         blockersTitle: "Blockers",
-        blockersBody: "Fill in any blockers you may have"
+        blockersBody: DailyContent.notGeneratedMessage
     )
 }
 
 private enum DailyContent {
+    static let notGeneratedTitle = "Daily data not generated yet"
+    static let notGeneratedMessage = "Daily data has not been generated yet. If this is unexpected, please report a bug."
+
     static let yesterdayHighlights: [DailyBulletItem] = [
         DailyBulletItem(
-            title: "Editorial NLS",
-            body: "Iterated on ZSR and sparse results design explorations (zero-result states, best match redirects, query rephrasing guidance)"
-        ),
-        DailyBulletItem(
-            title: "Editorial video NLS",
-            body: "Conducted competitive analysis of NLS video search tools (TwelveLabs, WayinVideo, AP Moments, YouTube Ask)"
-        ),
-        DailyBulletItem(
-            title: "Editorial SBI",
-            body: "Reviewed scope-switching and SBI handling flows; drafted \"Areas requiring additional PD input\" spec with ClickUp links"
+            title: notGeneratedTitle,
+            body: notGeneratedMessage
         )
     ]
 
     static let todayTasks: [DailyBulletItem] = [
         DailyBulletItem(
-            title: "Editorial NLS",
-            body: "Continued ZSR and sparse results design explorations; reviewed Editorial Stacker with Algorithm Evaluator bugs reported in Slack (Bob Dylan date sorting issue, score threshold display bug)"
+            title: notGeneratedTitle,
+            body: notGeneratedMessage
         )
     ]
 }
