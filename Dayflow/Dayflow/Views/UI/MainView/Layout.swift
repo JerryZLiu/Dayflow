@@ -97,6 +97,7 @@ extension MainView {
                 let tabName: String
                 switch newIcon {
                 case .timeline: tabName = "timeline"
+                case .daily: tabName = "daily"
                 case .dashboard: tabName = "dashboard"
                 case .journal: tabName = "journal"
                 case .bug: tabName = "bug_report"
@@ -278,6 +279,8 @@ extension MainView {
             case .dashboard:
                 DashboardView()
                     .padding(15)
+            case .daily:
+                DailyView(selectedDate: $selectedDate)
             case .journal:
                 JournalView()
                     .padding(15)
@@ -680,8 +683,12 @@ extension MainView {
                     .transition(transition)
                 } else {
                     HStack(spacing: 4) {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 10, weight: .medium))
+                        Image("Copy")
+                            .resizable()
+                            .interpolation(.high)
+                            .renderingMode(.template)
+                            .scaledToFit()
+                            .frame(width: 10, height: 10)
                         Text("Copy timeline")
                             .font(Font.custom("Nunito", size: 10).weight(.medium))
                     }
