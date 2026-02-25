@@ -31,6 +31,15 @@ protocol LLMServicing {
 
 final class LLMService: LLMServicing {
     static let shared: LLMServicing = LLMService()
+    private static let timelineFailureToastLastShownDayDefaultsKey = "timelineFailureToastLastShownDay"
+    private static let timelineFailureToastThrottleQueue = DispatchQueue(
+        label: "com.dayflow.timelineFailureToastThrottle"
+    )
+    private enum DayflowBackendConfig {
+        static let defaultEndpoint = "https://web-production-f3361.up.railway.app"
+        static let infoPlistEndpointKey = "DayflowBackendURL"
+        static let userDefaultsEndpointOverrideKey = "dayflowBackendURLOverride"
+    }
     
     private struct BatchProviderActions {
         let transcribeScreenshots: ([Screenshot], Date, Int64?) async throws -> (observations: [Observation], log: LLMCall)
@@ -82,6 +91,32 @@ final class LLMService: LLMServicing {
         }
         print("❌ [LLMService] Failed to retrieve Dayflow token from Keychain")
         return nil
+    }
+
+    private func resolvedDayflowEndpoint(savedEndpoint: String?) -> String {
+        let defaults = UserDefaults.standard
+
+        if let override = defaults.string(forKey: DayflowBackendConfig.userDefaultsEndpointOverrideKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return override
+        }
+
+        if let infoEndpoint = Bundle.main.infoDictionary?[DayflowBackendConfig.infoPlistEndpointKey] as? String {
+            let trimmed = infoEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+
+        if let savedEndpoint {
+            let trimmed = savedEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+
+        return DayflowBackendConfig.defaultEndpoint
     }
 
     private func makeOllamaProvider(endpoint: String) -> OllamaProvider {
@@ -163,12 +198,13 @@ final class LLMService: LLMServicing {
                 }
             ), fallbackState: fallbackState)
         case .dayflow:
-            let endpoint: String
-            if case .dayflowBackend(let savedEndpoint) = providerType {
-                endpoint = savedEndpoint
+            let savedEndpoint: String?
+            if case .dayflowBackend(let endpointFromSettings) = providerType {
+                savedEndpoint = endpointFromSettings
             } else {
-                endpoint = "https://api.dayflow.app"
+                savedEndpoint = nil
             }
+            let endpoint = resolvedDayflowEndpoint(savedEndpoint: savedEndpoint)
             guard let provider = makeDayflowProvider(endpoint: endpoint) else { throw noProviderError() }
             return (actions: BatchProviderActions(
                 transcribeScreenshots: provider.transcribeScreenshots,
@@ -377,6 +413,8 @@ final class LLMService: LLMServicing {
         backupConfigured: Bool,
         batchId: Int64?
     ) {
+        guard shouldEmitTimelineFailureToast() else { return }
+
         let nsError = error as NSError
         let rateLimited = isRateLimitError(error)
         let payload = TimelineFailureToastPayload(
@@ -396,6 +434,19 @@ final class LLMService: LLMServicing {
         TimelineFailureToastCenter.post(payload)
     }
 
+    private func shouldEmitTimelineFailureToast(now: Date = Date()) -> Bool {
+        let logicalDay = now.getDayInfoFor4AMBoundary().dayString
+        return Self.timelineFailureToastThrottleQueue.sync {
+            let defaults = UserDefaults.standard
+            let lastShownDay = defaults.string(forKey: Self.timelineFailureToastLastShownDayDefaultsKey)
+            guard lastShownDay != logicalDay else {
+                return false
+            }
+            defaults.set(logicalDay, forKey: Self.timelineFailureToastLastShownDayDefaultsKey)
+            return true
+        }
+    }
+
     private func makeTextProvider() throws -> TextProviderActions {
         switch providerType {
         case .geminiDirect:
@@ -405,7 +456,8 @@ final class LLMService: LLMServicing {
                 generateTextStreaming: nil
             )
         case .dayflowBackend(let endpoint):
-            guard let provider = makeDayflowProvider(endpoint: endpoint) else { throw noProviderError() }
+            let resolvedEndpoint = resolvedDayflowEndpoint(savedEndpoint: endpoint)
+            guard let provider = makeDayflowProvider(endpoint: resolvedEndpoint) else { throw noProviderError() }
             return TextProviderActions(
                 generateText: provider.generateText,
                 generateTextStreaming: nil

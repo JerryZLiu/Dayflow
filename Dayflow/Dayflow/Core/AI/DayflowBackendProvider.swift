@@ -9,7 +9,7 @@ final class DayflowBackendProvider {
     private let token: String
     private let endpoint: String
 
-    init(token: String, endpoint: String = "https://api.dayflow.app") {
+    init(token: String, endpoint: String = "https://web-production-f3361.up.railway.app") {
         self.token = token
         self.endpoint = endpoint
     }
