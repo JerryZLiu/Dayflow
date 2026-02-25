@@ -174,6 +174,14 @@ struct JournalEntry: Codable, Sendable {
     }
 }
 
+// Daily standup document stored as a JSON blob keyed by standup day.
+struct DailyStandupEntry: Codable, Sendable {
+    let standupDay: String              // "2025-01-15" format (Gregorian, local timezone)
+    let payloadJSON: String             // Serialized standup payload blob
+    let createdAt: Date?
+    let updatedAt: Date?
+}
+
 // NEW: Observation struct for first-class transcript storage
 struct Observation: Codable, Sendable {
     let id: Int64?
@@ -747,6 +755,17 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 );
                 CREATE INDEX IF NOT EXISTS idx_journal_entries_day ON journal_entries(day);
                 CREATE INDEX IF NOT EXISTS idx_journal_entries_status ON journal_entries(status);
+            """)
+
+            // Daily standup table: one JSON blob per standup day
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS daily_standup_entries (
+                    standup_day TEXT NOT NULL PRIMARY KEY,
+                    payload_json TEXT NOT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_daily_standup_entries_created_at ON daily_standup_entries(created_at DESC);
             """)
 
             // LLM calls logging table
@@ -2382,6 +2401,53 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         }) ?? []
     }
     
+    // MARK: - Daily Standup Methods
+
+    /// Locale-safe standup day key in YYYY-MM-DD format.
+    /// Uses Gregorian calendar + POSIX locale to avoid locale/calendar-induced drift.
+    func dailyStandupDayKey(for date: Date = Date(), timeZone: TimeZone = .autoupdatingCurrent) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    func fetchDailyStandup(forDay standupDay: String) -> DailyStandupEntry? {
+        return try? timedRead("fetchDailyStandup(forDay:\(standupDay))") { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT standup_day, payload_json, created_at, updated_at
+                FROM daily_standup_entries
+                WHERE standup_day = ?
+            """, arguments: [standupDay]) else {
+                return nil
+            }
+
+            return DailyStandupEntry(
+                standupDay: row["standup_day"],
+                payloadJSON: row["payload_json"],
+                createdAt: row["created_at"],
+                updatedAt: row["updated_at"]
+            )
+        }
+    }
+
+    func saveDailyStandup(forDay standupDay: String, payloadJSON: String) {
+        try? timedWrite("saveDailyStandup") { db in
+            try db.execute(sql: """
+                INSERT INTO daily_standup_entries (standup_day, payload_json, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(standup_day) DO UPDATE SET
+                    payload_json = excluded.payload_json,
+                    updated_at = CURRENT_TIMESTAMP
+            """, arguments: [standupDay, payloadJSON])
+        }
+    }
+
     // MARK: - Journal Entry Methods
 
     /// Fetch journal entry for a specific day (using 4AM boundary format)
