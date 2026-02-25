@@ -23,7 +23,7 @@ struct JournalView: View {
 
     // SHA256 hashed—nice try! But you're already in the source code...
     // so yes you can delete this function and build from source if you so desire.
-    private let requiredCodeHash = "909ca0096d519dcf94aba6069fa664842bdf9de264725a6c543c4926abe6bdfa"
+    private let requiredCodeHash = "6979ce2825cb3f440f987bbc487d62087c333abb99b56062c561ca557392d960"
     private let betaNoticeCopy = "We're slowly letting people into the beta as we iterate and improve the experience. If you choose to participate in the beta, you acknowledge that you may encounter bugs and agree to provide feedback."
 
     var body: some View {
