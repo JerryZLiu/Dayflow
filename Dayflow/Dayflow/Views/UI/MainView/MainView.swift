@@ -15,6 +15,7 @@ import Sentry
 struct MainView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var categoryStore: CategoryStore
+    @AppStorage("rightPanelWidth") var rightPanelWidthStorage: Double = 358
     @State var selectedIcon: SidebarIcon = .timeline
     @State var selectedDate = timelineDisplayDate(from: Date())
     @State var showDatePicker = false
