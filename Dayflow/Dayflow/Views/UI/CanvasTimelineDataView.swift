@@ -817,8 +817,12 @@ struct CanvasTimelineDataView: View {
         let sortedSegments = displaySegments.sorted { $0.start < $1.start }
 
         var moved = true
+        var iterations = 0
+        let maxIterations = max(1, sortedSegments.count + 2)
         while moved {
             moved = false
+            let previousStart = windowStart
+            let previousEnd = windowEnd
             for segment in sortedSegments {
                 let intersects = segment.end > windowStart && segment.start < windowEnd
                 if intersects {
@@ -835,6 +839,16 @@ struct CanvasTimelineDataView: View {
             }
             if windowStart >= dayEnd {
                 return nil
+            }
+            if moved {
+                iterations += 1
+                // Guard against non-progress loops caused by day-end clamping.
+                if windowStart == previousStart && windowEnd == previousEnd {
+                    return nil
+                }
+                if iterations >= maxIterations {
+                    return nil
+                }
             }
         }
 
