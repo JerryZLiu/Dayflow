@@ -182,8 +182,10 @@ struct WhatsNewView: View {
             }
             .frame(maxHeight: 760)
             .onChange(of: scrollToBottomToken) {
-                withAnimation(.easeInOut(duration: 0.28)) {
-                    proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+                    }
                 }
             }
         }
@@ -430,9 +432,7 @@ struct WhatsNewView: View {
         let previousSelection = storedValueFrequencySelection
         valueFrequencySelection = option
         UserDefaults.standard.set(option.rawValue, forKey: valueFrequencyStorageKey)
-        if previousSelection == nil {
-            scrollToBottomToken &+= 1
-        }
+        scrollToBottomToken &+= 1
 
         if previousSelection != option {
             AnalyticsService.shared.capture("whats_new_survey_value_frequency_selected", [
@@ -596,9 +596,9 @@ private enum ValueFrequencyOption: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .daily: return "Daily — it's part of my routine"
-        case .sometimes: return "Sometimes — a few times a week"
-        case .notSureYet: return "Not sure yet — still figuring it out."
+        case .daily: return "Daily - it's part of my routine"
+        case .sometimes: return "Sometimes - a few times a week"
+        case .notSureYet: return "Not sure yet - still figuring it out."
         }
     }
 
