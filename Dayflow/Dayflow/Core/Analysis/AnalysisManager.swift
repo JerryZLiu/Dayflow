@@ -377,13 +377,13 @@ final class AnalysisManager: AnalysisManaging {
         }
 
         // Start performance tracking for batch processing
-        let transaction = SentrySDK.startTransaction(
+        let transaction = SentryHelper.startTransaction(
             name: "batch_processing",
             operation: "llm.batch"
         )
-        transaction.setData(value: batchId, key: "batch_id")
-        transaction.setData(value: itemCount, key: "screenshot_count")
-        transaction.setData(value: totalDurationSeconds, key: "duration_s")
+        transaction?.setData(value: batchId, key: "batch_id")
+        transaction?.setData(value: itemCount, key: "screenshot_count")
+        transaction?.setData(value: totalDurationSeconds, key: "duration_s")
 
         // Add breadcrumb for batch processing start
         let breadcrumb = Breadcrumb(level: .info, category: "analysis")
@@ -393,7 +393,7 @@ final class AnalysisManager: AnalysisManaging {
             "count": itemCount,
             "duration_s": totalDurationSeconds
         ]
-        SentrySDK.addBreadcrumb(breadcrumb)
+        SentryHelper.addBreadcrumb(breadcrumb)
 
         updateBatchStatus(batchId: batchId, status: "processing")
 
@@ -411,7 +411,7 @@ final class AnalysisManager: AnalysisManaging {
                 print("LLM succeeded for Batch \(batchId). Processing \(activityCards.count) activity cards for day \(currentLogicalDayString).")
 
                 // Finish performance transaction - LLM processing completed successfully
-                transaction.finish(status: .ok)
+                transaction?.finish(status: .ok)
 
                 // Debug: Check for duplicate cards from LLM
                 print("\n🔍 DEBUG: Checking for duplicate cards from LLM:")
@@ -434,7 +434,7 @@ final class AnalysisManager: AnalysisManaging {
                 print("LLM failed for Batch \(batchId). Day \(currentLogicalDayString) may have been cleared. Error: \(err.localizedDescription)")
 
                 // Finish performance transaction - LLM processing failed
-                transaction.finish(status: .internalError)
+                transaction?.finish(status: .internalError)
 
                 self.markBatchFailed(batchId: batchId, reason: err.localizedDescription)
                 completion?(.failure(err))
