@@ -210,21 +210,16 @@ struct OnboardingFlow: View {
             step.next()
             savedStepRawValue = step.rawValue
             
-            // Only try to start recording if we already have permission
-            if CGPreflightScreenCaptureAccess() {
-                Task {
-                    do {
-                        // Verify we have permission
-                        _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-                        // Start recording
-                        await MainActor.run {
-                            AppState.shared.isRecording = true
-                        }
-                    } catch {
-                        // Permission not granted yet, that's ok
-                        // It will start after restart
-                        print("Will start recording after restart")
+            // Try to start recording if we have permission
+            Task {
+                do {
+                    _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                    await MainActor.run {
+                        AppState.shared.isRecording = true
                     }
+                } catch {
+                    // Permission not granted yet, will start after restart
+                    print("Will start recording after restart")
                 }
             }
         case .completion:         
