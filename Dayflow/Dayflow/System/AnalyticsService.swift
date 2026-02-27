@@ -3,7 +3,7 @@
 //  Dayflow
 //
 //  Centralized analytics wrapper for PostHog. Provides
-//  - identity management (anonymous UUID stored in Keychain)
+//  - identity management via PostHog distinct ID
 //  - opt-in gate (default ON)
 //  - super properties and person properties
 //  - sampling and throttling helpers
@@ -20,7 +20,7 @@ final class AnalyticsService {
     private init() {}
 
     private let optInKey = "analyticsOptIn"
-    private let distinctIdKeychainKey = "analyticsDistinctId"
+    private let backendAuthFallbackTokenKey = "localBackendAuthFallbackToken"
     private let throttleLock = NSLock()
     private var throttles: [String: Date] = [:]
 
@@ -39,14 +39,22 @@ final class AnalyticsService {
 
     func start(apiKey: String, host: String) {
         let config = PostHogConfig(apiKey: apiKey, host: host)
+        let optedIn = isOptedIn
         // Disable autocapture for privacy
         config.captureApplicationLifecycleEvents = false
+        // Keep SDK initialized for backend auth token usage, but hard-disable networked telemetry when opted out.
+        config.optOut = !optedIn
+        config.preloadFeatureFlags = optedIn
+        config.remoteConfig = optedIn
         PostHogSDK.shared.setup(config)
 
-        // Identity - run on background thread to avoid blocking app launch
-        // PostHog's identify() triggers synchronous disk I/O and XPC calls
-        Task.detached(priority: .utility) { [self] in
-            let id = self.ensureDistinctId()
+        guard optedIn else { return }
+
+        // Identity - run on background thread to avoid blocking app launch.
+        // Use PostHog's own distinct ID as the canonical identifier source.
+        Task.detached(priority: .utility) {
+            let id = PostHogSDK.shared.getDistinctId().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty else { return }
             PostHogSDK.shared.identify(id)
         }
 
@@ -55,7 +63,7 @@ final class AnalyticsService {
 
         // Person properties via $set / $set_once
         let set: [String: Any] = [
-            "analytics_opt_in": isOptedIn
+            "analytics_opt_in": optedIn
         ]
         var payload: [String: Any] = ["$set": sanitize(set)]
         if !UserDefaults.standard.bool(forKey: "installTsSent") {
@@ -65,25 +73,63 @@ final class AnalyticsService {
         PostHogSDK.shared.capture("person_props_updated", properties: payload)
     }
 
-    @discardableResult
-    private func ensureDistinctId() -> String {
-        if let existing = KeychainManager.shared.retrieve(for: distinctIdKeychainKey), !existing.isEmpty {
+    /// Returns the stable PostHog distinct ID used as backend auth identity.
+    /// Source of truth is PostHog SDK storage (not keychain).
+    func backendAuthToken() -> String {
+        let distinctId = PostHogSDK.shared.getDistinctId().trimmingCharacters(in: .whitespacesAndNewlines)
+        if !distinctId.isEmpty {
+            return distinctId
+        }
+
+#if DEBUG
+        // Local-dev fallback so backend-authenticated features still work when PostHog
+        // is not configured for the current build.
+        let defaults = UserDefaults.standard
+        if let existing = defaults.string(forKey: backendAuthFallbackTokenKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !existing.isEmpty {
             return existing
         }
-        let newId = UUID().uuidString
-        _ = KeychainManager.shared.store(newId, for: distinctIdKeychainKey)
-        return newId
+
+        let generated = "local-\(UUID().uuidString.lowercased())"
+        defaults.set(generated, forKey: backendAuthFallbackTokenKey)
+        return generated
+#else
+        return ""
+#endif
     }
 
     func setOptIn(_ enabled: Bool) {
-        if isOptedIn != enabled {
+        let previousValue = isOptedIn
+        isOptedIn = enabled
+
+        if enabled {
+            PostHogSDK.shared.optIn()
+            SentryHelper.setEnabled(true)
+
+            guard previousValue != enabled else { return }
+
             let payload: [String: Any] = ["$set": sanitize(["analytics_opt_in": enabled])]
             Task.detached(priority: .utility) {
                 PostHogSDK.shared.capture("person_props_updated", properties: payload)
                 PostHogSDK.shared.capture("analytics_opt_in_changed", properties: ["enabled": enabled])
             }
+            return
         }
-        isOptedIn = enabled
+
+        guard previousValue != enabled else {
+            SentryHelper.setEnabled(false)
+            PostHogSDK.shared.optOut()
+            return
+        }
+
+        // Disable Sentry immediately, then send one final explicit PostHog opt-out signal.
+        SentryHelper.setEnabled(false)
+        let payload: [String: Any] = ["$set": sanitize(["analytics_opt_in": enabled])]
+        PostHogSDK.shared.capture("person_props_updated", properties: payload)
+        PostHogSDK.shared.capture("analytics_opt_in_changed", properties: ["enabled": enabled])
+        PostHogSDK.shared.flush()
+        PostHogSDK.shared.optOut()
     }
 
     func capture(_ name: String, _ props: [String: Any] = [:]) {

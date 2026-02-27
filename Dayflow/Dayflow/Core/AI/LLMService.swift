@@ -86,11 +86,13 @@ final class LLMService: LLMServicing {
     }
 
     private func makeDayflowProvider(endpoint: String) -> DayflowBackendProvider? {
-        if let token = KeychainManager.shared.retrieve(for: "dayflow"), !token.isEmpty {
-            return DayflowBackendProvider(token: token, endpoint: endpoint)
+        let token = AnalyticsService.shared.backendAuthToken()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else {
+            print("❌ [LLMService] Failed to resolve backend auth token from analytics distinct ID")
+            return nil
         }
-        print("❌ [LLMService] Failed to retrieve Dayflow token from Keychain")
-        return nil
+        return DayflowBackendProvider(token: token, endpoint: endpoint)
     }
 
     private func resolvedDayflowEndpoint(savedEndpoint: String?) -> String {

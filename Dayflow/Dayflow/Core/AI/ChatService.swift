@@ -724,7 +724,7 @@ extension ChatService {
         if let _ = KeychainManager.shared.retrieve(for: "gemini"), !KeychainManager.shared.retrieve(for: "gemini")!.isEmpty {
             return true
         }
-        if let _ = KeychainManager.shared.retrieve(for: "dayflow"), !KeychainManager.shared.retrieve(for: "dayflow")!.isEmpty {
+        if !AnalyticsService.shared.backendAuthToken().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return true
         }
         // ChatCLI doesn't need keychain - check if tool preference is set
