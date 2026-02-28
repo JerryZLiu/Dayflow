@@ -245,6 +245,12 @@ struct DaySummaryView: View {
                 UserDefaults.standard.set(true, forKey: earlyAccessStorageKey)
             }
         }
+        .onChange(of: productivityScore) { _, newScore in
+            AppState.shared.productivityScore = newScore
+        }
+        .onChange(of: productivityScoreHasData) { _, hasData in
+            AppState.shared.hasProductivityData = hasData
+        }
         .contentShape(Rectangle())
         .onTapGesture {
             if isEditingFocusCategories {
@@ -421,6 +427,14 @@ struct DaySummaryView: View {
         .padding(.vertical, 12)
     }
 
+    private var productivityScoreSection: some View {
+        ProductivityScoreCard(
+            score: productivityScore,
+            hasData: productivityScoreHasData,
+            isUsingReviewData: reviewSummary.hasData
+        )
+    }
+
     private var reviewSection: some View {
         TimelineReviewSummaryCard(
             summary: reviewSummary,
@@ -575,6 +589,12 @@ struct DaySummaryView: View {
                 TotalFocusCard(value: formatDurationTitleCase(totalFocusTime))
 
                 LongestFocusCard(focusBlocks: focusBlocks)
+
+                ProductivityScoreCard(
+                    score: productivityScore,
+                    hasData: productivityScoreHasData,
+                    isUsingReviewData: reviewSummary.hasData
+                )
             }
             .opacity(isFocusSelectionEmpty ? 0.45 : 1)
         }
@@ -663,6 +683,29 @@ struct DaySummaryView: View {
         guard captured > 0 else { return 0 }
         let ratio = totalDistractedTime / captured
         return min(max(ratio, 0), 1)
+    }
+
+    private var productivityScore: Int {
+        // Prefer manual review data if available
+        if reviewSummary.hasData {
+            let score = (reviewSummary.productiveRatio * 100) + (reviewSummary.neutralRatio * 50)
+            return Int(score.rounded())
+        }
+
+        // Fall back to category-based calculation
+        let captured = totalCapturedTime
+        guard captured > 0 else { return 0 }
+
+        let focusRatio = totalFocusTime / captured
+        let distractedRatio = totalDistractedTime / captured
+        let neutralRatio = max(0, 1 - focusRatio - distractedRatio)
+
+        let score = (focusRatio * 100) + (neutralRatio * 50)
+        return Int(score.rounded())
+    }
+
+    private var productivityScoreHasData: Bool {
+        reviewSummary.hasData || totalCapturedTime > 0
     }
 
     // MARK: - Helpers
@@ -1090,6 +1133,69 @@ private struct CheckmarkShape: Shape {
         path.addLine(to: mid)
         path.addLine(to: end)
         return path
+    }
+}
+
+private struct ProductivityScoreCard: View {
+    let score: Int
+    let hasData: Bool
+    let isUsingReviewData: Bool
+
+    private var scoreColor: Color {
+        if score >= 70 {
+            return Color(hex: "4CAF50") // Green
+        } else if score >= 60 {
+            return Color(hex: "F3854B") // Orange
+        } else {
+            return Color(hex: "F44336") // Red
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text("Productivity score")
+                    .font(.custom("InstrumentSerif-Regular", size: 16))
+                    .foregroundColor(Color(hex: "333333"))
+
+                Image(systemName: "info.circle")
+                    .font(.system(size: 12))
+                    .foregroundColor(Color(hex: "CFC7BE"))
+                    .help(isUsingReviewData
+                        ? "Based on your manual reviews (focused/neutral/distracted). Focused = 100pts, Neutral = 50pts, Distracted = 0pts"
+                        : "Based on your focus/distraction categories. Review timeline cards for more accurate scoring.")
+
+                Spacer()
+            }
+
+            if hasData {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text("\(score)")
+                        .font(.custom("InstrumentSerif-Regular", size: 44))
+                        .foregroundColor(scoreColor)
+
+                    Text("out of 100")
+                        .font(.custom("Nunito", size: 11))
+                        .foregroundColor(Color(hex: "707070"))
+                        .offset(y: -2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text("No activity captured yet")
+                    .font(.custom("Nunito", size: 11))
+                    .foregroundColor(Color(hex: "707070"))
+                    .padding(.top, 4)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(hex: "F7F7F7"))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.white, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 

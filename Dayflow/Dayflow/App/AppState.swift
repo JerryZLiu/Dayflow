@@ -24,6 +24,9 @@ final class AppState: ObservableObject, AppStateManaging { // <-- Add AppStateMa
         }
     }
 
+    @Published var productivityScore: Int = 0
+    @Published var hasProductivityData: Bool = false
+
     private init() {
         // Always start with false - AppDelegate will set the correct value
         // didSet doesn't fire during initialization, so this won't save
