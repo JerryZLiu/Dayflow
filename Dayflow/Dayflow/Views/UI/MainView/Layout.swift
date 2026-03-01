@@ -206,6 +206,9 @@ extension MainView {
                 }
                 // Refresh weekly hours in case activities were added
                 loadWeeklyTrackedMinutes()
+                // Force timeline data refetch (fixes stale/missing cards after window reopen)
+                refreshActivitiesTrigger &+= 1
+                updateCardsToReviewCount()
             }
             .overlay { categoryEditorOverlay }
             .environmentObject(retryCoordinator)
