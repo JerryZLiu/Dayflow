@@ -137,23 +137,18 @@ struct DayflowApp: App {
                                 }
                             }
 
-                            // Handle pending navigation from notification tap
-                            if AppDelegate.pendingNavigationToJournal {
-                                AppDelegate.pendingNavigationToJournal = false
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    NotificationCenter.default.post(name: .navigateToJournal, object: nil)
-                                }
-                            }
+                            dispatchPendingNotificationNavigation(after: 0.3)
                         }
                         .opacity(showVideoLaunch ? 1 : 0)
                         .scaleEffect(showVideoLaunch ? 1 : 1.02)
                         .animation(.easeIn(duration: 0.2), value: showVideoLaunch)
                         .onAppear {
                             // Skip video if opening via notification tap
-                            if AppDelegate.pendingNavigationToJournal {
+                            if hasPendingNotificationNavigation {
                                 showVideoLaunch = false
                                 contentOpacity = 1.0
                                 contentScale = 1.0
+                                dispatchPendingNotificationNavigation(after: 0.1)
                             }
                         }
                 }
@@ -227,6 +222,30 @@ struct DayflowApp: App {
         }
         .defaultSize(width: 1200, height: 800)
     }
+
+    private var hasPendingNotificationNavigation: Bool {
+        AppDelegate.pendingNavigationToJournal || AppDelegate.pendingNavigationToDailyDay != nil
+    }
+
+    private func dispatchPendingNotificationNavigation(after delay: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            if let day = AppDelegate.pendingNavigationToDailyDay, !day.isEmpty {
+                AppDelegate.pendingNavigationToDailyDay = nil
+                AppDelegate.pendingNavigationToJournal = false
+                NotificationCenter.default.post(
+                    name: .navigateToDaily,
+                    object: nil,
+                    userInfo: ["day": day]
+                )
+                return
+            }
+
+            if AppDelegate.pendingNavigationToJournal {
+                AppDelegate.pendingNavigationToJournal = false
+                NotificationCenter.default.post(name: .navigateToJournal, object: nil)
+            }
+        }
+    }
 }
 
 // MARK: - Notification Names
@@ -234,6 +253,7 @@ struct DayflowApp: App {
 extension Notification.Name {
     static let showWhatsNew = Notification.Name("showWhatsNew")
     static let navigateToJournal = Notification.Name("navigateToJournal")
+    static let navigateToDaily = Notification.Name("navigateToDaily")
     static let timelineDataUpdated = Notification.Name("timelineDataUpdated")
     static let showTimelineFailureToast = Notification.Name("showTimelineFailureToast")
     static let openProvidersSettings = Notification.Name("openProvidersSettings")
