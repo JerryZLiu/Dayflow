@@ -73,6 +73,7 @@ struct SettingsProvidersTabView: View {
                         }
                     }
                 }
+                .environment(\.colorScheme, .light)
             }
 
             // MARK: - Available Providers
