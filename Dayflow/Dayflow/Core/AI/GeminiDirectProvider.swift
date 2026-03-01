@@ -246,46 +246,10 @@ final class GeminiDirectProvider {
 
         // realDuration is available via compressionFactor if needed for debugging
         
-        let finalTranscriptionPrompt = """
-        # Screen Recording Transcription (Reconstruct Mode)
-
-        Watch this screen recording and create an activity log detailed enough that someone could reconstruct the session.
-
-        CRITICAL: This video is exactly \(durationString) long. ALL timestamps must be within 00:00 to \(durationString). No gaps.
-
-        For each segment, ask yourself:
-        "What EXACTLY did they do? What SPECIFIC things can I see?"
-
-        Capture:
-        - Exact app/site names visible
-        - Exact file names, URLs, page titles
-        - Exact usernames, search queries, messages
-        - Exact numbers, stats, prices shown
-
-        Bad: "Checked email"
-        Good: "Gmail: Read email from boss@company.com 'RE: Budget approval' - replied 'Looks good'"
-
-        Bad: "Browsing Twitter"
-        Good: "Twitter/X: Scrolled feed - viewed posts by @pmarca about AI, @sama thread on GPT-5 (12 tweets)"
-
-        Bad: "Working on code"
-        Good: "VS Code: Editing StorageManager.swift - fixed type error on line 47, changed String to String?"
-
-        Segments:
-        - 3-8 segments total
-        - You may use 1 segment only if the user appears idle for most of the recording
-        - Group by GOAL not app (IDE + Terminal + Browser for the same task = 1 segment)
-        - Do not create gaps; cover the full timeline
-
-        Return ONLY JSON in this format:
-        [
-          {
-            "startTimestamp": "MM:SS",
-            "endTimestamp": "MM:SS",
-            "description": "1-3 sentences with specific details"
-          }
-        ]
-        """
+		let finalTranscriptionPrompt = LLMPromptTemplates.screenRecordingTranscriptionPrompt(
+			durationString: durationString,
+			schema: LLMSchema.screenRecordingTranscriptionSchema
+		)
 
         // UNIFIED RETRY LOOP - Handles ALL errors comprehensively
         let maxRetries = 3
@@ -311,47 +275,26 @@ final class GeminiDirectProvider {
                     attempt: attempt + 1
                 )
 
-                let videoTranscripts = try parseTranscripts(response)
+                let videoTranscripts = try LLMTranscriptUtilities.decodeTranscriptChunks(from: response, allowBracketFallback: false)
 
-                // Convert video transcripts to observations with proper Unix timestamps
-                // Timestamps from Gemini are in compressed video time, so we expand them
-                // by the compression factor to get real-world timestamps.
-                var hasValidationErrors = false
-                let observations = videoTranscripts.compactMap { chunk -> Observation? in
-                    let compressedStartSeconds = parseVideoTimestamp(chunk.startTimestamp)
-                    let compressedEndSeconds = parseVideoTimestamp(chunk.endTimestamp)
-
-                    // Validate timestamps are within compressed video duration (with small tolerance)
-                    let tolerance: TimeInterval = 10.0 // 10 seconds tolerance in compressed time
-                    if Double(compressedStartSeconds) < -tolerance || Double(compressedEndSeconds) > videoDuration + tolerance {
-                        print("❌ VALIDATION ERROR: Observation timestamps (\(chunk.startTimestamp) - \(chunk.endTimestamp)) exceed video duration \(durationString)!")
-                        hasValidationErrors = true
-                        return nil
-                    }
-
-                    // Expand timestamps by compression factor to get real-world time
-                    let realStartSeconds = TimeInterval(compressedStartSeconds) * compressionFactor
-                    let realEndSeconds = TimeInterval(compressedEndSeconds) * compressionFactor
-
-                    let startDate = batchStartTime.addingTimeInterval(realStartSeconds)
-                    let endDate = batchStartTime.addingTimeInterval(realEndSeconds)
-
-                    print("📐 Timestamp expansion: \(chunk.startTimestamp)-\(chunk.endTimestamp) → \(Int(realStartSeconds))s-\(Int(realEndSeconds))s real")
-
-                    return Observation(
-                        id: nil,
-                        batchId: 0, // Will be set when saved
-                        startTs: Int(startDate.timeIntervalSince1970),
-                        endTs: Int(endDate.timeIntervalSince1970),
-                        observation: chunk.description,
-                        metadata: nil,
-                        llmModel: usedModel,
-                        createdAt: Date()
-                    )
-                }
+                // Convert video transcripts to observations with proper Unix timestamps.
+                // Timestamps from Gemini are in compressed video time, so we expand them by `compressionFactor`.
+                let conversion = LLMTranscriptUtilities.observations(
+                    from: videoTranscripts,
+                    batchStartTime: batchStartTime,
+                    observationBatchId: 0, // Will be set when saved
+                    llmModel: usedModel,
+                    compressedVideoDuration: videoDuration,
+                    compressionFactor: compressionFactor,
+                    tolerance: 10.0,
+                    debugPrintExpansion: true
+                )
+                let observations = conversion.observations
+                let hasValidationErrors = conversion.invalidTimestampCount > 0
 
                 // If we had validation errors, throw to trigger retry
                 if hasValidationErrors {
+                    print("❌ VALIDATION ERROR: One or more transcript chunks exceeded video duration \(durationString) (invalidCount=\(conversion.invalidTimestampCount))")
                     AnalyticsService.shared.captureValidationFailure(
                         provider: "gemini",
                         operation: "transcribe",
@@ -555,106 +498,19 @@ final class GeminiDirectProvider {
         encoder.outputFormatting = .prettyPrinted
         let existingCardsJSON = try encoder.encode(context.existingCards)
         let existingCardsString = String(data: existingCardsJSON, encoding: .utf8) ?? "[]"
-        let promptSections = GeminiPromptSections(overrides: GeminiPromptPreferences.load())
+        let promptSections = VideoPromptSections(overrides: VideoPromptPreferences.load())
 
         let languageBlock = LLMOutputLanguagePreferences.languageInstruction(forJSON: true)
             .map { "\n\n\($0)" } ?? ""
 
-        let basePrompt = """
-        You are a digital anthropologist, observing a user's raw activity log. Your goal is to synthesize this log into a high-level, human-readable story of their session, presented as a series of timeline cards.
-        THE GOLDEN RULE:
-            Create cards that narrate one cohesive session, aiming for 15–60 minutes. Keep every card ≥10 minutes, split up any cards that are >60 minutes, and if a prospective card would be <10 minutes, merge it into the neighboring card that preserves the best story.
-
-            CONTINUITY RULE:
-            You may adjust boundaries for clarity, but never introduce new gaps or overlaps. Preserve any original gaps in the source timeline and keep adjacent covered
-          spans meeting cleanly.
-
-            CORE DIRECTIVES:
-            - Theme Test Before Extending: Extend the current card only when the new observations continue the same dominant activity. Shifts shorter than 10 minutes should
-          be logged as distractions or merged into the adjacent segment that keeps the theme coherent; shifts ≥10 minutes become new cards.
-        
-        \(promptSections.title)
-
-        \(promptSections.summary)
-
-        \(categoriesSection(from: context.categories))
-
-        \(promptSections.detailedSummary)
-
-        \(languageBlock)
-
-        APP SITES (Website Logos)
-        Identify the main app or website used for each card and include an appSites object.
-
-        Rules:
-        - primary: The canonical domain (or canonical product path) of the main app used in the card.
-        - secondary: Another meaningful app used during this session OR the enclosing app (e.g., browser), if relevant.
-        - Format: lower-case, no protocol, no query or fragments. Use product subdomains/paths when they are canonical (e.g., docs.google.com for Google Docs).
-        - Be specific: prefer product domains over generic ones (docs.google.com over google.com).
-        - If you cannot determine a secondary, omit it.
-        - Do not invent brands; rely on evidence from observations.
-
-        Canonical examples:
-        - Figma → figma.com
-        - Notion → notion.so
-        - Google Docs → docs.google.com
-        - Gmail → mail.google.com
-        - Google Sheets → sheets.google.com
-        - Zoom → zoom.us
-        - ChatGPT → chatgpt.com
-        - VS Code → code.visualstudio.com
-        - Xcode → developer.apple.com/xcode
-        - Chrome → google.com/chrome
-        - Safari → apple.com/safari
-        - Twitter/X → x.com
-
-        YOUR MENTAL MODEL (How to Decide):
-        Before making a decision, ask yourself these questions in order:
-
-        What is the dominant theme of the current card?
-        Do the new observations continue or relate to this theme? If yes, extend the card.
-        Is this a brief (<5 min) and unrelated pivot? If yes, add it as a distraction to the current card and continue extending.
-        Is this a sustained shift in focus (>15 min) that represents a different activity category or goal? If yes, create a new card regardless of the current card's length.
-
-        DISTRACTIONS:
-        A "distraction" is a brief (<5 min) and unrelated activity that interrupts the main theme of a card. Sustained activities (>5 min) are NOT distractions - they either belong to the current theme or warrant a new card. Don't label related sub-tasks as distractions.
-
-        INPUT/OUTPUT CONTRACT:
-        Your output cards MUST cover the same total time range as the "Previous cards" plus any new time from observations.
-        - If Previous cards span 11:11 AM - 11:53 AM, your output must also cover 11:11 AM - 11:53 AM (you may restructure the cards, but don't drop time segments)
-        - If new observations extend beyond the previous cards' time range, create additional cards to cover that new time
-        - The only exception: if there's a genuine gap between previous cards (e.g., 11:27 AM to 11:33 AM with no activity), preserve that gap
-        - Think of "Previous cards" as a DRAFT that you're revising/extending, not as locked history
-
-        INPUTS:
-        Previous cards: \(existingCardsString)
-        New observations: \(transcriptText)
-        Return ONLY a JSON array with this EXACT structure:
-
-                [
-                  {
-                    "startTime": "1:12 AM",
-                    "endTime": "1:30 AM",
-                    "category": "",
-                    "subcategory": "",
-                    "title": "",
-                    "summary": "",
-                    "detailedSummary": "",
-                    "distractions": [
-                      {
-                        "startTime": "1:15 AM",
-                        "endTime": "1:18 AM",
-                        "title": "",
-                        "summary": ""
-                      }
-                    ],
-                    "appSites": {
-                      "primary": "",
-                      "secondary": "
-                    }
-                  }
-                ]
-        """
+        let basePrompt = LLMPromptTemplates.activityCardsPrompt(
+            existingCardsString: existingCardsString,
+            transcriptText: transcriptText,
+            categoriesSection: categoriesSection(from: context.categories),
+            promptSections: promptSections,
+            languageBlock: languageBlock,
+			schema: LLMSchema.activityCardsSchema,
+        )
 
         // UNIFIED RETRY LOOP - Handles ALL errors comprehensively
         let maxRetries = 4
@@ -1052,26 +908,13 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
     }
     
     private func geminiTranscribeRequest(fileURI: String, mimeType: String, prompt: String, batchId: Int64?, groupId: String, model: GeminiModel, attempt: Int) async throws -> (String, String) {
-        let transcriptionSchema: [String:Any] = [
-          "type":"ARRAY",
-          "items": [
-            "type":"OBJECT",
-            "properties":[
-              "startTimestamp":["type":"STRING"],
-              "endTimestamp":  ["type":"STRING"],
-              "description":   ["type":"STRING"]
-            ],
-            "required":["startTimestamp","endTimestamp","description"],
-            "propertyOrdering":["startTimestamp","endTimestamp","description"]
-          ]
-        ]
-        
+        let transcriptionSchemaObject = try! JSONSerialization.jsonObject(with: Data(LLMSchema.screenRecordingTranscriptionSchema.utf8))
         let generationConfig: [String: Any] = [
-            "temperature": 0.3,
-            "maxOutputTokens": 65536,
-            "responseMimeType": "application/json",
-            "responseSchema": transcriptionSchema
-        ]
+    "temperature": 0.3,
+    "maxOutputTokens": 8192,
+    "responseMimeType": "application/json",
+    "responseJsonSchema": transcriptionSchemaObject
+]
 
         let requestBody: [String: Any] = [
             "contents": [["parts": [
@@ -1311,28 +1154,6 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
                 // Rethrow error (outer loop in calling function handles retries)
                 throw error
             }
-    }
-    
-    // Temporary struct for parsing Gemini response
-    private struct VideoTranscriptChunk: Codable {
-        let startTimestamp: String   // MM:SS
-        let endTimestamp: String     // MM:SS
-        let description: String
-    }
-    
-    private func parseTranscripts(_ response: String) throws -> [VideoTranscriptChunk] {
-        guard let data = response.data(using: .utf8) else {
-            print("🔎 GEMINI DEBUG: parseTranscripts received non-UTF8 or empty response: \(truncate(response, max: 400))")
-            throw NSError(domain: "GeminiError", code: 8, userInfo: [NSLocalizedDescriptionKey: "Invalid response encoding"])
-        }
-        do {
-            let transcripts = try JSONDecoder().decode([VideoTranscriptChunk].self, from: data)
-            return transcripts
-        } catch {
-            let snippet = truncate(String(data: data, encoding: .utf8) ?? "<non-utf8>", max: 1200)
-            print("🔎 GEMINI DEBUG: parseTranscripts JSON decode failed: \(error.localizedDescription) bodySnippet=\(snippet)")
-            throw error
-        }
     }
     
     private func geminiCardsRequest(prompt: String, batchId: Int64?, groupId: String, model: GeminiModel, attempt: Int) async throws -> String {
@@ -1644,254 +1465,25 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
     // (no local logging helpers needed; centralized via LLMLogger)
     
     
-    private struct TimeRange {
-        let start: Double  // minutes from midnight
-        let end: Double
-    }
-    
     private func timeToMinutes(_ timeStr: String) -> Double {
-        // Handle both "10:30 AM" and "05:30" formats
-        if timeStr.contains("AM") || timeStr.contains("PM") {
-            // Clock format - parse as date
-            let formatter = DateFormatter()
-            formatter.dateFormat = "h:mm a"
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            
-            if let date = formatter.date(from: timeStr) {
-                let calendar = Calendar.current
-                let components = calendar.dateComponents([.hour, .minute], from: date)
-                return Double((components.hour ?? 0) * 60 + (components.minute ?? 0))
-            }
-            return 0
-        } else {
-            // MM:SS format - convert to minutes
-            let seconds = parseVideoTimestamp(timeStr)
-            return Double(seconds) / 60.0
-        }
-    }
-    
-    private func mergeOverlappingRanges(_ ranges: [TimeRange]) -> [TimeRange] {
-        guard !ranges.isEmpty else { return [] }
-        
-        // Sort by start time
-        let sorted = ranges.sorted { $0.start < $1.start }
-        var merged: [TimeRange] = []
-        
-        for range in sorted {
-            if merged.isEmpty || range.start > merged.last!.end + 1 {
-                // No overlap - add as new range
-                merged.append(range)
-            } else {
-                // Overlap or adjacent - merge with last range
-                let last = merged.removeLast()
-                merged.append(TimeRange(start: last.start, end: max(last.end, range.end)))
-            }
-        }
-        
-        return merged
+        LLMTimelineCardValidation.timeToMinutes(timeStr)
     }
     
     private func validateTimeCoverage(existingCards: [ActivityCardData], newCards: [ActivityCardData]) -> (isValid: Bool, error: String?) {
-        guard !existingCards.isEmpty else {
-            return (true, nil)
-        }
-        
-        // Extract time ranges from input cards
-        var inputRanges: [TimeRange] = []
-        for card in existingCards {
-            let startMin = timeToMinutes(card.startTime)
-            var endMin = timeToMinutes(card.endTime)
-            if endMin < startMin {  // Handle day rollover
-                endMin += 24 * 60
-            }
-            inputRanges.append(TimeRange(start: startMin, end: endMin))
-        }
-        
-        // Merge overlapping/adjacent ranges
-        let mergedInputRanges = mergeOverlappingRanges(inputRanges)
-        
-        // Extract time ranges from output cards (Fix #1: Skip zero or negative duration cards)
-        var outputRanges: [TimeRange] = []
-        for card in newCards {
-            let startMin = timeToMinutes(card.startTime)
-            var endMin = timeToMinutes(card.endTime)
-            if endMin < startMin {  // Handle day rollover
-                endMin += 24 * 60
-            }
-            // Skip zero or very short duration cards (less than 0.1 minutes = 6 seconds)
-            guard endMin - startMin >= 0.1 else {
-                continue
-            }
-            outputRanges.append(TimeRange(start: startMin, end: endMin))
-        }
-        
-        // Check coverage with 3-minute flexibility
-        let flexibility = 3.0  // minutes
-        var uncoveredSegments: [(start: Double, end: Double)] = []
-        
-        for inputRange in mergedInputRanges {
-            // Check if this input range is covered by output ranges
-            var coveredStart = inputRange.start
-            var safetyCounter = 10000  // Fix #3: Safety cap to prevent infinite loops
-            
-            while coveredStart < inputRange.end && safetyCounter > 0 {
-                safetyCounter -= 1
-                // Find an output range that covers this point
-                var foundCoverage = false
-                
-                for outputRange in outputRanges {
-                    // Check if this output range covers the current point (with flexibility)
-                    if outputRange.start - flexibility <= coveredStart && coveredStart <= outputRange.end + flexibility {
-                        // Move coveredStart to the end of this output range (Fix #2: Force progress)
-                        let newCoveredStart = outputRange.end
-                        // Ensure we make at least minimal progress (0.01 minutes = 0.6 seconds)
-                        coveredStart = max(coveredStart + 0.01, newCoveredStart)
-                        foundCoverage = true
-                        break
-                    }
-                }
-                
-                if !foundCoverage {
-                    // Find the next covered point
-                    var nextCovered = inputRange.end
-                    for outputRange in outputRanges {
-                        if outputRange.start > coveredStart && outputRange.start < nextCovered {
-                            nextCovered = outputRange.start
-                        }
-                    }
-                    
-                    // Add uncovered segment
-                    if nextCovered > coveredStart {
-                        uncoveredSegments.append((start: coveredStart, end: min(nextCovered, inputRange.end)))
-                        coveredStart = nextCovered
-                    } else {
-                        // No more coverage found, add remaining segment and break
-                        uncoveredSegments.append((start: coveredStart, end: inputRange.end))
-                        break
-                    }
-                }
-            }
-            
-            // Check if safety counter was exhausted
-            if safetyCounter == 0 {
-                return (false, "Time coverage validation loop exceeded safety limit - possible infinite loop detected")
-            }
-        }
-        
-        // Check if uncovered segments are significant
-        if !uncoveredSegments.isEmpty {
-            var uncoveredDesc: [String] = []
-            for segment in uncoveredSegments {
-                let duration = segment.end - segment.start
-                if duration > flexibility {  // Only report significant gaps
-                    let startTime = minutesToTimeString(segment.start)
-                    let endTime = minutesToTimeString(segment.end)
-                    uncoveredDesc.append("\(startTime)-\(endTime) (\(Int(duration)) min)")
-                }
-            }
-            
-            if !uncoveredDesc.isEmpty {
-                // Build detailed error message with input/output cards
-                var errorMsg = "Missing coverage for time segments: \(uncoveredDesc.joined(separator: ", "))"
-                errorMsg += "\n\n📥 INPUT CARDS:"
-                for (i, card) in existingCards.enumerated() {
-                    errorMsg += "\n  \(i+1). \(card.startTime) - \(card.endTime): \(card.title)"
-                }
-                errorMsg += "\n\n📤 OUTPUT CARDS:"
-                for (i, card) in newCards.enumerated() {
-                    errorMsg += "\n  \(i+1). \(card.startTime) - \(card.endTime): \(card.title)"
-                }
-                
-                return (false, errorMsg)
-            }
-        }
-        
-        return (true, nil)
+        LLMTimelineCardValidation.validateTimeCoverage(existingCards: existingCards, newCards: newCards)
     }
     
     private func validateTimeline(_ cards: [ActivityCardData]) -> (isValid: Bool, error: String?) {
-        for (index, card) in cards.enumerated() {
-            let startTime = card.startTime
-            let endTime = card.endTime
-            
-            var durationMinutes: Double = 0
-            
-            // Check if times are in clock format (contains AM/PM)
-            if startTime.contains("AM") || startTime.contains("PM") {
-                let formatter = DateFormatter()
-                formatter.dateFormat = "h:mm a"
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-                
-                if let startDate = formatter.date(from: startTime),
-                   let endDate = formatter.date(from: endTime) {
-                    
-                    var adjustedEndDate = endDate
-                    // Handle day rollover (e.g., 11:30 PM to 12:30 AM)
-                    if endDate < startDate {
-                        adjustedEndDate = Calendar.current.date(byAdding: .day, value: 1, to: endDate) ?? endDate
-                    }
-                    
-                    durationMinutes = adjustedEndDate.timeIntervalSince(startDate) / 60.0
-                } else {
-                    // Failed to parse clock times
-                    durationMinutes = 0
-                }
-            } else {
-                // Parse MM:SS format
-                let startSeconds = parseVideoTimestamp(startTime)
-                let endSeconds = parseVideoTimestamp(endTime)
-                durationMinutes = Double(endSeconds - startSeconds) / 60.0
-            }
-            
-            // Check if card is too short (except for last card)
-            if durationMinutes < 10 && index < cards.count - 1 {
-                return (false, "Card \(index + 1) '\(card.title)' is only \(String(format: "%.1f", durationMinutes)) minutes long")
-            }
-        }
-        
-        return (true, nil)
+        LLMTimelineCardValidation.validateTimeline(cards)
     }
     
     private func minutesToTimeString(_ minutes: Double) -> String {
-        let hours = (Int(minutes) / 60) % 24  // Handle > 24 hours
-        let mins = Int(minutes) % 60
-        let period = hours < 12 ? "AM" : "PM"   
-        var displayHour = hours % 12
-        if displayHour == 0 {
-            displayHour = 12
-        }
-        return String(format: "%d:%02d %@", displayHour, mins, period)
-    }
-    
-    private func parseVideoTimestamp(_ timestamp: String) -> Int {
-        let components = timestamp.components(separatedBy: ":")
-        
-        if components.count == 2 {
-            // MM:SS format
-            let minutes = Int(components[0]) ?? 0
-            let seconds = Int(components[1]) ?? 0
-            return minutes * 60 + seconds
-        } else if components.count == 3 {
-            // HH:MM:SS format
-            let hours = Int(components[0]) ?? 0
-            let minutes = Int(components[1]) ?? 0
-            let seconds = Int(components[2]) ?? 0
-            return hours * 3600 + minutes * 60 + seconds
-        } else {
-            // Invalid format, return 0
-            print("Warning: Invalid video timestamp format: \(timestamp)")
-            return 0
-        }
+        LLMTimelineCardValidation.minutesToTimeString(minutes)
     }
     
     // Helper function to format timestamps
     private func formatTimestampForPrompt(_ unixTime: Int) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(unixTime))
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone.current
-        return formatter.string(from: date)
+        LLMTimelineCardValidation.formatTimestampForPrompt(unixTime)
     }
 
     // MARK: - Text Generation
@@ -1899,10 +1491,13 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
     func generateText(prompt: String) async throws -> (text: String, log: LLMCall) {
         let callStart = Date()
 
+        let activityCardsSchemaObject = try? JSONSerialization.jsonObject(with: Data(LLMSchema.activityCardsSchema.utf8))
         let generationConfig: [String: Any] = [
-            "temperature": 0.7,
-            "maxOutputTokens": 8192
-        ]
+        "temperature": 0.3,
+        "maxOutputTokens": 8192,
+        "responseMimeType": "application/json",
+        "responseJsonSchema": activityCardsSchemaObject
+    ]
 
         let requestBody: [String: Any] = [
             "contents": [["parts": [["text": prompt]]]],
