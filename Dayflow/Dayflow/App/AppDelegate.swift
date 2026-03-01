@@ -6,8 +6,6 @@
 import AppKit
 import ServiceManagement
 import ScreenCaptureKit
-import PostHog
-import Sentry
 import Combine
 
 @MainActor
@@ -19,6 +17,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Flag set when app is opened via notification tap - skips video intro
     static var pendingNavigationToJournal: Bool = false
+    static var pendingNavigationToDailyDay: String? = nil
     private var statusBar: StatusBarController!
     private var recorder : ScreenRecorder!
     private var analyticsSub: AnyCancellable?
@@ -40,36 +39,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         AppDelegate.allowTermination = false
         applySavedDockIconPreference()
 
-        // Configure crash reporting (Sentry)
-        let info = Bundle.main.infoDictionary
-        let SENTRY_DSN = info?["SentryDSN"] as? String ?? ""
-        let SENTRY_ENV = info?["SentryEnvironment"] as? String ?? "production"
-        if !SENTRY_DSN.isEmpty {
-            SentrySDK.start { options in
-                options.dsn = SENTRY_DSN
-                options.environment = SENTRY_ENV
-                // Enable debug logging in development (disable for production)
-                #if DEBUG
-                options.debug = true
-                options.tracesSampleRate = 1.0  // 100% in debug for testing
-                #else
-                options.tracesSampleRate = 0.1  // 10% in prod to reduce noise
-                #endif
-                // Attach stack traces to all messages (helpful for debugging)
-                options.attachStacktrace = true
-                // Enable app hang detection with a 5-second threshold to reduce noise
-                options.enableAppHangTracking = true
-                options.appHangTimeoutInterval = 5.0
-                // Increase breadcrumb limit for better debugging context
-                options.maxBreadcrumbs = 200  // Default is 100
-                // Enable automatic session tracking
-                options.enableAutoSessionTracking = true
-            }
-            // Enable safe wrapper now that Sentry is initialized
-            SentryHelper.isEnabled = true
-        }
+        // Configure crash reporting (Sentry) from shared telemetry preference.
+        SentryHelper.setEnabled(AnalyticsService.shared.isOptedIn)
 
         // Configure analytics (prod only; default opt-in ON)
+        let info = Bundle.main.infoDictionary
         let POSTHOG_API_KEY = info?["PHPostHogApiKey"] as? String ?? ""
         let POSTHOG_HOST = info?["PHPostHogHost"] as? String ?? "https://us.i.posthog.com"
         if !POSTHOG_API_KEY.isEmpty {
@@ -148,6 +122,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Start notification service for journal reminders
         NotificationService.shared.start()
+
+        // Start daily recap generation scheduler (checks every 5 minutes)
+        DailyRecapScheduler.shared.start()
 
         // Observe recording state
         analyticsSub = AppState.shared.$isRecording
@@ -265,6 +242,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             powerObserver = nil
         }
+        DailyRecapScheduler.shared.stop()
         // If onboarding not completed, mark abandoned with last step
         let didOnboard = UserDefaults.standard.bool(forKey: "didOnboard")
         if !didOnboard {
