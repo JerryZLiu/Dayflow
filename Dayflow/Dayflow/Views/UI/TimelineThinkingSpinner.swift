@@ -1,5 +1,6 @@
 import SwiftUI
 import QuartzCore
+import AppKit
 
 struct TimelineThinkingSpinner: View {
     var config: TimelineSpinnerConfig = .reference
@@ -27,9 +28,7 @@ struct TimelineSpinnerConfig {
     var amplify: Double = 4.0
     var threshold: Double = 1.0
     var blurTight: CGFloat = 0.5
-    var blurWide: CGFloat = 50.0
     var gainTight: Double = 0.5
-    var gainWide: Double = 6.0
 
     // Neighbor compounding
     var neighborBoost: Double = 0.80
@@ -51,7 +50,7 @@ struct TimelineSpinnerConfig {
     var identityKey: String {
         [
             cycleDuration, bandWidth, trailDecay, wavePower,
-            amplify, threshold, Double(blurTight), Double(blurWide), gainTight, gainWide,
+            amplify, threshold, Double(blurTight), gainTight,
             neighborBoost, Double(pixelSize), Double(gap), Double(cornerRadius), minOpacity,
             colorDim.x, colorDim.y, colorDim.z,
             colorMid.x, colorMid.y, colorMid.z,
@@ -93,13 +92,6 @@ private struct TimelineSpinnerView: View {
             }
 
             Canvas { ctx, _ in
-                drawBloom(&ctx, brightness: model.brightness, gain: config.gainWide)
-            }
-            .blur(radius: config.blurWide)
-            .blendMode(.screen)
-            .allowsHitTesting(false)
-
-            Canvas { ctx, _ in
                 drawBloom(&ctx, brightness: model.brightness, gain: config.gainTight)
             }
             .blur(radius: config.blurTight)
@@ -111,16 +103,25 @@ private struct TimelineSpinnerView: View {
         .onAppear {
             if reduceMotion {
                 model.setStatic()
-            } else {
+            } else if NSApp.isActive {
                 model.start()
             }
         }
         .onChange(of: reduceMotion) { _, isReduced in
             if isReduced {
                 model.setStatic()
-            } else {
+            } else if NSApp.isActive {
                 model.start()
+            } else {
+                model.stop()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            guard !reduceMotion else { return }
+            model.start()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            model.stop()
         }
         .onDisappear {
             model.stop()
