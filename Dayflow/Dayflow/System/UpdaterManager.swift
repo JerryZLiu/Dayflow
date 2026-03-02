@@ -75,6 +75,10 @@ final class UpdaterManager: NSObject, ObservableObject {
 
 
 extension UpdaterManager: SPUUpdaterDelegate {
+    private nonisolated static func isNoUpdateSparkleError(domain: String, code: Int) -> Bool {
+        domain == "SUSparkleErrorDomain" && code == 1001
+    }
+
     nonisolated func updater(_ updater: SPUUpdater, willScheduleUpdateCheckAfterDelay delay: TimeInterval) {
         print("[Sparkle] Next scheduled check in \(Int(delay))s")
         logger.debug("Next Sparkle check scheduled in \(Int(delay))s")
@@ -169,8 +173,16 @@ extension UpdaterManager: SPUUpdaterDelegate {
         let nsError = error as NSError
         let domain = nsError.domain
         let code = nsError.code
-        print("[Sparkle] updater error: \(domain) \(code) - \(error.localizedDescription)")
-        logger.error("Sparkle error \(domain) \(code): \(error.localizedDescription)")
+        let isNoUpdateError = Self.isNoUpdateSparkleError(domain: domain, code: code)
+
+        if isNoUpdateError {
+            print("[Sparkle] updater no-update result via error callback: \(domain) \(code)")
+            logger.debug("Sparkle no-update callback via error path \(domain) \(code)")
+        } else {
+            print("[Sparkle] updater error: \(domain) \(code) - \(error.localizedDescription)")
+            logger.error("Sparkle error \(domain) \(code): \(error.localizedDescription)")
+        }
+
         let needsInteraction = (domain == "SUSparkleErrorDomain") && [
             4001, // SUAuthenticationFailure
             4008, // SUInstallationAuthorizeLaterError
@@ -180,6 +192,14 @@ extension UpdaterManager: SPUUpdaterDelegate {
 
         Task { @MainActor in
             self.isChecking = false
+
+            if isNoUpdateError {
+                self.updateAvailable = false
+                self.statusText = "Latest version"
+                AppDelegate.allowTermination = false
+                return
+            }
+
             self.statusText = needsInteraction ? "Update needs authorization" : "Update check failed"
             AppDelegate.allowTermination = needsInteraction
             self.track("sparkle_update_error", [
