@@ -106,8 +106,12 @@ struct SettingsView: View {
                     selectedTab = .providers
                 }
             }
+            // Refresh provider state when window reappears (fixes stale defaults
+            // after close-without-quit, where @StateObject may be recreated).
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+                providersViewModel.refreshFromPersistence()
+            }
     }
-
     private var mainContent: some View {
         HStack(alignment: .top, spacing: 32) {
             sidebar

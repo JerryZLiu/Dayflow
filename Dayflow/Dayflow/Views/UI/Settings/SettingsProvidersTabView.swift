@@ -6,6 +6,7 @@ struct SettingsProvidersTabView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
+            // MARK: - Upgrade Banner
             if viewModel.currentProvider == "ollama", viewModel.showLocalModelUpgradeBanner {
                 LocalModelUpgradeBanner(
                     preset: .qwen3VL4B,
@@ -27,53 +28,17 @@ struct SettingsProvidersTabView: View {
                     .padding(.horizontal, 4)
             }
 
-            SettingsCard(title: "Current configuration", subtitle: "Active provider and runtime details") {
-                VStack(alignment: .leading, spacing: 14) {
-                    providerSummary
-                    DayflowSurfaceButton(
-                        action: { viewModel.editProviderConfiguration(viewModel.primaryRoutingProviderId) },
-                        content: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "slider.horizontal.3")
-                                Text("Edit configuration")
-                                    .font(.custom("Nunito", size: 13))
-                            }
-                            .frame(minWidth: 160)
-                        },
-                        background: Color(red: 0.25, green: 0.17, blue: 0),
-                        foreground: .white,
-                        borderColor: .clear,
-                        cornerRadius: 8,
-                        horizontalPadding: 20,
-                        verticalPadding: 10,
-                        showOverlayStroke: true
-                    )
-                    if viewModel.currentProvider == "ollama" {
-                        DayflowSurfaceButton(
-                            action: { viewModel.isShowingLocalModelUpgradeSheet = true },
-                            content: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: viewModel.usingRecommendedLocalModel ? "slider.horizontal.2.square" : "arrow.up.circle.fill")
-                                        .font(.system(size: 14))
-                                    Text(viewModel.usingRecommendedLocalModel ? "Manage local model" : "Upgrade local model")
-                                        .font(.custom("Nunito", size: 13))
-                                        .fontWeight(.semibold)
-                                }
-                                .frame(minWidth: 160)
-                            },
-                            background: Color.white,
-                            foreground: .black,
-                            borderColor: Color.black.opacity(0.15),
-                            cornerRadius: 8,
-                            horizontalPadding: 16,
-                            verticalPadding: 9,
-                            showOverlayStroke: false
-                        )
-                        .padding(.top, 6)
-                    }
-                }
+            // MARK: - Primary Provider
+            SettingsCard(title: "Primary provider", subtitle: "The provider Dayflow uses for timeline summaries") {
+                primaryProviderCard
             }
 
+            // MARK: - Backup Provider
+            SettingsCard(title: "Backup provider", subtitle: "Fallback when the primary is unavailable") {
+                backupProviderCard
+            }
+
+            // MARK: - Connection Health
             SettingsCard(title: "Connection health", subtitle: "Run a quick test for the primary provider") {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(viewModel.connectionHealthLabel)
@@ -108,12 +73,19 @@ struct SettingsProvidersTabView: View {
                         }
                     }
                 }
+                .environment(\.colorScheme, .light)
             }
 
-            SettingsCard(title: "Failover routing", subtitle: "Choose primary and secondary providers") {
-                routingMatrix
+            // MARK: - Available Providers
+            SettingsCard(title: "Available providers", subtitle: "Configure and assign roles to providers") {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(viewModel.routingProviders, id: \.id) { provider in
+                        providerCard(for: provider)
+                    }
+                }
             }
 
+            // MARK: - Model Preference & Prompt Customization
             if viewModel.currentProvider == "gemini" {
                 SettingsCard(title: "Gemini model preference", subtitle: "Choose which Gemini model Dayflow should prioritize") {
                     GeminiModelSettingsCard(selectedModel: $viewModel.selectedGeminiModel) { model in
@@ -134,147 +106,129 @@ struct SettingsProvidersTabView: View {
                 }
             }
         }
-    }
-
-    private let routingAccentColor = Color(red: 0.25, green: 0.17, blue: 0)
-    private let routingButtonTextWidth: CGFloat = 120
-
-    private var routingMatrix: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(viewModel.routingProviders, id: \.id) { provider in
-                routingProviderCard(provider)
+        .sheet(isPresented: Binding(
+            get: { viewModel.editingProvider != nil },
+            set: { if !$0 { viewModel.editingProvider = nil } }
+        )) {
+            if let providerId = viewModel.editingProvider {
+                ProviderConfigEditor(
+                    providerId: providerId,
+                    viewModel: viewModel,
+                    onDismiss: { viewModel.editingProvider = nil }
+                )
+                .frame(width: 480, height: 420)
+                .preferredColorScheme(.light)
             }
         }
     }
 
-    private func hasPrimaryAndSecondaryActions(
-        isPrimary: Bool,
-        isSecondary: Bool
-    ) -> Bool {
-        !isPrimary && !isSecondary
-    }
+    // MARK: - Primary Provider Card
 
     @ViewBuilder
-    private func primaryAndSecondaryActions(
-        provider: CompactProviderInfo,
-        isPrimary: Bool,
-        isSecondary: Bool,
-        canSetSecondary: Bool
-    ) -> some View {
-        if hasPrimaryAndSecondaryActions(isPrimary: isPrimary, isSecondary: isSecondary) {
-            HStack(spacing: 8) {
-                matrixActionButton("Set primary", filled: true) {
-                    viewModel.setPrimaryOrSetup(provider.id)
-                }
-                matrixActionButton("Set secondary", filled: true, enabled: canSetSecondary) {
-                    viewModel.setSecondaryOrSetup(provider.id)
+    private var primaryProviderCard: some View {
+        let primaryId = viewModel.primaryRoutingProviderId
+        if let provider = viewModel.routingProviders.first(where: { $0.id == primaryId }) {
+            VStack(alignment: .leading, spacing: 14) {
+                ProviderCardView(
+                    provider: provider,
+                    isPrimary: true,
+                    isSecondary: false,
+                    isConfigured: viewModel.isProviderConfigured(primaryId),
+                    statusDetail: viewModel.statusText(for: primaryId),
+                    canSetPrimary: false,
+                    canSetSecondary: false,
+                    onEdit: { viewModel.editingProvider = primaryId },
+                    onConfigure: { viewModel.beginProviderSetup(primaryId, role: .setupOnly) },
+                    onRemove: { viewModel.removeProviderConfiguration(primaryId) },
+                    onSetPrimary: {},
+                    onSetSecondary: {}
+                )
+
+                if viewModel.currentProvider == "ollama" {
+                    DayflowSurfaceButton(
+                        action: { viewModel.isShowingLocalModelUpgradeSheet = true },
+                        content: {
+                            HStack(spacing: 6) {
+                                Image(systemName: viewModel.usingRecommendedLocalModel ? "slider.horizontal.2.square" : "arrow.up.circle.fill")
+                                    .font(.system(size: 14))
+                                Text(viewModel.usingRecommendedLocalModel ? "Manage local model" : "Upgrade local model")
+                                    .font(.custom("Nunito", size: 13))
+                                    .fontWeight(.semibold)
+                            }
+                            .frame(minWidth: 160)
+                        },
+                        background: Color.white,
+                        foreground: .black,
+                        borderColor: Color.black.opacity(0.15),
+                        cornerRadius: 8,
+                        horizontalPadding: 16,
+                        verticalPadding: 9,
+                        showOverlayStroke: false
+                    )
+                    .padding(.top, 6)
                 }
             }
-        } else if !isPrimary {
-            HStack(spacing: 8) {
-                matrixActionButton("Set primary", filled: true) {
-                    viewModel.setPrimaryOrSetup(provider.id)
-                }
-            }
-        } else if !isSecondary {
-            HStack(spacing: 8) {
-                matrixActionButton("Set secondary", filled: true, enabled: canSetSecondary) {
-                    viewModel.setSecondaryOrSetup(provider.id)
-                }
+        } else {
+            Text("No primary provider configured")
+                .font(.custom("Nunito", size: 13))
+                .foregroundColor(.black.opacity(0.55))
+        }
+    }
+
+    // MARK: - Backup Provider Card
+
+    @ViewBuilder
+    private var backupProviderCard: some View {
+        if let backupId = viewModel.secondaryRoutingProviderId,
+           let provider = viewModel.routingProviders.first(where: { $0.id == backupId }) {
+            ProviderCardView(
+                provider: provider,
+                isPrimary: false,
+                isSecondary: true,
+                isConfigured: viewModel.isProviderConfigured(backupId),
+                statusDetail: viewModel.statusText(for: backupId),
+                canSetPrimary: viewModel.canAssignPrimary(backupId),
+                canSetSecondary: false,
+                onEdit: { viewModel.editingProvider = backupId },
+                onConfigure: { viewModel.beginProviderSetup(backupId, role: .setupOnly) },
+                onRemove: { viewModel.removeProviderConfiguration(backupId) },
+                onSetPrimary: { viewModel.setPrimaryOrSetup(backupId) },
+                onSetSecondary: {}
+            )
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Not configured")
+                    .font(.custom("Nunito", size: 14))
+                    .foregroundColor(.black.opacity(0.55))
+                Text("Set a secondary provider in the Available Providers section below.")
+                    .font(.custom("Nunito", size: 12))
+                    .foregroundColor(.black.opacity(0.45))
             }
         }
     }
 
-    @ViewBuilder
-    private func routingProviderCard(_ provider: CompactProviderInfo) -> some View {
+    // MARK: - Provider Card Factory
+
+    private func providerCard(for provider: CompactProviderInfo) -> some View {
         let isConfigured = viewModel.isProviderConfigured(provider.id)
         let isPrimary = viewModel.primaryRoutingProviderId == provider.id
         let isSecondary = viewModel.isBackupProvider(provider.id)
         let canSetSecondary = viewModel.canAssignSecondary(provider.id) || !isConfigured
 
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Text(provider.providerTableName)
-                    .font(.custom("Nunito", size: 15))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.black.opacity(0.82))
-
-                Spacer()
-
-                if isPrimary {
-                    roleTag(text: "PRIMARY", type: .orange)
-                } else if isSecondary {
-                    roleTag(text: "SECONDARY", type: .blue)
-                } else if isConfigured {
-                    roleTag(text: "CONFIGURED", type: .green)
-                } else {
-                    roleTag(text: "NOT SET", type: .green)
-                }
-            }
-
-            Text(provider.summary)
-                .font(.custom("Nunito", size: 12))
-                .foregroundColor(.black.opacity(0.54))
-                .fixedSize(horizontal: false, vertical: true)
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    if !isConfigured {
-                        matrixActionButton("Setup", filled: false) {
-                            viewModel.beginProviderSetup(provider.id, role: .setupOnly)
-                        }
-                    }
-
-                    matrixActionButton("Edit configuration", filled: false) {
-                        viewModel.editProviderConfiguration(provider.id)
-                    }
-                }
-
-                primaryAndSecondaryActions(
-                    provider: provider,
-                    isPrimary: isPrimary,
-                    isSecondary: isSecondary,
-                    canSetSecondary: canSetSecondary
-                )
-            }
-        }
-        .padding(14)
-        .background(Color.white.opacity(0.52))
-        .cornerRadius(10)
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+        return ProviderCardView(
+            provider: provider,
+            isPrimary: isPrimary,
+            isSecondary: isSecondary,
+            isConfigured: isConfigured,
+            statusDetail: isConfigured ? viewModel.statusText(for: provider.id) : nil,
+            canSetPrimary: !isPrimary && isConfigured,
+            canSetSecondary: !isSecondary && canSetSecondary,
+            onEdit: { viewModel.editingProvider = provider.id },
+            onConfigure: { viewModel.beginProviderSetup(provider.id, role: .setupOnly) },
+            onRemove: { viewModel.removeProviderConfiguration(provider.id) },
+            onSetPrimary: { viewModel.setPrimaryOrSetup(provider.id) },
+            onSetSecondary: { viewModel.setSecondaryOrSetup(provider.id) }
         )
-    }
-
-    private func matrixActionButton(
-        _ title: String,
-        filled: Bool,
-        enabled: Bool = true,
-        action: @escaping () -> Void
-    ) -> some View {
-        DayflowSurfaceButton(
-            action: action,
-            content: {
-                Text(title)
-                    .font(.custom("Nunito", size: 12))
-                    .fontWeight(.semibold)
-                    .frame(width: routingButtonTextWidth, alignment: .center)
-            },
-            background: filled ? routingAccentColor : Color.white,
-            foreground: filled ? .white : .black,
-            borderColor: filled ? .clear : Color.black.opacity(0.14),
-            cornerRadius: 7,
-            horizontalPadding: 10,
-            verticalPadding: 5,
-            showOverlayStroke: filled
-        )
-        .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.45)
-    }
-
-    private func roleTag(text: String, type: BadgeType) -> some View {
-        BadgeView(text: text, type: type)
     }
 
     private var geminiPromptCustomizationView: some View {
@@ -507,69 +461,6 @@ struct SettingsProvidersTabView: View {
         }
     }
 
-    @ViewBuilder
-    private var providerSummary: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            summaryRoleRow(
-                label: "Primary provider",
-                value: viewModel.providerDisplayName(viewModel.primaryRoutingProviderId),
-                roleText: "PRIMARY",
-                roleType: .orange
-            )
-            if let backupProvider = viewModel.secondaryRoutingProviderId {
-                summaryRoleRow(
-                    label: "Secondary provider",
-                    value: viewModel.providerDisplayName(backupProvider),
-                    roleText: "SECONDARY",
-                    roleType: .blue
-                )
-            } else {
-                summaryRow(label: "Secondary provider", value: "Not configured")
-            }
-
-            switch viewModel.currentProvider {
-            case "ollama":
-                summaryRow(label: "Engine", value: viewModel.localEngine.displayName)
-                summaryRow(label: "Model", value: viewModel.localModelId.isEmpty ? "Not configured" : viewModel.localModelId)
-                summaryRow(label: "Endpoint", value: viewModel.localBaseURL)
-                let hasKey = !viewModel.localAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                summaryRow(label: "API key", value: hasKey ? "Stored in UserDefaults" : "Not set")
-            case "gemini":
-                summaryRow(label: "Model preference", value: viewModel.selectedGeminiModel.displayName)
-                summaryRow(label: "API key", value: KeychainManager.shared.retrieve(for: "gemini") != nil ? "Stored safely in Keychain" : "Not set")
-            case "chatgpt_claude":
-                summaryRow(label: "CLI preference", value: viewModel.chatCLIStatusLabel())
-                summaryRow(label: "Status", value: "Use Edit configuration to re-run CLI checks")
-            default:
-                summaryRow(label: "Status", value: "Coming soon")
-            }
-        }
-    }
-
-    private func summaryRoleRow(label: String, value: String, roleText: String, roleType: BadgeType) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(label)
-                .font(.custom("Nunito", size: 13))
-                .foregroundColor(.black.opacity(0.55))
-                .frame(width: 150, alignment: .leading)
-            Text(value)
-                .font(.custom("Nunito", size: 14))
-                .foregroundColor(.black.opacity(0.78))
-            roleTag(text: roleText, type: roleType)
-        }
-    }
-
-    private func summaryRow(label: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label)
-                .font(.custom("Nunito", size: 13))
-                .foregroundColor(.black.opacity(0.55))
-                .frame(width: 150, alignment: .leading)
-            Text(value)
-                .font(.custom("Nunito", size: 14))
-                .foregroundColor(.black.opacity(0.78))
-        }
-    }
 }
 
 private struct LocalModelUpgradeBanner: View {
