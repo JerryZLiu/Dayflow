@@ -35,7 +35,9 @@ struct OnboardingLLMSelectionView: View {
 
             // Card width calc (no min width, cap at 480)
             let availableWidth = windowWidth - (edgePadding * 2)
-            let rawCardWidth = (availableWidth - (cardGap * 2)) / 3
+            let cardCount = max(1, providerCards.count)
+            let totalGaps = cardGap * CGFloat(max(0, cardCount - 1))
+            let rawCardWidth = (availableWidth - totalGaps) / CGFloat(cardCount)
             let cardWidth = max(1, min(480, floor(rawCardWidth)))
 
             // Card height calc
@@ -188,6 +190,39 @@ struct OnboardingLLMSelectionView: View {
                 }
             ),
 
+            // Doubao (Ark) card
+            FlexibleProviderCard(
+                id: "doubao",
+                title: "Doubao (Ark)",
+                badgeText: "BYOK",
+                badgeType: .blue,
+                icon: "globe.asia.australia",
+                features: [
+                    ("Uses Volcengine Ark's OpenAI-compatible Chat Completions API", true),
+                    ("Works with vision-capable Ark models for screen understanding", true),
+                    ("Bring your own API key", true),
+                    ("May require a paid Volcengine account", false)
+                ],
+                isSelected: selectedProvider == "doubao",
+                buttonMode: .onboarding(onProceed: {
+                    if selectedProvider == "doubao" {
+                        saveProviderSelection()
+                        onNext("doubao")
+                    } else {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                            didUserSelectProvider = true
+                            selectedProvider = "doubao"
+                        }
+                    }
+                }),
+                onSelect: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                        didUserSelectProvider = true
+                        selectedProvider = "doubao"
+                    }
+                }
+            ),
+
             // ChatGPT/Claude CLI card
             FlexibleProviderCard(
                 id: "chatgpt_claude",
@@ -273,6 +308,8 @@ struct OnboardingLLMSelectionView: View {
             providerType = .dayflowBackend()
         case "chatgpt_claude":
             providerType = .chatGPTClaude
+        case "doubao":
+            providerType = .doubaoArk()
         default:
             providerType = .geminiDirect
         }

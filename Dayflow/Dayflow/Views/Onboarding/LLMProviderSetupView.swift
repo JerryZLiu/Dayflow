@@ -137,7 +137,7 @@ final class StreamingCLI {
 }
 
 struct LLMProviderSetupView: View {
-    let providerType: String // "ollama" or "gemini"
+    let providerType: String // "ollama", "gemini", "chatgpt_claude", or "doubao"
     let onBack: () -> Void
     let onComplete: () -> Void
     
@@ -149,6 +149,8 @@ struct LLMProviderSetupView: View {
             return "Use local AI"
         case "chatgpt_claude":
             return "Connect ChatGPT or Claude"
+        case "doubao":
+            return "Doubao (Ark)"
         default:
             return "Gemini"
         }
@@ -430,61 +432,122 @@ struct LLMProviderSetupView: View {
             
         case .apiKeyInput:
             VStack(alignment: .leading, spacing: 24) {
-                APIKeyInputView(
-                    apiKey: $setupState.apiKey,
-                    title: "Enter your API key:",
-                    subtitle: "Paste your Gemini API key below",
-                    placeholder: "AIza...",
-                    onValidate: { key in
-                        // Basic validation for now
-                        return key.hasPrefix("AIza") && key.count > 30
-                    }
-                )
-                .onChange(of: setupState.apiKey) { _, _ in
-                    setupState.clearGeminiAPIKeySaveError()
-                }
-
-                if let message = setupState.geminiAPIKeySaveError {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 12))
-                            .foregroundColor(Color(hex: "E91515"))
-
-                        Text(message)
-                            .font(.custom("Nunito", size: 13))
-                            .foregroundColor(Color(hex: "E91515"))
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color(hex: "E91515").opacity(0.1))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(Color(hex: "E91515").opacity(0.3), lineWidth: 1)
-                    )
-                }
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Choose your Gemini model. If you're on the free tier, pick 3 Flash, it's the most powerful model and is completely free to use. If you're on a paid plan, which is not recommended, I recommend 2.5 Flash-Lite to minimize costs.")
-                        .font(.custom("Nunito", size: 16))
-                        .fontWeight(.semibold)
-                        .foregroundColor(.black.opacity(0.85))
-
-                    Picker("Gemini model", selection: $setupState.geminiModel) {
-                        ForEach(GeminiModel.allCases, id: \.self) { model in
-                            Text(model.shortLabel).tag(model)
+                if activeProviderType == "doubao" {
+                    APIKeyInputView(
+                        apiKey: $setupState.apiKey,
+                        title: "Enter your API key:",
+                        subtitle: "Paste your Volcengine Ark API key below",
+                        placeholder: "Your Ark API key",
+                        onValidate: { key in
+                            key.trimmingCharacters(in: .whitespacesAndNewlines).count > 20
                         }
+                    )
+                    .onChange(of: setupState.apiKey) { _, _ in
+                        setupState.clearGeminiAPIKeySaveError()
                     }
-                    .pickerStyle(.segmented)
 
-                    Text(GeminiModelPreference(primary: setupState.geminiModel).fallbackSummary)
-                        .font(.custom("Nunito", size: 13))
-                        .foregroundColor(.black.opacity(0.55))
-                }
-                .onChange(of: setupState.geminiModel) {
-                    setupState.persistGeminiModelSelection(source: "onboarding_picker")
+                    if let message = setupState.geminiAPIKeySaveError {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(Color(hex: "E91515"))
+
+                            Text(message)
+                                .font(.custom("Nunito", size: 13))
+                                .foregroundColor(Color(hex: "E91515"))
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color(hex: "E91515").opacity(0.1))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color(hex: "E91515").opacity(0.3), lineWidth: 1)
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Ark base URL")
+                                .font(.custom("Nunito", size: 13))
+                                .foregroundColor(.black.opacity(0.6))
+                            TextField("https://ark.cn-beijing.volces.com/api/v3", text: $setupState.doubaoBaseURL)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.custom("Nunito", size: 13))
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Model ID")
+                                .font(.custom("Nunito", size: 13))
+                                .foregroundColor(.black.opacity(0.6))
+                            TextField("doubao-seed-1-6-flash-250828", text: $setupState.doubaoModelId)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.custom("Nunito", size: 13))
+                        }
+
+                        Text("Use a vision-capable Ark model so Dayflow can read screenshots. You can change these later in Settings → AI Provider.")
+                            .font(.custom("Nunito", size: 12))
+                            .foregroundColor(.black.opacity(0.55))
+                    }
+                } else {
+                    APIKeyInputView(
+                        apiKey: $setupState.apiKey,
+                        title: "Enter your API key:",
+                        subtitle: "Paste your Gemini API key below",
+                        placeholder: "AIza...",
+                        onValidate: { key in
+                            // Basic validation for now
+                            return key.hasPrefix("AIza") && key.count > 30
+                        }
+                    )
+                    .onChange(of: setupState.apiKey) { _, _ in
+                        setupState.clearGeminiAPIKeySaveError()
+                    }
+
+                    if let message = setupState.geminiAPIKeySaveError {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(Color(hex: "E91515"))
+
+                            Text(message)
+                                .font(.custom("Nunito", size: 13))
+                                .foregroundColor(Color(hex: "E91515"))
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color(hex: "E91515").opacity(0.1))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color(hex: "E91515").opacity(0.3), lineWidth: 1)
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Choose your Gemini model. If you're on the free tier, pick 3 Flash, it's the most powerful model and is completely free to use. If you're on a paid plan, which is not recommended, I recommend 2.5 Flash-Lite to minimize costs.")
+                            .font(.custom("Nunito", size: 16))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.black.opacity(0.85))
+
+                        Picker("Gemini model", selection: $setupState.geminiModel) {
+                            ForEach(GeminiModel.allCases, id: \.self) { model in
+                                Text(model.shortLabel).tag(model)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        Text(GeminiModelPreference(primary: setupState.geminiModel).fallbackSummary)
+                            .font(.custom("Nunito", size: 13))
+                            .foregroundColor(.black.opacity(0.55))
+                    }
+                    .onChange(of: setupState.geminiModel) {
+                        setupState.persistGeminiModelSelection(source: "onboarding_picker")
+                    }
                 }
                 
                 HStack {
@@ -553,6 +616,15 @@ struct LLMProviderSetupView: View {
                         if title == "Testing" || title == "Test Connection" {
                             if providerType == "gemini" {
                                 TestConnectionView(
+                                    provider: .gemini,
+                                    onTestComplete: { success in
+                                        setupState.hasTestedConnection = true
+                                        setupState.testSuccessful = success
+                                    }
+                                )
+                            } else if providerType == "doubao" {
+                                TestConnectionView(
+                                    provider: .doubao,
                                     onTestComplete: { success in
                                         setupState.hasTestedConnection = true
                                         setupState.testSuccessful = success
@@ -627,81 +699,159 @@ struct LLMProviderSetupView: View {
             
         case .apiKeyInstructions:
             VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Get your Gemini API key")
-                        .font(.custom("Nunito", size: 24))
-                        .fontWeight(.semibold)
-                        .foregroundColor(.black.opacity(0.9))
-                    
-                    Text("Google's Gemini offers a generous free tier that should allow you to run Dayflow ~15 hours a day for free - no credit card required")
-                        .font(.custom("Nunito", size: 14))
-                        .foregroundColor(.black.opacity(0.6))
-                }
-                
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack(alignment: .top, spacing: 12) {
-                        Text("1.")
+                if activeProviderType == "doubao" {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Get your Ark API key")
+                            .font(.custom("Nunito", size: 24))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.black.opacity(0.9))
+
+                        Text("Doubao runs via Volcengine Ark. You'll need an API key from your Volcengine account.")
                             .font(.custom("Nunito", size: 14))
                             .foregroundColor(.black.opacity(0.6))
-                            .frame(width: 20, alignment: .leading)
-                        
-                        Group {
-                            Text("Visit Google AI Studio ")
+                    }
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack(alignment: .top, spacing: 12) {
+                            Text("1.")
+                                .font(.custom("Nunito", size: 14))
+                                .foregroundColor(.black.opacity(0.6))
+                                .frame(width: 20, alignment: .leading)
+
+                            Group {
+                                Text("Open the Volcengine console ")
+                                    .font(.custom("Nunito", size: 14))
+                                    .foregroundColor(.black.opacity(0.8))
+                                + Text("(console.volcengine.com)")
+                                    .font(.custom("Nunito", size: 14))
+                                    .foregroundColor(Color(red: 1, green: 0.42, blue: 0.02))
+                                    .underline()
+                            }
+                            .onTapGesture { openVolcengineConsole() }
+                            .pointingHandCursor()
+                        }
+
+                        HStack(alignment: .top, spacing: 12) {
+                            Text("2.")
+                                .font(.custom("Nunito", size: 14))
+                                .foregroundColor(.black.opacity(0.6))
+                                .frame(width: 20, alignment: .leading)
+
+                            Text("Navigate to Ark and create an API key")
                                 .font(.custom("Nunito", size: 14))
                                 .foregroundColor(.black.opacity(0.8))
-                            + Text("(aistudio.google.com)")
-                                .font(.custom("Nunito", size: 14))
-                                .foregroundColor(Color(red: 1, green: 0.42, blue: 0.02))
-                                .underline()
                         }
-                        .onTapGesture { openGoogleAIStudio() }
-                        .pointingHandCursor()
+
+                        HStack(alignment: .top, spacing: 12) {
+                            Text("3.")
+                                .font(.custom("Nunito", size: 14))
+                                .foregroundColor(.black.opacity(0.6))
+                                .frame(width: 20, alignment: .leading)
+
+                            Text("Copy the key and paste it on the next step")
+                                .font(.custom("Nunito", size: 14))
+                                .foregroundColor(.black.opacity(0.8))
+                        }
                     }
-                    
-                    HStack(alignment: .top, spacing: 12) {
-                        Text("2.")
+                    .padding(.vertical, 12)
+
+                    HStack {
+                        DayflowSurfaceButton(
+                            action: openVolcengineConsole,
+                            content: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "safari").font(.system(size: 14))
+                                    Text("Open Volcengine Console").font(.custom("Nunito", size: 14)).fontWeight(.semibold)
+                                }
+                            },
+                            background: Color(red: 0.25, green: 0.17, blue: 0),
+                            foreground: .white,
+                            borderColor: .clear,
+                            cornerRadius: 8,
+                            horizontalPadding: 24,
+                            verticalPadding: 12,
+                            showOverlayStroke: true
+                        )
+                        Spacer()
+                        nextButton
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Get your Gemini API key")
+                            .font(.custom("Nunito", size: 24))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.black.opacity(0.9))
+
+                        Text("Google's Gemini offers a generous free tier that should allow you to run Dayflow ~15 hours a day for free - no credit card required")
                             .font(.custom("Nunito", size: 14))
                             .foregroundColor(.black.opacity(0.6))
-                            .frame(width: 20, alignment: .leading)
-                        
-                        Text("Click \"Get API key\" in the top right")
-                            .font(.custom("Nunito", size: 14))
-                            .foregroundColor(.black.opacity(0.8))
                     }
-                    
-                    HStack(alignment: .top, spacing: 12) {
-                        Text("3.")
-                            .font(.custom("Nunito", size: 14))
-                            .foregroundColor(.black.opacity(0.6))
-                            .frame(width: 20, alignment: .leading)
-                        
-                        Text("Create a new API key and copy it")
-                            .font(.custom("Nunito", size: 14))
-                            .foregroundColor(.black.opacity(0.8))
-                    }
-                }
-                .padding(.vertical, 12)
-                
-                // Buttons row with Open Google AI Studio on left, Next on right
-                HStack {
-                    DayflowSurfaceButton(
-                        action: openGoogleAIStudio,
-                        content: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "safari").font(.system(size: 14))
-                                Text("Open Google AI Studio").font(.custom("Nunito", size: 14)).fontWeight(.semibold)
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack(alignment: .top, spacing: 12) {
+                            Text("1.")
+                                .font(.custom("Nunito", size: 14))
+                                .foregroundColor(.black.opacity(0.6))
+                                .frame(width: 20, alignment: .leading)
+
+                            Group {
+                                Text("Visit Google AI Studio ")
+                                    .font(.custom("Nunito", size: 14))
+                                    .foregroundColor(.black.opacity(0.8))
+                                + Text("(aistudio.google.com)")
+                                    .font(.custom("Nunito", size: 14))
+                                    .foregroundColor(Color(red: 1, green: 0.42, blue: 0.02))
+                                    .underline()
                             }
-                        },
-                        background: Color(red: 0.25, green: 0.17, blue: 0),
-                        foreground: .white,
-                        borderColor: .clear,
-                        cornerRadius: 8,
-                        horizontalPadding: 24,
-                        verticalPadding: 12,
-                        showOverlayStroke: true
-                    )
-                    Spacer()
-                    nextButton
+                            .onTapGesture { openGoogleAIStudio() }
+                            .pointingHandCursor()
+                        }
+
+                        HStack(alignment: .top, spacing: 12) {
+                            Text("2.")
+                                .font(.custom("Nunito", size: 14))
+                                .foregroundColor(.black.opacity(0.6))
+                                .frame(width: 20, alignment: .leading)
+
+                            Text("Click \"Get API key\" in the top right")
+                                .font(.custom("Nunito", size: 14))
+                                .foregroundColor(.black.opacity(0.8))
+                        }
+
+                        HStack(alignment: .top, spacing: 12) {
+                            Text("3.")
+                                .font(.custom("Nunito", size: 14))
+                                .foregroundColor(.black.opacity(0.6))
+                                .frame(width: 20, alignment: .leading)
+
+                            Text("Create a new API key and copy it")
+                                .font(.custom("Nunito", size: 14))
+                                .foregroundColor(.black.opacity(0.8))
+                        }
+                    }
+                    .padding(.vertical, 12)
+
+                    // Buttons row with Open Google AI Studio on left, Next on right
+                    HStack {
+                        DayflowSurfaceButton(
+                            action: openGoogleAIStudio,
+                            content: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "safari").font(.system(size: 14))
+                                    Text("Open Google AI Studio").font(.custom("Nunito", size: 14)).fontWeight(.semibold)
+                                }
+                            },
+                            background: Color(red: 0.25, green: 0.17, blue: 0),
+                            foreground: .white,
+                            borderColor: .clear,
+                            cornerRadius: 8,
+                            horizontalPadding: 24,
+                            verticalPadding: 12,
+                            showOverlayStroke: true
+                        )
+                        Spacer()
+                        nextButton
+                    }
                 }
             }
         }
@@ -740,6 +890,26 @@ struct LLMProviderSetupView: View {
             KeychainManager.shared.store(setupState.apiKey, for: "gemini")
             GeminiModelPreference(primary: setupState.geminiModel).save()
         }
+
+        if activeProviderType == "doubao" {
+            let trimmedKey = setupState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedKey.isEmpty {
+                KeychainManager.shared.store(trimmedKey, for: "doubao")
+            }
+
+            let baseURL = setupState.doubaoBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedBaseURL = baseURL.isEmpty ? DoubaoPreferences.defaultBaseURL : baseURL
+            let modelId = setupState.doubaoModelId.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedModelId = modelId.isEmpty ? DoubaoPreferences.defaultModelId : modelId
+
+            let type = LLMProviderType.doubaoArk(endpoint: resolvedBaseURL)
+            if let encoded = try? JSONEncoder().encode(type) {
+                UserDefaults.standard.set(encoded, forKey: "llmProviderType")
+            }
+            UserDefaults.standard.set("doubao", forKey: "selectedLLMProvider")
+            UserDefaults.standard.set(resolvedBaseURL, forKey: DoubaoPreferences.baseURLDefaultsKey)
+            UserDefaults.standard.set(resolvedModelId, forKey: DoubaoPreferences.modelIdDefaultsKey)
+        }
         
         // Save local endpoint for local engine selection
         if activeProviderType == "ollama" {
@@ -776,6 +946,12 @@ struct LLMProviderSetupView: View {
     
     private func openGoogleAIStudio() {
         if let url = URL(string: "https://aistudio.google.com/app/apikey") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func openVolcengineConsole() {
+        if let url = URL(string: "https://console.volcengine.com/") {
             NSWorkspace.shared.open(url)
         }
     }
@@ -818,6 +994,9 @@ class ProviderSetupState: ObservableObject {
     @Published var hasTestedConnection: Bool = false
     @Published var testSuccessful: Bool = false
     @Published var geminiModel: GeminiModel
+    // Doubao / Ark configuration
+    @Published var doubaoBaseURL: String = (UserDefaults.standard.string(forKey: DoubaoPreferences.baseURLDefaultsKey) ?? DoubaoPreferences.defaultBaseURL)
+    @Published var doubaoModelId: String = (UserDefaults.standard.string(forKey: DoubaoPreferences.modelIdDefaultsKey) ?? DoubaoPreferences.defaultModelId)
     // Local engine configuration
     @Published var localEngine: LocalEngine = .lmstudio
     @Published var localBaseURL: String = LocalEngine.lmstudio.defaultBaseURL
@@ -836,6 +1015,7 @@ class ProviderSetupState: ObservableObject {
 
     private var lastSavedGeminiModel: GeminiModel
     private var hasStartedCLICheck = false
+    private var activeProviderId: String = "gemini"
     init() {
         let preference = GeminiModelPreference.load()
         self.geminiModel = preference.primary
@@ -852,7 +1032,14 @@ class ProviderSetupState: ObservableObject {
     var canContinue: Bool {
         switch currentStep.contentType {
         case .apiKeyInput:
-            return !apiKey.isEmpty && apiKey.count > 20
+            let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedKey.isEmpty, trimmedKey.count > 20 else { return false }
+            if activeProviderId == "doubao" {
+                let base = doubaoBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                let model = doubaoModelId.trimmingCharacters(in: .whitespacesAndNewlines)
+                return !base.isEmpty && !model.isEmpty
+            }
+            return true
         case .cliDetection:
             return isSelectedCLIToolReady
         case .information(_, _):
@@ -870,6 +1057,7 @@ class ProviderSetupState: ObservableObject {
     }
     
     func configureSteps(for provider: String) {
+        activeProviderId = provider
         switch provider {
         case "ollama":
             steps = [
@@ -925,7 +1113,29 @@ class ProviderSetupState: ObservableObject {
             claudeCLIReport = nil
             isCheckingCLIStatus = false
             hasStartedCLICheck = false
+        case "doubao":
+            steps = [
+                SetupStep(id: "getkey", title: "Get API key", contentType: .apiKeyInstructions),
+                SetupStep(id: "enterkey", title: "Enter API key", contentType: .apiKeyInput),
+                SetupStep(
+                    id: "verify",
+                    title: "Test connection",
+                    contentType: .information(
+                        "Test Connection",
+                        "Click the button below to verify your API key works with Volcengine Ark."
+                    )
+                ),
+                SetupStep(
+                    id: "complete",
+                    title: "Complete",
+                    contentType: .information(
+                        "All set!",
+                        "Doubao (Ark) is now configured and ready to use with Dayflow."
+                    )
+                )
+            ]
         default: // gemini
+            activeProviderId = "gemini"
             steps = [
                 SetupStep(id: "getkey", title: "Get API key",
                           contentType: .apiKeyInstructions),
@@ -942,7 +1152,7 @@ class ProviderSetupState: ObservableObject {
     func goNext() {
         // Save API key to keychain when moving from API key input step
         if currentStep.contentType.isApiKeyInput && !apiKey.isEmpty {
-            guard persistGeminiAPIKey(source: "onboarding_step") else { return }
+            guard persistActiveProviderAPIKey(source: "onboarding_step") else { return }
         }
 
         if currentStepIndex < steps.count - 1 {
@@ -959,7 +1169,7 @@ class ProviderSetupState: ObservableObject {
     func navigateToStep(_ stepId: String) {
         if let index = steps.firstIndex(where: { $0.id == stepId }) {
             if currentStep.contentType.isApiKeyInput && stepId != currentStep.id {
-                guard persistGeminiAPIKey(source: "onboarding_sidebar") else { return }
+                guard persistActiveProviderAPIKey(source: "onboarding_sidebar") else { return }
             }
             // Reset test state when navigating to test step
             if stepId == "verify" || stepId == "test" {
@@ -1016,6 +1226,49 @@ class ProviderSetupState: ObservableObject {
             hasTestedConnection = false
             testSuccessful = false
             persistGeminiModelSelection(source: source)
+        } else {
+            geminiAPIKeySaveError = "Couldn't save your API key to Keychain. Please unlock Keychain and try again."
+        }
+        return stored
+    }
+
+    @discardableResult
+    func persistActiveProviderAPIKey(source: String) -> Bool {
+        if activeProviderId == "doubao" {
+            return persistDoubaoAPIKey(source: source)
+        }
+        return persistGeminiAPIKey(source: source)
+    }
+
+    @discardableResult
+    private func persistDoubaoAPIKey(source: String) -> Bool {
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            geminiAPIKeySaveError = nil
+            return true
+        }
+
+        if trimmed != apiKey {
+            apiKey = trimmed
+        }
+
+        let stored = KeychainManager.shared.store(trimmed, for: "doubao")
+        if stored {
+            geminiAPIKeySaveError = nil
+            hasTestedConnection = false
+            testSuccessful = false
+
+            let base = doubaoBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedBase = base.isEmpty ? DoubaoPreferences.defaultBaseURL : base
+            let model = doubaoModelId.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedModel = model.isEmpty ? DoubaoPreferences.defaultModelId : model
+
+            UserDefaults.standard.set(resolvedBase, forKey: DoubaoPreferences.baseURLDefaultsKey)
+            UserDefaults.standard.set(resolvedModel, forKey: DoubaoPreferences.modelIdDefaultsKey)
+            UserDefaults.standard.set("doubao", forKey: "selectedLLMProvider")
+            if let encoded = try? JSONEncoder().encode(LLMProviderType.doubaoArk(endpoint: resolvedBase)) {
+                UserDefaults.standard.set(encoded, forKey: "llmProviderType")
+            }
         } else {
             geminiAPIKeySaveError = "Couldn't save your API key to Keychain. Please unlock Keychain and try again."
         }
