@@ -315,10 +315,24 @@ extension MainView {
     private func timelinePanel(geo: GeometryProxy) -> some View {
         HStack(alignment: .top, spacing: 0) {
             timelineLeftColumn
-            Rectangle()
-                .fill(Color(hex: "ECECEC"))
-                .frame(width: 1)
-                .frame(maxHeight: .infinity)
+
+            // Resize interaction area: thin visible divider + wider invisible drag handle
+            ZStack {
+                Rectangle()
+                    .fill(Color(hex: "ECECEC"))
+                    .frame(width: 1)
+
+                SidebarResizeHandle(
+                    width: Binding(
+                        get: { CGFloat(rightPanelWidthStorage) },
+                        set: { rightPanelWidthStorage = Double($0) }
+                    ),
+                    panelWidth: geo.size.width
+                )
+            }
+            .frame(maxHeight: .infinity)
+            .zIndex(20) // Ensure handle is above cards
+
             timelineRightColumn(geo: geo)
         }
         .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
@@ -586,7 +600,8 @@ extension MainView {
                 )
             )
         )
-        .frame(minWidth: 240, idealWidth: 358, maxWidth: 358, maxHeight: .infinity)
+        .frame(width: CGFloat(rightPanelWidthStorage))
+        .frame(maxHeight: .infinity)
     }
 
     private var overlayContent: some View {
@@ -787,5 +802,47 @@ private struct TimelineFailureToastView: View {
                 .stroke(Color(hex: "F3D9C2"), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 6)
+    }
+}
+
+struct SidebarResizeHandle: View {
+    @Binding var width: CGFloat
+    let panelWidth: CGFloat
+    let minWidth: CGFloat = 350
+
+    /// Max sidebar width is 40% of the total panel width
+    var maxWidth: CGFloat {
+        max(panelWidth * 0.4, minWidth)
+    }
+
+    @State private var dragStartWidth: CGFloat? = nil
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(width: 6) // Wider hit area for ease of use
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside {
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .gesture(
+                DragGesture(coordinateSpace: .global)
+                    .onChanged { value in
+                        // Capture the starting width on drag start
+                        if dragStartWidth == nil {
+                            dragStartWidth = width
+                        }
+                        // Dragging left (negative translation) increases width
+                        let newWidth = (dragStartWidth ?? width) - value.translation.width
+                        width = min(max(newWidth, minWidth), maxWidth)
+                    }
+                    .onEnded { _ in
+                        dragStartWidth = nil
+                    }
+            )
     }
 }
