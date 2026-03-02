@@ -141,7 +141,7 @@ DETAILED SUMMARY
 Granular activity log — every context switch, every app, every distinct action. This is the "show me exactly what happened" view.
 
 Format:
-[H:MM AM/PM] - [H:MM AM/PM] [specific action] [in app/tool] [on what]
+[H:MM AM/PM] - [H:MM AM/PM]: [specific action] [in app/tool] [on what]
 
 Include:
 - Specific file/document names when visible
@@ -150,17 +150,17 @@ Include:
 - Content context: what topic, what section, who you messaged
 
 Good example:
-"7:00 AM - 7:08 AM edited "Q4 Launch Plan" in Notion, added timeline section
-7:08 AM - 7:10 AM replied to Mike in Slack #engineering
-7:10 AM - 7:12 AM scrolled X home feed
-7:12 AM - 7:18 AM back to Notion, wrote launch risks section
-7:18 AM - 7:20 AM searched Google "feature flag best practices"
-7:20 AM - 7:25 AM read LaunchDarkly docs
-7:25 AM - 7:30 AM added feature flag notes to Notion doc"
+"7:00 AM - 7:08 AM: edited "Q4 Launch Plan" in Notion, added timeline section
+7:08 AM - 7:10 AM: replied to Mike in Slack #engineering
+7:10 AM - 7:12 AM: scrolled X home feed
+7:12 AM - 7:18 AM: back to Notion, wrote launch risks section
+7:18 AM - 7:20 AM: searched Google "feature flag best practices"
+7:20 AM - 7:25 AM: read LaunchDarkly docs
+7:25 AM - 7:30 AM: added feature flag notes to Notion doc"
 
 Bad example:
 "7:00 AM - 7:30 AM writing Notion doc
-7:30 AM - 7:35 AM Slack
+7:30 AM - 7:35 AM: Slack
 7:35 AM - 8:00 AM coding"
 (Too coarse — what doc? which Slack channel? coding what?)
 
