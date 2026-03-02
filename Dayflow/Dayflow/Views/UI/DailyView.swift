@@ -19,13 +19,19 @@ private enum DailyGridConfig {
     static let visibleStartMinute: Double = 9 * 60
     static let visibleEndMinute: Double = 21 * 60
     static let slotDurationMinutes: Double = 15
-    static let fallbackCategoryNames = ["Research", "Design", "Alignment", "Testing", "General"]
-    static let fallbackColorHexes = ["5E90D9", "A166DB", "4BBFB7", "F38565", "8B8480"]
+    static let fallbackCategoryNames = ["Work", "Personal", "Distraction", "Idle"]
+    static let fallbackColorHexes = ["B984FF", "6AADFF", "FF5950", "A0AEC0"]
 }
 
 private enum DailyStandupCopyState: Equatable {
     case idle
     case copied
+}
+
+private enum DailyStandupRegenerateState: Equatable {
+    case idle
+    case regenerating
+    case regenerated
 }
 
 struct DailyView: View {
@@ -46,11 +52,19 @@ struct DailyView: View {
     @State private var standupDraftSaveTask: Task<Void, Never>? = nil
     @State private var standupCopyState: DailyStandupCopyState = .idle
     @State private var standupCopyResetTask: Task<Void, Never>? = nil
+    @State private var standupRegenerateState: DailyStandupRegenerateState = .idle
+    @State private var standupRegenerateTask: Task<Void, Never>? = nil
+    @State private var standupRegenerateResetTask: Task<Void, Never>? = nil
+    @State private var standupRegeneratingDotsPhase: Int = 1
 
     private let requiredCodeHash = "6979ce2825cb3f440f987bbc487d62087c333abb99b56062c561ca557392d960"
     private let betaNoticeCopy = "Daily is a new way to visualize your day and turn it into a standup update fast."
     private let onboardingNoticeCopy = "Currently doing custom onboarding while we refine the workflow. If you’re interested, book some time and I’ll walk you through it."
     private let onboardingBookingURL = "https://cal.com/jerry-liu/15min"
+    private let dayflowBackendDefaultEndpoint = "https://web-production-f3361.up.railway.app"
+    private let dayflowBackendInfoPlistKey = "DayflowBackendURL"
+    private let dayflowBackendOverrideDefaultsKey = "dayflowBackendURLOverride"
+    private let priorStandupHistoryLimit = 3
 
     var body: some View {
         ZStack {
@@ -63,6 +77,7 @@ struct DailyView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .environment(\.colorScheme, .light)
     }
 
     private var lockScreen: some View {
@@ -204,13 +219,15 @@ struct DailyView: View {
     private var unlockedContent: some View {
         GeometryReader { geometry in
             let baselineWidth: CGFloat = 950
-            let rawContentWidth = max(320, geometry.size.width)
-            let scale = min(max(rawContentWidth / baselineWidth, 0.82), 1.18)
+            let maxLayoutWidth: CGFloat = 1320
+            let availableWidth = max(320, geometry.size.width)
+            let layoutWidth = min(availableWidth, maxLayoutWidth)
+            let scale = min(max(layoutWidth / baselineWidth, 0.82), 1.18)
             let horizontalInset = 16 * scale
             let topInset = max(22, 20 * scale)
             let bottomInset = 16 * scale
             let sectionSpacing = 20 * scale
-            let contentWidth = max(320, geometry.size.width - (horizontalInset * 2))
+            let contentWidth = max(320, layoutWidth - (horizontalInset * 2))
             let useSingleColumn = contentWidth < (840 * scale)
             let isViewingToday = isTodaySelection(selectedDate)
 
@@ -218,12 +235,11 @@ struct DailyView: View {
                 VStack(alignment: .leading, spacing: sectionSpacing) {
                     topControls(scale: scale)
                     workflowSection(scale: scale, isViewingToday: isViewingToday)
-                    actionRow(useSingleColumn: useSingleColumn, scale: scale)
+                    actionRow(scale: scale, isViewingToday: isViewingToday)
                     highlightsAndTasksSection(
                         useSingleColumn: useSingleColumn,
                         contentWidth: contentWidth,
-                        scale: scale,
-                        showData: !isViewingToday
+                        scale: scale
                     )
                 }
                 .frame(width: contentWidth, alignment: .leading)
@@ -243,6 +259,11 @@ struct DailyView: View {
             standupDraftSaveTask = nil
             standupCopyResetTask?.cancel()
             standupCopyResetTask = nil
+            standupRegenerateTask?.cancel()
+            standupRegenerateTask = nil
+            standupRegenerateResetTask?.cancel()
+            standupRegenerateResetTask = nil
+            standupRegeneratingDotsPhase = 1
         }
         .onChange(of: selectedDate) { _, _ in
             refreshWorkflowData()
@@ -407,18 +428,18 @@ struct DailyView: View {
     }
 
     @ViewBuilder
-    private func actionRow(useSingleColumn: Bool, scale: CGFloat) -> some View {
-        if useSingleColumn {
-            VStack(alignment: .leading, spacing: 10 * scale) {
-                DailyModeToggle(activeMode: .highlights, scale: scale)
-                standupCopyButton(scale: scale)
+    private func actionRow(scale: CGFloat, isViewingToday: Bool) -> some View {
+        let actionButtons = HStack(spacing: 10 * scale) {
+            standupCopyButton(scale: scale)
+            if !isViewingToday {
+                standupRegenerateButton(scale: scale)
             }
-        } else {
-            HStack {
-                DailyModeToggle(activeMode: .highlights, scale: scale)
-                Spacer()
-                standupCopyButton(scale: scale)
-            }
+        }
+
+        HStack {
+            // TODO: Bring back the Highlights/Details toggle when Details mode is ready.
+            Spacer(minLength: 0)
+            actionButtons
         }
     }
 
@@ -483,8 +504,78 @@ struct DailyView: View {
         .accessibilityLabel(Text(standupCopyState == .copied ? "Copied standup update" : "Copy standup update"))
     }
 
+    private func standupRegenerateButton(scale: CGFloat) -> some View {
+        let transition = AnyTransition.opacity.combined(with: .scale(scale: 0.5))
+
+        return Button(action: regenerateStandupFromTimeline) {
+            HStack(spacing: 6 * scale) {
+                ZStack {
+                    if standupRegenerateState == .regenerating {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .scaleEffect(0.6 * scale)
+                            .tint(.white)
+                    } else if standupRegenerateState == .regenerated {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 12 * scale, weight: .semibold))
+                            .transition(transition)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 12 * scale, weight: .semibold))
+                            .transition(transition)
+                    }
+                }
+                .frame(width: 16 * scale, height: 16 * scale)
+
+                ZStack(alignment: .leading) {
+                    Text(regenerateButtonLabel)
+                        .font(.custom("Nunito-Medium", size: 14 * scale))
+                        .lineLimit(1)
+                        .opacity(standupRegenerateState == .regenerated ? 0 : 1)
+
+                    Text("Regenerated")
+                        .font(.custom("Nunito-Medium", size: 14 * scale))
+                        .lineLimit(1)
+                        .opacity(standupRegenerateState == .regenerated ? 1 : 0)
+                }
+                .frame(minWidth: 108 * scale, alignment: .leading)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12 * scale)
+            .padding(.vertical, 10 * scale)
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color(hex: "FFB58A"),
+                        Color(hex: "ED9BC0")
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .clipShape(Capsule(style: .continuous))
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color(hex: "F2D7C3"), lineWidth: max(1.2, 1.5 * scale))
+            )
+            .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(DailyCopyPressButtonStyle())
+        .animation(.easeInOut(duration: 0.22), value: standupRegenerateState)
+        .disabled(standupRegenerateState == .regenerating)
+        .pointingHandCursorOnHover(enabled: standupRegenerateState != .regenerating, reassertOnPressEnd: true)
+        .accessibilityLabel(Text("Regenerate standup highlights"))
+        .onReceive(Timer.publish(every: 0.45, on: .main, in: .common).autoconnect()) { _ in
+            guard standupRegenerateState == .regenerating else {
+                standupRegeneratingDotsPhase = 1
+                return
+            }
+            standupRegeneratingDotsPhase = (standupRegeneratingDotsPhase % 3) + 1
+        }
+    }
+
     @ViewBuilder
-    private func highlightsAndTasksSection(useSingleColumn: Bool, contentWidth: CGFloat, scale: CGFloat, showData: Bool) -> some View {
+    private func highlightsAndTasksSection(useSingleColumn: Bool, contentWidth: CGFloat, scale: CGFloat) -> some View {
         if useSingleColumn {
             VStack(alignment: .leading, spacing: 12 * scale) {
                 DailyBulletCard(
@@ -492,8 +583,6 @@ struct DailyView: View {
                     seamMode: .standalone,
                     title: $standupDraft.highlightsTitle,
                     items: $standupDraft.highlights,
-                    showItems: showData,
-                    addTaskLabel: $standupDraft.addTaskLabel,
                     blockersTitle: $standupDraft.blockersTitle,
                     blockersBody: $standupDraft.blockersBody,
                     scale: scale
@@ -503,8 +592,6 @@ struct DailyView: View {
                     seamMode: .standalone,
                     title: $standupDraft.tasksTitle,
                     items: $standupDraft.tasks,
-                    showItems: showData,
-                    addTaskLabel: $standupDraft.addTaskLabel,
                     blockersTitle: $standupDraft.blockersTitle,
                     blockersBody: $standupDraft.blockersBody,
                     scale: scale
@@ -520,8 +607,6 @@ struct DailyView: View {
                     seamMode: .joinedLeading,
                     title: $standupDraft.highlightsTitle,
                     items: $standupDraft.highlights,
-                    showItems: showData,
-                    addTaskLabel: $standupDraft.addTaskLabel,
                     blockersTitle: $standupDraft.blockersTitle,
                     blockersBody: $standupDraft.blockersBody,
                     scale: scale
@@ -533,8 +618,6 @@ struct DailyView: View {
                     seamMode: .joinedTrailing,
                     title: $standupDraft.tasksTitle,
                     items: $standupDraft.tasks,
-                    showItems: showData,
-                    addTaskLabel: $standupDraft.addTaskLabel,
                     blockersTitle: $standupDraft.blockersTitle,
                     blockersBody: $standupDraft.blockersBody,
                     scale: scale
@@ -607,41 +690,422 @@ struct DailyView: View {
         }
     }
 
-    private func standupClipboardText() -> String {
-        var lines: [String] = []
-        lines.append("Standup update (\(dailyDateTitle(for: selectedDate)))")
-        lines.append("")
-        lines.append(standupDraft.highlightsTitle)
-        standupDraft.highlights.forEach { item in
-            let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            let body = item.body.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !title.isEmpty || !body.isEmpty else { return }
-            if !title.isEmpty && !body.isEmpty {
-                lines.append("- \(title) — \(body)")
-            } else if !title.isEmpty {
-                lines.append("- \(title)")
-            } else {
-                lines.append("- \(body)")
+    private func regenerateStandupFromTimeline() {
+        guard !isTodaySelection(selectedDate) else { return }
+        guard standupRegenerateState != .regenerating else { return }
+
+        let timelineDate = timelineDisplayDate(from: selectedDate)
+        let dayInfo = timelineDate.getDayInfoFor4AMBoundary()
+        let dayString = dayInfo.dayString
+        let dayStartTs = Int(dayInfo.startOfDay.timeIntervalSince1970)
+        let dayEndTs = Int(dayInfo.endOfDay.timeIntervalSince1970)
+        let currentHighlightsTitle = standupDraft.highlightsTitle
+        let currentTasksTitle = standupDraft.tasksTitle
+        let currentBlockersTitle = standupDraft.blockersTitle
+        let preferencesText = currentPreferencesText()
+        let priorStandupLimit = priorStandupHistoryLimit
+        let defaultEndpoint = dayflowBackendDefaultEndpoint
+        let infoPlistKey = dayflowBackendInfoPlistKey
+        let overrideDefaultsKey = dayflowBackendOverrideDefaultsKey
+
+        standupRegenerateTask?.cancel()
+        standupRegenerateResetTask?.cancel()
+
+        AnalyticsService.shared.capture("daily_standup_regenerate_clicked", [
+            "timeline_day": dayString,
+            "source": "regenerate_button"
+        ])
+        print("[Daily] Regenerate started day=\(dayString)")
+
+        standupRegenerateState = .regenerating
+
+        standupRegenerateTask = Task.detached(priority: .userInitiated) {
+            let startedAt = Date()
+            let cards = StorageManager.shared.fetchTimelineCards(forDay: dayString)
+            guard !cards.isEmpty else {
+                guard !Task.isCancelled else { return }
+                print("[Daily] Regenerate failed day=\(dayString) reason=no_cards")
+                await MainActor.run {
+                    standupRegenerateState = .idle
+                    standupRegenerateTask = nil
+                    AnalyticsService.shared.capture("daily_generation_failed", [
+                        "timeline_day": dayString,
+                        "source": "regenerate_button",
+                        "reason": "no_cards"
+                    ])
+                }
+                return
+            }
+
+            let observations = StorageManager.shared.fetchObservations(startTs: dayStartTs, endTs: dayEndTs)
+            let priorEntries = StorageManager.shared.fetchRecentDailyStandups(
+                limit: priorStandupLimit,
+                excludingDay: dayString
+            )
+            let cardsText = Self.makeCardsText(day: dayString, cards: cards)
+            let observationsText = Self.makeObservationsText(day: dayString, observations: observations)
+            let priorDailyText = Self.makePriorDailyText(entries: priorEntries)
+
+            AnalyticsService.shared.capture("daily_generation_payload_built", [
+                "timeline_day": dayString,
+                "source": "regenerate_button",
+                "cards_count": cards.count,
+                "observations_count": observations.count,
+                "prior_daily_count": priorEntries.count,
+                "cards_text_chars": cardsText.count,
+                "observations_text_chars": observationsText.count,
+                "prior_daily_text_chars": priorDailyText.count,
+                "preferences_text_chars": preferencesText.count
+            ])
+
+            guard let provider = Self.makeDayflowBackendProvider(
+                defaultEndpoint: defaultEndpoint,
+                infoPlistKey: infoPlistKey,
+                overrideDefaultsKey: overrideDefaultsKey
+            ) else {
+                guard !Task.isCancelled else { return }
+                print("[Daily] Regenerate failed day=\(dayString) reason=missing_dayflow_token")
+                await MainActor.run {
+                    standupRegenerateState = .idle
+                    standupRegenerateTask = nil
+                    AnalyticsService.shared.capture("daily_generation_failed", [
+                        "timeline_day": dayString,
+                        "source": "regenerate_button",
+                        "reason": "missing_dayflow_token"
+                    ])
+                }
+                return
+            }
+
+            let request = DayflowDailyGenerationRequest(
+                day: dayString,
+                cardsText: cardsText,
+                observationsText: observationsText,
+                priorDailyText: priorDailyText,
+                preferencesText: preferencesText
+            )
+
+            do {
+                let response = try await provider.generateDaily(request)
+                let highlights = Self.normalizedBullets(from: response.highlights)
+                let unfinished = Self.normalizedBullets(from: response.unfinished)
+                let blockers = Self.normalizedBlockersText(from: response.blockers)
+                let regeneratedDraft = DailyStandupDraft(
+                    highlightsTitle: currentHighlightsTitle,
+                    highlights: highlights,
+                    tasksTitle: currentTasksTitle,
+                    tasks: unfinished,
+                    blockersTitle: currentBlockersTitle,
+                    blockersBody: blockers
+                )
+
+                guard let payloadData = try? JSONEncoder().encode(regeneratedDraft),
+                      let payloadJSON = String(data: payloadData, encoding: .utf8) else {
+                    guard !Task.isCancelled else { return }
+                    print("[Daily] Regenerate failed day=\(dayString) reason=encode_failed")
+                    await MainActor.run {
+                        standupRegenerateState = .idle
+                        standupRegenerateTask = nil
+                        AnalyticsService.shared.capture("daily_generation_failed", [
+                            "timeline_day": dayString,
+                            "source": "regenerate_button",
+                            "reason": "encode_failed"
+                        ])
+                    }
+                    return
+                }
+
+                StorageManager.shared.saveDailyStandup(forDay: dayString, payloadJSON: payloadJSON)
+
+                guard !Task.isCancelled else { return }
+                let latencyMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+                print(
+                    "[Daily] Regenerate succeeded day=\(dayString) cards=\(cards.count) observations=\(observations.count) highlights=\(highlights.count) tasks=\(unfinished.count) blockers=\(response.blockers.count) latency_ms=\(latencyMs)"
+                )
+
+                await MainActor.run {
+                    standupDraft = regeneratedDraft
+                    loadedStandupDraftDay = dayString
+                    standupRegenerateTask = nil
+                    standupRegenerateState = .regenerated
+
+                    AnalyticsService.shared.capture("daily_standup_regenerated", [
+                        "timeline_day": dayString,
+                        "highlights_count": highlights.count,
+                        "tasks_count": unfinished.count,
+                        "blockers_count": response.blockers.count
+                    ])
+                    AnalyticsService.shared.capture("daily_generation_succeeded", [
+                        "timeline_day": dayString,
+                        "source": "regenerate_button",
+                        "highlights_count": highlights.count,
+                        "tasks_count": unfinished.count,
+                        "blockers_count": response.blockers.count,
+                        "latency_ms": latencyMs
+                    ])
+                    NotificationService.shared.scheduleDailyRecapReadyNotification(forDay: dayString)
+
+                    standupRegenerateResetTask = Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        guard !Task.isCancelled else { return }
+                        await MainActor.run {
+                            standupRegenerateState = .idle
+                            standupRegenerateResetTask = nil
+                        }
+                    }
+                }
+            } catch {
+                let nsError = error as NSError
+                guard !Task.isCancelled else { return }
+                print(
+                    "[Daily] Regenerate failed day=\(dayString) reason=api_error error_domain=\(nsError.domain) error_code=\(nsError.code) error_message=\(nsError.localizedDescription)"
+                )
+                await MainActor.run {
+                    standupRegenerateState = .idle
+                    standupRegenerateTask = nil
+                    AnalyticsService.shared.capture("daily_generation_failed", [
+                        "timeline_day": dayString,
+                        "source": "regenerate_button",
+                        "reason": "api_error",
+                        "error_domain": nsError.domain,
+                        "error_code": nsError.code,
+                        "error_message": String(nsError.localizedDescription.prefix(500))
+                    ])
+                }
             }
         }
-        lines.append("")
-        lines.append(standupDraft.tasksTitle)
-        standupDraft.tasks.forEach { item in
-            let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            let body = item.body.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !title.isEmpty || !body.isEmpty else { return }
-            if !title.isEmpty && !body.isEmpty {
-                lines.append("- \(title) — \(body)")
-            } else if !title.isEmpty {
-                lines.append("- \(title)")
-            } else {
-                lines.append("- \(body)")
+    }
+
+    nonisolated private static func makeCardsText(day: String, cards: [TimelineCard]) -> String {
+        let ordered = cards.sorted { lhs, rhs in
+            if lhs.startTimestamp == rhs.startTimestamp {
+                return lhs.endTimestamp < rhs.endTimestamp
+            }
+            return lhs.startTimestamp < rhs.startTimestamp
+        }
+
+        guard !ordered.isEmpty else {
+            return "No timeline activities were recorded for \(day)."
+        }
+
+        var lines: [String] = ["Timeline activities for \(day):", ""]
+        for (index, card) in ordered.enumerated() {
+            let title = standupLine(from: card) ?? "Untitled activity"
+            let start = humanReadableClockTime(card.startTimestamp)
+            let end = humanReadableClockTime(card.endTimestamp)
+            lines.append("\(index + 1). \(start) - \(end): \(title)")
+
+            let summary = card.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !summary.isEmpty, summary != title {
+                lines.append("   \(summary)")
             }
         }
-        lines.append("")
-        lines.append(standupDraft.blockersTitle)
-        lines.append("- \(standupDraft.blockersBody)")
+
         return lines.joined(separator: "\n")
+    }
+
+    nonisolated private static func makeObservationsText(day: String, observations: [Observation]) -> String {
+        guard !observations.isEmpty else {
+            return "No observations were recorded for \(day)."
+        }
+
+        let ordered = observations.sorted { $0.startTs < $1.startTs }
+        var lines: [String] = ["Observations for \(day):", ""]
+
+        for observation in ordered {
+            let body = observation.observation.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !body.isEmpty else { continue }
+            let time = humanReadableClockTime(unixTimestamp: observation.startTs)
+            lines.append("\(time): \(body)")
+        }
+
+        if lines.count <= 2 {
+            return "No observations were recorded for \(day)."
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    nonisolated private static func makePriorDailyText(entries: [DailyStandupEntry]) -> String {
+        guard !entries.isEmpty else { return "" }
+
+        return entries.map { entry in
+            let payload = entry.payloadJSON.trimmingCharacters(in: .whitespacesAndNewlines)
+            return """
+            Day \(entry.standupDay):
+            \(payload)
+            """
+        }
+        .joined(separator: "\n\n")
+    }
+
+    private func currentPreferencesText() -> String {
+        let preferences: [String: String] = [
+            "highlights_title": standupDraft.highlightsTitle,
+            "tasks_title": standupDraft.tasksTitle,
+            "blockers_title": standupDraft.blockersTitle
+        ]
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: preferences, options: [.sortedKeys]),
+              let jsonString = String(data: jsonData, encoding: .utf8) else {
+            return ""
+        }
+        return jsonString
+    }
+
+    nonisolated private static func makeDayflowBackendProvider(
+        defaultEndpoint: String,
+        infoPlistKey: String,
+        overrideDefaultsKey: String
+    ) -> DayflowBackendProvider? {
+        let token = AnalyticsService.shared.backendAuthToken()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else {
+            return nil
+        }
+
+        let endpoint = resolvedDayflowEndpoint(
+            defaultEndpoint: defaultEndpoint,
+            infoPlistKey: infoPlistKey,
+            overrideDefaultsKey: overrideDefaultsKey
+        )
+        return DayflowBackendProvider(token: token, endpoint: endpoint)
+    }
+
+    nonisolated private static func resolvedDayflowEndpoint(
+        defaultEndpoint: String,
+        infoPlistKey: String,
+        overrideDefaultsKey: String
+    ) -> String {
+        let defaults = UserDefaults.standard
+
+        if let override = defaults.string(forKey: overrideDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return override
+        }
+
+        if let infoEndpoint = Bundle.main.infoDictionary?[infoPlistKey] as? String {
+            let trimmed = infoEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+
+        if case .dayflowBackend(let savedEndpoint) = LLMProviderType.load(from: defaults) {
+            let trimmed = savedEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+
+        return defaultEndpoint
+    }
+
+    nonisolated private static func normalizedBullets(from values: [String]) -> [DailyBulletItem] {
+        var seen: Set<String> = []
+        return values.compactMap { raw in
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            guard seen.insert(trimmed).inserted else { return nil }
+            return DailyBulletItem(text: trimmed)
+        }
+    }
+
+    nonisolated private static func normalizedBlockersText(from values: [String]) -> String {
+        let rows = values.compactMap { value -> String? in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return rows.joined(separator: "\n")
+    }
+
+    nonisolated private static func humanReadableClockTime(_ input: String) -> String {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let minuteOfDay = parseTimeHMMA(timeString: trimmed) else {
+            return trimmed.lowercased()
+        }
+
+        let hour24 = (minuteOfDay / 60) % 24
+        let minute = minuteOfDay % 60
+        let meridiem = hour24 >= 12 ? "pm" : "am"
+        let hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12
+        return String(format: "%d:%02d%@", hour12, minute, meridiem)
+    }
+
+    nonisolated private static func humanReadableClockTime(unixTimestamp: Int) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(unixTimestamp))
+        let calendar = Calendar.current
+        let hour24 = calendar.component(.hour, from: date)
+        let minute = calendar.component(.minute, from: date)
+        let meridiem = hour24 >= 12 ? "pm" : "am"
+        let hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12
+        return String(format: "%d:%02d%@", hour12, minute, meridiem)
+    }
+
+    nonisolated private static func standupLine(from card: TimelineCard) -> String? {
+        let trimmedTitle = card.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTitle.isEmpty {
+            return trimmedTitle
+        }
+
+        let trimmedSummary = card.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedSummary.isEmpty ? nil : trimmedSummary
+    }
+
+    private func standupClipboardText() -> String {
+        let yesterdayItems = sanitizedStandupItems(standupDraft.highlights)
+        let todayItems = sanitizedStandupItems(standupDraft.tasks)
+        let blockersItems = sanitizedBlockers(standupDraft.blockersBody)
+
+        var lines: [String] = []
+        lines.append("Yesterday")
+        if yesterdayItems.isEmpty {
+            lines.append("- None right now")
+        } else {
+            yesterdayItems.forEach { lines.append("- \($0)") }
+        }
+        lines.append("")
+
+        lines.append("Today")
+        if todayItems.isEmpty {
+            lines.append("- None right now")
+        } else {
+            todayItems.forEach { lines.append("- \($0)") }
+        }
+        lines.append("")
+
+        lines.append("Blockers")
+        if blockersItems.isEmpty {
+            lines.append("- None right now")
+        } else {
+            blockersItems.forEach { lines.append("- \($0)") }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func sanitizedStandupItems(_ items: [DailyBulletItem]) -> [String] {
+        items.compactMap { sanitizedBulletText($0.text) }
+    }
+
+    private func sanitizedBlockers(_ text: String) -> [String] {
+        let segments = text.split(whereSeparator: \.isNewline).map(String.init)
+        if segments.isEmpty {
+            return sanitizedBulletText(text).map { [$0] } ?? []
+        }
+        return segments.compactMap(sanitizedBulletText)
+    }
+
+    private func sanitizedBulletText(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard trimmed.caseInsensitiveCompare(DailyStandupPlaceholder.notGeneratedMessage) != .orderedSame else {
+            return nil
+        }
+        guard trimmed.caseInsensitiveCompare(DailyStandupPlaceholder.todayNotGeneratedMessage) != .orderedSame else {
+            return nil
+        }
+        return trimmed
     }
 
     private func refreshStandupDraftIfNeeded(for dayString: String) {
@@ -651,15 +1115,11 @@ struct DailyView: View {
         guard let entry = StorageManager.shared.fetchDailyStandup(forDay: dayString),
               let data = entry.payloadJSON.data(using: .utf8),
               let decoded = try? JSONDecoder().decode(DailyStandupDraft.self, from: data) else {
-            standupDraft = .default
+            standupDraft = defaultStandupDraft(for: dayString)
             return
         }
 
-        var normalized = decoded
-        if normalized.addTaskLabel == "Add task" {
-            normalized.addTaskLabel = ""
-        }
-        standupDraft = normalized
+        standupDraft = decoded
     }
 
     private func scheduleStandupDraftSave() {
@@ -670,6 +1130,13 @@ struct DailyView: View {
         standupDraftSaveTask = Task.detached(priority: .utility) {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled else { return }
+
+            let existing = StorageManager.shared.fetchDailyStandup(forDay: dayString)
+            let todayDayString = Date().getDayInfoFor4AMBoundary().dayString
+            let placeholderDraft = dayString == todayDayString ? DailyStandupDraft.todayPlaceholder : DailyStandupDraft.default
+            if existing == nil && draftToSave == placeholderDraft {
+                return
+            }
 
             guard let data = try? JSONEncoder().encode(draftToSave),
                   let json = String(data: data, encoding: .utf8) else {
@@ -683,6 +1150,16 @@ struct DailyView: View {
     private func workflowDayString(for date: Date) -> String {
         let anchorDate = timelineDisplayDate(from: date)
         return anchorDate.getDayInfoFor4AMBoundary().dayString
+    }
+
+    private func defaultStandupDraft(for dayString: String) -> DailyStandupDraft {
+        let todayDayString = Date().getDayInfoFor4AMBoundary().dayString
+        return dayString == todayDayString ? .todayPlaceholder : .default
+    }
+
+    private var regenerateButtonLabel: String {
+        guard standupRegenerateState == .regenerating else { return "Regenerate" }
+        return "Regenerating" + String(repeating: ".", count: standupRegeneratingDotsPhase)
     }
 
     private func shiftDate(by days: Int) {
@@ -760,8 +1237,7 @@ private struct DailyWorkflowGrid: View {
         GeometryReader { geo in
             let hourTicks = timelineWindow.hourTickHours
             let slotCount = max(1, renderRows.map { $0.slotOccupancies.count }.max() ?? timelineWindow.slotCount)
-            let widthScale = max(0.7, min(1.35, geo.size.width / 1016))
-            let layoutScale = max(0.7, min(1.35, widthScale))
+            let layoutScale = scale
 
             let leftInset: CGFloat = 36 * layoutScale
             let categoryLabelWidth = labelColumnWidth(for: renderRows, layoutScale: layoutScale)
@@ -796,7 +1272,7 @@ private struct DailyWorkflowGrid: View {
                     }
                     .padding(.top, topInset)
 
-                    ScrollView(.horizontal, showsIndicators: gridWidth > gridViewportWidth) {
+                    ScrollView(.horizontal, showsIndicators: false) {
                         VStack(alignment: .leading, spacing: 0) {
                             VStack(alignment: .leading, spacing: rowSpacing) {
                                 ForEach(renderRows) { row in
@@ -868,7 +1344,21 @@ private struct DailyWorkflowGrid: View {
             .padding(.leading, leftInset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(height: 146 * scale)
+        .frame(height: contentHeight(for: renderRows.count, layoutScale: scale))
+    }
+
+    private func contentHeight(for rowCount: Int, layoutScale: CGFloat) -> CGFloat {
+        let rows = max(1, rowCount)
+        let topInset: CGFloat = 25 * layoutScale
+        let cell: CGFloat = 18 * layoutScale
+        let gap: CGFloat = 2 * layoutScale
+        let rowsHeight = (cell * CGFloat(rows)) + (gap * CGFloat(max(0, rows - 1)))
+        let axisTopSpacing: CGFloat = 10 * layoutScale
+        let axisLineHeight: CGFloat = max(0.7, 0.9 * layoutScale)
+        let axisLabelSpacing: CGFloat = 5 * layoutScale
+        let axisLabelHeight: CGFloat = 14 * layoutScale
+        let bottomBuffer: CGFloat = 6 * layoutScale
+        return topInset + rowsHeight + axisTopSpacing + axisLineHeight + axisLabelSpacing + axisLabelHeight + bottomBuffer
     }
 
     private func fillColor(for row: DailyWorkflowGridRow, slotIndex: Int) -> Color {
@@ -1020,12 +1510,21 @@ private struct DailyBulletCard: View {
     let seamMode: SeamMode
     @Binding var title: String
     @Binding var items: [DailyBulletItem]
-    let showItems: Bool
-    @Binding var addTaskLabel: String
     @Binding var blockersTitle: String
     @Binding var blockersBody: String
     let scale: CGFloat
     @State private var draggedItemID: UUID? = nil
+    @State private var pendingScrollTargetID: UUID? = nil
+    @FocusState private var focusedItemID: UUID?
+    @State private var keyMonitor: Any? = nil
+
+    private var listViewportHeight: CGFloat {
+        style == .tasks ? 142 * scale : 230 * scale
+    }
+
+    private var listMinHeight: CGFloat {
+        style == .tasks ? 92 * scale : 154 * scale
+    }
 
     private var cardShape: UnevenRoundedRectangle {
         let cornerRadius = 12 * scale
@@ -1068,71 +1567,13 @@ private struct DailyBulletCard: View {
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                if showItems {
-                    VStack(alignment: .leading, spacing: 14 * scale) {
-                        ForEach($items) { $item in
-                            let itemID = item.id
-                            HStack(alignment: .top, spacing: 6 * scale) {
-                                DailyDragHandleIcon(scale: scale)
-                                    .padding(.top, 5 * scale)
-                                    .onDrag {
-                                        draggedItemID = itemID
-                                        return NSItemProvider(object: itemID.uuidString as NSString)
-                                    }
-                                    .pointingHandCursorOnHover(reassertOnPressEnd: true)
-
-                                HStack(alignment: .firstTextBaseline, spacing: 4 * scale) {
-                                    TextField("Item title", text: $item.title)
-                                        .font(.custom("Nunito-Bold", size: 14 * scale))
-                                        .foregroundStyle(Color.black)
-                                        .textFieldStyle(.plain)
-                                        .lineLimit(1)
-
-                                    Text("—")
-                                        .font(.custom("Nunito-Regular", size: 14 * scale))
-                                        .foregroundStyle(Color.black)
-
-                                    TextField("Details", text: $item.body, axis: .vertical)
-                                        .font(.custom("Nunito-Regular", size: 14 * scale))
-                                        .foregroundStyle(Color.black)
-                                        .textFieldStyle(.plain)
-                                        .lineLimit(1...6)
-                                }
-                                .multilineTextAlignment(.leading)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .onDrop(
-                                of: ["public.text"],
-                                delegate: DailyItemDropDelegate(
-                                    targetItemID: itemID,
-                                    items: $items,
-                                    draggedItemID: $draggedItemID
-                                )
-                            )
-                        }
-                    }
-                    .onDrop(
-                        of: ["public.text"],
-                        delegate: DailyItemDropToEndDelegate(
-                            items: $items,
-                            draggedItemID: $draggedItemID
-                        )
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                itemListEditor
             }
             .padding(.leading, 26 * scale)
             .padding(.trailing, 26 * scale)
             .padding(.top, 26 * scale)
 
-            Spacer(minLength: 0)
-
-            DailyAddTaskRow(scale: scale, text: $addTaskLabel) { submitted in
-                let normalizedTitle = submitted.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !normalizedTitle.isEmpty else { return }
-                items.append(DailyBulletItem(title: normalizedTitle, body: ""))
-            }
+            addItemButton
                 .padding(.leading, style == .highlights ? 16 * scale : 26 * scale)
                 .padding(.bottom, style == .tasks ? 24 * scale : 20 * scale)
 
@@ -1165,6 +1606,173 @@ private struct DailyBulletCard: View {
                 .stroke(Color(hex: "EBE6E3"), lineWidth: max(0.7, 1 * scale))
         )
         .shadow(color: Color.black.opacity(0.1), radius: 12 * scale, x: 0, y: 0)
+        .onAppear {
+            setupKeyMonitor()
+        }
+        .onDisappear {
+            removeKeyMonitor()
+        }
+    }
+
+    private var itemListEditor: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: items.count > 5) {
+                LazyVStack(alignment: .leading, spacing: 10 * scale) {
+                    ForEach(items) { item in
+                        let itemID = item.id
+                        HStack(alignment: .top, spacing: 8 * scale) {
+                            DailyDragHandleIcon(scale: scale)
+                                .frame(width: 18 * scale, height: 18 * scale)
+                                .padding(.top, 2 * scale)
+                                .contentShape(Rectangle())
+                                .onDrag {
+                                    draggedItemID = itemID
+                                    return NSItemProvider(object: itemID.uuidString as NSString)
+                                }
+                                .pointingHandCursorOnHover(reassertOnPressEnd: true)
+
+                            TextField("", text: bindingForItemText(id: itemID), axis: .vertical)
+                                .font(.custom("Nunito-Regular", size: 14 * scale))
+                                .foregroundStyle(Color.black)
+                                .textFieldStyle(.plain)
+                                .lineLimit(1...6)
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .focused($focusedItemID, equals: itemID)
+                                .onSubmit {
+                                    addItem(after: itemID)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .id(itemID)
+                        .frame(minHeight: 22 * scale, alignment: .top)
+                        .onDrop(
+                            of: ["public.text"],
+                            delegate: DailyListItemDropDelegate(
+                                targetItemID: itemID,
+                                items: $items,
+                                draggedItemID: $draggedItemID
+                            )
+                        )
+                    }
+                }
+                .padding(.vertical, 2 * scale)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: listMinHeight, maxHeight: listViewportHeight, alignment: .topLeading)
+            .onDrop(
+                of: ["public.text"],
+                delegate: DailyListDropToEndDelegate(
+                    items: $items,
+                    draggedItemID: $draggedItemID
+                )
+            )
+            .onChange(of: pendingScrollTargetID) { _, newValue in
+                guard let newValue else { return }
+                withAnimation(.easeOut(duration: 0.15)) {
+                    proxy.scrollTo(newValue, anchor: .bottom)
+                }
+                pendingScrollTargetID = nil
+            }
+        }
+    }
+
+    private func bindingForItemText(id itemID: UUID) -> Binding<String> {
+        Binding(
+            get: {
+                items.first(where: { $0.id == itemID })?.text ?? ""
+            },
+            set: { newValue in
+                guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
+                items[index].text = newValue
+            }
+        )
+    }
+
+    private var addItemButton: some View {
+        Button(action: { addItem(after: nil) }) {
+            HStack(spacing: 6 * scale) {
+                Image(systemName: "plus")
+                    .font(.system(size: 18 * scale, weight: .regular))
+                    .foregroundStyle(Color(hex: "999999"))
+                    .frame(width: 18 * scale, height: 18 * scale)
+
+                Text("Add item")
+                    .font(.custom("Nunito-Regular", size: 13 * scale))
+                    .foregroundStyle(Color(hex: "999999"))
+                    .lineLimit(1)
+            }
+            .padding(.vertical, 6 * scale)
+        }
+        .buttonStyle(.plain)
+        .pointingHandCursorOnHover(reassertOnPressEnd: true)
+    }
+
+    private func addItem(after itemID: UUID?) {
+        let newItem = DailyBulletItem(text: "")
+        if let itemID, let index = items.firstIndex(where: { $0.id == itemID }) {
+            items.insert(newItem, at: index + 1)
+        } else {
+            items.append(newItem)
+        }
+
+        pendingScrollTargetID = newItem.id
+        focusedItemID = newItem.id
+    }
+
+    private func setupKeyMonitor() {
+        removeKeyMonitor()
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 51 else { return event }
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard flags.isEmpty else { return event }
+            return scheduleFocusedItemRemovalIfEmpty() ? nil : event
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
+        }
+    }
+
+    private func scheduleFocusedItemRemovalIfEmpty() -> Bool {
+        guard let activeFocusedItemID = focusedItemID,
+              let index = items.firstIndex(where: { $0.id == activeFocusedItemID })
+        else {
+            return false
+        }
+
+        guard items.indices.contains(index) else {
+            return false
+        }
+
+        guard items[index].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+
+        DispatchQueue.main.async {
+            removeItemIfStillEmpty(withID: activeFocusedItemID)
+        }
+        return true
+    }
+
+    private func removeItemIfStillEmpty(withID itemID: UUID) {
+        guard let index = items.firstIndex(where: { $0.id == itemID }) else {
+            return
+        }
+
+        guard items.indices.contains(index) else {
+            return
+        }
+
+        guard items[index].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+
+        focusedItemID = nil
+        items.remove(at: index)
     }
 }
 
@@ -1176,52 +1784,15 @@ private struct DailyDragHandleIcon: View {
             ForEach(0..<3, id: \.self) { _ in
                 HStack(spacing: 2 * scale) {
                     Circle()
-                        .fill(Color(hex: "999999"))
+                        .fill(Color(hex: "A5A5A5"))
                         .frame(width: 2.5 * scale, height: 2.5 * scale)
                     Circle()
-                        .fill(Color(hex: "999999"))
+                        .fill(Color(hex: "A5A5A5"))
                         .frame(width: 2.5 * scale, height: 2.5 * scale)
                 }
             }
         }
-        .frame(width: 16 * scale, height: 16 * scale, alignment: .topLeading)
-    }
-}
-
-private struct DailyAddTaskRow: View {
-    let scale: CGFloat
-    @Binding var text: String
-    var onCommit: (String) -> Void
-
-    var body: some View {
-        HStack(spacing: 6 * scale) {
-            Button(action: commit) {
-                Image(systemName: "plus")
-                    .font(.system(size: 24 * scale, weight: .regular))
-                    .foregroundStyle(Color(hex: "999999"))
-                    .frame(width: 24 * scale, height: 24 * scale)
-            }
-            .buttonStyle(.plain)
-            .pointingHandCursorOnHover(reassertOnPressEnd: true)
-
-            TextField("Add task", text: $text)
-                .font(.custom("Nunito-Regular", size: 12 * scale))
-                .foregroundStyle(Color(hex: "999999"))
-                .textFieldStyle(.plain)
-                .onSubmit(commit)
-                .onAppear {
-                    if text == "Add task" {
-                        text = ""
-                    }
-                }
-        }
-    }
-
-    private func commit() {
-        let submitted = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !submitted.isEmpty else { return }
-        onCommit(submitted)
-        text = ""
+        .frame(width: 12 * scale, height: 12 * scale, alignment: .center)
     }
 }
 
@@ -1237,9 +1808,9 @@ private struct DailyBlockersSection: View {
                 .foregroundStyle(Color(hex: "BD9479"))
                 .textFieldStyle(.plain)
 
-            HStack(alignment: .top, spacing: 6 * scale) {
+            HStack(alignment: .center, spacing: 8 * scale) {
                 DailyDragHandleIcon(scale: scale)
-                    .padding(.top, 1 * scale)
+                    .frame(width: 18 * scale, height: 18 * scale)
 
                 TextField("Fill in any blockers you may have", text: $prompt, axis: .vertical)
                     .font(.custom("Nunito-Regular", size: 14 * scale))
@@ -1263,7 +1834,7 @@ private struct DailyBlockersSection: View {
     }
 }
 
-private struct DailyItemDropDelegate: DropDelegate {
+private struct DailyListItemDropDelegate: DropDelegate {
     let targetItemID: UUID
     @Binding var items: [DailyBulletItem]
     @Binding var draggedItemID: UUID?
@@ -1294,7 +1865,7 @@ private struct DailyItemDropDelegate: DropDelegate {
     }
 }
 
-private struct DailyItemDropToEndDelegate: DropDelegate {
+private struct DailyListDropToEndDelegate: DropDelegate {
     @Binding var items: [DailyBulletItem]
     @Binding var draggedItemID: UUID?
 
@@ -1324,8 +1895,7 @@ private struct DailyItemDropToEndDelegate: DropDelegate {
 
 private struct DailyBulletItem: Identifiable, Codable, Equatable, Sendable {
     var id: UUID = UUID()
-    var title: String
-    var body: String
+    var text: String
 }
 
 private struct DailyWorkflowGridRow: Identifiable, Sendable {
@@ -1417,7 +1987,10 @@ private struct DailyWorkflowTimelineWindow: Sendable {
 }
 
 private func computeDailyWorkflow(cards: [TimelineCard], categories: [TimelineCategory]) -> DailyWorkflowComputationResult {
-    let orderedCategories = categories.sorted { $0.order < $1.order }
+    let systemCategoryKey = normalizedCategoryKey("System")
+    let orderedCategories = categories
+        .sorted { $0.order < $1.order }
+        .filter { normalizedCategoryKey($0.name) != systemCategoryKey }
 
     let colorMap: [String: String] = Dictionary(uniqueKeysWithValues: orderedCategories.map {
         (normalizedCategoryKey($0.name), normalizedHex($0.colorHex))
@@ -1452,6 +2025,7 @@ private func computeDailyWorkflow(cards: [TimelineCard], categories: [TimelineCa
         let trimmed = card.category.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayName = trimmed.isEmpty ? "Uncategorized" : trimmed
         let key = normalizedCategoryKey(displayName)
+        guard key != systemCategoryKey else { continue }
         let colorHex = colorMap[key] ?? fallbackColorHex(for: key)
 
         rawSegments.append(
@@ -1557,38 +2131,28 @@ private func computeDailyWorkflow(cards: [TimelineCard], categories: [TimelineCa
         }
     }
 
-    var selectedKeys = durationByCategory
-        .sorted { lhs, rhs in
-            if lhs.value == rhs.value { return lhs.key < rhs.key }
-            return lhs.value > rhs.value
-        }
-        .map(\.key)
+    var selectedKeys: [String] = []
+    var seenKeys = Set<String>()
 
-    if selectedKeys.count < 5 {
-        for category in orderedCategories where !category.isIdle {
-            let key = normalizedCategoryKey(category.name)
-            if !selectedKeys.contains(key) {
-                selectedKeys.append(key)
-            }
-            if selectedKeys.count >= 5 { break }
-        }
+    for category in orderedCategories {
+        let key = normalizedCategoryKey(category.name)
+        guard !key.isEmpty else { continue }
+        guard seenKeys.insert(key).inserted else { continue }
+        selectedKeys.append(key)
     }
 
-    if selectedKeys.count < 5 {
-        for fallback in DailyGridConfig.fallbackCategoryNames {
-            let key = normalizedCategoryKey(fallback)
-            if !selectedKeys.contains(key) {
-                selectedKeys.append(key)
-            }
-            if selectedKeys.count >= 5 { break }
-        }
-    }
+    let unknownUsedKeys = durationByCategory.keys
+        .filter { !seenKeys.contains($0) && $0 != systemCategoryKey }
+        .sorted()
 
-    selectedKeys = Array(selectedKeys.prefix(5))
+    for key in unknownUsedKeys {
+        selectedKeys.append(key)
+        seenKeys.insert(key)
+    }
 
     let segmentsByCategory = Dictionary(grouping: segments, by: { $0.categoryKey })
 
-    let rows: [DailyWorkflowGridRow] = selectedKeys.enumerated().map { index, key in
+    let rows: [DailyWorkflowGridRow] = selectedKeys.map { key in
         let rowSegments = segmentsByCategory[key] ?? []
         let occupancies: [Double] = (0..<slotCount).map { slotIndex in
             let slotStart = visibleStart + (Double(slotIndex) * slotDuration)
@@ -1603,8 +2167,8 @@ private func computeDailyWorkflow(cards: [TimelineCard], categories: [TimelineCa
             return min(1, occupied / slotMinutes)
         }
 
-        let displayName = resolvedNameByCategory[key] ?? nameMap[key] ?? DailyGridConfig.fallbackCategoryNames[index % DailyGridConfig.fallbackCategoryNames.count]
-        let colorHex = resolvedColorByCategory[key] ?? colorMap[key] ?? DailyGridConfig.fallbackColorHexes[index % DailyGridConfig.fallbackColorHexes.count]
+        let displayName = resolvedNameByCategory[key] ?? nameMap[key] ?? (key.isEmpty ? "Uncategorized" : key.capitalized)
+        let colorHex = resolvedColorByCategory[key] ?? colorMap[key] ?? fallbackColorHex(for: key)
 
         return DailyWorkflowGridRow(
             id: key,
@@ -1697,43 +2261,36 @@ private func formatDurationValue(_ minutes: Double) -> String {
     return "\(mins)m"
 }
 
+private enum DailyStandupPlaceholder {
+    static let notGeneratedMessage = "Daily data has not been generated yet. If this is unexpected, please report a bug."
+    static let todayNotGeneratedMessage = "Today's daily recap will be generated tomorrow morning."
+}
+
 private struct DailyStandupDraft: Codable, Equatable, Sendable {
     var highlightsTitle: String
     var highlights: [DailyBulletItem]
     var tasksTitle: String
     var tasks: [DailyBulletItem]
-    var addTaskLabel: String
     var blockersTitle: String
     var blockersBody: String
 
     static let `default` = DailyStandupDraft(
         highlightsTitle: "Yesterday's highlights",
-        highlights: DailyContent.yesterdayHighlights,
+        highlights: [DailyBulletItem(text: DailyStandupPlaceholder.notGeneratedMessage)],
         tasksTitle: "Today's tasks",
-        tasks: DailyContent.todayTasks,
-        addTaskLabel: "",
+        tasks: [DailyBulletItem(text: DailyStandupPlaceholder.notGeneratedMessage)],
         blockersTitle: "Blockers",
-        blockersBody: DailyContent.notGeneratedMessage
+        blockersBody: DailyStandupPlaceholder.notGeneratedMessage
     )
-}
 
-private enum DailyContent {
-    static let notGeneratedTitle = "Daily data not generated yet"
-    static let notGeneratedMessage = "Daily data has not been generated yet. If this is unexpected, please report a bug."
-
-    static let yesterdayHighlights: [DailyBulletItem] = [
-        DailyBulletItem(
-            title: notGeneratedTitle,
-            body: notGeneratedMessage
-        )
-    ]
-
-    static let todayTasks: [DailyBulletItem] = [
-        DailyBulletItem(
-            title: notGeneratedTitle,
-            body: notGeneratedMessage
-        )
-    ]
+    static let todayPlaceholder = DailyStandupDraft(
+        highlightsTitle: "Yesterday's highlights",
+        highlights: [DailyBulletItem(text: DailyStandupPlaceholder.todayNotGeneratedMessage)],
+        tasksTitle: "Today's tasks",
+        tasks: [DailyBulletItem(text: DailyStandupPlaceholder.todayNotGeneratedMessage)],
+        blockersTitle: "Blockers",
+        blockersBody: DailyStandupPlaceholder.todayNotGeneratedMessage
+    )
 }
 
 struct DailyView_Previews: PreviewProvider {
