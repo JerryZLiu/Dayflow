@@ -447,7 +447,9 @@ extension MainView {
                 selectedActivity: $selectedActivity,
                 scrollToNowTick: $scrollToNowTick,
                 hasAnyActivities: $hasAnyActivities,
-                refreshTrigger: $refreshActivitiesTrigger
+                refreshTrigger: $refreshActivitiesTrigger,
+                weeklyHoursFrame: weeklyHoursFrame,
+                weeklyHoursIntersectsCard: $weeklyHoursIntersectsCard
             )
             .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
             .environmentObject(categoryStore)
@@ -465,7 +467,7 @@ extension MainView {
                 // Left & right items
                 HStack(alignment: .bottom) {
                     weeklyHoursText
-                        .opacity(contentOpacity * weeklyHoursFadeOpacity)
+                        .opacity(contentOpacity * weeklyHoursFadeOpacity * (weeklyHoursIntersectsCard ? 0 : 1))
 
                     Spacer()
 

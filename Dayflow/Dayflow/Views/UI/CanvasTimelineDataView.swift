@@ -33,6 +33,17 @@ struct TimelineTimeLabelFramesPreferenceKey: PreferenceKey {
     }
 }
 
+private struct TimelineCardsLayerFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero {
+            value = next
+        }
+    }
+}
+
 // Positioned activity for Canvas rendering
 private struct CanvasPositionedActivity: Identifiable {
     let id: String
@@ -62,10 +73,13 @@ struct CanvasTimelineDataView: View {
     @Binding var scrollToNowTick: Int
     @Binding var hasAnyActivities: Bool
     @Binding var refreshTrigger: Int
+    let weeklyHoursFrame: CGRect
+    @Binding var weeklyHoursIntersectsCard: Bool
 
     @State private var selectedCardId: String? = nil
     @State private var positionedActivities: [CanvasPositionedActivity] = []
     @State private var recordingProjection: RecordingProjectionWindow?
+    @State private var cardsLayerFrame: CGRect = .zero
     @State private var refreshTimer: Timer?
     @State private var didInitialScrollInView: Bool = false
     @State private var loadTask: Task<Void, Never>?
@@ -147,6 +161,7 @@ struct CanvasTimelineDataView: View {
             stopRefreshTimer()
             loadTask?.cancel()
             loadTask = nil
+            weeklyHoursIntersectsCard = false
         }
         .onChange(of: selectedDate) {
             loadActivities()
@@ -166,6 +181,13 @@ struct CanvasTimelineDataView: View {
                 "screen": "timeline",
                 "selected_date_is_today": timelineIsToday(selectedDate)
             ])
+        }
+        .onPreferenceChange(TimelineCardsLayerFramePreferenceKey.self) { frame in
+            cardsLayerFrame = frame
+            updateWeeklyHoursIntersection()
+        }
+        .onChange(of: weeklyHoursFrame) {
+            updateWeeklyHoursIntersection()
         }
     }
 
@@ -292,6 +314,14 @@ struct CanvasTimelineDataView: View {
         }
         .clipped() // Prevent shadows/animations from affecting scroll geometry
         .frame(minWidth: 0, maxWidth: .infinity)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: TimelineCardsLayerFramePreferenceKey.self,
+                    value: proxy.frame(in: .named("TimelinePane"))
+                )
+            }
+        )
     }
 
     private var mainTimelineRow: some View {
@@ -554,6 +584,7 @@ struct CanvasTimelineDataView: View {
                 self.positionedActivities = positioned
                 self.recordingProjection = recordingProjection
                 self.hasAnyActivities = !positioned.isEmpty
+                self.updateWeeklyHoursIntersection()
 
                 if animate {
                     // Trigger staggered entrance animation after a brief layout delay
@@ -575,6 +606,46 @@ struct CanvasTimelineDataView: View {
                     userInfo: ["dayString": dayString]
                 )
             }
+        }
+    }
+
+    private func updateWeeklyHoursIntersection() {
+        guard weeklyHoursFrame != .zero,
+              cardsLayerFrame != .zero,
+              weeklyHoursFrame.intersects(cardsLayerFrame) else {
+            if weeklyHoursIntersectsCard {
+                weeklyHoursIntersectsCard = false
+            }
+            return
+        }
+
+        let intersectsTimelineCard = positionedActivities.contains { item in
+            let cardFrame = CGRect(
+                x: cardsLayerFrame.minX,
+                y: cardsLayerFrame.minY + item.yPosition,
+                width: cardsLayerFrame.width,
+                height: item.height
+            )
+            return cardFrame.intersects(weeklyHoursFrame)
+        }
+
+        let intersectsStatusCard: Bool
+        if let projection = recordingProjection {
+            let statusFrame = CGRect(
+                x: cardsLayerFrame.minX,
+                y: cardsLayerFrame.minY + calculateYPosition(for: projection.start) + 1,
+                width: cardsLayerFrame.width,
+                height: recordingProjectionHeight(for: projection)
+            )
+            intersectsStatusCard = statusFrame.intersects(weeklyHoursFrame)
+        } else {
+            intersectsStatusCard = false
+        }
+
+        let intersects = intersectsTimelineCard || intersectsStatusCard
+
+        if weeklyHoursIntersectsCard != intersects {
+            weeklyHoursIntersectsCard = intersects
         }
     }
 
@@ -959,7 +1030,6 @@ struct CanvasActivityCardStyle {
 
 struct CanvasActivityCard: View {
     @AppStorage("showTimelineAppIcons") private var showTimelineAppIcons: Bool = true
-    @State private var isShowingBackupTooltip = false
 
     let title: String
     let time: String
@@ -999,17 +1069,7 @@ struct CanvasActivityCard: View {
                 Circle()
                     .stroke(Color(red: 0.9, green: 0.9, blue: 0.9), lineWidth: 0.75)
             )
-            .onHover { isHovering in
-                isShowingBackupTooltip = isHovering
-            }
-            .popover(isPresented: $isShowingBackupTooltip, arrowEdge: .top) {
-                Text("This card fell back to a lower-quality Gemini model due to rate limiting, so output quality may be lower.")
-                    .font(.custom("Nunito", size: 11))
-                    .foregroundColor(Color(hex: "2E261F"))
-                    .multilineTextAlignment(.leading)
-                    .frame(width: 260, alignment: .leading)
-                    .padding(10)
-            }
+            .help("This card fell back to a lower-quality Gemini model due to rate limiting, so output quality may be lower.")
     }
 
     private var selectionStroke: Color {
@@ -1158,12 +1218,15 @@ struct CanvasCardButtonStyle: ButtonStyle {
         @State private var selected: TimelineActivity? = nil
         @State private var tick: Int = 0
         @State private var refresh: Int = 0
+        @State private var weeklyHoursIntersectsCard = false
         var body: some View {
             CanvasTimelineDataView(selectedDate: $date,
                                    selectedActivity: $selected,
                                    scrollToNowTick: $tick,
                                    hasAnyActivities: .constant(true),
-                                   refreshTrigger: $refresh)
+                                   refreshTrigger: $refresh,
+                                   weeklyHoursFrame: .zero,
+                                   weeklyHoursIntersectsCard: $weeklyHoursIntersectsCard)
                 .frame(width: 800, height: 600)
                 .environmentObject(CategoryStore())
                 .environmentObject(AppState.shared)
