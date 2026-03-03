@@ -388,7 +388,7 @@ struct ChatCLIProcessRunner {
             cleanupPty?()
         }
 
-        let timeoutSeconds: TimeInterval = 150
+        let timeoutSeconds: TimeInterval = 300
         let semaphore = DispatchSemaphore(value: 0)
         DispatchQueue.global().async {
             process.waitUntilExit()
