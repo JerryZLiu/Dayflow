@@ -21,6 +21,7 @@ final class AnalyticsService {
 
     private let optInKey = "analyticsOptIn"
     private let backendAuthFallbackTokenKey = "localBackendAuthFallbackToken"
+    private let backendAuthOverrideTokenKey = "dayflowBackendAuthTokenOverride"
     private let throttleLock = NSLock()
     private var throttles: [String: Date] = [:]
 
@@ -76,23 +77,55 @@ final class AnalyticsService {
     /// Returns the stable PostHog distinct ID used as backend auth identity.
     /// Source of truth is PostHog SDK storage (not keychain).
     func backendAuthToken() -> String {
+        let defaults = UserDefaults.standard
+        if let override = defaults.string(forKey: backendAuthOverrideTokenKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+#if DEBUG
+            print(
+                "[AnalyticsService] backendAuthToken source=debug_override_user_defaults " +
+                "id=\(override) length=\(override.count)"
+            )
+#endif
+            return override
+        }
+
         let distinctId = PostHogSDK.shared.getDistinctId().trimmingCharacters(in: .whitespacesAndNewlines)
         if !distinctId.isEmpty {
+#if DEBUG
+            print(
+                "[AnalyticsService] backendAuthToken source=posthog_distinct_id " +
+                "id=\(distinctId) length=\(distinctId.count)"
+            )
+#endif
             return distinctId
         }
 
 #if DEBUG
         // Local-dev fallback so backend-authenticated features still work when PostHog
         // is not configured for the current build.
-        let defaults = UserDefaults.standard
         if let existing = defaults.string(forKey: backendAuthFallbackTokenKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !existing.isEmpty {
+            print(
+                "[AnalyticsService] backendAuthToken source=debug_fallback_existing " +
+                "id=\(existing) length=\(existing.count)"
+            )
+            if existing.hasPrefix("local-") {
+                print(
+                    "[AnalyticsService] backendAuthToken warning=fallback_token_looks_local " +
+                    "id=\(existing)"
+                )
+            }
             return existing
         }
 
-        let generated = "local-\(UUID().uuidString.lowercased())"
+        let generated = "\(UUID().uuidString.lowercased())"
         defaults.set(generated, forKey: backendAuthFallbackTokenKey)
+        print(
+            "[AnalyticsService] backendAuthToken source=debug_fallback_generated " +
+            "id=\(generated) length=\(generated.count)"
+        )
         return generated
 #else
         return ""
