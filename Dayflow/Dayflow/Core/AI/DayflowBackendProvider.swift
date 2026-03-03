@@ -49,6 +49,11 @@ final class DayflowBackendProvider {
     init(token: String, endpoint: String = "https://web-production-f3361.up.railway.app") {
         self.token = token
         self.endpoint = endpoint
+#if DEBUG
+        print(
+            "[DayflowBackendProvider] init endpoint=\(endpoint) auth_id=\(token) auth_id_length=\(token.count)"
+        )
+#endif
     }
 
     func generateDaily(_ request: DayflowDailyGenerationRequest) async throws -> DayflowDailyGenerationResponse {
@@ -94,6 +99,10 @@ final class DayflowBackendProvider {
             urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
             urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             urlRequest.httpBody = try JSONEncoder().encode(request)
+            print(
+                "[DayflowBackendProvider] daily request_id=\(requestId) day=\(request.day) " +
+                "url=\(url.absoluteString) endpoint_host=\(endpointHost) auth_id=\(token)"
+            )
 
             let requestByteCount = urlRequest.httpBody?.count ?? 0
             let (data, response) = try await URLSession.shared.data(for: urlRequest)
@@ -108,9 +117,17 @@ final class DayflowBackendProvider {
             }
 
             httpStatusCode = httpResponse.statusCode
+            print(
+                "[DayflowBackendProvider] daily response request_id=\(requestId) " +
+                "status=\(httpResponse.statusCode) bytes=\(data.count)"
+            )
 
             guard (200...299).contains(httpResponse.statusCode) else {
                 let responseBody = String(data: data, encoding: .utf8) ?? ""
+                print(
+                    "[DayflowBackendProvider] daily http error request_id=\(requestId) " +
+                    "status=\(httpResponse.statusCode) body=\(responseBody)"
+                )
                 throw NSError(
                     domain: "DayflowBackend",
                     code: httpResponse.statusCode,
@@ -123,6 +140,9 @@ final class DayflowBackendProvider {
                 decoded = try JSONDecoder().decode(DayflowDailyGenerationResponse.self, from: data)
             } catch {
                 let responseBody = String(data: data, encoding: .utf8) ?? ""
+                print(
+                    "[DayflowBackendProvider] daily decode error request_id=\(requestId) body=\(responseBody)"
+                )
                 throw NSError(
                     domain: "DayflowBackend",
                     code: -12,
@@ -154,6 +174,11 @@ final class DayflowBackendProvider {
             } else if nsError.code >= 100, nsError.code <= 599 {
                 failureProps["http_status"] = nsError.code
             }
+            print(
+                "[DayflowBackendProvider] daily failure request_id=\(requestId) " +
+                "error_domain=\(nsError.domain) error_code=\(nsError.code) " +
+                "error_message=\(nsError.localizedDescription)"
+            )
             AnalyticsService.shared.capture("daily_generation_request_failed", failureProps)
             throw error
         }
