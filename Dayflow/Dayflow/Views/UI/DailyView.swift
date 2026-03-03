@@ -15,6 +15,12 @@ private let dailyOtherDayDisplayFormatter: DateFormatter = {
     return formatter
 }()
 
+private let dailyStandupSectionDayFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "EEE, MMM d"
+    return formatter
+}()
+
 private enum DailyGridConfig {
     static let visibleStartMinute: Double = 9 * 60
     static let visibleEndMinute: Double = 21 * 60
@@ -32,6 +38,12 @@ private enum DailyStandupRegenerateState: Equatable {
     case idle
     case regenerating
     case regenerated
+}
+
+private struct DailyStandupSectionTitles {
+    let highlights: String
+    let tasks: String
+    let blockers: String
 }
 
 struct DailyView: View {
@@ -56,6 +68,7 @@ struct DailyView: View {
     @State private var standupRegenerateTask: Task<Void, Never>? = nil
     @State private var standupRegenerateResetTask: Task<Void, Never>? = nil
     @State private var standupRegeneratingDotsPhase: Int = 1
+    @State private var hasPersistedStandupEntry: Bool = false
 
     private let requiredCodeHash = "6979ce2825cb3f440f987bbc487d62087c333abb99b56062c561ca557392d960"
     private let betaNoticeCopy = "Daily is a new way to visualize your day and turn it into a standup update fast."
@@ -239,7 +252,8 @@ struct DailyView: View {
                     highlightsAndTasksSection(
                         useSingleColumn: useSingleColumn,
                         contentWidth: contentWidth,
-                        scale: scale
+                        scale: scale,
+                        titles: standupSectionTitles(for: selectedDate)
                     )
                 }
                 .frame(width: contentWidth, alignment: .leading)
@@ -348,28 +362,6 @@ struct DailyView: View {
                     .foregroundStyle(Color(hex: "B46531"))
 
                 Spacer()
-
-                Button(action: {}) {
-                    HStack(spacing: 4 * scale) {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 9 * scale, weight: .medium))
-                        Text("Edit categories")
-                            .font(.custom("Nunito-Regular", size: 10 * scale))
-                    }
-                    .padding(.horizontal, 10 * scale)
-                    .padding(.vertical, 5 * scale)
-                    .foregroundStyle(Color(hex: "D17C45"))
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Color(hex: "FFF2E6"))
-                    )
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .stroke(Color(hex: "E6C6A8"), lineWidth: max(0.6, 0.8 * scale))
-                    )
-                }
-                .buttonStyle(.plain)
-                .pointingHandCursorOnHover(reassertOnPressEnd: true)
             }
 
             VStack(spacing: 0) {
@@ -430,7 +422,9 @@ struct DailyView: View {
     @ViewBuilder
     private func actionRow(scale: CGFloat, isViewingToday: Bool) -> some View {
         let actionButtons = HStack(spacing: 10 * scale) {
-            standupCopyButton(scale: scale)
+            if hasPersistedStandupEntry {
+                standupCopyButton(scale: scale)
+            }
             if !isViewingToday {
                 standupRegenerateButton(scale: scale)
             }
@@ -575,13 +569,18 @@ struct DailyView: View {
     }
 
     @ViewBuilder
-    private func highlightsAndTasksSection(useSingleColumn: Bool, contentWidth: CGFloat, scale: CGFloat) -> some View {
+    private func highlightsAndTasksSection(
+        useSingleColumn: Bool,
+        contentWidth: CGFloat,
+        scale: CGFloat,
+        titles: DailyStandupSectionTitles
+    ) -> some View {
         if useSingleColumn {
             VStack(alignment: .leading, spacing: 12 * scale) {
                 DailyBulletCard(
                     style: .highlights,
                     seamMode: .standalone,
-                    title: $standupDraft.highlightsTitle,
+                    title: titles.highlights,
                     items: $standupDraft.highlights,
                     blockersTitle: $standupDraft.blockersTitle,
                     blockersBody: $standupDraft.blockersBody,
@@ -590,7 +589,7 @@ struct DailyView: View {
                 DailyBulletCard(
                     style: .tasks,
                     seamMode: .standalone,
-                    title: $standupDraft.tasksTitle,
+                    title: titles.tasks,
                     items: $standupDraft.tasks,
                     blockersTitle: $standupDraft.blockersTitle,
                     blockersBody: $standupDraft.blockersBody,
@@ -605,7 +604,7 @@ struct DailyView: View {
                 DailyBulletCard(
                     style: .highlights,
                     seamMode: .joinedLeading,
-                    title: $standupDraft.highlightsTitle,
+                    title: titles.highlights,
                     items: $standupDraft.highlights,
                     blockersTitle: $standupDraft.blockersTitle,
                     blockersBody: $standupDraft.blockersBody,
@@ -616,7 +615,7 @@ struct DailyView: View {
                 DailyBulletCard(
                     style: .tasks,
                     seamMode: .joinedTrailing,
-                    title: $standupDraft.tasksTitle,
+                    title: titles.tasks,
                     items: $standupDraft.tasks,
                     blockersTitle: $standupDraft.blockersTitle,
                     blockersBody: $standupDraft.blockersBody,
