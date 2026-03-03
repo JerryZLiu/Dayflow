@@ -294,7 +294,7 @@ final class GeminiDirectProvider {
         var finalResponse = ""
         var finalObservations: [Observation] = []
 
-        var modelState = ModelRunState(models: Array(modelPreference.orderedModels.reversed()))
+        var modelState = ModelRunState(models: modelPreference.orderedModels)
         let callGroupId = UUID().uuidString
 
         while attempt < maxRetries {
