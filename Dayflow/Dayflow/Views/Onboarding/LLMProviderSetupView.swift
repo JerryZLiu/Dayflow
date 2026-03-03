@@ -467,7 +467,7 @@ struct LLMProviderSetupView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Choose your Gemini model. If you're on the free tier, pick 3 Flash, it's the most powerful model and is completely free to use. If you're on a paid plan, which is not recommended, I recommend 2.5 Flash-Lite to minimize costs.")
+                    Text("Choose your Gemini model. We recommend 3.1 Flash-Lite Preview for the best speed/cost balance, with 3 Flash and 2.5 Flash available as fallbacks.")
                         .font(.custom("Nunito", size: 16))
                         .fontWeight(.semibold)
                         .foregroundColor(.black.opacity(0.85))
