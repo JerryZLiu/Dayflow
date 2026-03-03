@@ -337,11 +337,6 @@ struct DaySummaryView: View {
                 Text("Your day so far")
                     .font(.custom("InstrumentSerif-Regular", size: 24))
                     .foregroundColor(Design.titleColor)
-
-                Text("This data will update every 15 minutes. Check back throughout the day to gain new understanding on your workflow.")
-                    .font(.custom("Nunito", size: 11))
-                    .foregroundColor(Design.subtitleColor)
-                    .lineSpacing(2)
             }
 
             if isLoading && hasCompletedInitialLoad == false {

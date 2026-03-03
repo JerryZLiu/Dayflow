@@ -78,6 +78,12 @@ struct DailyView: View {
     private let dayflowBackendInfoPlistKey = "DayflowBackendURL"
     private let dayflowBackendOverrideDefaultsKey = "dayflowBackendURLOverride"
     private let priorStandupHistoryLimit = 3
+    private static let maxDateTitleWidth: CGFloat = {
+        let referenceText = "Wednesday, September 30"
+        let font = NSFont(name: "InstrumentSerif-Regular", size: 26) ?? NSFont.systemFont(ofSize: 26)
+        let width = referenceText.size(withAttributes: [.font: font]).width
+        return ceil(width) + 6
+    }()
 
     var body: some View {
         ZStack {
@@ -324,21 +330,41 @@ struct DailyView: View {
     }
 
     private func topControls(scale: CGFloat) -> some View {
-        VStack(spacing: 10 * scale) {
-            HStack(spacing: 10 * scale) {
-                DailyCircleNavButton(iconName: "chevron.left", isDisabled: false, scale: scale) {
-                    shiftDate(by: -1)
+        let canMoveToNextDay = canNavigateForward(from: selectedDate)
+
+        return HStack {
+            HStack(spacing: 8 * scale) {
+                Button(action: { shiftDate(by: -1) }) {
+                    Image("CalendarLeftButton")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 26 * scale, height: 26 * scale)
                 }
+                .buttonStyle(PlainButtonStyle())
+                .hoverScaleEffect(scale: 1.02)
+                .pointingHandCursorOnHover(reassertOnPressEnd: true)
 
                 Text(dailyDateTitle(for: selectedDate))
                     .font(.custom("InstrumentSerif-Regular", size: 26 * scale))
                     .foregroundStyle(Color(hex: "1E1B18"))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .allowsTightening(true)
+                    .frame(width: Self.maxDateTitleWidth * scale, alignment: .center)
 
-                let canMoveForward = canNavigateForward(from: selectedDate)
-                DailyCircleNavButton(iconName: "chevron.right", isDisabled: !canMoveForward, scale: scale) {
-                    guard canMoveForward else { return }
+                Button(action: {
+                    guard canMoveToNextDay else { return }
                     shiftDate(by: 1)
+                }) {
+                    Image("CalendarRightButton")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 26 * scale, height: 26 * scale)
                 }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(!canMoveToNextDay)
+                .hoverScaleEffect(enabled: canMoveToNextDay, scale: 1.02)
+                .pointingHandCursorOnHover(enabled: canMoveToNextDay, reassertOnPressEnd: true)
             }
             .frame(maxWidth: .infinity)
         }
@@ -350,10 +376,26 @@ struct DailyView: View {
         return Calendar.current.isDate(displayDate, inSameDayAs: timelineToday)
     }
 
+    private func isYesterdaySelection(_ date: Date) -> Bool {
+        let calendar = Calendar.current
+        let displayDate = timelineDisplayDate(from: date)
+        let timelineToday = timelineDisplayDate(from: Date())
+        guard let timelineYesterday = calendar.date(byAdding: .day, value: -1, to: timelineToday) else {
+            return false
+        }
+        return calendar.isDate(displayDate, inSameDayAs: timelineYesterday)
+    }
+
     private func workflowSection(scale: CGFloat, isViewingToday: Bool) -> some View {
-        let headingText = isViewingToday
-            ? "Come back tomorrow to see this filled out."
-            : "Your workflow yesterday"
+        let headingText: String
+        if isViewingToday {
+            headingText = "Today so far. Come back tomorrow for the full day view."
+        } else if isYesterdaySelection(selectedDate) {
+            headingText = "Your workflow yesterday"
+        } else {
+            let displayDate = timelineDisplayDate(from: selectedDate)
+            headingText = "Your workflow on \(dailyStandupSectionDayFormatter.string(from: displayDate))"
+        }
 
         return VStack(alignment: .leading, spacing: 8 * scale) {
             HStack {
@@ -387,18 +429,19 @@ struct DailyView: View {
     }
 
     private func workflowTotalsView(scale: CGFloat, isViewingToday: Bool) -> some View {
-        Group {
-            if isViewingToday {
-                Text("Yesterday's total")
-                    .font(.custom("InstrumentSerif-Regular", size: 14 * scale))
-                    .foregroundStyle(Color(hex: "777777"))
-            } else if workflowTotals.isEmpty {
-                Text("Yesterday's total  No captured activity during 9am-9pm")
+        let totalTitle = workflowTotalsTitle(for: selectedDate)
+
+        return Group {
+            if workflowTotals.isEmpty {
+                let emptyDescription = isViewingToday
+                    ? "\(totalTitle)  No captured activity yet."
+                    : "\(totalTitle)  No captured activity during 9am-9pm"
+                Text(emptyDescription)
                     .font(.custom("Nunito-Regular", size: 12 * scale))
                     .foregroundStyle(Color(hex: "7F7062"))
             } else {
                 HStack(spacing: 8 * scale) {
-                    Text("Yesterday's total")
+                    Text(totalTitle)
                         .font(.custom("InstrumentSerif-Regular", size: 14 * scale))
                         .foregroundStyle(Color(hex: "777777"))
 
@@ -633,14 +676,6 @@ struct DailyView: View {
         let dayString = workflowDayString(for: selectedDate)
         refreshStandupDraftIfNeeded(for: dayString)
 
-        if isTodaySelection(selectedDate) {
-            workflowRows = []
-            workflowTotals = []
-            workflowStats = DailyWorkflowStatChip.placeholder
-            workflowWindow = .placeholder
-            return
-        }
-
         let categorySnapshot = categoryStore.categories
 
         workflowLoadTask = Task.detached(priority: .userInitiated) {
@@ -659,7 +694,7 @@ struct DailyView: View {
     }
 
     private func copyStandupUpdateToClipboard() {
-        let clipboardText = standupClipboardText()
+        let clipboardText = standupClipboardText(for: selectedDate)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(clipboardText, forType: .string)
@@ -692,16 +727,18 @@ struct DailyView: View {
     private func regenerateStandupFromTimeline() {
         guard !isTodaySelection(selectedDate) else { return }
         guard standupRegenerateState != .regenerating else { return }
+        let regenerateRunId = UUID().uuidString
 
         let timelineDate = timelineDisplayDate(from: selectedDate)
         let dayInfo = timelineDate.getDayInfoFor4AMBoundary()
         let dayString = dayInfo.dayString
         let dayStartTs = Int(dayInfo.startOfDay.timeIntervalSince1970)
         let dayEndTs = Int(dayInfo.endOfDay.timeIntervalSince1970)
-        let currentHighlightsTitle = standupDraft.highlightsTitle
-        let currentTasksTitle = standupDraft.tasksTitle
-        let currentBlockersTitle = standupDraft.blockersTitle
-        let preferencesText = currentPreferencesText()
+        let standupTitles = standupSectionTitles(for: selectedDate)
+        let currentHighlightsTitle = standupTitles.highlights
+        let currentTasksTitle = standupTitles.tasks
+        let currentBlockersTitle = standupTitles.blockers
+        let preferencesText = currentPreferencesText(titles: standupTitles)
         let priorStandupLimit = priorStandupHistoryLimit
         let defaultEndpoint = dayflowBackendDefaultEndpoint
         let infoPlistKey = dayflowBackendInfoPlistKey
@@ -714,7 +751,7 @@ struct DailyView: View {
             "timeline_day": dayString,
             "source": "regenerate_button"
         ])
-        print("[Daily] Regenerate started day=\(dayString)")
+        print("[Daily] Regenerate started run_id=\(regenerateRunId) day=\(dayString)")
 
         standupRegenerateState = .regenerating
 
@@ -723,7 +760,7 @@ struct DailyView: View {
             let cards = StorageManager.shared.fetchTimelineCards(forDay: dayString)
             guard !cards.isEmpty else {
                 guard !Task.isCancelled else { return }
-                print("[Daily] Regenerate failed day=\(dayString) reason=no_cards")
+                print("[Daily] Regenerate failed run_id=\(regenerateRunId) day=\(dayString) reason=no_cards")
                 await MainActor.run {
                     standupRegenerateState = .idle
                     standupRegenerateTask = nil
@@ -756,14 +793,22 @@ struct DailyView: View {
                 "prior_daily_text_chars": priorDailyText.count,
                 "preferences_text_chars": preferencesText.count
             ])
+            print(
+                "[Daily] Regenerate payload run_id=\(regenerateRunId) day=\(dayString) " +
+                "cards=\(cards.count) observations=\(observations.count) prior_daily=\(priorEntries.count)"
+            )
 
             guard let provider = Self.makeDayflowBackendProvider(
                 defaultEndpoint: defaultEndpoint,
                 infoPlistKey: infoPlistKey,
-                overrideDefaultsKey: overrideDefaultsKey
+                overrideDefaultsKey: overrideDefaultsKey,
+                debugRunId: regenerateRunId
             ) else {
                 guard !Task.isCancelled else { return }
-                print("[Daily] Regenerate failed day=\(dayString) reason=missing_dayflow_token")
+                print(
+                    "[Daily] Regenerate failed run_id=\(regenerateRunId) day=\(dayString) " +
+                    "reason=missing_dayflow_token"
+                )
                 await MainActor.run {
                     standupRegenerateState = .idle
                     standupRegenerateTask = nil
@@ -801,7 +846,10 @@ struct DailyView: View {
                 guard let payloadData = try? JSONEncoder().encode(regeneratedDraft),
                       let payloadJSON = String(data: payloadData, encoding: .utf8) else {
                     guard !Task.isCancelled else { return }
-                    print("[Daily] Regenerate failed day=\(dayString) reason=encode_failed")
+                    print(
+                        "[Daily] Regenerate failed run_id=\(regenerateRunId) day=\(dayString) " +
+                        "reason=encode_failed"
+                    )
                     await MainActor.run {
                         standupRegenerateState = .idle
                         standupRegenerateTask = nil
@@ -819,12 +867,13 @@ struct DailyView: View {
                 guard !Task.isCancelled else { return }
                 let latencyMs = Int(Date().timeIntervalSince(startedAt) * 1000)
                 print(
-                    "[Daily] Regenerate succeeded day=\(dayString) cards=\(cards.count) observations=\(observations.count) highlights=\(highlights.count) tasks=\(unfinished.count) blockers=\(response.blockers.count) latency_ms=\(latencyMs)"
+                    "[Daily] Regenerate succeeded run_id=\(regenerateRunId) day=\(dayString) cards=\(cards.count) observations=\(observations.count) highlights=\(highlights.count) tasks=\(unfinished.count) blockers=\(response.blockers.count) latency_ms=\(latencyMs)"
                 )
 
                 await MainActor.run {
                     standupDraft = regeneratedDraft
                     loadedStandupDraftDay = dayString
+                    hasPersistedStandupEntry = true
                     standupRegenerateTask = nil
                     standupRegenerateState = .regenerated
 
@@ -842,6 +891,10 @@ struct DailyView: View {
                         "blockers_count": response.blockers.count,
                         "latency_ms": latencyMs
                     ])
+                    print(
+                        "[Daily] Regenerate notification enqueue run_id=\(regenerateRunId) " +
+                        "day=\(dayString)"
+                    )
                     NotificationService.shared.scheduleDailyRecapReadyNotification(forDay: dayString)
 
                     standupRegenerateResetTask = Task {
@@ -857,7 +910,7 @@ struct DailyView: View {
                 let nsError = error as NSError
                 guard !Task.isCancelled else { return }
                 print(
-                    "[Daily] Regenerate failed day=\(dayString) reason=api_error error_domain=\(nsError.domain) error_code=\(nsError.code) error_message=\(nsError.localizedDescription)"
+                    "[Daily] Regenerate failed run_id=\(regenerateRunId) day=\(dayString) reason=api_error error_domain=\(nsError.domain) error_code=\(nsError.code) error_message=\(nsError.localizedDescription)"
                 )
                 await MainActor.run {
                     standupRegenerateState = .idle
@@ -937,11 +990,11 @@ struct DailyView: View {
         .joined(separator: "\n\n")
     }
 
-    private func currentPreferencesText() -> String {
+    private func currentPreferencesText(titles: DailyStandupSectionTitles) -> String {
         let preferences: [String: String] = [
-            "highlights_title": standupDraft.highlightsTitle,
-            "tasks_title": standupDraft.tasksTitle,
-            "blockers_title": standupDraft.blockersTitle
+            "highlights_title": titles.highlights,
+            "tasks_title": titles.tasks,
+            "blockers_title": titles.blockers
         ]
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: preferences, options: [.sortedKeys]),
@@ -954,38 +1007,54 @@ struct DailyView: View {
     nonisolated private static func makeDayflowBackendProvider(
         defaultEndpoint: String,
         infoPlistKey: String,
-        overrideDefaultsKey: String
+        overrideDefaultsKey: String,
+        debugRunId: String
     ) -> DayflowBackendProvider? {
         let token = AnalyticsService.shared.backendAuthToken()
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else {
+            print(
+                "[Daily] Provider resolve failed run_id=\(debugRunId) reason=empty_backend_auth_token"
+            )
             return nil
         }
+        print(
+            "[Daily] Provider auth token run_id=\(debugRunId) id=\(token) length=\(token.count)"
+        )
 
         let endpoint = resolvedDayflowEndpoint(
             defaultEndpoint: defaultEndpoint,
             infoPlistKey: infoPlistKey,
-            overrideDefaultsKey: overrideDefaultsKey
+            overrideDefaultsKey: overrideDefaultsKey,
+            debugRunId: debugRunId
         )
+        print("[Daily] Provider endpoint run_id=\(debugRunId) endpoint=\(endpoint)")
         return DayflowBackendProvider(token: token, endpoint: endpoint)
     }
 
     nonisolated private static func resolvedDayflowEndpoint(
         defaultEndpoint: String,
         infoPlistKey: String,
-        overrideDefaultsKey: String
+        overrideDefaultsKey: String,
+        debugRunId: String
     ) -> String {
         let defaults = UserDefaults.standard
 
         if let override = defaults.string(forKey: overrideDefaultsKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !override.isEmpty {
+            print(
+                "[Daily] Endpoint resolved run_id=\(debugRunId) source=user_defaults_override value=\(override)"
+            )
             return override
         }
 
         if let infoEndpoint = Bundle.main.infoDictionary?[infoPlistKey] as? String {
             let trimmed = infoEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
+                print(
+                    "[Daily] Endpoint resolved run_id=\(debugRunId) source=info_plist value=\(trimmed)"
+                )
                 return trimmed
             }
         }
@@ -993,10 +1062,16 @@ struct DailyView: View {
         if case .dayflowBackend(let savedEndpoint) = LLMProviderType.load(from: defaults) {
             let trimmed = savedEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
+                print(
+                    "[Daily] Endpoint resolved run_id=\(debugRunId) source=provider_settings value=\(trimmed)"
+                )
                 return trimmed
             }
         }
 
+        print(
+            "[Daily] Endpoint resolved run_id=\(debugRunId) source=default value=\(defaultEndpoint)"
+        )
         return defaultEndpoint
     }
 
@@ -1051,13 +1126,14 @@ struct DailyView: View {
         return trimmedSummary.isEmpty ? nil : trimmedSummary
     }
 
-    private func standupClipboardText() -> String {
+    private func standupClipboardText(for date: Date) -> String {
+        let titles = standupSectionTitles(for: date)
         let yesterdayItems = sanitizedStandupItems(standupDraft.highlights)
         let todayItems = sanitizedStandupItems(standupDraft.tasks)
         let blockersItems = sanitizedBlockers(standupDraft.blockersBody)
 
         var lines: [String] = []
-        lines.append("Yesterday")
+        lines.append(titles.highlights)
         if yesterdayItems.isEmpty {
             lines.append("- None right now")
         } else {
@@ -1065,7 +1141,7 @@ struct DailyView: View {
         }
         lines.append("")
 
-        lines.append("Today")
+        lines.append(titles.tasks)
         if todayItems.isEmpty {
             lines.append("- None right now")
         } else {
@@ -1073,7 +1149,7 @@ struct DailyView: View {
         }
         lines.append("")
 
-        lines.append("Blockers")
+        lines.append(titles.blockers)
         if blockersItems.isEmpty {
             lines.append("- None right now")
         } else {
@@ -1108,10 +1184,13 @@ struct DailyView: View {
     }
 
     private func refreshStandupDraftIfNeeded(for dayString: String) {
+        let entry = StorageManager.shared.fetchDailyStandup(forDay: dayString)
+        hasPersistedStandupEntry = entry != nil
+
         guard loadedStandupDraftDay != dayString else { return }
         loadedStandupDraftDay = dayString
 
-        guard let entry = StorageManager.shared.fetchDailyStandup(forDay: dayString),
+        guard let entry,
               let data = entry.payloadJSON.data(using: .utf8),
               let decoded = try? JSONDecoder().decode(DailyStandupDraft.self, from: data) else {
             standupDraft = defaultStandupDraft(for: dayString)
@@ -1143,6 +1222,11 @@ struct DailyView: View {
             }
 
             StorageManager.shared.saveDailyStandup(forDay: dayString, payloadJSON: json)
+            await MainActor.run {
+                if loadedStandupDraftDay == dayString {
+                    hasPersistedStandupEntry = true
+                }
+            }
         }
     }
 
@@ -1175,6 +1259,48 @@ struct DailyView: View {
         return dailyOtherDayDisplayFormatter.string(from: displayDate)
     }
 
+    private func standupSectionTitles(for date: Date) -> DailyStandupSectionTitles {
+        let calendar = Calendar.current
+        let displayDate = timelineDisplayDate(from: date)
+        let timelineToday = timelineDisplayDate(from: Date())
+
+        if calendar.isDate(displayDate, inSameDayAs: timelineToday) {
+            return DailyStandupSectionTitles(
+                highlights: "Today's highlights",
+                tasks: "Tomorrow's tasks",
+                blockers: "Blockers"
+            )
+        }
+
+        let timelineYesterday = calendar.date(byAdding: .day, value: -1, to: timelineToday) ?? timelineToday
+        if calendar.isDate(displayDate, inSameDayAs: timelineYesterday) {
+            return DailyStandupSectionTitles(
+                highlights: "Yesterday's highlights",
+                tasks: "Today's tasks",
+                blockers: "Blockers"
+            )
+        }
+
+        let nextDate = calendar.date(byAdding: .day, value: 1, to: displayDate) ?? displayDate
+        return DailyStandupSectionTitles(
+            highlights: "Highlights from \(dailyStandupSectionDayFormatter.string(from: displayDate))",
+            tasks: "Tasks for \(dailyStandupSectionDayFormatter.string(from: nextDate))",
+            blockers: "Blockers"
+        )
+    }
+
+    private func workflowTotalsTitle(for date: Date) -> String {
+        if isTodaySelection(date) {
+            return "Today's total so far"
+        }
+        if isYesterdaySelection(date) {
+            return "Yesterday's total"
+        }
+
+        let displayDate = timelineDisplayDate(from: date)
+        return "Total for \(dailyStandupSectionDayFormatter.string(from: displayDate))"
+    }
+
     private func formatDuration(minutes: Double) -> String {
         let rounded = max(0, Int(minutes.rounded()))
         let hours = rounded / 60
@@ -1183,32 +1309,6 @@ struct DailyView: View {
         if hours > 0 && mins > 0 { return "\(hours)h \(mins)m" }
         if hours > 0 { return "\(hours)h" }
         return "\(mins)m"
-    }
-}
-
-private struct DailyCircleNavButton: View {
-    let iconName: String
-    let isDisabled: Bool
-    let scale: CGFloat
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            ZStack {
-                Circle()
-                    .fill(Color(hex: "F4EFEA"))
-                Circle()
-                    .stroke(Color(hex: "E2DDD8"), lineWidth: max(0.7, 1 * scale))
-
-                Image(systemName: iconName)
-                    .font(.system(size: 13 * scale, weight: .medium))
-                    .foregroundStyle(Color(hex: "C9C2BC").opacity(isDisabled ? 0.5 : 1.0))
-            }
-            .frame(width: 30 * scale, height: 30 * scale)
-        }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .pointingHandCursorOnHover(enabled: !isDisabled, reassertOnPressEnd: true)
     }
 }
 
@@ -1507,7 +1607,7 @@ private struct DailyBulletCard: View {
 
     let style: Style
     let seamMode: SeamMode
-    @Binding var title: String
+    let title: String
     @Binding var items: [DailyBulletItem]
     @Binding var blockersTitle: String
     @Binding var blockersBody: String
@@ -1559,11 +1659,9 @@ private struct DailyBulletCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 18 * scale) {
-                TextField("Section title", text: $title)
+                Text(title)
                     .font(.custom("InstrumentSerif-Regular", size: 24 * scale))
                     .foregroundStyle(Color(hex: "B46531"))
-                    .textFieldStyle(.plain)
-                    .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 itemListEditor
