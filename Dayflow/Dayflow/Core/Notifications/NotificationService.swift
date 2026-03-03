@@ -47,6 +47,7 @@ final class NotificationService: NSObject, ObservableObject {
             await MainActor.run {
                 self.permissionGranted = granted
             }
+            print("[NotificationService] requestPermission granted=\(granted)")
             return granted
         } catch {
             print("[NotificationService] Permission request failed: \(error)")
@@ -113,16 +114,28 @@ final class NotificationService: NSObject, ObservableObject {
     /// Called only after successful generation + DB save.
     func scheduleDailyRecapReadyNotification(forDay day: String) {
         let trimmedDay = day.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDay.isEmpty else { return }
+        guard !trimmedDay.isEmpty else {
+            print("[NotificationService] Skipping daily recap notification: empty day")
+            return
+        }
+        print("[NotificationService] scheduleDailyRecapReadyNotification requested day=\(trimmedDay)")
 
         Task {
             var settings = await center.notificationSettings()
             var status = settings.authorizationStatus
+            print(
+                "[NotificationService] daily recap notification settings day=\(trimmedDay) " +
+                "authorization_status=\(Self.authorizationStatusName(status))"
+            )
 
             if status == .notDetermined {
                 let granted = await requestPermission()
                 settings = await center.notificationSettings()
                 status = settings.authorizationStatus
+                print(
+                    "[NotificationService] daily recap permission prompt result day=\(trimmedDay) " +
+                    "granted=\(granted) final_status=\(Self.authorizationStatusName(status))"
+                )
 
                 AnalyticsService.shared.capture("daily_auto_generation_notification_permission_prompt_result", [
                     "target_day": trimmedDay,
@@ -159,7 +172,13 @@ final class NotificationService: NSObject, ObservableObject {
 
     private func enqueueDailyRecapReadyNotification(forDay day: String, settings: UNNotificationSettings) {
         let identifier = "daily.recap.\(day)"
+        print(
+            "[NotificationService] enqueue daily recap identifier=\(identifier) " +
+            "day=\(day) alert_setting=\(Self.notificationSettingName(settings.alertSetting)) " +
+            "sound_setting=\(Self.notificationSettingName(settings.soundSetting))"
+        )
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        print("[NotificationService] removed pending notification identifier=\(identifier)")
 
         let content = UNMutableNotificationContent()
         content.title = "Your daily recap for yesterday is ready"
@@ -189,6 +208,10 @@ final class NotificationService: NSObject, ObservableObject {
                 ])
                 return
             }
+            print(
+                "[NotificationService] Scheduled daily recap notification " +
+                "identifier=\(identifier) day=\(day)"
+            )
 
             AnalyticsService.shared.capture("daily_auto_generation_notification_scheduled", [
                 "target_day": day,
@@ -290,6 +313,11 @@ extension NotificationService: UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let identifier = response.notification.request.identifier
+        let day = response.notification.request.content.userInfo["day"] as? String
+        print(
+            "[NotificationService] didReceive notification identifier=\(identifier) " +
+            "action=\(response.actionIdentifier) day=\(day ?? "nil")"
+        )
 
         let isJournalNotification = identifier.hasPrefix("journal.")
         let isDailyRecapNotification = identifier.hasPrefix("daily.")
@@ -305,8 +333,8 @@ extension NotificationService: UNUserNotificationCenterDelegate {
                 NotificationCenter.default.post(name: .navigateToJournal, object: nil)
                 AppDelegate.pendingNavigationToJournal = true
                 activateAppForNotificationTap()
+                print("[NotificationService] didReceive journal notification handled identifier=\(identifier)")
             } else {
-                let day = response.notification.request.content.userInfo["day"] as? String
                 AppDelegate.pendingNavigationToDailyDay = day
                 AppDelegate.pendingNavigationToJournal = false
 
@@ -319,11 +347,13 @@ extension NotificationService: UNUserNotificationCenterDelegate {
                     AnalyticsService.shared.capture("daily_auto_generation_notification_clicked", [
                         "target_day": day
                     ])
+                    print("[NotificationService] didReceive daily notification navigation target_day=\(day)")
                 } else {
                     NotificationCenter.default.post(name: .navigateToDaily, object: nil)
                     AnalyticsService.shared.capture("daily_auto_generation_notification_clicked", [
                         "target_day": "unknown"
                     ])
+                    print("[NotificationService] didReceive daily notification navigation target_day=unknown")
                 }
 
                 activateAppForNotificationTap()
@@ -340,7 +370,8 @@ extension NotificationService: UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         let identifier = notification.request.identifier
-        print("[NotificationService] willPresent called for: \(identifier)")
+        let day = notification.request.content.userInfo["day"] as? String
+        print("[NotificationService] willPresent identifier=\(identifier) day=\(day ?? "nil")")
 
         if identifier.hasPrefix("journal.") {
             Task { @MainActor in
@@ -348,11 +379,13 @@ extension NotificationService: UNUserNotificationCenterDelegate {
                 NotificationBadgeManager.shared.showBadge()
             }
 
+            print("[NotificationService] willPresent options=banner,sound,badge identifier=\(identifier)")
             completionHandler([.banner, .sound, .badge])
             return
         }
 
         if identifier.hasPrefix("daily.") {
+            print("[NotificationService] willPresent options=banner,sound identifier=\(identifier)")
             completionHandler([.banner, .sound])
             return
         }
