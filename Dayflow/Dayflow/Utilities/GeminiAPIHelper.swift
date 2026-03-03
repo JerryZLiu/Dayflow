@@ -11,7 +11,7 @@ class GeminiAPIHelper {
     static let shared = GeminiAPIHelper()
     private init() {}
     
-    private let baseURL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent"
+    private let baseURL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent"
     
     enum APIError: Error, LocalizedError {
         case invalidAPIKey
