@@ -12,6 +12,7 @@ struct SettingsView: View {
     private enum SettingsTab: String, CaseIterable, Identifiable {
         case storage
         case providers
+        case data
         case other
 
         var id: String { rawValue }
@@ -20,6 +21,7 @@ struct SettingsView: View {
             switch self {
             case .storage: return "Storage"
             case .providers: return "Providers"
+            case .data: return "Export"
             case .other: return "Other"
             }
         }
@@ -28,6 +30,7 @@ struct SettingsView: View {
             switch self {
             case .storage: return "Recording status and disk usage"
             case .providers: return "Manage LLM providers and customize prompts"
+            case .data: return "Export timeline data and reprocess days"
             case .other: return "General preferences & support"
             }
         }
@@ -137,12 +140,6 @@ struct SettingsView: View {
                 .foregroundColor(.black.opacity(0.9))
                 .padding(.leading, 10)
 
-            Text("Manage how Dayflow runs")
-                .font(.custom("Nunito", size: 14))
-                .foregroundColor(.black.opacity(0.55))
-                .padding(.leading, 10)
-                .padding(.bottom, 12)
-
             ForEach(SettingsTab.allCases) { tab in
                 sidebarButton(for: tab)
             }
@@ -196,6 +193,8 @@ struct SettingsView: View {
                 Text(tab.subtitle)
                     .font(.custom("Nunito", size: 12))
                     .foregroundColor(.black.opacity(selectedTab == tab ? 0.55 : 0.35))
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 14)
@@ -234,6 +233,8 @@ struct SettingsView: View {
                 SettingsStorageTabView(viewModel: storageViewModel)
             case .providers:
                 SettingsProvidersTabView(viewModel: providersViewModel)
+            case .data:
+                SettingsDataTabView(viewModel: otherViewModel)
             case .other:
                 SettingsOtherTabView(viewModel: otherViewModel, launchAtLoginManager: launchAtLoginManager)
             }

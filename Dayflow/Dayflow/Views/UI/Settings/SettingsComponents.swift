@@ -34,7 +34,6 @@ struct SettingsCard<Content: View>: View {
                     RoundedRectangle(cornerRadius: 18)
                         .stroke(Color.white.opacity(0.55), lineWidth: 0.8)
                 )
-                .shadow(color: Color.black.opacity(0.08), radius: 18, x: 0, y: 12)
         )
     }
 }
