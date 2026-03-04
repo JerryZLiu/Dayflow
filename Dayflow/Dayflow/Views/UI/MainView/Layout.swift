@@ -196,6 +196,7 @@ extension MainView {
                 // Safety: stop timer if view disappears
                 stopDayChangeTimer()
                 copyTimelineTask?.cancel()
+                deleteTimelineTask?.cancel()
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 // Check if day changed while app was backgrounded
@@ -295,6 +296,7 @@ extension MainView {
         }
         .padding(0)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .background(mainPanelBackground)
     }
 
@@ -524,7 +526,8 @@ extension MainView {
                     if !feedbackModalVisible {
                         TimelineRateSummaryView(
                             activityID: activity.id,
-                            onRate: handleTimelineRating
+                            onRate: handleTimelineRating,
+                            onDelete: handleTimelineDelete
                         )
                         .frame(maxWidth: .infinity)
                         .allowsHitTesting(!feedbackModalVisible)

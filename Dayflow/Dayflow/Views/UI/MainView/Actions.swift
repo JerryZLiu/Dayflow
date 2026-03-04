@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Foundation
 
 extension MainView {
     func handleCategoryChange(to category: TimelineCategory, for activity: TimelineActivity) {
@@ -149,6 +150,63 @@ extension MainView {
                     copyTimelineState = .idle
                 }
             }
+        }
+    }
+
+    func handleTimelineDelete() {
+        guard let activity = selectedActivity,
+              let recordId = activity.recordId else { return }
+
+        deleteTimelineTask?.cancel()
+        let selectedActivityId = activity.id
+        let selectedDay = dayString(selectedDate)
+
+        var requestedProps: [String: Any] = [
+            "timeline_selected_day": selectedDay,
+            "activity_record_id": Int(recordId),
+            "activity_title": activity.title,
+            "activity_has_video_summary": activity.videoSummaryURL != nil
+        ]
+        if let batchId = activity.batchId {
+            requestedProps["activity_batch_id"] = Int(batchId)
+        }
+        AnalyticsService.shared.capture("timeline_activity_delete_requested", requestedProps)
+
+        deleteTimelineTask = Task.detached(priority: .userInitiated) {
+            defer {
+                Task { @MainActor in
+                    deleteTimelineTask = nil
+                }
+            }
+
+            let deletedVideoPath = StorageManager.shared.deleteTimelineCard(recordId: recordId)
+            guard !Task.isCancelled else { return }
+
+            if let deletedVideoPath {
+                if let fileURL = URL(string: deletedVideoPath), fileURL.isFileURL {
+                    try? FileManager.default.removeItem(at: fileURL)
+                } else {
+                    try? FileManager.default.removeItem(atPath: deletedVideoPath)
+                }
+            }
+
+            await MainActor.run {
+                if selectedActivity?.id == selectedActivityId {
+                    selectedActivity = nil
+                }
+                refreshActivitiesTrigger &+= 1
+            }
+
+            var deletedProps: [String: Any] = [
+                "timeline_selected_day": selectedDay,
+                "activity_record_id": Int(recordId),
+                "activity_title": activity.title,
+                "deleted_video_summary": deletedVideoPath != nil
+            ]
+            if let batchId = activity.batchId {
+                deletedProps["activity_batch_id"] = Int(batchId)
+            }
+            AnalyticsService.shared.capture("timeline_activity_deleted", deletedProps)
         }
     }
 
