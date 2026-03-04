@@ -68,6 +68,7 @@ protocol StorageManaging: Sendable {
     // Timeline‑cards
     func saveTimelineCardShell(batchId: Int64, card: TimelineCardShell) -> Int64?
     func updateTimelineCardVideoURL(cardId: Int64, videoSummaryURL: String)
+    func deleteTimelineCard(recordId: Int64) -> String?
     func fetchTimelineCards(forBatch batchId: Int64) -> [TimelineCard]
     func fetchTimelineCard(byId id: Int64) -> TimelineCardWithTimestamps?
 
@@ -1203,6 +1204,35 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 WHERE id = ?
             """, arguments: [videoSummaryURL, cardId])
         }
+    }
+
+    func deleteTimelineCard(recordId: Int64) -> String? {
+        var videoPath: String? = nil
+
+        try? timedWrite("deleteTimelineCard(recordId:\(recordId))") { db in
+            videoPath = try String.fetchOne(
+                db,
+                sql: """
+                    SELECT video_summary_url
+                    FROM timeline_cards
+                    WHERE id = ?
+                      AND is_deleted = 0
+                """,
+                arguments: [recordId]
+            )
+
+            try db.execute(
+                sql: """
+                    UPDATE timeline_cards
+                    SET is_deleted = 1
+                    WHERE id = ?
+                      AND is_deleted = 0
+                """,
+                arguments: [recordId]
+            )
+        }
+
+        return videoPath
     }
 
     func updateTimelineCardCategory(cardId: Int64, category: String) {
