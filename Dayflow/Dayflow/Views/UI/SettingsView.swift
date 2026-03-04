@@ -30,7 +30,7 @@ struct SettingsView: View {
             switch self {
             case .storage: return "Recording status and disk usage"
             case .providers: return "Manage LLM providers and customize prompts"
-            case .data: return "Export timeline data and reprocess days"
+            case .data: return "Export timeline data"
             case .other: return "General preferences & support"
             }
         }
