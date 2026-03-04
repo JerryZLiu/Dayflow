@@ -8,8 +8,6 @@
 import SwiftUI
 import AppKit
 import ScreenCaptureKit
-import CoreGraphics
-
 struct ScreenRecordingPermissionView: View {
     var onBack: () -> Void
     var onNext: () -> Void
@@ -180,20 +178,38 @@ struct ScreenRecordingPermissionView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             // If already granted, mark as granted; otherwise start in notRequested
-            if CGPreflightScreenCaptureAccess() {
-                permissionState = .granted
-                Task { @MainActor in AppDelegate.allowTermination = false }
-            } else {
-                permissionState = .notRequested
-                Task { @MainActor in AppDelegate.allowTermination = true }
+            Task {
+                let granted: Bool
+                do {
+                    _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                    granted = true
+                } catch {
+                    granted = false
+                }
+                await MainActor.run {
+                    if granted {
+                        permissionState = .granted
+                        AppDelegate.allowTermination = false
+                    } else {
+                        permissionState = .notRequested
+                        AppDelegate.allowTermination = true
+                    }
+                }
             }
         }
         // Re-check when app becomes active again (e.g., returning from System Settings)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // Only transition to granted here; avoid flipping notChecked to denied automatically
-            if CGPreflightScreenCaptureAccess() {
-                permissionState = .granted
-                Task { @MainActor in AppDelegate.allowTermination = false }
+            Task {
+                do {
+                    _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                    await MainActor.run {
+                        permissionState = .granted
+                        AppDelegate.allowTermination = false
+                    }
+                } catch {
+                    // Not granted yet, keep current state
+                }
             }
         }
         .onDisappear {
@@ -208,16 +224,27 @@ struct ScreenRecordingPermissionView: View {
 
         // This will prompt and register the app with TCC; may return false
         _ = CGRequestScreenCaptureAccess()
-        if CGPreflightScreenCaptureAccess() {
-            permissionState = .granted
-            AnalyticsService.shared.capture("screen_permission_granted")
-            Task { @MainActor in AppDelegate.allowTermination = false }
-        } else {
-            permissionState = .needsAction
-            AnalyticsService.shared.capture("screen_permission_denied")
-            Task { @MainActor in AppDelegate.allowTermination = true }
+        Task {
+            let granted: Bool
+            do {
+                _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                granted = true
+            } catch {
+                granted = false
+            }
+            await MainActor.run {
+                if granted {
+                    permissionState = .granted
+                    AnalyticsService.shared.capture("screen_permission_granted")
+                    AppDelegate.allowTermination = false
+                } else {
+                    permissionState = .needsAction
+                    AnalyticsService.shared.capture("screen_permission_denied")
+                    AppDelegate.allowTermination = true
+                }
+                isCheckingPermission = false
+            }
         }
-        isCheckingPermission = false
     }
 
     private func openSystemSettings() {
