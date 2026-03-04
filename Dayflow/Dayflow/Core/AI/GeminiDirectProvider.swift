@@ -247,43 +247,35 @@ final class GeminiDirectProvider {
         // realDuration is available via compressionFactor if needed for debugging
         
         let finalTranscriptionPrompt = """
-        # Screen Recording Transcription (Reconstruct Mode)
-
+        Screen Recording Transcription (Reconstruct Mode)
         Watch this screen recording and create an activity log detailed enough that someone could reconstruct the session.
-
         CRITICAL: This video is exactly \(durationString) long. ALL timestamps must be within 00:00 to \(durationString). No gaps.
-
+        Identifying the active app: On macOS, the app name is always shown in the top-left corner of the screen, right next to the Apple () menu. Check this FIRST to identify which app is being used. Do NOT guess — read the actual name from the menu bar. If you can't read it clearly, describe it generically (e.g., "code editor," "browser," "messaging app") rather than guessing a specific product name. Common code editors like Cursor, VS Code, Xcode, and Zed all look similar but have different names in the menu bar.
         For each segment, ask yourself:
         "What EXACTLY did they do? What SPECIFIC things can I see?"
-
         Capture:
-        - Exact app/site names visible
+        - Exact app/site names visible (check menu bar for app name)
         - Exact file names, URLs, page titles
         - Exact usernames, search queries, messages
         - Exact numbers, stats, prices shown
-
         Bad: "Checked email"
         Good: "Gmail: Read email from boss@company.com 'RE: Budget approval' - replied 'Looks good'"
-
         Bad: "Browsing Twitter"
         Good: "Twitter/X: Scrolled feed - viewed posts by @pmarca about AI, @sama thread on GPT-5 (12 tweets)"
-
         Bad: "Working on code"
-        Good: "VS Code: Editing StorageManager.swift - fixed type error on line 47, changed String to String?"
-
+        Good: "Editing StorageManager.swift in [exact app name from menu bar] - fixed type error on line 47, changed String to String?"
         Segments:
         - 3-8 segments total
         - You may use 1 segment only if the user appears idle for most of the recording
         - Group by GOAL not app (IDE + Terminal + Browser for the same task = 1 segment)
         - Do not create gaps; cover the full timeline
-
         Return ONLY JSON in this format:
         [
-          {
-            "startTimestamp": "MM:SS",
-            "endTimestamp": "MM:SS",
-            "description": "1-3 sentences with specific details"
-          }
+        {
+        "startTimestamp": "MM:SS",
+        "endTimestamp": "MM:SS",
+        "description": "1-3 sentences with specific details"
+        }
         ]
         """
 
@@ -561,70 +553,89 @@ final class GeminiDirectProvider {
             .map { "\n\n\($0)" } ?? ""
 
         let basePrompt = """
-        You are a digital anthropologist, observing a user's raw activity log. Your goal is to synthesize this log into a high-level, human-readable story of their session, presented as a series of timeline cards.
-        THE GOLDEN RULE:
-            Create cards that narrate one cohesive session, aiming for 15–60 minutes. Keep every card ≥10 minutes, split up any cards that are >60 minutes, and if a prospective card would be <10 minutes, merge it into the neighboring card that preserves the best story.
+        # Timeline Card Generation
 
-            CONTINUITY RULE:
-            You may adjust boundaries for clarity, but never introduce new gaps or overlaps. Preserve any original gaps in the source timeline and keep adjacent covered
-          spans meeting cleanly.
+        You're writing someone's personal work journal. You'll get raw activity logs — screenshots, app switches, URLs — and your job is to turn them into timeline cards that help this person remember what they actually did.
 
-            CORE DIRECTIVES:
-            - Theme Test Before Extending: Extend the current card only when the new observations continue the same dominant activity. Shifts shorter than 10 minutes should
-          be logged as distractions or merged into the adjacent segment that keeps the theme coherent; shifts ≥10 minutes become new cards.
-        
+        The test: when they scan their timeline tomorrow morning, each card should make them go "oh right, that."
+
+        Write as if you ARE the person jotting down notes about their day. Not an analyst writing a report. Not a manager filing a status update.
+
+        ---
+
+        ## Card Structure
+
+        Each card covers one cohesive chunk of activity, roughly 15–60 minutes.
+
+        - Minimum 10 minutes per card. If something would be shorter, fold it into the neighboring card that makes the most sense.
+        - Maximum 60 minutes. If a card runs longer, split it where the focus naturally shifts.
+        - No gaps or overlaps between cards. If there's a real gap in the source data, preserve it. Otherwise, cards should meet cleanly.
+
+        **When to start a new card:**
+        1. What's the main thing happening right now?
+        2. Does the next chunk of activity continue that same thing? → Keep extending.
+        3. Is there a brief unrelated detour (<5 min)? → Log it as a distraction, keep the card going.
+        4. Has the focus genuinely shifted for 10+ minutes? → New card.
+
+        ---
+
         \(promptSections.title)
+
+        ---
 
         \(promptSections.summary)
 
-        \(categoriesSection(from: context.categories))
+        ---
 
         \(promptSections.detailedSummary)
 
         \(languageBlock)
 
-        APP SITES (Website Logos)
-        Identify the main app or website used for each card and include an appSites object.
+        ---
 
-        Rules:
-        - primary: The canonical domain (or canonical product path) of the main app used in the card.
-        - secondary: Another meaningful app used during this session OR the enclosing app (e.g., browser), if relevant.
-        - Format: lower-case, no protocol, no query or fragments. Use product subdomains/paths when they are canonical (e.g., docs.google.com for Google Docs).
-        - Be specific: prefer product domains over generic ones (docs.google.com over google.com).
-        - If you cannot determine a secondary, omit it.
-        - Do not invent brands; rely on evidence from observations.
+        ## Category
 
-        Canonical examples:
+        \(categoriesSection(from: context.categories))
+
+        ---
+
+        ## Distractions
+
+        A distraction is a brief (<5 min) unrelated interruption inside a card. Checking X for 2 minutes while debugging is a distraction. Spending 15 minutes on X is not a distraction — it's either part of the card's theme or it's a new card.
+
+        Don't label related sub-tasks as distractions. Googling an error message while debugging isn't a distraction, it's part of debugging.
+
+        ---
+
+        ## App Sites
+
+        Identify the main app or website for each card.
+
+        - primary: the main app used in the card (canonical domain, lowercase, no protocol).
+        - secondary: another meaningful app used, or the enclosing app (e.g., browser). Omit if there isn't a clear one.
+
+        Be specific: docs.google.com not google.com, mail.google.com not google.com.
+
+        Common mappings:
         - Figma → figma.com
         - Notion → notion.so
         - Google Docs → docs.google.com
         - Gmail → mail.google.com
-        - Google Sheets → sheets.google.com
-        - Zoom → zoom.us
-        - ChatGPT → chatgpt.com
         - VS Code → code.visualstudio.com
         - Xcode → developer.apple.com/xcode
-        - Chrome → google.com/chrome
-        - Safari → apple.com/safari
         - Twitter/X → x.com
+        - Zoom → zoom.us
+        - ChatGPT → chatgpt.com
 
-        YOUR MENTAL MODEL (How to Decide):
-        Before making a decision, ask yourself these questions in order:
+        ---
 
-        What is the dominant theme of the current card?
-        Do the new observations continue or relate to this theme? If yes, extend the card.
-        Is this a brief (<5 min) and unrelated pivot? If yes, add it as a distraction to the current card and continue extending.
-        Is this a sustained shift in focus (>15 min) that represents a different activity category or goal? If yes, create a new card regardless of the current card's length.
+        ## Continuity Rules
 
-        DISTRACTIONS:
-        A "distraction" is a brief (<5 min) and unrelated activity that interrupts the main theme of a card. Sustained activities (>5 min) are NOT distractions - they either belong to the current theme or warrant a new card. Don't label related sub-tasks as distractions.
+        Your output cards must cover the same total time range as the previous cards plus any new observations. Think of previous cards as a draft you're revising and extending, not locked history.
 
-        INPUT/OUTPUT CONTRACT:
-        Your output cards MUST cover the same total time range as the "Previous cards" plus any new time from observations.
-        - If Previous cards span 11:11 AM - 11:53 AM, your output must also cover 11:11 AM - 11:53 AM (you may restructure the cards, but don't drop time segments)
-        - If new observations extend beyond the previous cards' time range, create additional cards to cover that new time
-        - The only exception: if there's a genuine gap between previous cards (e.g., 11:27 AM to 11:33 AM with no activity), preserve that gap
-        - Think of "Previous cards" as a DRAFT that you're revising/extending, not as locked history
+        - Don't drop time segments that were previously covered.
+        - If new observations extend beyond the previous range, add cards to cover the new time.
+        - Preserve genuine gaps in the source data.
 
         INPUTS:
         Previous cards: \(existingCardsString)
@@ -1069,6 +1080,7 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         let generationConfig: [String: Any] = [
             "temperature": 0.3,
             "maxOutputTokens": 65536,
+            "mediaResolution": "MEDIA_RESOLUTION_HIGH",
             "responseMimeType": "application/json",
             "responseSchema": transcriptionSchema
         ]
