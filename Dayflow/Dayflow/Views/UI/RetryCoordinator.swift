@@ -159,9 +159,9 @@ final class RetryCoordinator: ObservableObject {
     private func stepLabel(_ step: LLMProcessingStep) -> String {
         switch step {
         case .transcribing:
-            return "Transcribing"
+            return "1/2 Transcribing"
         case .generatingCards:
-            return "Generating cards"
+            return "2/2 Generating cards"
         }
     }
 }
