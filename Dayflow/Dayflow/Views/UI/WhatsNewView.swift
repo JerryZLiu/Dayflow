@@ -21,8 +21,9 @@ struct ReleaseNote: Identifiable {
     let version: String      // e.g. "2.0.1"
     let title: String        // e.g. "Timeline Improvements"
     let highlights: [String] // Array of bullet points
+    let previewIntro: String?
+    let previewImageNames: [String]
     let cta: ReleaseNoteCTA?
-    let imageName: String?   // Optional asset name for preview
 
     // Helper to compare semantic versions
     var semanticVersion: [Int] {
@@ -36,26 +37,21 @@ enum WhatsNewConfiguration {
     private static let seenKey = "lastSeenWhatsNewVersion"
 
     /// Override with the specific release number you want to show.
-    private static let versionOverride: String? = "1.8.0"
+    private static let versionOverride: String? = "1.8.4"
 
     /// Update this content before shipping each release. Return nil to disable the modal entirely.
     static var configuredRelease: ReleaseNote? {
         ReleaseNote(
             version: targetVersion,
-            title: "Just-in-time timelapses · Gemini back to 15-minute windows · UI polish",
+            title: "Gemini 3.1 Flash-Lite · Timeline card deletion · Energy use improvements",
             highlights: [
-                "Instead of generating timelapse videos continuously, Dayflow now generates them in a just-in-time fashion for better energy efficiency.",
-                "Gemini is back to 15-minute processing windows now that new mitigations are in place.",
-                "A lot of small-but-helpful UI enhancements landed across timeline, chat, settings, and navigation.",
-                "Fixed a bug where Dock icon preferences could reset after restart."
+                "Google just released Gemini 3.1 Flash-Lite, and it's now the default model for Gemini users. It's fast, reliable, and comes with generous rate limits.",
+                "Highly requested feature: you can now delete timeline cards directly from the timeline card footer.",
+                "We've spent a lot of time investigating reports of higher energy usage since 1.8.0, and we've shipped fixes that should address most cases. If you're still seeing unusually high energy use, please reach out."
             ],
-            cta: ReleaseNoteCTA(
-                title: "Standup Pilot",
-                description: "I'm piloting a workflow to make standups and weekly 1:1 prep less painful. I'm personally onboarding the first 10 users to work out the kinks, so please book a time if you're interested!",
-                buttonTitle: "Book a Time",
-                url: "https://cal.com/jerry-liu/15min"
-            ),
-            imageName: nil
+            previewIntro: "A sneak peek at some of the visualizations that we've been playing around with, likely coming to a new weekly view tab. Let me know if you have any cool ideas!",
+            previewImageNames: ["SankeyPreview", "TreemapPreview"],
+            cta: nil
         )
     }
 
@@ -167,11 +163,42 @@ struct WhatsNewView: View {
                         }
                     }
 
+                    if let previewIntro = releaseNote.previewIntro,
+                       previewIntro.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                        Text(previewIntro)
+                            .font(.custom("Nunito", size: 14))
+                            .foregroundColor(.black.opacity(0.72))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 6)
+                    }
+
+                    if !releaseNote.previewImageNames.isEmpty {
+                        VStack(spacing: 16) {
+                            ForEach(releaseNote.previewImageNames, id: \.self) { imageName in
+                                Image(imageName)
+                                    .resizable()
+                                    .interpolation(.high)
+                                    .scaledToFit()
+                                    .frame(maxWidth: .infinity)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .fill(Color(red: 0.985, green: 0.985, blue: 0.985))
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                                    )
+                            }
+                        }
+                        // Let previews use more horizontal space than text for better readability.
+                        .padding(.top, 6)
+                        .padding(.horizontal, -20)
+                    }
+
                     if let cta = releaseNote.cta {
                         ctaSection(cta)
                     }
-
-                    surveySection
 
                     Color.clear
                         .frame(height: 1)
