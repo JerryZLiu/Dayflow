@@ -845,7 +845,8 @@ struct DaySummaryView: View {
 
     // MARK: - Pre-computation Helpers (run on background thread to avoid main thread hangs)
 
-    /// Pre-computes durations for all cards (expensive parsing done once)
+    /// Pre-computes per-card durations clipped to the current timeline day window (4 AM -> 4 AM).
+    /// Overlap normalization is applied later based on active category configuration.
     nonisolated private func precomputeCardDurations(_ cards: [TimelineCard]) -> [CardWithDuration] {
         cards.compactMap { card in
             guard let startMinutes = timelineMinutes(for: card.startTimestamp),
@@ -856,22 +857,77 @@ struct DaySummaryView: View {
             if adjustedEnd < startMinutes {
                 adjustedEnd += Design.minutesPerDay
             }
-            let duration = TimeInterval(adjustedEnd - startMinutes) * 60
+
+            // Clip to this timeline day's 24h window so cross-boundary cards only
+            // contribute the portion that belongs to the selected day.
+            let clippedStart = min(max(startMinutes, 0), Design.minutesPerDay)
+            let clippedEnd = min(max(adjustedEnd, 0), Design.minutesPerDay)
+            guard clippedEnd > clippedStart else { return nil }
+
+            let duration = TimeInterval(clippedEnd - clippedStart) * 60
             return CardWithDuration(
                 card: card,
                 duration: duration,
-                startMinutes: startMinutes,
-                endMinutes: adjustedEnd
+                startMinutes: clippedStart,
+                endMinutes: clippedEnd
             )
         }
+    }
+
+    /// Removes overlapping coverage by trimming later cards so each minute of the day is counted once.
+    nonisolated private func removeOverlaps(from durations: [CardWithDuration]) -> [CardWithDuration] {
+        guard durations.count > 1 else { return durations }
+
+        let sorted = durations.sorted { lhs, rhs in
+            if lhs.startMinutes == rhs.startMinutes {
+                if lhs.endMinutes == rhs.endMinutes {
+                    let lhsId = lhs.card.recordId ?? 0
+                    let rhsId = rhs.card.recordId ?? 0
+                    return lhsId < rhsId
+                }
+                // Prefer the longer interval when starts match.
+                return lhs.endMinutes > rhs.endMinutes
+            }
+            return lhs.startMinutes < rhs.startMinutes
+        }
+
+        var normalized: [CardWithDuration] = []
+        normalized.reserveCapacity(sorted.count)
+        var coveredUntil = 0
+
+        for item in sorted {
+            if coveredUntil >= Design.minutesPerDay { break }
+
+            let normalizedStart = max(item.startMinutes, coveredUntil)
+            let normalizedEnd = min(item.endMinutes, Design.minutesPerDay)
+            guard normalizedEnd > normalizedStart else { continue }
+
+            normalized.append(
+                CardWithDuration(
+                    card: item.card,
+                    duration: TimeInterval(normalizedEnd - normalizedStart) * 60,
+                    startMinutes: normalizedStart,
+                    endMinutes: normalizedEnd
+                )
+            )
+            coveredUntil = max(coveredUntil, normalizedEnd)
+        }
+
+        return normalized
+    }
+
+    nonisolated private func normalizedNonSystemDurations(from precomputed: [CardWithDuration], categories: [TimelineCategory]) -> [CardWithDuration] {
+        let nonSystemDurations = precomputed.filter { item in
+            !isSystemCategoryStatic(item.card.category, categories: categories)
+        }
+        return removeOverlaps(from: nonSystemDurations)
     }
 
     /// Computes category durations from pre-computed data
     nonisolated private func computeCategoryDurations(from precomputed: [CardWithDuration], categories: [TimelineCategory]) -> [CategoryTimeData] {
         var durationsByCategory: [String: TimeInterval] = [:]
 
-        for item in precomputed {
-            guard !isSystemCategoryStatic(item.card.category, categories: categories) else { continue }
+        for item in normalizedNonSystemDurations(from: precomputed, categories: categories) {
             durationsByCategory[item.card.category, default: 0] += item.duration
         }
 
@@ -885,22 +941,22 @@ struct DaySummaryView: View {
 
     /// Computes total captured time from pre-computed data
     nonisolated private func computeTotalCapturedTime(from precomputed: [CardWithDuration], categories: [TimelineCategory]) -> TimeInterval {
-        precomputed.reduce(0) { total, item in
-            guard !isSystemCategoryStatic(item.card.category, categories: categories) else { return total }
-            return total + item.duration
+        normalizedNonSystemDurations(from: precomputed, categories: categories).reduce(0) { total, item in
+            total + item.duration
         }
     }
 
     /// Computes total focus time from pre-computed data
     nonisolated private func computeTotalFocusTime(from precomputed: [CardWithDuration], focusIDs: Set<UUID>, categories: [TimelineCategory]) -> TimeInterval {
-        precomputed
+        normalizedNonSystemDurations(from: precomputed, categories: categories)
             .filter { isFocusCategoryStatic($0.card.category, focusIDs: focusIDs, categories: categories) }
             .reduce(0) { $0 + $1.duration }
     }
 
     /// Computes focus blocks from pre-computed data
     nonisolated private func computeFocusBlocks(from precomputed: [CardWithDuration], focusIDs: Set<UUID>, baseDate: Date, categories: [TimelineCategory]) -> [FocusBlock] {
-        let focusCards = precomputed.filter { isFocusCategoryStatic($0.card.category, focusIDs: focusIDs, categories: categories) }
+        let focusCards = normalizedNonSystemDurations(from: precomputed, categories: categories)
+            .filter { isFocusCategoryStatic($0.card.category, focusIDs: focusIDs, categories: categories) }
 
         var blocks: [(start: Int, end: Int)] = []
         for item in focusCards {
@@ -929,8 +985,7 @@ struct DaySummaryView: View {
 
     /// Computes total distracted time from pre-computed data
     nonisolated private func computeTotalDistractedTime(from precomputed: [CardWithDuration], distractionIDs: Set<UUID>, categories: [TimelineCategory]) -> TimeInterval {
-        precomputed.reduce(0) { total, item in
-            guard !isSystemCategoryStatic(item.card.category, categories: categories) else { return total }
+        normalizedNonSystemDurations(from: precomputed, categories: categories).reduce(0) { total, item in
             guard isDistractionCategoryStatic(item.card.category, distractionIDs: distractionIDs, categories: categories) else { return total }
             return total + item.duration
         }
