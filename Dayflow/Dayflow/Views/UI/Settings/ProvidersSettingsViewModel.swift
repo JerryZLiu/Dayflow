@@ -53,6 +53,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
     @Published var isShowingLocalModelUpgradeSheet = false
     @Published var upgradeStatusMessage: String?
     @Published var preferredCLITool: CLITool?
+    @Published var editingProvider: String? = nil
 
     @Published var geminiPromptOverridesLoaded = false
     @Published var isUpdatingGeminiPromptState = false
@@ -208,8 +209,8 @@ final class ProvidersSettingsViewModel: ObservableObject {
         }
     }
 
-    func loadCurrentProvider() {
-        guard !hasLoadedProvider else { return }
+    func loadCurrentProvider(forceRefresh: Bool = false) {
+        guard !hasLoadedProvider || forceRefresh else { return }
 
         let providerType = LLMProviderType.load()
         switch providerType {
@@ -226,6 +227,20 @@ final class ProvidersSettingsViewModel: ObservableObject {
             currentProvider = "chatgpt_claude"
         }
         hasLoadedProvider = true
+    }
+
+    /// Re-reads all provider state from persistence (UserDefaults / Keychain).
+    /// Call this when the window becomes visible again after being closed,
+    /// since @StateObject may have been recreated with default values.
+    func refreshFromPersistence() {
+        loadCurrentProvider(forceRefresh: true)
+        loadBackupProvider()
+        reloadLocalProviderSettings()
+        loadGeminiPromptOverridesIfNeeded(force: true)
+        loadOllamaPromptOverridesIfNeeded(force: true)
+        loadChatCLIPromptOverridesIfNeeded(force: true)
+        LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
+        refreshUpgradeBannerState()
     }
 
     func loadBackupProvider() {
@@ -449,6 +464,40 @@ final class ProvidersSettingsViewModel: ObservableObject {
 
     func clearBackupProvider() {
         setBackupProvider(nil)
+    }
+
+    func removeProviderConfiguration(_ providerId: String) {
+        let canonical = canonicalProviderId(for: providerId)
+        
+        switch canonical {
+        case "gemini":
+            KeychainManager.shared.delete(for: "gemini")
+            UserDefaults.standard.removeObject(forKey: "geminiSetupComplete")
+        case "ollama":
+            UserDefaults.standard.removeObject(forKey: "ollamaSetupComplete")
+            UserDefaults.standard.removeObject(forKey: "llmLocalBaseURL")
+            UserDefaults.standard.removeObject(forKey: "llmLocalModelId")
+            UserDefaults.standard.removeObject(forKey: "llmLocalAPIKey")
+            UserDefaults.standard.removeObject(forKey: "llmLocalEngine")
+        case "chatgpt_claude":
+            UserDefaults.standard.removeObject(forKey: "chatgpt_claudeSetupComplete")
+            UserDefaults.standard.removeObject(forKey: "chatCLIPreferredTool")
+        default:
+            break
+        }
+        
+        // If removed provider was primary, fall back to another configured provider
+        if currentProvider == canonical {
+            let fallback = providerCatalog.first { isProviderConfigured($0.id) && canonicalProviderId(for: $0.id) != canonical }
+            if let fallback {
+                applyPrimaryProvider(canonicalProviderId(for: fallback.id))
+            }
+        }
+        
+        // If removed provider was backup, clear backup
+        if backupProvider == canonical {
+            clearBackupProvider()
+        }
     }
 
     func isBackupProvider(_ providerId: String) -> Bool {

@@ -716,15 +716,6 @@ struct LLMProviderSetupView: View {
     }
     
     private func handleContinue() {
-        // Persist local config immediately after a successful local test when user advances
-        if activeProviderType == "ollama" {
-            if case .information(let title, _) = setupState.currentStep.contentType,
-               (title == "Testing" || title == "Test Connection"),
-               setupState.testSuccessful {
-                persistLocalSettings()
-            }
-        }
-
         if setupState.isLastStep {
             saveConfiguration()
             onComplete()
@@ -744,6 +735,11 @@ struct LLMProviderSetupView: View {
         // Save local endpoint for local engine selection
         if activeProviderType == "ollama" {
             persistLocalSettings()
+        }
+        
+        // Save CLI tool preference for ChatGPT/Claude
+        if activeProviderType == "chatgpt_claude", let tool = setupState.preferredCLITool {
+            UserDefaults.standard.set(tool.rawValue, forKey: "chatCLIPreferredTool")
         }
         
         // Mark setup as complete
@@ -940,11 +936,6 @@ class ProviderSetupState: ObservableObject {
     }
     
     func goNext() {
-        // Save API key to keychain when moving from API key input step
-        if currentStep.contentType.isApiKeyInput && !apiKey.isEmpty {
-            guard persistGeminiAPIKey(source: "onboarding_step") else { return }
-        }
-
         if currentStepIndex < steps.count - 1 {
             currentStepIndex += 1
         }
@@ -958,9 +949,6 @@ class ProviderSetupState: ObservableObject {
     
     func navigateToStep(_ stepId: String) {
         if let index = steps.firstIndex(where: { $0.id == stepId }) {
-            if currentStep.contentType.isApiKeyInput && stepId != currentStep.id {
-                guard persistGeminiAPIKey(source: "onboarding_sidebar") else { return }
-            }
             // Reset test state when navigating to test step
             if stepId == "verify" || stepId == "test" {
                 hasTestedConnection = false

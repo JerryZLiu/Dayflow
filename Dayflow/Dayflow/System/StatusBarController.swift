@@ -51,6 +51,12 @@ final class StatusBarController: NSObject {
             })
         )
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKey()
+        // Ensure popover appears above fullscreen windows and activates the app
+        if let popoverWindow = popover.contentViewController?.view.window {
+            popoverWindow.collectionBehavior = [.canJoinAllSpaces, .moveToActiveSpace, .fullScreenAuxiliary]
+            popoverWindow.makeKey()
+        }
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
+
