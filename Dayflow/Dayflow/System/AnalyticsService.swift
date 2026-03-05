@@ -13,6 +13,7 @@
 import Foundation
 import AppKit
 import PostHog
+import OSLog
 
 final class AnalyticsService {
     static let shared = AnalyticsService()
@@ -24,6 +25,11 @@ final class AnalyticsService {
     private let backendAuthOverrideTokenKey = "dayflowBackendAuthTokenOverride"
     private let throttleLock = NSLock()
     private var throttles: [String: Date] = [:]
+
+    private let localLogger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "Dayflow",
+        category: "Analytics"
+    )
 
     var isOptedIn: Bool {
         get {
@@ -71,7 +77,7 @@ final class AnalyticsService {
             payload["$set_once"] = ["install_ts": iso8601Now()]
             UserDefaults.standard.set(true, forKey: "installTsSent")
         }
-        PostHogSDK.shared.capture("person_props_updated", properties: payload)
+        captureToPostHogAndLocal("person_props_updated", properties: payload)
     }
 
     /// Returns the stable PostHog distinct ID used as backend auth identity.
@@ -144,8 +150,14 @@ final class AnalyticsService {
 
             let payload: [String: Any] = ["$set": sanitize(["analytics_opt_in": enabled])]
             Task.detached(priority: .utility) {
-                PostHogSDK.shared.capture("person_props_updated", properties: payload)
-                PostHogSDK.shared.capture("analytics_opt_in_changed", properties: ["enabled": enabled])
+				self.captureToPostHogAndLocal(
+					"person_props_updated",
+					properties: payload
+				)
+				self.captureToPostHogAndLocal(
+					"analytics_opt_in_changed",
+					properties: ["enabled": enabled]
+				)
             }
             return
         }
@@ -168,9 +180,7 @@ final class AnalyticsService {
     func capture(_ name: String, _ props: [String: Any] = [:]) {
         guard isOptedIn else { return }
         let sanitized = sanitize(props)
-        Task.detached(priority: .utility) {
-            PostHogSDK.shared.capture(name, properties: sanitized)
-        }
+        captureToPostHogAndLocal(name, properties: sanitized)
     }
 
     func screen(_ name: String, _ props: [String: Any] = [:]) {
@@ -206,9 +216,38 @@ final class AnalyticsService {
     func setPersonProperties(_ props: [String: Any]) {
         guard isOptedIn else { return }
         let payload: [String: Any] = ["$set": sanitize(props)]
+        captureToPostHogAndLocal("person_props_updated", properties: payload)
+    }
+
+    // MARK: - Local + PostHog logging
+
+    private func captureToPostHogAndLocal(_ name: String, properties: [String: Any]) {
         Task.detached(priority: .utility) {
-            PostHogSDK.shared.capture("person_props_updated", properties: payload)
+            self.logLocal(name, properties: properties)
+            PostHogSDK.shared.capture(name, properties: properties)
         }
+    }
+
+    private func logLocal(_ event: String, properties: [String: Any]) {
+        let json = jsonString(properties)
+        let line = truncate("[Analytics] \(event) \(json)")
+        print(line)
+        localLogger.info("\(line, privacy: .public)")
+    }
+
+    private func jsonString(_ object: Any) -> String {
+        if JSONSerialization.isValidJSONObject(object),
+           let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+           let str = String(data: data, encoding: .utf8) {
+            return str
+        }
+        return String(describing: object)
+    }
+
+    private func truncate(_ s: String, max: Int = 4000) -> String {
+        guard s.count > max else { return s }
+        let idx = s.index(s.startIndex, offsetBy: max)
+        return String(s[..<idx]) + "…"
     }
 
     func throttled(_ key: String, minInterval: TimeInterval, action: () -> Void) {
@@ -303,7 +342,7 @@ final class AnalyticsService {
 
     private func sanitize(_ props: [String: Any]) -> [String: Any] {
         // Drop known sensitive keys if ever passed by mistake
-        let blocked = Set(["api_key", "token", "authorization", "file_path", "url", "window_title", "clipboard", "screen_content"]) 
+        let blocked = Set(["api_key", "token", "authorization", "file_path", "url", "window_title", "clipboard", "screen_content"])
         var out: [String: Any] = [:]
         for (k, v) in props {
             if blocked.contains(k) { continue }
