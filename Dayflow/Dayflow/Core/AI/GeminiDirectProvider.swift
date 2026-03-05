@@ -263,7 +263,9 @@ final class GeminiDirectProvider {
     // realDuration is available via compressionFactor if needed for debugging
 
     let finalTranscriptionPrompt = LLMPromptTemplates.screenRecordingTranscriptionPrompt(
-      durationString: durationString)
+      durationString: durationString,
+      schema: LLMSchema.screenRecordingTranscriptionSchema
+    )
 
     // UNIFIED RETRY LOOP - Handles ALL errors comprehensively
     let maxRetries = 3
@@ -540,7 +542,8 @@ final class GeminiDirectProvider {
       transcriptText: transcriptText,
       categoriesSection: categoriesSection(from: context.categories),
       promptSections: promptSections,
-      languageBlock: languageBlock
+      languageBlock: languageBlock,
+      schema: LLMSchema.activityCardsSchema,
     )
 
     // UNIFIED RETRY LOOP - Handles ALL errors comprehensively
@@ -992,26 +995,14 @@ final class GeminiDirectProvider {
     fileURI: String, mimeType: String, prompt: String, batchId: Int64?, groupId: String,
     model: GeminiModel, attempt: Int
   ) async throws -> (String, String) {
-    let transcriptionSchema: [String: Any] = [
-      "type": "ARRAY",
-      "items": [
-        "type": "OBJECT",
-        "properties": [
-          "startTimestamp": ["type": "STRING"],
-          "endTimestamp": ["type": "STRING"],
-          "description": ["type": "STRING"],
-        ],
-        "required": ["startTimestamp", "endTimestamp", "description"],
-        "propertyOrdering": ["startTimestamp", "endTimestamp", "description"],
-      ],
-    ]
-
+    let transcriptionSchemaObject = try! JSONSerialization.jsonObject(
+      with: Data(LLMSchema.screenRecordingTranscriptionSchema.utf8))
     let generationConfig: [String: Any] = [
       "temperature": 0.3,
       "maxOutputTokens": 65536,
       "mediaResolution": "MEDIA_RESOLUTION_HIGH",
       "responseMimeType": "application/json",
-      "responseSchema": transcriptionSchema,
+      "responseJsonSchema": transcriptionSchemaObject,
     ]
 
     let requestBody: [String: Any] = [
@@ -1686,9 +1677,13 @@ final class GeminiDirectProvider {
   func generateText(prompt: String) async throws -> (text: String, log: LLMCall) {
     let callStart = Date()
 
+    let activityCardsSchemaObject = try? JSONSerialization.jsonObject(
+      with: Data(LLMSchema.activityCardsSchema.utf8))
     let generationConfig: [String: Any] = [
       "temperature": 0.7,
       "maxOutputTokens": 8192,
+      "responseMimeType": "application/json",
+      "responseJsonSchema": activityCardsSchemaObject,
     ]
 
     let requestBody: [String: Any] = [
