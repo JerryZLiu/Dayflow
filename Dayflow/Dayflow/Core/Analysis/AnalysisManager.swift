@@ -401,7 +401,7 @@ final class AnalysisManager: AnalysisManaging {
     progressHandler: ((LLMProcessingStep) -> Void)? = nil,
     completion: ((Result<Void, Error>) -> Void)? = nil
   ) {
-    let screenshotsInBatch = StorageManager.shared.screenshotsForBatch(batchId)
+    let screenshotsInBatch = store.screenshotsForBatch(batchId)
 
     guard !screenshotsInBatch.isEmpty else {
       print("Warning: Batch \(batchId) has no screenshots. Marking as 'failed_empty'.")
@@ -434,6 +434,20 @@ final class AnalysisManager: AnalysisManaging {
       self.updateBatchStatus(batchId: batchId, status: "skipped_short")
       completion?(.success(()))
       return
+    }
+
+    if let idleAssessment = assessIdleBatch(screenshotsInBatch) {
+      let didPersistIdleCard = handleIdleBatch(
+        batchId: batchId,
+        screenshots: screenshotsInBatch,
+        assessment: idleAssessment
+      )
+      if didPersistIdleCard {
+        completion?(.success(()))
+        return
+      }
+
+      print("Idle shortcut fallback for batch \(batchId); continuing with normal LLM processing.")
     }
 
     // Start performance tracking for batch processing
@@ -603,6 +617,322 @@ final class AnalysisManager: AnalysisManaging {
     let ids = batch.screenshots.map { $0.id }
     return store.saveBatchWithScreenshots(
       startTs: batch.start, endTs: batch.end, screenshotIds: ids)
+  }
+
+  private enum IdleBatchRules {
+    static let classifierVersion = "idle_v1"
+    static let minimumEligibleBatchDurationSeconds = 12 * 60
+    static let requiredCoverageRatio = 0.95
+    static let requiredQualifiedIdleRatio = 0.90
+    static let requiredIdleSampleAvailabilityRatio = 0.90
+    static let qualifyingIdleSecondsAtCapture = 60
+    static let maxAllowedUncoveredGapSeconds = 30
+    static let mergeGapSeconds = 5 * 60
+  }
+
+  private struct IdleBatchAssessment {
+    let classifierVersion: String
+    let coverageRatio: Double
+    let coveredSeconds: Int
+    let batchDurationSeconds: Int
+    let largestUncoveredGapSeconds: Int
+    let screenshotCount: Int
+    let sampledIdleScreenshotCount: Int
+    let qualifiedIdleScreenshotCount: Int
+    let qualifiedIdleRatio: Double
+    let idleSampleAvailabilityRatio: Double
+    let minIdleSecondsAtCapture: Int
+    let medianIdleSecondsAtCapture: Int
+    let averageIdleSecondsAtCapture: Double
+    let maxIdleSecondsAtCapture: Int
+  }
+
+  private func assessIdleBatch(_ screenshots: [Screenshot]) -> IdleBatchAssessment? {
+    let ordered = screenshots.sorted { $0.capturedAt < $1.capturedAt }
+    guard let first = ordered.first, let last = ordered.last else { return nil }
+
+    let batchStartTs = first.capturedAt
+    let batchEndTs = last.capturedAt
+    let batchDurationSeconds = batchEndTs - batchStartTs
+    guard
+      batchDurationSeconds >= IdleBatchRules.minimumEligibleBatchDurationSeconds
+    else { return nil }
+
+    let idleSamples = ordered.compactMap { screenshot -> (capturedAt: Int, idleSeconds: Int)? in
+      guard let idleSeconds = screenshot.idleSecondsAtCapture, idleSeconds > 0 else { return nil }
+      return (capturedAt: screenshot.capturedAt, idleSeconds: idleSeconds)
+    }
+
+    guard idleSamples.isEmpty == false else { return nil }
+
+    let mergedCoverage = mergeCoverageSegments(
+      idleSamples: idleSamples,
+      batchStartTs: batchStartTs,
+      batchEndTs: batchEndTs
+    )
+    let coveredSeconds = mergedCoverage.reduce(0) { partial, segment in
+      partial + max(0, segment.end - segment.start)
+    }
+    let uncoveredSegments = invertedCoverageSegments(
+      mergedCoverage,
+      batchStartTs: batchStartTs,
+      batchEndTs: batchEndTs
+    )
+    let largestUncoveredGapSeconds = uncoveredSegments.map { max(0, $0.end - $0.start) }.max() ?? 0
+    let coverageRatio = Double(coveredSeconds) / Double(batchDurationSeconds)
+    let idleValues = idleSamples.map(\.idleSeconds)
+    let qualifiedIdleScreenshotCount = idleValues.filter {
+      $0 >= IdleBatchRules.qualifyingIdleSecondsAtCapture
+    }.count
+    let qualifiedIdleRatio = Double(qualifiedIdleScreenshotCount) / Double(ordered.count)
+    let idleSampleAvailabilityRatio = Double(idleValues.count) / Double(ordered.count)
+
+    guard
+      coverageRatio >= IdleBatchRules.requiredCoverageRatio,
+      qualifiedIdleRatio >= IdleBatchRules.requiredQualifiedIdleRatio,
+      idleSampleAvailabilityRatio >= IdleBatchRules.requiredIdleSampleAvailabilityRatio,
+      largestUncoveredGapSeconds <= IdleBatchRules.maxAllowedUncoveredGapSeconds
+    else {
+      return nil
+    }
+
+    let sortedIdleValues = idleValues.sorted()
+    let averageIdleSeconds = Double(idleValues.reduce(0, +)) / Double(idleValues.count)
+
+    return IdleBatchAssessment(
+      classifierVersion: IdleBatchRules.classifierVersion,
+      coverageRatio: coverageRatio,
+      coveredSeconds: coveredSeconds,
+      batchDurationSeconds: batchDurationSeconds,
+      largestUncoveredGapSeconds: largestUncoveredGapSeconds,
+      screenshotCount: ordered.count,
+      sampledIdleScreenshotCount: idleSamples.count,
+      qualifiedIdleScreenshotCount: qualifiedIdleScreenshotCount,
+      qualifiedIdleRatio: qualifiedIdleRatio,
+      idleSampleAvailabilityRatio: idleSampleAvailabilityRatio,
+      minIdleSecondsAtCapture: sortedIdleValues.first ?? 0,
+      medianIdleSecondsAtCapture: sortedIdleValues[sortedIdleValues.count / 2],
+      averageIdleSecondsAtCapture: averageIdleSeconds,
+      maxIdleSecondsAtCapture: idleValues.max() ?? 0
+    )
+  }
+
+  private func mergeCoverageSegments(
+    idleSamples: [(capturedAt: Int, idleSeconds: Int)],
+    batchStartTs: Int,
+    batchEndTs: Int
+  ) -> [(start: Int, end: Int)] {
+    let clipped = idleSamples.compactMap { sample -> (start: Int, end: Int)? in
+      let start = max(batchStartTs, sample.capturedAt - sample.idleSeconds)
+      let end = min(batchEndTs, sample.capturedAt)
+      guard end > start else { return nil }
+      return (start, end)
+    }.sorted { lhs, rhs in
+      if lhs.start == rhs.start {
+        return lhs.end < rhs.end
+      }
+      return lhs.start < rhs.start
+    }
+
+    guard let first = clipped.first else { return [] }
+
+    var merged: [(start: Int, end: Int)] = [first]
+    for segment in clipped.dropFirst() {
+      var last = merged.removeLast()
+      if segment.start <= last.end {
+        last.end = max(last.end, segment.end)
+        merged.append(last)
+      } else {
+        merged.append(last)
+        merged.append(segment)
+      }
+    }
+    return merged
+  }
+
+  private func invertedCoverageSegments(
+    _ mergedCoverage: [(start: Int, end: Int)],
+    batchStartTs: Int,
+    batchEndTs: Int
+  ) -> [(start: Int, end: Int)] {
+    guard batchEndTs > batchStartTs else { return [] }
+    guard mergedCoverage.isEmpty == false else { return [(batchStartTs, batchEndTs)] }
+
+    var gaps: [(start: Int, end: Int)] = []
+    var cursor = batchStartTs
+
+    for segment in mergedCoverage {
+      if segment.start > cursor {
+        gaps.append((cursor, segment.start))
+      }
+      cursor = max(cursor, segment.end)
+    }
+
+    if cursor < batchEndTs {
+      gaps.append((cursor, batchEndTs))
+    }
+
+    return gaps
+  }
+
+  private func handleIdleBatch(
+    batchId: Int64,
+    screenshots: [Screenshot],
+    assessment: IdleBatchAssessment
+  ) -> Bool {
+    let ordered = screenshots.sorted { $0.capturedAt < $1.capturedAt }
+    guard let first = ordered.first, let last = ordered.last else {
+      return false
+    }
+
+    let batchStart = first.capturedDate
+    let batchEnd = last.capturedDate
+
+    let mergeCandidate = mergeCandidateForIdleBatch(startingAt: batchStart)
+    let mergeGapSeconds = mergeCandidate.map { max(0, first.capturedAt - $0.endTs) }
+    let replacementStart = mergeCandidate.map {
+      Date(timeIntervalSince1970: TimeInterval($0.startTs))
+    } ?? batchStart
+    let idleMetadata = IdleCardMetadata(
+      classifierVersion: assessment.classifierVersion,
+      inputCoverageRatio: assessment.coverageRatio,
+      coveredSeconds: assessment.coveredSeconds,
+      batchDurationSeconds: assessment.batchDurationSeconds,
+      largestUncoveredGapSeconds: assessment.largestUncoveredGapSeconds,
+      screenshotCount: assessment.screenshotCount,
+      sampledIdleScreenshotCount: assessment.sampledIdleScreenshotCount,
+      averageIdleSecondsAtCapture: assessment.averageIdleSecondsAtCapture,
+      maxIdleSecondsAtCapture: assessment.maxIdleSecondsAtCapture,
+      mergedWithPreviousIdle: mergeCandidate != nil,
+      mergeGapSeconds: mergeGapSeconds,
+      skippedLLM: true
+    )
+
+    let idleCard = makeIdleCard(
+      from: replacementStart,
+      to: batchEnd,
+      metadata: idleMetadata
+    )
+    let (insertedCardIds, deletedVideoPaths) = store.replaceTimelineCardsInRange(
+      from: replacementStart,
+      to: batchEnd,
+      with: [idleCard],
+      batchId: batchId
+    )
+
+    guard insertedCardIds.isEmpty == false else {
+      AnalyticsService.shared.capture(
+        "analysis_batch_idle_shortcut_persist_failed",
+        [
+          "batch_id": Int(truncatingIfNeeded: batchId),
+          "batch_duration_seconds": assessment.batchDurationSeconds,
+          "screenshot_count": assessment.screenshotCount,
+          "idle_classifier_version": assessment.classifierVersion,
+        ]
+      )
+      return false
+    }
+
+    for path in deletedVideoPaths {
+      let url = URL(fileURLWithPath: path)
+      try? FileManager.default.removeItem(at: url)
+    }
+
+    StorageManager.shared.updateBatch(batchId, status: "analyzed", reason: "idle_shortcut_applied")
+    StorageManager.shared.checkpoint(mode: .passive)
+
+    let cardStartTs = Int(replacementStart.timeIntervalSince1970)
+    let cardEndTs = Int(batchEnd.timeIntervalSince1970)
+
+    var analyticsProps: [String: Any] = [
+      "batch_id": Int(truncatingIfNeeded: batchId),
+      "card_id": Int(truncatingIfNeeded: insertedCardIds[0]),
+      "card_title": idleCard.title,
+      "card_category": idleCard.category,
+      "card_start_ts": cardStartTs,
+      "card_end_ts": cardEndTs,
+      "card_duration_seconds": max(0, cardEndTs - cardStartTs),
+      "card_day": replacementStart.getDayInfoFor4AMBoundary().dayString,
+      "batch_duration_seconds": assessment.batchDurationSeconds,
+      "batch_start_ts": first.capturedAt,
+      "batch_end_ts": last.capturedAt,
+      "screenshot_count": assessment.screenshotCount,
+      "sampled_idle_screenshot_count": assessment.sampledIdleScreenshotCount,
+      "qualified_idle_screenshot_count": assessment.qualifiedIdleScreenshotCount,
+      "qualified_idle_ratio": assessment.qualifiedIdleRatio,
+      "idle_sample_availability_ratio": assessment.idleSampleAvailabilityRatio,
+      "idle_classifier_version": assessment.classifierVersion,
+      "idle_input_coverage_ratio": assessment.coverageRatio,
+      "idle_input_coverage_bucket": AnalyticsService.shared.pctBucket(assessment.coverageRatio),
+      "idle_covered_seconds": assessment.coveredSeconds,
+      "idle_largest_uncovered_gap_seconds": assessment.largestUncoveredGapSeconds,
+      "idle_min_seconds_at_capture": assessment.minIdleSecondsAtCapture,
+      "idle_median_seconds_at_capture": assessment.medianIdleSecondsAtCapture,
+      "idle_average_seconds_at_capture": assessment.averageIdleSecondsAtCapture,
+      "idle_max_seconds_at_capture": assessment.maxIdleSecondsAtCapture,
+      "card_action": mergeCandidate == nil ? "created_new" : "merged_with_previous",
+      "skipped_llm": true,
+    ]
+    if let mergeCandidate {
+      analyticsProps["previous_card_id"] = Int(truncatingIfNeeded: mergeCandidate.id)
+    }
+    if let mergeGapSeconds {
+      analyticsProps["merge_gap_seconds"] = mergeGapSeconds
+    }
+    AnalyticsService.shared.capture("analysis_batch_idle_shortcut_applied", analyticsProps)
+    return true
+  }
+
+  private func mergeCandidateForIdleBatch(startingAt batchStart: Date) -> TimelineCardWithTimestamps? {
+    guard let previousCard = store.fetchLastTimelineCard(endingBefore: batchStart) else {
+      return nil
+    }
+
+    let batchDay = batchStart.getDayInfoFor4AMBoundary().dayString
+    let gapSeconds = Int(batchStart.timeIntervalSince1970) - previousCard.endTs
+    guard
+      gapSeconds >= 0,
+      gapSeconds < IdleBatchRules.mergeGapSeconds,
+      previousCard.day == batchDay,
+      normalizedIdleValue(previousCard.category) == "idle",
+      normalizedIdleValue(previousCard.title) == "idle"
+    else {
+      return nil
+    }
+
+    return previousCard
+  }
+
+  private func normalizedIdleValue(_ value: String) -> String {
+    value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+  }
+
+  private func makeIdleCard(
+    from startDate: Date,
+    to endDate: Date,
+    metadata: IdleCardMetadata
+  ) -> TimelineCardShell {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "h:mm a"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone.current
+
+    let coveragePct = Int((metadata.inputCoverageRatio * 100).rounded())
+    let detailedSummary =
+      "Dayflow detected no keyboard or mouse input across \(coveragePct)% of this period and skipped AI processing for this batch."
+
+    return TimelineCardShell(
+      startTimestamp: formatter.string(from: startDate),
+      endTimestamp: formatter.string(from: endDate),
+      category: "Idle",
+      subcategory: "",
+      title: "Idle",
+      summary: "You were idle during this period.",
+      detailedSummary: detailedSummary,
+      distractions: nil,
+      appSites: nil,
+      idleMetadata: metadata
+    )
   }
 
   // Formats a duration in seconds to a human-readable string
