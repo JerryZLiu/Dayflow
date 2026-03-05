@@ -209,10 +209,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AnalyticsService.shared.capture("analysis_job_started", [
                 "provider": {
                     switch LLMProviderType.load() {
-                    case .geminiDirect: return "gemini"
-                    case .dayflowBackend: return "dayflow"
-                    case .ollamaLocal: return "ollama"
-                    case .chatGPTClaude: return "chat_cli"
+                    case .geminiDirect:
+                        return "gemini"
+                    case .dayflowBackend:
+                        return "dayflow"
+                    case .ollamaLocal:
+                        return "ollama"
+                    case .chatGPTClaude:
+                        return "chat_cli"
+                    case .doubaoArk:
+                        return "doubao"
                     }
                 }()
             ])
