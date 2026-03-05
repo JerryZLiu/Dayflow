@@ -9,6 +9,7 @@
 
 import AppKit
 import Combine
+import CoreGraphics
 import Foundation
 @preconcurrency import ScreenCaptureKit
 import Sentry
@@ -32,6 +33,21 @@ private enum Config {
   /// Screenshot interval - references the global config
   static var screenshotInterval: TimeInterval {
     ScreenshotConfig.interval
+  }
+}
+
+private enum InputIdleSnapshot {
+  // Bridge kCGAnyInputEventType into Swift without relying on a generated symbol name.
+  static let anyInputEventType = CGEventType(rawValue: UInt32.max)!
+
+  static func currentIdleSeconds() -> Int? {
+    // Prefer the HID state table so the signal reflects hardware-originated user input.
+    let idleSeconds = CGEventSource.secondsSinceLastEventType(
+      .hidSystemState,
+      eventType: anyInputEventType
+    )
+    guard idleSeconds.isFinite, idleSeconds >= 0 else { return nil }
+    return Int(idleSeconds.rounded(.down))
   }
 }
 
@@ -318,6 +334,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     }
 
     let captureTime = Date()
+    let idleSecondsAtCapture = InputIdleSnapshot.currentIdleSeconds()
 
     do {
       // 1. Create content filter for the display
@@ -354,7 +371,11 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       try jpegData.write(to: fileURL)
 
       // 6. Register in database
-      _ = StorageManager.shared.saveScreenshot(url: fileURL, capturedAt: captureTime)
+      _ = StorageManager.shared.saveScreenshot(
+        url: fileURL,
+        capturedAt: captureTime,
+        idleSecondsAtCapture: idleSecondsAtCapture
+      )
 
       dbg("📸 Screenshot saved: \(fileURL.lastPathComponent) (\(jpegData.count / 1024)KB)")
 

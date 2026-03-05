@@ -26,6 +26,7 @@ struct Screenshot: Codable, Sendable {
   let capturedAt: Int  // Unix timestamp (instant of capture)
   let filePath: String
   let fileSize: Int64?
+  let idleSecondsAtCapture: Int?
   let isDeleted: Bool
 
   var fileURL: URL {

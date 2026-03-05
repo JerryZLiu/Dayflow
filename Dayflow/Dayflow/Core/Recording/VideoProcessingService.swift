@@ -329,6 +329,7 @@ actor VideoProcessingService {
           capturedAt: timestamp,
           filePath: url.path,
           fileSize: nil,
+          idleSecondsAtCapture: nil,
           isDeleted: false
         ))
     }
