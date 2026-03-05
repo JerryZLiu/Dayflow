@@ -926,7 +926,10 @@ struct ChatView: View {
   }
 
   private func saveMemoryDraft() {
+    let previousMemory = DashboardChatMemoryStore.load()
     DashboardChatMemoryStore.save(memoryDraft)
+    let updatedMemory = DashboardChatMemoryStore.load()
+    ChatService.shared.didUpdateDashboardMemory(from: previousMemory, to: updatedMemory)
     loadMemoryFromStore(resetDraft: true)
     AnalyticsService.shared.capture(
       "chat_memory_manual_saved",
@@ -940,7 +943,9 @@ struct ChatView: View {
   }
 
   private func clearMemoryDraft() {
+    let previousMemory = DashboardChatMemoryStore.load()
     DashboardChatMemoryStore.clear()
+    ChatService.shared.didUpdateDashboardMemory(from: previousMemory, to: "")
     loadMemoryFromStore(resetDraft: true)
     AnalyticsService.shared.capture("chat_memory_cleared")
   }
