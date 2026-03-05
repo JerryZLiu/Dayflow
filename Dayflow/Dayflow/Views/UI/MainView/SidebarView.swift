@@ -1,9 +1,24 @@
 import SwiftUI
 
+private enum SidebarMetrics {
+  static let itemSpacing: CGFloat = 5.25
+  static let scale: CGFloat = 1.1
+  static let itemSize: CGFloat = 56 * scale
+  static let selectedBackgroundSize: CGFloat = 30 * scale
+  static let iconSize: CGFloat = 16 * scale
+  static let fallbackSymbolSize: CGFloat = 15 * scale
+  static let badgeSize: CGFloat = 8 * scale
+  static let badgeOffsetX: CGFloat = 10 * scale
+  static let badgeOffsetY: CGFloat = -10 * scale
+  static let iconContainerSize: CGFloat = 34 * scale
+  static let iconLabelSpacing: CGFloat = 3
+  static let labelFontSize: CGFloat = 11 * scale
+}
+
 enum SidebarIcon: CaseIterable {
   case timeline
   case daily
-  case dashboard
+  case chat
   case journal
   case bug
   case settings
@@ -11,8 +26,8 @@ enum SidebarIcon: CaseIterable {
   var assetName: String? {
     switch self {
     case .timeline: return "TimelineIcon"
-    case .daily: return nil
-    case .dashboard: return "DashboardIcon"
+    case .daily: return "DailyIcon"
+    case .chat: return "ChatIcon"
     case .journal: return "JournalIcon"
     case .bug: return nil
     case .settings: return nil
@@ -21,7 +36,6 @@ enum SidebarIcon: CaseIterable {
 
   var systemNameFallback: String? {
     switch self {
-    case .daily: return "calendar"
     case .bug: return "exclamationmark.bubble"
     case .settings: return "gearshape"
     default: return nil
@@ -32,7 +46,7 @@ enum SidebarIcon: CaseIterable {
     switch self {
     case .timeline: return "Timeline"
     case .daily: return "Daily"
-    case .dashboard: return "Dashboard"
+    case .chat: return "Chat"
     case .journal: return "Journal"
     case .bug: return "Report"
     case .settings: return "Settings"
@@ -45,7 +59,7 @@ struct SidebarView: View {
   @ObservedObject private var badgeManager = NotificationBadgeManager.shared
 
   var body: some View {
-    VStack(alignment: .center, spacing: 5.25) {
+    VStack(alignment: .center, spacing: SidebarMetrics.itemSpacing) {
       ForEach(SidebarIcon.allCases, id: \.self) { icon in
         SidebarIconButton(
           icon: icon,
@@ -53,7 +67,7 @@ struct SidebarView: View {
           showBadge: icon == .journal && badgeManager.hasPendingReminder,
           action: { selectedIcon = icon }
         )
-        .frame(width: 56, height: 56)
+        .frame(width: SidebarMetrics.itemSize, height: SidebarMetrics.itemSize)
       }
     }
   }
@@ -67,14 +81,17 @@ struct SidebarIconButton: View {
 
   var body: some View {
     Button(action: action) {
-      VStack(spacing: 3) {
+      VStack(spacing: SidebarMetrics.iconLabelSpacing) {
         ZStack {
           if isSelected {
             Image("IconBackground")
               .resizable()
               .interpolation(.high)
               .renderingMode(.original)
-              .frame(width: 30, height: 30)
+              .frame(
+                width: SidebarMetrics.selectedBackgroundSize,
+                height: SidebarMetrics.selectedBackgroundSize
+              )
           }
 
           if let asset = icon.assetName {
@@ -86,10 +103,10 @@ struct SidebarIconButton: View {
                 isSelected ? Color(hex: "F96E00") : Color(red: 0.6, green: 0.4, blue: 0.3)
               )
               .aspectRatio(contentMode: .fit)
-              .frame(width: 16, height: 16)
+              .frame(width: SidebarMetrics.iconSize, height: SidebarMetrics.iconSize)
           } else if let sys = icon.systemNameFallback {
             Image(systemName: sys)
-              .font(.system(size: 15))
+              .font(.system(size: SidebarMetrics.fallbackSymbolSize))
               .foregroundColor(
                 isSelected ? Color(hex: "F96E00") : Color(red: 0.6, green: 0.4, blue: 0.3))
           }
@@ -97,20 +114,20 @@ struct SidebarIconButton: View {
           if showBadge {
             Circle()
               .fill(Color(hex: "F96E00"))
-              .frame(width: 8, height: 8)
-              .offset(x: 10, y: -10)
+              .frame(width: SidebarMetrics.badgeSize, height: SidebarMetrics.badgeSize)
+              .offset(x: SidebarMetrics.badgeOffsetX, y: SidebarMetrics.badgeOffsetY)
           }
         }
-        .frame(width: 34, height: 34)
+        .frame(width: SidebarMetrics.iconContainerSize, height: SidebarMetrics.iconContainerSize)
 
         Text(icon.displayName)
-          .font(.custom("Nunito", size: 11))
+          .font(.custom("Nunito", size: SidebarMetrics.labelFontSize))
           .lineLimit(1)
           .minimumScaleFactor(0.75)
           .foregroundColor(
             isSelected ? Color(hex: "F96E00") : Color(red: 0.6, green: 0.4, blue: 0.3))
       }
-      .frame(width: 56, height: 56)
+      .frame(width: SidebarMetrics.itemSize, height: SidebarMetrics.itemSize)
       .contentShape(Rectangle())
     }
     .buttonStyle(PlainButtonStyle())
