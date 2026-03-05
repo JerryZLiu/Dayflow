@@ -133,7 +133,8 @@ final class ChatService: ObservableObject {
 
   // MARK: - Private
 
-  private var conversationHistory: [(role: String, content: String)] = []
+  private var conversationHistory: [DashboardChatTurn] = []
+  private var recentSuggestionHistory: [String] = []
   private var currentSessionId: String?
 
   // MARK: - Debug Logging
@@ -142,7 +143,7 @@ final class ChatService: ObservableObject {
     let entry = ChatDebugEntry(timestamp: Date(), type: type, content: content)
     debugLog.append(entry)
     // Also print to console for Xcode debugging
-    print("[\(type.rawValue)] \(content.prefix(200))...")
+    print("[\(type.rawValue)] \(content)")
   }
 
   func clearDebugLog() {
@@ -152,7 +153,7 @@ final class ChatService: ObservableObject {
   // MARK: - Public API
 
   /// Send a user message and get a response
-  func sendMessage(_ content: String) async {
+  func sendMessage(_ content: String, provider: DashboardChatProvider) async {
     guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
     guard !isProcessing else { return }
 
@@ -165,11 +166,11 @@ final class ChatService: ObservableObject {
     // Add user message
     let userMessage = ChatMessage.user(content)
     messages.append(userMessage)
-    conversationHistory.append((role: "user", content: content))
+    conversationHistory.append(.user(content))
     log(.user, content)
 
     // Process with potential tool calls
-    await processConversation()
+    await processConversation(provider: provider)
 
     isProcessing = false
   }
@@ -178,6 +179,7 @@ final class ChatService: ObservableObject {
   func clearConversation() {
     messages = []
     conversationHistory = []
+    recentSuggestionHistory = []
     streamingText = ""
     error = nil
     workStatus = nil
@@ -185,22 +187,22 @@ final class ChatService: ObservableObject {
     currentSessionId = nil
   }
 
+  func didUpdateDashboardMemory(from oldValue: String, to newValue: String) {
+    guard oldValue != newValue else { return }
+    invalidateCLISession(reason: "dashboard memory changed")
+  }
+
   // MARK: - Conversation Processing
 
-  private func processConversation() async {
-    // Build prompt - full prompt for new session, just user message for resume
-    let prompt: String
-    let isResume = currentSessionId != nil
+  private func processConversation(provider: DashboardChatProvider) async {
+    // Build a provider-specific request. Gemini gets structured history;
+    // CLI providers keep the existing prompt/session flow.
+    let request: DashboardChatRequest
+    let usesSessionResume = provider != .gemini
+    let isResume = usesSessionResume && currentSessionId != nil
 
-    if isResume {
-      // For resumed sessions, just send the latest user message
-      prompt = conversationHistory.last?.content ?? ""
-      log(.prompt, "[Resuming session \(currentSessionId!)] \(prompt)")
-    } else {
-      // For new sessions, send full prompt with system context
-      prompt = buildFullPrompt()
-      log(.prompt, prompt)
-    }
+    request = buildChatRequest(provider: provider, isResume: isResume)
+    log(.prompt, debugDescription(for: request, isResume: isResume))
 
     // Track state during streaming
     var responseText = ""
@@ -227,8 +229,7 @@ final class ChatService: ObservableObject {
 
     do {
       // Use rich streaming with thinking and tool events
-      let stream = LLMService.shared.generateChatStreaming(
-        prompt: prompt, sessionId: currentSessionId)
+      let stream = LLMService.shared.generateChatStreaming(request: request)
 
       for try await event in stream {
         switch event {
@@ -264,7 +265,7 @@ final class ChatService: ObservableObject {
           }
 
         case .toolEnd(let output, let exitCode):
-          log(.toolResult, "Exit \(exitCode ?? 0): \(output.prefix(100))...")
+          log(.toolResult, "Exit \(exitCode ?? 0): \(output)")
           let toolId = currentToolId
           updateWorkStatus { status in
             let toolIndex = toolCompletionIndex(in: status, preferredId: toolId)
@@ -387,13 +388,25 @@ final class ChatService: ObservableObject {
 
     streamingText = ""
 
-    if let status = workStatus, !status.hasErrors {
-      workStatus = nil
-    }
+    let metadata = parseAssistantMetadata(from: responseText)
+    currentSuggestions = metadata.suggestions
+    appendRecentSuggestions(metadata.suggestions)
+    let cleanedText = metadata.cleanedText
 
-    // Parse suggestions from response
-    let (cleanedText, suggestions) = parseSuggestions(from: responseText)
-    currentSuggestions = suggestions
+    if let memoryBlob = metadata.memoryBlob {
+      let previousMemory = DashboardChatMemoryStore.load()
+      DashboardChatMemoryStore.save(memoryBlob)
+      let updatedMemory = DashboardChatMemoryStore.load()
+      didUpdateDashboardMemory(from: previousMemory, to: updatedMemory)
+      let charCount = DashboardChatMemoryStore.load().count
+      log(.info, "🧠 Memory updated (\(charCount) chars)")
+      AnalyticsService.shared.capture(
+        "chat_memory_auto_updated",
+        [
+          "provider": provider.analyticsProvider,
+          "chars": charCount,
+        ])
+    }
 
     // Update final response (with suggestions block removed)
     if let id = responseMessageId,
@@ -411,44 +424,110 @@ final class ChatService: ObservableObject {
       }
     }
 
-    // Add to conversation history (keep original with suggestions for context)
-    if !responseText.isEmpty {
-      conversationHistory.append((role: "assistant", content: responseText))
+    // Add cleaned assistant response to history so metadata blocks do not bloat future prompts.
+    if !cleanedText.isEmpty {
+      conversationHistory.append(.assistant(cleanedText))
+      // A successful completed answer should always clear transient work status UI,
+      // even if an earlier tool attempt in the same turn failed and was corrected.
+      workStatus = nil
     }
   }
 
   // MARK: - Prompt Building
 
-  private func buildFullPrompt() -> String {
-    let systemPrompt = buildSystemPrompt()
+  private func buildChatRequest(provider: DashboardChatProvider, isResume: Bool) -> DashboardChatRequest {
+    switch provider {
+    case .gemini:
+      currentSessionId = nil
+      return DashboardChatRequest(
+        provider: provider,
+        prompt: "",
+        sessionId: nil,
+        systemInstruction: buildGeminiSystemInstruction(),
+        history: conversationHistory
+      )
+    case .codex, .claude:
+      let prompt: String
+      if isResume {
+        prompt = conversationHistory.last?.content ?? ""
+      } else {
+        prompt = buildCLIPrompt()
+      }
+      return DashboardChatRequest(
+        provider: provider,
+        prompt: prompt,
+        sessionId: isResume ? currentSessionId : nil,
+        systemInstruction: nil,
+        history: []
+      )
+    }
+  }
+
+  private func buildCLIPrompt() -> String {
+    let systemPrompt = buildCLISystemPrompt()
 
     var prompt = systemPrompt + "\n\n"
 
+    let memoryBlob = DashboardChatMemoryStore.load()
+    if !memoryBlob.isEmpty {
+      prompt += "## User Memory\n\(memoryBlob)\n\n"
+    }
+
     // Add conversation history
     for entry in conversationHistory {
-      switch entry.role {
-      case "user":
-        prompt += "User: \(entry.content)\n\n"
-      case "assistant":
-        prompt += "Assistant: \(entry.content)\n\n"
-      case "system":
-        prompt += "[System: \(entry.content)]\n\n"
-      default:
-        break
-      }
+      prompt += "\(entry.role.promptLabel): \(entry.content)\n\n"
     }
 
     prompt += "Assistant:"
     return prompt
   }
 
-  private func buildSystemPrompt() -> String {
+  private func buildGeminiSystemInstruction() -> String {
+    var instruction = buildGeminiSystemPrompt()
+    let memoryBlob = DashboardChatMemoryStore.load()
+    if !memoryBlob.isEmpty {
+      instruction += "\n\n## User Memory\n\(memoryBlob)"
+    }
+    let recentSuggestions = recentSuggestionHistory.suffix(9)
+    if !recentSuggestions.isEmpty {
+      instruction += "\n\n## Recent Suggestions To Avoid\n"
+      instruction +=
+        recentSuggestions.map { "- \($0)" }.joined(separator: "\n")
+    }
+    return instruction
+  }
+
+  private func debugDescription(for request: DashboardChatRequest, isResume: Bool) -> String {
+    switch request.provider {
+    case .gemini:
+      var lines: [String] = ["[Gemini Dashboard Chat]"]
+      if let systemInstruction = request.systemInstruction, !systemInstruction.isEmpty {
+        lines.append("System Instruction:")
+        lines.append(systemInstruction)
+      }
+      lines.append("Contents:")
+      for turn in request.history {
+        lines.append("\(turn.role.promptLabel): \(turn.content)")
+      }
+      return lines.joined(separator: "\n\n")
+    case .codex, .claude:
+      if isResume, let sessionId = request.sessionId {
+        return "[Resuming session \(sessionId)] \(request.prompt)"
+      }
+      return request.prompt
+    }
+  }
+
+  private func buildCLISystemPrompt() -> String {
     let now = Date()
     let currentDate = chatServiceLongDateFormatter.string(from: now)
     let currentTime = chatServiceTimeFormatter.string(from: now)
 
     // Use full path (~ doesn't expand in sqlite3)
     let dbPath = NSHomeDirectory() + "/Library/Application Support/Dayflow/chunks.sqlite"
+
+    let languageSection = languageOverrideSection()
+    let metadataSection = metadataContractSection()
 
     return """
       You are a friendly assistant in Dayflow, a macOS app that tracks computer activity.
@@ -578,6 +657,7 @@ final class ChatService: ObservableObject {
       RULES:
       - Allowed chart types: bar, line, stacked_bar, donut, heatmap, gantt
       - JSON must be valid (double quotes, no trailing commas)
+      - For donut charts use `type=donut` (not `pie`)
       - x and y must be arrays of the same length
       - Use numbers only for y values
       - Optional: color can be a hex string like "#F96E00" or "F96E00"
@@ -609,19 +689,182 @@ final class ChatService: ObservableObject {
 
       NEVER mention: seconds, specific timestamps (9:20-10:04), epoch times, table names, SQL syntax, raw column values
 
-      ## FOLLOW-UP SUGGESTIONS
+      \(languageSection)
 
-      At the END of your response, include 3-4 follow-up question suggestions:
-      - 1-2 natural follow-ups (dig deeper into something you mentioned)
-      - 1-2 questions that explore the data in an entirely new direction from the user's most recent question; aim for unique, helpful insights they could get from their data
+      \(metadataSection)
 
-      Format EXACTLY like this (no "Suggestions:" label, just the block):
-      ```suggestions
-      ["Question 1", "Question 2", "Question 3"]
+      """
+  }
+
+  private func buildGeminiSystemPrompt() -> String {
+    let now = Date()
+    let currentDate = chatServiceLongDateFormatter.string(from: now)
+    let currentTime = chatServiceTimeFormatter.string(from: now)
+
+    let languageSection = languageOverrideSection()
+    let languageBlock: String
+    if languageSection.isEmpty {
+      languageBlock = ""
+    } else {
+      languageBlock = "\n\n\(languageSection)"
+    }
+
+    return """
+      You are the AI assistant inside Dayflow, a macOS app that records what people do on their computer and builds a semantic timeline of their day. You have deep visibility into the user's work patterns — what they built, where they got stuck, how they spent their time. Use that context to give answers that feel like a well-informed colleague, not a generic chatbot.
+
+      Current date: \(currentDate)
+      Current time: \(currentTime)
+      Day boundary: Days start at 4:00 AM (not midnight). "Yesterday" means the previous 4 AM–4 AM window.
+
+      ---
+
+      ## TOOLS & DATA INTEGRITY
+
+      You have two read-only tools:
+
+      1. **fetchTimeline** — Structured activity cards with titles, categories, and durations. Use this for summaries, standups, time breakdowns, and "what did I do" questions.
+      2. **fetchObservations** — Raw screen observations. Use this for detailed questions like "what was I reading at 2pm" or "which tabs were open during that meeting."
+
+      Rules:
+      - Always call a tool when the user asks about their activity. Never fabricate or assume data.
+      - If a tool returns no rows, say so clearly. Don't fill gaps with guesses.
+      - If a tool fails, explain what happened and suggest a narrower time range.
+      - For large time windows (full week+), use `includeDetailedSummary=false` to avoid oversized payloads.
+      - Default to fetchTimeline unless the user needs observation-level detail.
+
+      ---
+
+      ## HANDLING USER INTENT
+
+      **Format vs. content corrections:**
+      If the user provides an example of their preferred format (e.g., a standup template), treat it as a *structural template*. Re-fetch or reuse the existing data and apply the new structure to it. Do not echo back the example content as if it were the answer.
+      If the user is correcting formatting only, reuse previously fetched facts when available and do not import facts from the example.
+
+      **Clarifications and retries:**
+      When the user says things like "no, I meant..." or "try again but...", re-read their original request in light of the correction. Don't start from scratch — adjust your previous response.
+
+      **Implicit context:**
+      - "standup notes" → use Yesterday / Today / Blockers format unless the user has shown a different preference
+      - "what did I do" → fetchTimeline for the relevant day
+      - "how much time" → fetchTimeline, aggregate by category
+      - "was I productive" → compare Work vs Distraction/Idle time
+      - "show me" or "what was on screen" → fetchObservations
+
+      ---
+
+      ## RESPONSE STYLE
+
+      - **Brief and scannable.** A few key points, not a wall of text. Bullets are fine when they help.
+      - **High-level by default.** Summarize the shape of the day — don't list every 15-minute card unless asked.
+      - **Human-readable durations.** "About an hour," "a couple hours," "most of the afternoon." Not "47 minutes" or "2820 seconds."
+      - **No internal details.** Never mention raw timestamps, table names, SQL, schema, or tool internals.
+      - **Adapt to demonstrated preferences.** If the user shows you how they want something formatted, match that structure going forward. Update the Style memory field accordingly.\(languageBlock)
+
+      ---
+
+      ## MEMORY
+
+      You may receive an existing `## User Memory` block. Use it to maintain lightweight, durable context across conversations.
+
+      Fields:
+      - **Profile:** Stable user context relevant to Dayflow (role, work patterns, team).
+      - **Style:** A set of format preferences **keyed by question type**. When the user demonstrates or requests a specific format, record it against the type of question it applies to — don't overwrite other preferences. Different question types can (and should) have different styles.
+
+      Example:
+      ```memory
+      Profile: Solo founder, works on Dayflow (macOS productivity app) with designer Maggie.
+      Style: standup=Yesterday/Today/Blockers, brief bullets | weekly_summary=detailed with metrics | default=brief, scannable
       ```
 
-      Keep questions short (<50 chars), start with verbs like "Show", "Compare", "Break down", "What's".
+      When the user shows a preferred format, identify which question type it belongs to and add or update just that key. Preferences for one type (e.g., standups) should never affect another (e.g., weekly summaries).
+
+      **Example flow:**
+
+      User's current memory:
+      ```memory
+      Profile: Solo founder, works on Dayflow (macOS productivity app) with designer Maggie.
+      Style: default=brief, scannable
+      ```
+
+      User provides a standup in Yesterday/Today/Blockers format and says "format it like this instead."
+
+      Your response should use that structure for the standup data, and your memory block should become:
+      ```memory
+      Profile: Solo founder, works on Dayflow (macOS productivity app) with designer Maggie.
+      Style: standup=Yesterday/Today/Blockers, brief bullets | default=brief, scannable
+      ```
+
+      If the user later says "for weekly summaries, give me more detail with metrics," update to:
+      ```memory
+      Profile: Solo founder, works on Dayflow (macOS productivity app) with designer Maggie.
+      Style: standup=Yesterday/Today/Blockers, brief bullets | weekly_summary=detailed with metrics | default=brief, scannable
+      ```
+
+      Do NOT store: contact names, travel plans, financial info, one-off tasks, secrets/credentials, or anything that reads like a diary entry.
+
+      ---
+
+      ## RESPONSE FORMAT
+
+      For substantive responses (data summaries, standups, analysis), end with exactly these two fenced blocks in this order, and nothing after them:
+
+      ```suggestions
+      ["Question 1?", "Question 2?", "Question 3?"]
+      ```
+
+      ```memory
+      Profile: <stable user context>
+      Style: <key=value pairs as shown above>
+      ```
+
+      Rules:
+      - The `suggestions` block is required for substantive responses.
+      - The `suggestions` block must be valid JSON: an array of 3-4 strings.
+      - Always include the `memory` block, even if unchanged.
+      - Frame each suggestion as a question the user could ask Dayflow.
+      - Every suggestion must be answerable using only the user's recorded Dayflow activity/data.
+      - Do not suggest anything that requires external information, browsing, recommendations, planning help, outreach, document creation, or any other action outside analyzing the existing data.
+      - Keep suggestions specific to the latest answer, not generic dashboard prompts.
+      - Keep suggestion text short (<50 chars) and varied.
+      - Include:
+      - one **deeper** question that digs further into the same topic
+      - one **adjacent** question that explores a nearby angle
+      - one **surprising** question that is still grounded in the actual data
+      - Do not repeat recent suggestions or obvious variants of them.
+      - Do not write suggestion questions as markdown bullets.
+      - Do not place suggestion questions in the main response body.
+      - Do not output any text after the `memory` block.
+      - For quick clarifications, acknowledgments, or corrections, omit the `suggestions` block and include only the `memory` block.
+      - Do not add headings like "Suggestions", "Memory", "### Suggestions", or "### Memory".
+      - Emit only the fenced `suggestions` block and fenced `memory` block after the main answer.
       """
+  }
+
+  private func appendRecentSuggestions(_ suggestions: [String]) {
+    guard !suggestions.isEmpty else { return }
+
+    for suggestion in suggestions {
+      let trimmed = suggestion.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else { continue }
+
+      let normalized = normalizeSuggestion(trimmed)
+      if let existingIndex = recentSuggestionHistory.firstIndex(where: {
+        normalizeSuggestion($0) == normalized
+      }) {
+        recentSuggestionHistory.remove(at: existingIndex)
+      }
+      recentSuggestionHistory.append(trimmed)
+    }
+
+    if recentSuggestionHistory.count > 12 {
+      recentSuggestionHistory.removeFirst(recentSuggestionHistory.count - 12)
+    }
+  }
+
+  private func normalizeSuggestion(_ suggestion: String) -> String {
+    suggestion
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
   }
 
   private func todayDate() -> String {
@@ -643,6 +886,58 @@ final class ChatService: ObservableObject {
     return lines.joined(separator: "\n")
   }
 
+  private func languageOverrideSection() -> String {
+    guard let instruction = LLMOutputLanguagePreferences.languageInstruction(forJSON: false) else {
+      return ""
+    }
+    return """
+      ## LANGUAGE
+
+      \(instruction)
+      """
+  }
+
+  private func metadataContractSection() -> String {
+    """
+      ## MEMORY CONTRACT (REQUIRED)
+
+      You may receive an existing section called "## User Memory".
+      This memory is ONLY for durable assistant behavior, not a running life log.
+      Keep only these two fields:
+      - Profile: stable user context relevant to this app (very short)
+      - Style: response format/tone preferences (very short)
+
+      DO NOT store:
+      - Contact names/relationships
+      - Travel plans or itineraries
+      - Investment/trading ideas
+      - One-off tasks, daily events, or temporary interests
+      - Secrets, passwords, tokens, API keys, or sensitive details
+
+      ## RESPONSE FORMAT (REQUIRED)
+
+      At the END of every response, include exactly these blocks in order:
+
+      ```suggestions
+      ["Question 1", "Question 2", "Question 3"]
+      ```
+
+      ```memory
+      Profile: <short line>
+      Style: <short line>
+      ```
+
+      Rules:
+      - Include 3-4 suggestions.
+      - Frame each suggestion as a question the user could ask Dayflow.
+      - Every suggestion must be answerable using only the user's recorded Dayflow activity/data.
+      - Do not suggest anything that requires external information, browsing, recommendations, planning help, outreach, document creation, or any other action outside analyzing the existing data.
+      - Keep suggestion text short (<50 chars).
+      - Do not add any other metadata blocks.
+      - Do not mention the memory block in normal prose.
+      """
+  }
+
   // MARK: - Helpers
 
   // MARK: - Work Status Helpers
@@ -657,7 +952,6 @@ final class ChatService: ObservableObject {
       lastUpdated: Date()
     )
   }
-      - For donut charts use `type=donut` (not `pie`)
 
   private func updateWorkStatus(_ update: (inout ChatWorkStatus) -> Void) {
     guard var status = workStatus else { return }
@@ -676,7 +970,11 @@ final class ChatService: ObservableObject {
   }
 
   private func toolSummary(command: String, output: String, exitCode: Int?) -> String {
-    let base = command.contains("sqlite3") ? "Database query" : "Tool"
+    let lowercased = command.lowercased()
+    let base =
+      lowercased.contains("sqlite3") ? "Database query"
+      : (lowercased.contains("fetchtimeline") || lowercased.contains("fetchobservations")
+        ? "Data fetch" : "Tool")
     if let exitCode, exitCode != 0 {
       return "\(base) failed (exit \(exitCode))"
     }
@@ -687,49 +985,210 @@ final class ChatService: ObservableObject {
     if trimmed.isEmpty {
       return "\(base) completed"
     }
+    if base == "Data fetch" {
+      return trimmed
+    }
     let rows = trimmed.split(whereSeparator: \.isNewline).count
     let rowLabel = rows == 1 ? "1 row" : "\(rows) rows"
     return "\(base) returned \(rowLabel)"
   }
 
-  // MARK: - Suggestions Parsing
+  private func invalidateCLISession(reason: String) {
+    guard currentSessionId != nil else { return }
+    currentSessionId = nil
+    log(.info, "♻️ Reset CLI session: \(reason)")
+  }
 
-  /// Parse suggestions block from response and return cleaned text + suggestions array
-  private func parseSuggestions(from text: String) -> (cleanedText: String, suggestions: [String]) {
-    // Look for ```suggestions ... ``` block (with optional "Suggestions:" label before it)
-    // Pattern captures: optional label + the code block with JSON array inside
-    let pattern = "(?:Suggestions:\\s*)?```suggestions\\s*\\n([\\s\\S]*?)\\n?```"
-    guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-      return (text, [])
+  // MARK: - Metadata Parsing
+
+  private struct AssistantMetadata {
+    let cleanedText: String
+    let suggestions: [String]
+    let memoryBlob: String?
+  }
+
+  private func parseAssistantMetadata(from text: String) -> AssistantMetadata {
+    let suggestionPattern =
+      "(?ims)(?:^|\\n)\\s*(?:#{1,6}\\s*Suggestions\\s*\\n+|Suggestions:\\s*)?```suggestions\\s*\\n([\\s\\S]*?)\\n?```"
+    let memoryPattern =
+      "(?ims)(?:^|\\n)\\s*(?:#{1,6}\\s*Memory\\s*\\n+|Memory:\\s*)?```memory\\s*\\n([\\s\\S]*?)\\n?```"
+
+    var workingText = text
+    var suggestions: [String] = []
+    var memoryBlob: String?
+
+    if let (stripped, rawSuggestions) = extractTaggedBlock(from: workingText, pattern: suggestionPattern) {
+      workingText = stripped
+      let jsonString = rawSuggestions.trimmingCharacters(in: .whitespacesAndNewlines)
+      if let data = jsonString.data(using: .utf8),
+        let parsed = try? JSONSerialization.jsonObject(with: data) as? [String]
+      {
+        suggestions = parsed
+        log(.info, "💡 Parsed \(parsed.count) suggestions")
+      } else {
+        log(.error, "Failed to parse suggestions JSON")
+      }
     }
 
+    if suggestions.isEmpty,
+      let (stripped, rawSuggestions) = extractLooseSuggestions(from: workingText)
+    {
+      workingText = stripped
+      let jsonString = rawSuggestions.trimmingCharacters(in: .whitespacesAndNewlines)
+      if let data = jsonString.data(using: .utf8),
+        let parsed = try? JSONSerialization.jsonObject(with: data) as? [String]
+      {
+        suggestions = parsed
+        log(.info, "💡 Parsed \(parsed.count) suggestions")
+      } else {
+        log(.error, "Failed to parse loose suggestions JSON")
+      }
+    }
+
+    if let (stripped, rawMemory) = extractTaggedBlock(from: workingText, pattern: memoryPattern) {
+      workingText = stripped
+      if let normalizedMemory = normalizeAutoMemoryBlob(rawMemory) {
+        memoryBlob = normalizedMemory
+      } else {
+        log(.info, "🧠 Ignored memory block that did not match Profile/Style format")
+      }
+    }
+
+    if memoryBlob == nil,
+      let (stripped, rawMemory) = extractLooseMemory(from: workingText)
+    {
+      workingText = stripped
+      if let normalizedMemory = normalizeAutoMemoryBlob(rawMemory) {
+        memoryBlob = normalizedMemory
+      } else {
+        log(.info, "🧠 Ignored loose memory block that did not match Profile/Style format")
+      }
+    }
+
+    workingText = stripResidualMetadataHeadings(from: workingText)
+
+    return AssistantMetadata(
+      cleanedText: workingText.trimmingCharacters(in: .whitespacesAndNewlines),
+      suggestions: suggestions,
+      memoryBlob: memoryBlob
+    )
+  }
+
+  private func extractTaggedBlock(from text: String, pattern: String) -> (String, String)? {
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }
     let range = NSRange(text.startIndex..., in: text)
-    guard let match = regex.firstMatch(in: text, options: [], range: range),
-      let jsonRange = Range(match.range(at: 1), in: text)
+    guard
+      let match = regex.firstMatch(in: text, options: [], range: range),
+      let contentRange = Range(match.range(at: 1), in: text)
     else {
-      return (text, [])
+      return nil
     }
 
-    let jsonString = String(text[jsonRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-
-    // Parse JSON array
-    guard let data = jsonString.data(using: .utf8),
-      let parsed = try? JSONSerialization.jsonObject(with: data) as? [String]
-    else {
-      print("[ChatService] Failed to parse suggestions JSON: \(jsonString)")
-      return (text, [])
-    }
-
-    // Remove the entire suggestions block (including optional label) from the text
-    let cleanedText = regex.stringByReplacingMatches(
+    let content = String(text[contentRange])
+    let stripped = regex.stringByReplacingMatches(
       in: text,
       options: [],
       range: range,
       withTemplate: ""
-    ).trimmingCharacters(in: .whitespacesAndNewlines)
+    )
+    return (stripped, content)
+  }
 
-    print("[ChatService] Parsed \(parsed.count) suggestions")
-    return (cleanedText, parsed)
+  private func extractLooseSuggestions(from text: String) -> (String, String)? {
+    let pattern =
+      "(?ims)(?:^|\\n)\\s*(?:#{1,6}\\s*Suggestions\\s*\\n+|Suggestions:\\s*\\n?)(\\[[\\s\\S]*?\\])(?=\\n\\s*(?:#{1,6}\\s*Memory\\b|Memory:)|\\z)"
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }
+    let range = NSRange(text.startIndex..., in: text)
+    guard
+      let match = regex.firstMatch(in: text, options: [], range: range),
+      let contentRange = Range(match.range(at: 1), in: text)
+    else {
+      return nil
+    }
+
+    let content = String(text[contentRange])
+    let stripped = regex.stringByReplacingMatches(
+      in: text,
+      options: [],
+      range: range,
+      withTemplate: "\n"
+    )
+    return (stripped, content)
+  }
+
+  private func extractLooseMemory(from text: String) -> (String, String)? {
+    let pattern =
+      "(?ims)(?:^|\\n)\\s*(?:#{1,6}\\s*Memory\\s*\\n+|Memory:\\s*\\n?)(Profile:[\\s\\S]*?Style:[^\\n]*(?:\\n[^#\\n].*)*)(?=\\z)"
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }
+    let range = NSRange(text.startIndex..., in: text)
+    guard
+      let match = regex.firstMatch(in: text, options: [], range: range),
+      let contentRange = Range(match.range(at: 1), in: text)
+    else {
+      return nil
+    }
+
+    let content = String(text[contentRange])
+    let stripped = regex.stringByReplacingMatches(
+      in: text,
+      options: [],
+      range: range,
+      withTemplate: "\n"
+    )
+    return (stripped, content)
+  }
+
+  private func stripResidualMetadataHeadings(from text: String) -> String {
+    let patterns = [
+      "(?im)^\\s*#{1,6}\\s*Suggestions\\s*$",
+      "(?im)^\\s*#{1,6}\\s*Memory\\s*$",
+      "(?im)^\\s*Suggestions:\\s*$",
+      "(?im)^\\s*Memory:\\s*$",
+    ]
+
+    return patterns.reduce(text) { partial, pattern in
+      guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+        return partial
+      }
+      let range = NSRange(partial.startIndex..., in: partial)
+      return regex.stringByReplacingMatches(
+        in: partial,
+        options: [],
+        range: range,
+        withTemplate: ""
+      )
+    }
+  }
+
+  private func normalizeAutoMemoryBlob(_ raw: String) -> String? {
+    let lines = raw
+      .replacingOccurrences(of: "\r\n", with: "\n")
+      .replacingOccurrences(of: "\r", with: "\n")
+      .split(separator: "\n")
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+
+    guard !lines.isEmpty else { return nil }
+
+    var profile: String?
+    var style: String?
+
+    for line in lines {
+      let lowercased = line.lowercased()
+      if lowercased.hasPrefix("profile:") {
+        let value = line.dropFirst("profile:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !value.isEmpty { profile = value }
+      } else if lowercased.hasPrefix("style:") {
+        let value = line.dropFirst("style:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !value.isEmpty { style = value }
+      }
+    }
+
+    var outputLines: [String] = []
+    if let profile { outputLines.append("Profile: \(profile)") }
+    if let style { outputLines.append("Style: \(style)") }
+    guard !outputLines.isEmpty else { return nil }
+    return outputLines.joined(separator: "\n")
   }
 }
 
@@ -738,25 +1197,8 @@ final class ChatService: ObservableObject {
 extension ChatService {
   /// Check if an LLM provider is configured
   static var isProviderConfigured: Bool {
-    // Check if any provider credentials exist
-    if KeychainManager.shared.retrieve(for: "gemini") != nil,
-      !KeychainManager.shared.retrieve(for: "gemini")!.isEmpty
-    {
-      return true
-    }
-    if !AnalyticsService.shared.backendAuthToken().trimmingCharacters(in: .whitespacesAndNewlines)
-      .isEmpty
-    {
-      return true
-    }
-    // ChatCLI doesn't need keychain - check if tool preference is set
-    if UserDefaults.standard.string(forKey: "chatCLIPreferredTool") != nil {
-      return true
-    }
-    // Ollama is always "configured" since it uses localhost
-    if UserDefaults.standard.data(forKey: "llmProviderType") != nil {
-      return true
-    }
-    return false
+    let geminiKey = KeychainManager.shared.retrieve(for: "gemini")?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return !geminiKey.isEmpty || CLIDetector.isInstalled(.codex) || CLIDetector.isInstalled(.claude)
   }
 }
