@@ -92,31 +92,35 @@ struct SettingsView: View {
   }
 
   private var contentWithLifecycle: some View {
-    mainContent
-      .onAppear {
-        providersViewModel.handleOnAppear()
-        otherViewModel.refreshAnalyticsState()
-        storageViewModel.refreshStorageIfNeeded(isStorageTab: selectedTab == .storage)
-        AnalyticsService.shared.capture("settings_opened")
-        launchAtLoginManager.refreshStatus()
+    GeometryReader { proxy in
+      mainContent
+        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+    }
+    .onAppear {
+      providersViewModel.handleOnAppear()
+      otherViewModel.refreshAnalyticsState()
+      storageViewModel.refreshStorageIfNeeded(isStorageTab: selectedTab == .storage)
+      AnalyticsService.shared.capture("settings_opened")
+      launchAtLoginManager.refreshStatus()
+    }
+    .onChange(of: selectedTab) { _, newValue in
+      if newValue == .storage {
+        storageViewModel.refreshStorageIfNeeded(isStorageTab: true)
       }
-      .onChange(of: selectedTab) { _, newValue in
-        if newValue == .storage {
-          storageViewModel.refreshStorageIfNeeded(isStorageTab: true)
-        }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .openProvidersSettings)) { _ in
+      guard selectedTab != .providers else { return }
+      tabTransitionDirection = .trailing
+      withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+        selectedTab = .providers
       }
-      .onReceive(NotificationCenter.default.publisher(for: .openProvidersSettings)) { _ in
-        guard selectedTab != .providers else { return }
-        tabTransitionDirection = .trailing
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
-          selectedTab = .providers
-        }
-      }
+    }
   }
 
   private var mainContent: some View {
     HStack(alignment: .top, spacing: 32) {
       sidebar
+        .frame(maxHeight: .infinity, alignment: .topLeading)
 
       ScrollView(.vertical, showsIndicators: false) {
         VStack(alignment: .leading, spacing: 24) {
@@ -126,9 +130,9 @@ struct SettingsView: View {
         .padding(.top, 24)
         .padding(.trailing, 16)
         .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, minHeight: 0, alignment: .topLeading)
       }
-      .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
-      .frame(maxWidth: 600, alignment: .leading)
+      .frame(maxWidth: 600, maxHeight: .infinity, alignment: .topLeading)
 
       Spacer(minLength: 0)
     }
