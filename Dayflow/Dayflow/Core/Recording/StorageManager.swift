@@ -70,6 +70,7 @@ protocol StorageManaging: Sendable {
   func deleteTimelineCard(recordId: Int64) -> String?
   func fetchTimelineCards(forBatch batchId: Int64) -> [TimelineCard]
   func fetchTimelineCard(byId id: Int64) -> TimelineCardWithTimestamps?
+  func fetchLastTimelineCard(endingBefore: Date) -> TimelineCardWithTimestamps?
 
   // Timeline Queries
   func fetchTimelineCards(forDay day: String) -> [TimelineCard]
@@ -122,7 +123,7 @@ protocol StorageManaging: Sendable {
   func nextScreenshotURL() -> URL
 
   /// Save a screenshot to the database, returns the screenshot ID
-  func saveScreenshot(url: URL, capturedAt: Date) -> Int64?
+  func saveScreenshot(url: URL, capturedAt: Date, idleSecondsAtCapture: Int?) -> Int64?
 
   /// Fetch screenshots that haven't been assigned to a batch yet
   func fetchUnprocessedScreenshots(since oldestTimestamp: Int) -> [Screenshot]
@@ -371,6 +372,7 @@ struct TimelineCardShell: Sendable {
   let distractions: [Distraction]?  // Keep this, it's part of the initial save
   let appSites: AppSites?
   let isBackupGenerated: Bool?
+  let idleMetadata: IdleCardMetadata?
   // No videoSummaryURL here, as it's added later
   // No batchId here, as it's passed as a separate parameter to the save function
 
@@ -384,7 +386,8 @@ struct TimelineCardShell: Sendable {
     detailedSummary: String,
     distractions: [Distraction]?,
     appSites: AppSites?,
-    isBackupGenerated: Bool? = nil
+    isBackupGenerated: Bool? = nil,
+    idleMetadata: IdleCardMetadata? = nil
   ) {
     self.startTimestamp = startTimestamp
     self.endTimestamp = endTimestamp
@@ -396,7 +399,23 @@ struct TimelineCardShell: Sendable {
     self.distractions = distractions
     self.appSites = appSites
     self.isBackupGenerated = isBackupGenerated
+    self.idleMetadata = idleMetadata
   }
+}
+
+struct IdleCardMetadata: Codable, Sendable {
+  let classifierVersion: String
+  let inputCoverageRatio: Double
+  let coveredSeconds: Int
+  let batchDurationSeconds: Int
+  let largestUncoveredGapSeconds: Int
+  let screenshotCount: Int
+  let sampledIdleScreenshotCount: Int
+  let averageIdleSecondsAtCapture: Double
+  let maxIdleSecondsAtCapture: Int
+  let mergedWithPreviousIdle: Bool
+  let mergeGapSeconds: Int?
+  let skippedLLM: Bool
 }
 
 // New metadata envelope to support multiple fields under one JSON column
@@ -404,6 +423,7 @@ private struct TimelineMetadata: Codable {
   let distractions: [Distraction]?
   let appSites: AppSites?
   let isBackupGenerated: Bool?
+  let idle: IdleCardMetadata?
 }
 
 struct AnalysisBatchDebugEntry: Sendable {
@@ -435,26 +455,6 @@ struct TimelineCardWithTimestamps {
 final class StorageManager: StorageManaging, @unchecked Sendable {
   static let shared = StorageManager()
 
-  private let dbURL: URL
-  private var db: DatabasePool!  // var to allow recovery reassignment
-  private let fileMgr = FileManager.default
-  private let root: URL
-  private let backupsDir: URL
-  var recordingsRoot: URL { root }
-
-  // TEMPORARY DEBUG: Remove after identifying slow queries
-  private let debugSlowQueries = true
-  private let slowThresholdMs: Double = 100  // Log anything over 100ms
-
-  // Dedicated queue for database writes to prevent main thread blocking
-  private let dbWriteQueue = DispatchQueue(label: "com.dayflow.storage.writes", qos: .utility)
-
-  private init() {
-    UserDefaultsMigrator.migrateIfNeeded()
-    StoragePathMigrator.migrateIfNeeded()
-
-    let appSupport = fileMgr.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-    let baseDir = appSupport.appendingPathComponent("Dayflow", isDirectory: true)
   private enum DatabaseOperationKind: String {
     case read
     case write
@@ -617,6 +617,28 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     }
   }
 
+  private let dbURL: URL
+  private var db: DatabasePool!  // var to allow recovery reassignment
+  private let fileMgr = FileManager.default
+  private let root: URL
+  private let backupsDir: URL
+  var recordingsRoot: URL { root }
+
+  // TEMPORARY DEBUG: Remove after identifying slow queries
+  private let debugSlowQueries = true
+  private let slowThresholdMs: Double = 100  // Log anything over 100ms
+  private let dbMaxReaderCount = 5
+
+  // Dedicated queue for database writes to prevent main thread blocking
+  private let dbWriteQueue = DispatchQueue(label: "com.dayflow.storage.writes", qos: .utility)
+  private let dbContentionTracker = DatabaseContentionTracker()
+
+  private init() {
+    UserDefaultsMigrator.migrateIfNeeded()
+    StoragePathMigrator.migrateIfNeeded()
+
+    let appSupport = fileMgr.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    let baseDir = appSupport.appendingPathComponent("Dayflow", isDirectory: true)
     let recordingsDir = baseDir.appendingPathComponent("recordings", isDirectory: true)
     let backupDir = baseDir.appendingPathComponent("backups", isDirectory: true)
 
@@ -627,11 +649,9 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
     root = recordingsDir
     backupsDir = backupDir
-  private let dbMaxReaderCount = 5
     dbURL = baseDir.appendingPathComponent("chunks.sqlite")
 
     StorageManager.migrateDatabaseLocationIfNeeded(
-  private let dbContentionTracker = DatabaseContentionTracker()
       fileManager: fileMgr,
       legacyRecordingsDir: recordingsDir,
       newDatabaseURL: dbURL
@@ -690,6 +710,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     let callStart = CFAbsoluteTimeGetCurrent()
     var execStart: CFAbsoluteTime = 0
     var execEnd: CFAbsoluteTime = 0
+    let operationID = dbContentionTracker.begin(kind: .write, label: label)
 
     let writeBreadcrumb = Breadcrumb(level: .debug, category: "database")
     writeBreadcrumb.message = "DB write: \(label)"
@@ -698,6 +719,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
     do {
       let result = try db.write { db in
+        dbContentionTracker.markExecutionStarted(id: operationID)
         execStart = CFAbsoluteTimeGetCurrent()
         defer { execEnd = CFAbsoluteTimeGetCurrent() }
         return try block(db)
@@ -705,28 +727,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
       let waitMs = max(0, (execStart - callStart) * 1000)
       let execMs = max(0, (execEnd - execStart) * 1000)
-
-      if debugSlowQueries && (execMs > slowThresholdMs || waitMs > slowThresholdMs) {
-        print("⚠️ SLOW WRITE [\(label)]: wait=\(Int(waitMs))ms exec=\(Int(execMs))ms")
-
-        let slowWriteBreadcrumb = Breadcrumb(level: .warning, category: "database")
-    let operationID = dbContentionTracker.begin(kind: .write, label: label)
-        slowWriteBreadcrumb.message = "SLOW DB write: \(label)"
-        slowWriteBreadcrumb.data = [
-          "duration_ms": Int((waitMs + execMs).rounded()),
-          "wait_ms": Int(waitMs.rounded()),
-          "exec_ms": Int(execMs.rounded()),
-        ]
-        slowWriteBreadcrumb.type = "error"
-        SentryHelper.addBreadcrumb(slowWriteBreadcrumb)
-        dbContentionTracker.markExecutionStarted(id: operationID)
-      }
-
-      return result
-    } catch {
-      if execStart == 0 {
-        execStart = CFAbsoluteTimeGetCurrent()
-      }
       let contentionSnapshot = dbContentionTracker.complete(
         id: operationID,
         waitMs: waitMs,
@@ -734,16 +734,16 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         failed: false,
         slowThresholdMs: slowThresholdMs
       )
-      if execEnd == 0 {
-        execEnd = CFAbsoluteTimeGetCurrent()
-      }
-      let waitMs = max(0, (execStart - callStart) * 1000)
-      let execMs = max(0, (execEnd - execStart) * 1000)
 
-      let slowWriteBreadcrumb = Breadcrumb(level: .error, category: "database")
-      slowWriteBreadcrumb.message = "FAILED DB write: \(label)"
-      slowWriteBreadcrumb.data = [
-        "wait_ms": Int(waitMs.rounded()),
+      if debugSlowQueries && (execMs > slowThresholdMs || waitMs > slowThresholdMs) {
+        print("⚠️ SLOW WRITE [\(label)]: wait=\(Int(waitMs))ms exec=\(Int(execMs))ms")
+
+        let slowWriteBreadcrumb = Breadcrumb(level: .warning, category: "database")
+        slowWriteBreadcrumb.message = "SLOW DB write: \(label)"
+        slowWriteBreadcrumb.data = [
+          "duration_ms": Int((waitMs + execMs).rounded()),
+          "wait_ms": Int(waitMs.rounded()),
+          "exec_ms": Int(execMs.rounded()),
           "caller_thread": Thread.isMainThread ? "main" : "background",
           "caller_qos": DatabaseContentionTracker.qosLabel(Thread.current.qualityOfService),
           "pool_max_readers": dbMaxReaderCount,
@@ -753,8 +753,44 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
           "active_write_labels": contentionSnapshot?.activeWriteLabels ?? "none",
           "recent_read_labels": contentionSnapshot?.recentReadLabels ?? "none",
           "recent_write_labels": contentionSnapshot?.recentWriteLabels ?? "none",
+        ]
+        slowWriteBreadcrumb.type = "error"
+        SentryHelper.addBreadcrumb(slowWriteBreadcrumb)
+      }
+
+      return result
+    } catch {
+      if execStart == 0 {
+        execStart = CFAbsoluteTimeGetCurrent()
+      }
+      if execEnd == 0 {
+        execEnd = CFAbsoluteTimeGetCurrent()
+      }
+      let waitMs = max(0, (execStart - callStart) * 1000)
+      let execMs = max(0, (execEnd - execStart) * 1000)
+      let contentionSnapshot = dbContentionTracker.complete(
+        id: operationID,
+        waitMs: waitMs,
+        execMs: execMs,
+        failed: true,
+        slowThresholdMs: slowThresholdMs
+      )
+
+      let slowWriteBreadcrumb = Breadcrumb(level: .error, category: "database")
+      slowWriteBreadcrumb.message = "FAILED DB write: \(label)"
+      slowWriteBreadcrumb.data = [
+        "wait_ms": Int(waitMs.rounded()),
         "exec_ms": Int(execMs.rounded()),
         "error": "\(error)",
+        "caller_thread": Thread.isMainThread ? "main" : "background",
+        "caller_qos": DatabaseContentionTracker.qosLabel(Thread.current.qualityOfService),
+        "pool_max_readers": dbMaxReaderCount,
+        "active_reads": contentionSnapshot?.activeReadCount ?? 0,
+        "active_writes": contentionSnapshot?.activeWriteCount ?? 0,
+        "active_read_labels": contentionSnapshot?.activeReadLabels ?? "none",
+        "active_write_labels": contentionSnapshot?.activeWriteLabels ?? "none",
+        "recent_read_labels": contentionSnapshot?.recentReadLabels ?? "none",
+        "recent_write_labels": contentionSnapshot?.recentWriteLabels ?? "none",
       ]
       slowWriteBreadcrumb.type = "error"
       SentryHelper.addBreadcrumb(slowWriteBreadcrumb)
@@ -766,59 +802,23 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     let callStart = CFAbsoluteTimeGetCurrent()
     var execStart: CFAbsoluteTime = 0
     var execEnd: CFAbsoluteTime = 0
+    let operationID = dbContentionTracker.begin(kind: .read, label: label)
 
     let readBreadcrumb = Breadcrumb(level: .debug, category: "database")
-      let contentionSnapshot = dbContentionTracker.complete(
-        id: operationID,
-        waitMs: waitMs,
-        execMs: execMs,
-        failed: true,
-        slowThresholdMs: slowThresholdMs
-      )
     readBreadcrumb.message = "DB read: \(label)"
     readBreadcrumb.type = "debug"
     SentryHelper.addBreadcrumb(readBreadcrumb)
 
     do {
       let result = try db.read { db in
+        dbContentionTracker.markExecutionStarted(id: operationID)
         execStart = CFAbsoluteTimeGetCurrent()
-        "caller_thread": Thread.isMainThread ? "main" : "background",
-        "caller_qos": DatabaseContentionTracker.qosLabel(Thread.current.qualityOfService),
-        "pool_max_readers": dbMaxReaderCount,
-        "active_reads": contentionSnapshot?.activeReadCount ?? 0,
-        "active_writes": contentionSnapshot?.activeWriteCount ?? 0,
-        "active_read_labels": contentionSnapshot?.activeReadLabels ?? "none",
-        "active_write_labels": contentionSnapshot?.activeWriteLabels ?? "none",
-        "recent_read_labels": contentionSnapshot?.recentReadLabels ?? "none",
-        "recent_write_labels": contentionSnapshot?.recentWriteLabels ?? "none",
         defer { execEnd = CFAbsoluteTimeGetCurrent() }
         return try block(db)
       }
 
       let waitMs = max(0, (execStart - callStart) * 1000)
       let execMs = max(0, (execEnd - execStart) * 1000)
-
-      if debugSlowQueries && (execMs > slowThresholdMs || waitMs > slowThresholdMs) {
-        print("⚠️ SLOW READ [\(label)]: wait=\(Int(waitMs))ms exec=\(Int(execMs))ms")
-
-        let slowReadBreadcrumb = Breadcrumb(level: .warning, category: "database")
-    let operationID = dbContentionTracker.begin(kind: .read, label: label)
-        slowReadBreadcrumb.message = "SLOW DB read: \(label)"
-        slowReadBreadcrumb.data = [
-          "duration_ms": Int((waitMs + execMs).rounded()),
-          "wait_ms": Int(waitMs.rounded()),
-          "exec_ms": Int(execMs.rounded()),
-        ]
-        slowReadBreadcrumb.type = "error"
-        SentryHelper.addBreadcrumb(slowReadBreadcrumb)
-        dbContentionTracker.markExecutionStarted(id: operationID)
-      }
-
-      return result
-    } catch {
-      if execStart == 0 {
-        execStart = CFAbsoluteTimeGetCurrent()
-      }
       let contentionSnapshot = dbContentionTracker.complete(
         id: operationID,
         waitMs: waitMs,
@@ -826,16 +826,16 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         failed: false,
         slowThresholdMs: slowThresholdMs
       )
-      if execEnd == 0 {
-        execEnd = CFAbsoluteTimeGetCurrent()
-      }
-      let waitMs = max(0, (execStart - callStart) * 1000)
-      let execMs = max(0, (execEnd - execStart) * 1000)
 
-      let slowReadBreadcrumb = Breadcrumb(level: .error, category: "database")
-      slowReadBreadcrumb.message = "FAILED DB read: \(label)"
-      slowReadBreadcrumb.data = [
-        "wait_ms": Int(waitMs.rounded()),
+      if debugSlowQueries && (execMs > slowThresholdMs || waitMs > slowThresholdMs) {
+        print("⚠️ SLOW READ [\(label)]: wait=\(Int(waitMs))ms exec=\(Int(execMs))ms")
+
+        let slowReadBreadcrumb = Breadcrumb(level: .warning, category: "database")
+        slowReadBreadcrumb.message = "SLOW DB read: \(label)"
+        slowReadBreadcrumb.data = [
+          "duration_ms": Int((waitMs + execMs).rounded()),
+          "wait_ms": Int(waitMs.rounded()),
+          "exec_ms": Int(execMs.rounded()),
           "caller_thread": Thread.isMainThread ? "main" : "background",
           "caller_qos": DatabaseContentionTracker.qosLabel(Thread.current.qualityOfService),
           "pool_max_readers": dbMaxReaderCount,
@@ -845,8 +845,44 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
           "active_write_labels": contentionSnapshot?.activeWriteLabels ?? "none",
           "recent_read_labels": contentionSnapshot?.recentReadLabels ?? "none",
           "recent_write_labels": contentionSnapshot?.recentWriteLabels ?? "none",
+        ]
+        slowReadBreadcrumb.type = "error"
+        SentryHelper.addBreadcrumb(slowReadBreadcrumb)
+      }
+
+      return result
+    } catch {
+      if execStart == 0 {
+        execStart = CFAbsoluteTimeGetCurrent()
+      }
+      if execEnd == 0 {
+        execEnd = CFAbsoluteTimeGetCurrent()
+      }
+      let waitMs = max(0, (execStart - callStart) * 1000)
+      let execMs = max(0, (execEnd - execStart) * 1000)
+      let contentionSnapshot = dbContentionTracker.complete(
+        id: operationID,
+        waitMs: waitMs,
+        execMs: execMs,
+        failed: true,
+        slowThresholdMs: slowThresholdMs
+      )
+
+      let slowReadBreadcrumb = Breadcrumb(level: .error, category: "database")
+      slowReadBreadcrumb.message = "FAILED DB read: \(label)"
+      slowReadBreadcrumb.data = [
+        "wait_ms": Int(waitMs.rounded()),
         "exec_ms": Int(execMs.rounded()),
         "error": "\(error)",
+        "caller_thread": Thread.isMainThread ? "main" : "background",
+        "caller_qos": DatabaseContentionTracker.qosLabel(Thread.current.qualityOfService),
+        "pool_max_readers": dbMaxReaderCount,
+        "active_reads": contentionSnapshot?.activeReadCount ?? 0,
+        "active_writes": contentionSnapshot?.activeWriteCount ?? 0,
+        "active_read_labels": contentionSnapshot?.activeReadLabels ?? "none",
+        "active_write_labels": contentionSnapshot?.activeWriteLabels ?? "none",
+        "recent_read_labels": contentionSnapshot?.recentReadLabels ?? "none",
+        "recent_write_labels": contentionSnapshot?.recentWriteLabels ?? "none",
       ]
       slowReadBreadcrumb.type = "error"
       SentryHelper.addBreadcrumb(slowReadBreadcrumb)
@@ -860,13 +896,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
       try db.execute(
         sql: """
               -- Chunks table: stores video recording segments
-      let contentionSnapshot = dbContentionTracker.complete(
-        id: operationID,
-        waitMs: waitMs,
-        execMs: execMs,
-        failed: true,
-        slowThresholdMs: slowThresholdMs
-      )
               CREATE TABLE IF NOT EXISTS chunks (
                   id INTEGER PRIMARY KEY AUTOINCREMENT,
                   start_ts INTEGER NOT NULL,
@@ -874,15 +903,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                   file_url TEXT NOT NULL,
                   status TEXT NOT NULL DEFAULT 'recording',
                   is_deleted INTEGER DEFAULT 0
-        "caller_thread": Thread.isMainThread ? "main" : "background",
-        "caller_qos": DatabaseContentionTracker.qosLabel(Thread.current.qualityOfService),
-        "pool_max_readers": dbMaxReaderCount,
-        "active_reads": contentionSnapshot?.activeReadCount ?? 0,
-        "active_writes": contentionSnapshot?.activeWriteCount ?? 0,
-        "active_read_labels": contentionSnapshot?.activeReadLabels ?? "none",
-        "active_write_labels": contentionSnapshot?.activeWriteLabels ?? "none",
-        "recent_read_labels": contentionSnapshot?.recentReadLabels ?? "none",
-        "recent_write_labels": contentionSnapshot?.recentWriteLabels ?? "none",
               );
               CREATE INDEX IF NOT EXISTS idx_chunks_status ON chunks(status);
               CREATE INDEX IF NOT EXISTS idx_chunks_start_ts ON chunks(start_ts);
@@ -961,6 +981,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                   captured_at INTEGER NOT NULL,
                   file_path TEXT NOT NULL,
                   file_size INTEGER,
+                  idle_seconds_at_capture INTEGER,
                   is_deleted INTEGER DEFAULT 0,
                   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
               );
@@ -1060,6 +1081,15 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             """)
 
         print("✅ Added is_deleted column and composite indexes to timeline_cards")
+      }
+
+      let screenshotColumns = try db.columns(in: "screenshots").map { $0.name }
+      if !screenshotColumns.contains("idle_seconds_at_capture") {
+        try db.execute(
+          sql: """
+                ALTER TABLE screenshots ADD COLUMN idle_seconds_at_capture INTEGER;
+            """)
+        print("✅ Added idle_seconds_at_capture column to screenshots")
       }
     }
   }
@@ -1263,7 +1293,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     return root.appendingPathComponent("\(df.string(from: Date())).jpg")
   }
 
-  func saveScreenshot(url: URL, capturedAt: Date) -> Int64? {
+  func saveScreenshot(url: URL, capturedAt: Date, idleSecondsAtCapture: Int?) -> Int64? {
     let timestamp = Int(capturedAt.timeIntervalSince1970)
     let path = url.path
     let fileSize: Int64? = {
@@ -1279,12 +1309,23 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     try? timedWrite("saveScreenshot") { db in
       try db.execute(
         sql: """
-              INSERT INTO screenshots(captured_at, file_path, file_size)
-              VALUES (?, ?, ?)
-          """, arguments: [timestamp, path, fileSize])
+              INSERT INTO screenshots(captured_at, file_path, file_size, idle_seconds_at_capture)
+              VALUES (?, ?, ?, ?)
+          """, arguments: [timestamp, path, fileSize, idleSecondsAtCapture])
       screenshotId = db.lastInsertedRowID
     }
     return screenshotId
+  }
+
+  private func screenshot(from row: Row) -> Screenshot {
+    Screenshot(
+      id: row["id"],
+      capturedAt: row["captured_at"],
+      filePath: row["file_path"],
+      fileSize: row["file_size"],
+      idleSecondsAtCapture: row["idle_seconds_at_capture"],
+      isDeleted: (row["is_deleted"] as? Int ?? 0) != 0
+    )
   }
 
   func fetchUnprocessedScreenshots(since oldestTimestamp: Int) -> [Screenshot] {
@@ -1299,15 +1340,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
               ORDER BY captured_at ASC
           """, arguments: [oldestTimestamp]
       )
-      .map { row in
-        Screenshot(
-          id: row["id"],
-          capturedAt: row["captured_at"],
-          filePath: row["file_path"],
-          fileSize: row["file_size"],
-          isDeleted: (row["is_deleted"] as? Int ?? 0) != 0
-        )
-      }
+      .map(screenshot(from:))
     }) ?? []
   }
 
@@ -1346,15 +1379,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
               ORDER BY s.captured_at ASC
           """, arguments: [batchId]
       )
-      .map { row in
-        Screenshot(
-          id: row["id"],
-          capturedAt: row["captured_at"],
-          filePath: row["file_path"],
-          fileSize: row["file_size"],
-          isDeleted: (row["is_deleted"] as? Int ?? 0) != 0
-        )
-      }
+      .map(screenshot(from:))
     }) ?? []
   }
 
@@ -1369,15 +1394,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
               ORDER BY captured_at ASC
           """, arguments: [startTs, endTs]
       )
-      .map { row in
-        Screenshot(
-          id: row["id"],
-          capturedAt: row["captured_at"],
-          filePath: row["file_path"],
-          fileSize: row["file_size"],
-          isDeleted: (row["is_deleted"] as? Int ?? 0) != 0
-        )
-      }
+      .map(screenshot(from:))
     }) ?? []
   }
 
@@ -1461,7 +1478,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
       let meta = TimelineMetadata(
         distractions: card.distractions,
         appSites: card.appSites,
-        isBackupGenerated: card.isBackupGenerated
+        isBackupGenerated: card.isBackupGenerated,
+        idle: card.idleMetadata
       )
       let metadataString: String? = (try? encoder.encode(meta)).flatMap {
         String(data: $0, encoding: .utf8)
@@ -1838,7 +1856,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     let meta = TimelineMetadata(
       distractions: nil,
       appSites: AppSites(primary: "dayflow.so", secondary: nil),
-      isBackupGenerated: nil
+      isBackupGenerated: nil,
+      idle: nil
     )
     let metadataString: String? = (try? encoder.encode(meta)).flatMap {
       String(data: $0, encoding: .utf8)
@@ -2325,6 +2344,57 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     }
   }
 
+  func fetchLastTimelineCard(endingBefore: Date) -> TimelineCardWithTimestamps? {
+    let decoder = JSONDecoder()
+    let beforeTs = Int(endingBefore.timeIntervalSince1970)
+
+    return try? timedRead("fetchLastTimelineCard(endingBefore:)") { db in
+      guard
+        let row = try Row.fetchOne(
+          db,
+          sql: """
+                SELECT *
+                FROM timeline_cards
+                WHERE end_ts <= ?
+                  AND is_deleted = 0
+                ORDER BY end_ts DESC, id DESC
+                LIMIT 1
+            """,
+          arguments: [beforeTs]
+        )
+      else {
+        return nil
+      }
+
+      var distractions: [Distraction]? = nil
+      if let metadataString: String = row["metadata"],
+        let jsonData = metadataString.data(using: .utf8)
+      {
+        if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
+          distractions = meta.distractions
+        } else if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
+          distractions = legacy
+        }
+      }
+
+      return TimelineCardWithTimestamps(
+        id: row["id"],
+        startTimestamp: row["start"] ?? "",
+        endTimestamp: row["end"] ?? "",
+        startTs: row["start_ts"] ?? 0,
+        endTs: row["end_ts"] ?? 0,
+        category: row["category"],
+        subcategory: row["subcategory"],
+        title: row["title"],
+        summary: row["summary"],
+        detailedSummary: row["detailed_summary"],
+        day: row["day"],
+        distractions: distractions,
+        videoSummaryURL: row["video_summary_url"]
+      )
+    }
+  }
+
   func replaceTimelineCardsInRange(
     from: Date, to: Date, with newCards: [TimelineCardShell], batchId: Int64
   ) -> (insertedIds: [Int64], deletedVideoPaths: [String]) {
@@ -2404,7 +2474,8 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let meta = TimelineMetadata(
           distractions: card.distractions,
           appSites: card.appSites,
-          isBackupGenerated: card.isBackupGenerated
+          isBackupGenerated: card.isBackupGenerated,
+          idle: card.idleMetadata
         )
         let metadataString: String? = (try? encoder.encode(meta)).flatMap {
           String(data: $0, encoding: .utf8)
