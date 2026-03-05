@@ -83,7 +83,9 @@ struct SettingsProvidersTabView: View {
 
                     switch viewModel.currentProvider {
                     case "gemini":
-                        TestConnectionView(onTestComplete: { _ in })
+                        TestConnectionView(provider: .gemini, onTestComplete: { _ in })
+                    case "doubao":
+                        TestConnectionView(provider: .doubao, onTestComplete: { _ in })
                     case "ollama":
                         LocalLLMTestView(
                             baseURL: $viewModel.localBaseURL,
