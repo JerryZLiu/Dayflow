@@ -619,6 +619,14 @@ final class GeminiDirectProvider {
       3. Is there a brief unrelated detour (<5 min)? → Log it as a distraction, keep the card going.
       4. Has the focus genuinely shifted for 10+ minutes? → New card.
 
+      **When to merge with a previous card:**
+      1. Is the previous card's main activity the same as what's happening now? (same PR, same feature, same codebase, same article) → Merge.
+      2. Did the person just take a 2–5 minute break (X, messages, YouTube) and come back to the same thing? → That's a distraction, not a new card. Merge.
+      3. Are two adjacent cards both "scrolling X with occasional work check-ins"? → Merge. The vibe didn't change.
+      4. Only start a new card if the CORE INTENT changed for 10+ minutes.
+
+      DEFAULT TO MERGING. Two 15-minute cards about the same work stream should almost never exist. If you're unsure whether to merge or split, merge.
+
       ---
 
       \(promptSections.title)
@@ -678,6 +686,11 @@ final class GeminiDirectProvider {
       - Don't drop time segments that were previously covered.
       - If new observations extend beyond the previous range, add cards to cover the new time.
       - Preserve genuine gaps in the source data.
+
+      Before generating output, review the previous cards and ask:
+      - Could any two adjacent previous cards be the same activity session?
+      - Does your first new card continue the last previous card's work?
+      If yes to either, merge them in your output.
 
       INPUTS:
       Previous cards: \(existingCardsString)
