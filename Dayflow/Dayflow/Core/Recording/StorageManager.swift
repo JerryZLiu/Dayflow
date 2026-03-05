@@ -455,6 +455,168 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
     let appSupport = fileMgr.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     let baseDir = appSupport.appendingPathComponent("Dayflow", isDirectory: true)
+  private enum DatabaseOperationKind: String {
+    case read
+    case write
+  }
+
+  private struct ActiveDatabaseOperation {
+    let id: Int64
+    let kind: DatabaseOperationKind
+    let label: String
+    let startedAt: CFAbsoluteTime
+    let isMainThread: Bool
+    let qos: String
+    var executionStartedAt: CFAbsoluteTime?
+  }
+
+  private struct RecentDatabaseOperation {
+    let kind: DatabaseOperationKind
+    let label: String
+    let completedAt: CFAbsoluteTime
+    let waitMs: Int
+    let execMs: Int
+    let failed: Bool
+    let slow: Bool
+  }
+
+  private struct DatabaseContentionSnapshot {
+    let activeReadCount: Int
+    let activeWriteCount: Int
+    let activeReadLabels: String
+    let activeWriteLabels: String
+    let recentReadLabels: String
+    let recentWriteLabels: String
+  }
+
+  private final class DatabaseContentionTracker {
+    private let lock = NSLock()
+    private var nextID: Int64 = 0
+    private var activeOperations: [Int64: ActiveDatabaseOperation] = [:]
+    private var recentOperations: [RecentDatabaseOperation] = []
+    private let recentLimit = 40
+    private let recentWindowSeconds: CFAbsoluteTime = 10.0
+
+    func begin(kind: DatabaseOperationKind, label: String) -> Int64 {
+      lock.lock()
+      defer { lock.unlock() }
+
+      nextID += 1
+      activeOperations[nextID] = ActiveDatabaseOperation(
+        id: nextID,
+        kind: kind,
+        label: label,
+        startedAt: CFAbsoluteTimeGetCurrent(),
+        isMainThread: Thread.isMainThread,
+        qos: Self.qosLabel(Thread.current.qualityOfService),
+        executionStartedAt: nil
+      )
+      return nextID
+    }
+
+    func markExecutionStarted(id: Int64) {
+      lock.lock()
+      defer { lock.unlock() }
+      guard var operation = activeOperations[id], operation.executionStartedAt == nil else { return }
+      operation.executionStartedAt = CFAbsoluteTimeGetCurrent()
+      activeOperations[id] = operation
+    }
+
+    func complete(
+      id: Int64,
+      waitMs: Double,
+      execMs: Double,
+      failed: Bool,
+      slowThresholdMs: Double
+    ) -> DatabaseContentionSnapshot? {
+      lock.lock()
+      defer { lock.unlock() }
+
+      guard let completed = activeOperations.removeValue(forKey: id) else { return nil }
+
+      let now = CFAbsoluteTimeGetCurrent()
+      let recentOperation = RecentDatabaseOperation(
+        kind: completed.kind,
+        label: completed.label,
+        completedAt: now,
+        waitMs: Int(waitMs.rounded()),
+        execMs: Int(execMs.rounded()),
+        failed: failed,
+        slow: failed || waitMs > slowThresholdMs || execMs > slowThresholdMs
+      )
+      recentOperations.append(recentOperation)
+      if recentOperations.count > recentLimit {
+        recentOperations.removeFirst(recentOperations.count - recentLimit)
+      }
+
+      guard recentOperation.slow else { return nil }
+
+      let activeReads = activeOperations.values
+        .filter { $0.kind == .read }
+        .sorted { $0.startedAt < $1.startedAt }
+      let activeWrites = activeOperations.values
+        .filter { $0.kind == .write }
+        .sorted { $0.startedAt < $1.startedAt }
+
+      let cutoff = now - recentWindowSeconds
+      let recentReads = recentOperations
+        .filter { $0.kind == .read && $0.completedAt >= cutoff }
+        .sorted { $0.completedAt > $1.completedAt }
+      let recentWrites = recentOperations
+        .filter { $0.kind == .write && $0.completedAt >= cutoff }
+        .sorted { $0.completedAt > $1.completedAt }
+
+      return DatabaseContentionSnapshot(
+        activeReadCount: activeReads.count,
+        activeWriteCount: activeWrites.count,
+        activeReadLabels: Self.formatActive(activeReads, now: now),
+        activeWriteLabels: Self.formatActive(activeWrites, now: now),
+        recentReadLabels: Self.formatRecent(recentReads),
+        recentWriteLabels: Self.formatRecent(recentWrites)
+      )
+    }
+
+    fileprivate static func qosLabel(_ qos: QualityOfService) -> String {
+      switch qos {
+      case .userInteractive:
+        return "userInteractive"
+      case .userInitiated:
+        return "userInitiated"
+      case .utility:
+        return "utility"
+      case .background:
+        return "background"
+      case .default:
+        return "default"
+      @unknown default:
+        return "unspecified"
+      }
+    }
+
+    private static func formatActive(_ operations: [ActiveDatabaseOperation], now: CFAbsoluteTime)
+      -> String
+    {
+      guard operations.isEmpty == false else { return "none" }
+
+      return operations.prefix(5).map { operation in
+        let ageMs = Int(((now - operation.startedAt) * 1000).rounded())
+        let stage = operation.executionStartedAt == nil ? "waiting" : "executing"
+        let thread = operation.isMainThread ? "main" : "bg"
+        return "\(operation.label) [\(stage), age_ms=\(ageMs), \(thread), qos=\(operation.qos)]"
+      }.joined(separator: " | ")
+    }
+
+    private static func formatRecent(_ operations: [RecentDatabaseOperation]) -> String {
+      guard operations.isEmpty == false else { return "none" }
+
+      return operations.prefix(5).map { operation in
+        let status = operation.failed ? "failed" : (operation.slow ? "slow" : "ok")
+        return
+          "\(operation.label) [\(status), wait_ms=\(operation.waitMs), exec_ms=\(operation.execMs)]"
+      }.joined(separator: " | ")
+    }
+  }
+
     let recordingsDir = baseDir.appendingPathComponent("recordings", isDirectory: true)
     let backupDir = baseDir.appendingPathComponent("backups", isDirectory: true)
 
@@ -465,9 +627,11 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
     root = recordingsDir
     backupsDir = backupDir
+  private let dbMaxReaderCount = 5
     dbURL = baseDir.appendingPathComponent("chunks.sqlite")
 
     StorageManager.migrateDatabaseLocationIfNeeded(
+  private let dbContentionTracker = DatabaseContentionTracker()
       fileManager: fileMgr,
       legacyRecordingsDir: recordingsDir,
       newDatabaseURL: dbURL
@@ -475,7 +639,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
     // Configure database with WAL mode for better performance and safety
     var config = Configuration()
-    config.maximumReaderCount = 5
+    config.maximumReaderCount = dbMaxReaderCount
     config.prepareDatabase { db in
       if !db.configuration.readonly {
         try db.execute(sql: "PRAGMA journal_mode = WAL")
@@ -546,6 +710,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         print("⚠️ SLOW WRITE [\(label)]: wait=\(Int(waitMs))ms exec=\(Int(execMs))ms")
 
         let slowWriteBreadcrumb = Breadcrumb(level: .warning, category: "database")
+    let operationID = dbContentionTracker.begin(kind: .write, label: label)
         slowWriteBreadcrumb.message = "SLOW DB write: \(label)"
         slowWriteBreadcrumb.data = [
           "duration_ms": Int((waitMs + execMs).rounded()),
@@ -554,6 +719,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         ]
         slowWriteBreadcrumb.type = "error"
         SentryHelper.addBreadcrumb(slowWriteBreadcrumb)
+        dbContentionTracker.markExecutionStarted(id: operationID)
       }
 
       return result
@@ -561,6 +727,13 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
       if execStart == 0 {
         execStart = CFAbsoluteTimeGetCurrent()
       }
+      let contentionSnapshot = dbContentionTracker.complete(
+        id: operationID,
+        waitMs: waitMs,
+        execMs: execMs,
+        failed: false,
+        slowThresholdMs: slowThresholdMs
+      )
       if execEnd == 0 {
         execEnd = CFAbsoluteTimeGetCurrent()
       }
@@ -571,6 +744,15 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
       slowWriteBreadcrumb.message = "FAILED DB write: \(label)"
       slowWriteBreadcrumb.data = [
         "wait_ms": Int(waitMs.rounded()),
+          "caller_thread": Thread.isMainThread ? "main" : "background",
+          "caller_qos": DatabaseContentionTracker.qosLabel(Thread.current.qualityOfService),
+          "pool_max_readers": dbMaxReaderCount,
+          "active_reads": contentionSnapshot?.activeReadCount ?? 0,
+          "active_writes": contentionSnapshot?.activeWriteCount ?? 0,
+          "active_read_labels": contentionSnapshot?.activeReadLabels ?? "none",
+          "active_write_labels": contentionSnapshot?.activeWriteLabels ?? "none",
+          "recent_read_labels": contentionSnapshot?.recentReadLabels ?? "none",
+          "recent_write_labels": contentionSnapshot?.recentWriteLabels ?? "none",
         "exec_ms": Int(execMs.rounded()),
         "error": "\(error)",
       ]
@@ -586,6 +768,13 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     var execEnd: CFAbsoluteTime = 0
 
     let readBreadcrumb = Breadcrumb(level: .debug, category: "database")
+      let contentionSnapshot = dbContentionTracker.complete(
+        id: operationID,
+        waitMs: waitMs,
+        execMs: execMs,
+        failed: true,
+        slowThresholdMs: slowThresholdMs
+      )
     readBreadcrumb.message = "DB read: \(label)"
     readBreadcrumb.type = "debug"
     SentryHelper.addBreadcrumb(readBreadcrumb)
@@ -593,6 +782,15 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     do {
       let result = try db.read { db in
         execStart = CFAbsoluteTimeGetCurrent()
+        "caller_thread": Thread.isMainThread ? "main" : "background",
+        "caller_qos": DatabaseContentionTracker.qosLabel(Thread.current.qualityOfService),
+        "pool_max_readers": dbMaxReaderCount,
+        "active_reads": contentionSnapshot?.activeReadCount ?? 0,
+        "active_writes": contentionSnapshot?.activeWriteCount ?? 0,
+        "active_read_labels": contentionSnapshot?.activeReadLabels ?? "none",
+        "active_write_labels": contentionSnapshot?.activeWriteLabels ?? "none",
+        "recent_read_labels": contentionSnapshot?.recentReadLabels ?? "none",
+        "recent_write_labels": contentionSnapshot?.recentWriteLabels ?? "none",
         defer { execEnd = CFAbsoluteTimeGetCurrent() }
         return try block(db)
       }
@@ -604,6 +802,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         print("⚠️ SLOW READ [\(label)]: wait=\(Int(waitMs))ms exec=\(Int(execMs))ms")
 
         let slowReadBreadcrumb = Breadcrumb(level: .warning, category: "database")
+    let operationID = dbContentionTracker.begin(kind: .read, label: label)
         slowReadBreadcrumb.message = "SLOW DB read: \(label)"
         slowReadBreadcrumb.data = [
           "duration_ms": Int((waitMs + execMs).rounded()),
@@ -612,6 +811,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         ]
         slowReadBreadcrumb.type = "error"
         SentryHelper.addBreadcrumb(slowReadBreadcrumb)
+        dbContentionTracker.markExecutionStarted(id: operationID)
       }
 
       return result
@@ -619,6 +819,13 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
       if execStart == 0 {
         execStart = CFAbsoluteTimeGetCurrent()
       }
+      let contentionSnapshot = dbContentionTracker.complete(
+        id: operationID,
+        waitMs: waitMs,
+        execMs: execMs,
+        failed: false,
+        slowThresholdMs: slowThresholdMs
+      )
       if execEnd == 0 {
         execEnd = CFAbsoluteTimeGetCurrent()
       }
@@ -629,6 +836,15 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
       slowReadBreadcrumb.message = "FAILED DB read: \(label)"
       slowReadBreadcrumb.data = [
         "wait_ms": Int(waitMs.rounded()),
+          "caller_thread": Thread.isMainThread ? "main" : "background",
+          "caller_qos": DatabaseContentionTracker.qosLabel(Thread.current.qualityOfService),
+          "pool_max_readers": dbMaxReaderCount,
+          "active_reads": contentionSnapshot?.activeReadCount ?? 0,
+          "active_writes": contentionSnapshot?.activeWriteCount ?? 0,
+          "active_read_labels": contentionSnapshot?.activeReadLabels ?? "none",
+          "active_write_labels": contentionSnapshot?.activeWriteLabels ?? "none",
+          "recent_read_labels": contentionSnapshot?.recentReadLabels ?? "none",
+          "recent_write_labels": contentionSnapshot?.recentWriteLabels ?? "none",
         "exec_ms": Int(execMs.rounded()),
         "error": "\(error)",
       ]
@@ -644,6 +860,13 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
       try db.execute(
         sql: """
               -- Chunks table: stores video recording segments
+      let contentionSnapshot = dbContentionTracker.complete(
+        id: operationID,
+        waitMs: waitMs,
+        execMs: execMs,
+        failed: true,
+        slowThresholdMs: slowThresholdMs
+      )
               CREATE TABLE IF NOT EXISTS chunks (
                   id INTEGER PRIMARY KEY AUTOINCREMENT,
                   start_ts INTEGER NOT NULL,
@@ -651,6 +874,15 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                   file_url TEXT NOT NULL,
                   status TEXT NOT NULL DEFAULT 'recording',
                   is_deleted INTEGER DEFAULT 0
+        "caller_thread": Thread.isMainThread ? "main" : "background",
+        "caller_qos": DatabaseContentionTracker.qosLabel(Thread.current.qualityOfService),
+        "pool_max_readers": dbMaxReaderCount,
+        "active_reads": contentionSnapshot?.activeReadCount ?? 0,
+        "active_writes": contentionSnapshot?.activeWriteCount ?? 0,
+        "active_read_labels": contentionSnapshot?.activeReadLabels ?? "none",
+        "active_write_labels": contentionSnapshot?.activeWriteLabels ?? "none",
+        "recent_read_labels": contentionSnapshot?.recentReadLabels ?? "none",
+        "recent_write_labels": contentionSnapshot?.recentWriteLabels ?? "none",
               );
               CREATE INDEX IF NOT EXISTS idx_chunks_status ON chunks(status);
               CREATE INDEX IF NOT EXISTS idx_chunks_start_ts ON chunks(start_ts);
