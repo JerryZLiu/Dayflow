@@ -15,6 +15,12 @@ private let chatViewDebugTimestampFormatter: DateFormatter = {
   return formatter
 }()
 
+private let chatViewMemoryUpdatedFormatter: DateFormatter = {
+  let formatter = DateFormatter()
+  formatter.dateFormat = "MMM d, h:mm a"
+  return formatter
+}()
+
 struct ChatView: View {
   @ObservedObject private var chatService = ChatService.shared
   @State private var inputText = ""
@@ -22,23 +28,38 @@ struct ChatView: View {
   @State private var isInputFocused = false
   @State private var composerFocusToken = 0
   @Namespace private var bottomID
-  @AppStorage("chatCLIPreferredTool") private var selectedTool: String = "codex"
+  @AppStorage("dashboardChatProvider") private var selectedProviderRaw: String = "gemini"
+  @AppStorage("chatCLIPreferredTool") private var chatCLIPreferredTool: String = "codex"
   @AppStorage("hasChatBetaAccepted") private var hasBetaAccepted: Bool = false
-  @State private var cliDetected = false
+  @State private var geminiConfigured = false
+  @State private var codexDetected = false
+  @State private var claudeDetected = false
   @State private var cliDetectionTask: Task<Void, Never>?
   @State private var didCheckCLI = false
   @State private var showToolSwitchConfirm = false
-  @State private var pendingToolSelection: String?
+  @State private var pendingProviderSelection: DashboardChatProvider?
   @State private var conversationId: UUID?
   @State private var didAnimateWelcome = false
+  @State private var showMemoryPanel = false
+  @State private var memoryDraft = ""
+  @State private var storedMemoryBlob = ""
+  @State private var memoryUpdatedAt: Date?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  private var selectedProvider: DashboardChatProvider {
+    DashboardChatProvider.fromStoredValue(selectedProviderRaw)
+  }
 
   private var isUnlocked: Bool {
     hasBetaAccepted
   }
 
-  private var cliEnabled: Bool {
-    hasBetaAccepted || cliDetected
+  private var anyRuntimeAvailable: Bool {
+    geminiConfigured || codexDetected || claudeDetected
+  }
+
+  private var selectedProviderAvailable: Bool {
+    isProviderAvailable(selectedProvider)
   }
 
   private var welcomePrompts: [WelcomePrompt] {
@@ -46,9 +67,9 @@ struct ChatView: View {
       WelcomePrompt(icon: "doc.text", text: "Generate standup notes for yesterday"),
       WelcomePrompt(icon: "checkmark.seal", text: "What did I get done last week?"),
       WelcomePrompt(
-        icon: "exclamationmark.bubble", text: "What distracted me the most this past week?"),
+        icon: "exclamationmark.bubble", text: "When was I most focused this week"),
       WelcomePrompt(
-        icon: "sparkles", text: "Pull my data from the last week and tell me something interesting"),
+        icon: "sparkles", text: "Compare this week to last week"),
     ]
   }
 
@@ -72,7 +93,7 @@ struct ChatView: View {
   }
 
   private var canSubmitCurrentInput: Bool {
-    !chatService.isProcessing && !trimmedInputText.isEmpty
+    !chatService.isProcessing && !trimmedInputText.isEmpty && selectedProviderAvailable
   }
 
   private var composerBorderColor: Color {
@@ -82,11 +103,27 @@ struct ChatView: View {
     return Color(hex: "E5D8CA")
   }
 
+  private var memoryCharacterCount: Int {
+    memoryDraft.count
+  }
+
+  private var isMemoryDirty: Bool {
+    memoryDraft != storedMemoryBlob
+  }
+
+  private var memoryUpdatedLabel: String {
+    guard let memoryUpdatedAt else { return "Not saved yet" }
+    return chatViewMemoryUpdatedFormatter.string(from: memoryUpdatedAt)
+  }
+
   var body: some View {
     ZStack {
       if isUnlocked {
         HStack(spacing: 0) {
           chatContent
+          if showMemoryPanel {
+            memoryPanel
+          }
           if chatService.showDebugPanel {
             debugPanel
           }
@@ -100,23 +137,30 @@ struct ChatView: View {
     .task {
       guard !didCheckCLI else { return }
       didCheckCLI = true
-      guard !hasBetaAccepted else { return }
-      await detectCLIInstallation()
+      await refreshRuntimeAvailability()
+    }
+    .onAppear {
+      loadMemoryFromStore(resetDraft: true)
+      Task { await refreshRuntimeAvailability() }
     }
     .onDisappear {
       cliDetectionTask?.cancel()
       cliDetectionTask = nil
     }
-    .alert("Switch model?", isPresented: $showToolSwitchConfirm) {
+    .onChange(of: chatService.messages.count) { _, _ in
+      syncMemoryFromStoreIfNeeded()
+    }
+    .alert("Switch provider?", isPresented: $showToolSwitchConfirm) {
       Button("Switch and Reset", role: .destructive) {
-        confirmToolSwitch()
+        confirmProviderSwitch()
       }
       Button("Cancel", role: .cancel) {
-        pendingToolSelection = nil
+        pendingProviderSelection = nil
       }
     } message: {
-      Text("Switching to \(pendingToolLabel) will clear this chat's context.")
+      Text("Switching to \(pendingProviderLabel) will clear this chat's context.")
     }
+    .environment(\.colorScheme, .light)
   }
 
   private var chatContent: some View {
@@ -156,6 +200,23 @@ struct ChatView: View {
         }
         .buttonStyle(.plain)
         .help("Toggle debug panel")
+        .pointingHandCursor()
+
+        Button(
+          action: {
+            showMemoryPanel.toggle()
+            if showMemoryPanel {
+              syncMemoryFromStoreIfNeeded()
+              AnalyticsService.shared.capture("chat_memory_panel_opened")
+            }
+          }
+        ) {
+          Image(systemName: showMemoryPanel ? "brain.head.profile.fill" : "brain.head.profile")
+            .font(.system(size: 14))
+            .foregroundColor(showMemoryPanel ? Color(hex: "F96E00") : Color(hex: "999999"))
+        }
+        .buttonStyle(.plain)
+        .help("Toggle memory panel")
         .pointingHandCursor()
       }
       .padding(.trailing, 12)
@@ -294,6 +355,88 @@ struct ChatView: View {
     )
   }
 
+  // MARK: - Memory Panel
+
+  private var memoryPanel: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack {
+        Text("Memory")
+          .font(.custom("Nunito", size: 12).weight(.bold))
+          .foregroundColor(Color(hex: "666666"))
+        Spacer()
+        Text("\(memoryCharacterCount)/\(DashboardChatMemoryStore.maxCharacters)")
+          .font(.custom("Nunito", size: 11))
+          .foregroundColor(Color(hex: "999999"))
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 8)
+      .background(Color(hex: "F5F5F5"))
+
+      Divider()
+
+      VStack(alignment: .leading, spacing: 8) {
+        Text("Auto-updated from assistant replies. You can edit this manually.")
+          .font(.custom("Nunito", size: 11))
+          .foregroundColor(Color(hex: "8A8A8A"))
+
+        TextEditor(text: $memoryDraft)
+          .font(.custom("Nunito", size: 12))
+          .padding(8)
+          .background(Color(hex: "FFFCF8"))
+          .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+          .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+              .stroke(Color(hex: "E7DDD1"), lineWidth: 1)
+          )
+          .onChange(of: memoryDraft) { _, newValue in
+            guard newValue.count > DashboardChatMemoryStore.maxCharacters else { return }
+            memoryDraft = String(newValue.prefix(DashboardChatMemoryStore.maxCharacters))
+          }
+
+        HStack {
+          Text("Last updated: \(memoryUpdatedLabel)")
+            .font(.custom("Nunito", size: 10))
+            .foregroundColor(Color(hex: "999999"))
+          Spacer()
+        }
+
+        HStack(spacing: 8) {
+          Button("Save") { saveMemoryDraft() }
+            .buttonStyle(.plain)
+            .font(.custom("Nunito", size: 11).weight(.bold))
+            .foregroundColor(isMemoryDirty ? Color(hex: "F96E00") : Color(hex: "999999"))
+            .disabled(!isMemoryDirty)
+            .pointingHandCursor()
+
+          Button("Reload") { reloadMemoryDraft() }
+            .buttonStyle(.plain)
+            .font(.custom("Nunito", size: 11).weight(.bold))
+            .foregroundColor(isMemoryDirty ? Color(hex: "555555") : Color(hex: "AAAAAA"))
+            .disabled(!isMemoryDirty)
+            .pointingHandCursor()
+
+          Spacer()
+
+          Button("Clear") { clearMemoryDraft() }
+            .buttonStyle(.plain)
+            .font(.custom("Nunito", size: 11).weight(.bold))
+            .foregroundColor(storedMemoryBlob.isEmpty ? Color(hex: "AAAAAA") : Color(hex: "C85A4B"))
+            .disabled(storedMemoryBlob.isEmpty)
+            .pointingHandCursor()
+        }
+      }
+      .padding(12)
+    }
+    .frame(width: 360)
+    .background(Color.white)
+    .overlay(
+      Rectangle()
+        .fill(Color(hex: "E0E0E0"))
+        .frame(width: 1),
+      alignment: .leading
+    )
+  }
+
   // MARK: - Welcome View
 
   private var welcomeView: some View {
@@ -331,13 +474,17 @@ struct ChatView: View {
             .frame(width: 42, height: 42)
 
             VStack(alignment: .leading, spacing: 2) {
-              Text("Ask about your day")
+              Text("Ask about your Dayflow data")
                 .font(.custom("InstrumentSerif-Regular", size: 30))
                 .foregroundColor(Color(hex: "2F2A24"))
 
-              Text("Turn your timeline into instant answers.")
+              Text("Ask questions, analyze your timeline, and generate charts/graphs.")
                 .font(.custom("Nunito", size: 13).weight(.semibold))
                 .foregroundColor(Color(hex: "7D6B5B"))
+
+              Text("I remember your response preferences, so feel free to teach me your style.")
+                .font(.custom("Nunito", size: 12))
+                .foregroundColor(Color(hex: "8A7765"))
             }
 
             Spacer(minLength: 0)
@@ -422,33 +569,33 @@ struct ChatView: View {
 
       // Main content card
       VStack(spacing: 16) {
-        // CLI requirement section
+        // Runtime requirement section
         VStack(spacing: 12) {
-          Image(systemName: cliDetected ? "checkmark.circle.fill" : "terminal")
+          Image(systemName: anyRuntimeAvailable ? "checkmark.circle.fill" : "bolt.horizontal.circle")
             .font(.system(size: 32))
-            .foregroundColor(cliDetected ? Color(hex: "34C759") : Color(hex: "F98D3D"))
+            .foregroundColor(anyRuntimeAvailable ? Color(hex: "34C759") : Color(hex: "F98D3D"))
             .contentTransition(.symbolEffect(.replace))
-            .animation(.easeOut(duration: 0.2), value: cliDetected)
+            .animation(.easeOut(duration: 0.2), value: anyRuntimeAvailable)
 
-          if cliDetected {
-            Text("Claude or Codex CLI detected")
+          if anyRuntimeAvailable {
+            Text("Gemini key or CLI runtime detected")
               .font(.custom("Nunito-SemiBold", size: 15))
               .foregroundColor(Color(hex: "34C759"))
               .transition(.opacity.combined(with: .scale(scale: 0.95)))
           } else {
-            Text("Claude or Codex CLI required")
+            Text("Gemini API key or CLI required")
               .font(.custom("Nunito-SemiBold", size: 15))
               .foregroundColor(Color(hex: "593D2A"))
 
             Text(
-              "It's currently only available to users using Claude or Codex CLI to power Dayflow."
+              "Unlock chat by either adding a Gemini API key in Settings or installing Codex/Claude CLI."
             )
             .font(.custom("Nunito-Regular", size: 13))
             .foregroundColor(Color(hex: "593D2A").opacity(0.8))
             .multilineTextAlignment(.center)
           }
         }
-        .animation(.easeOut(duration: 0.25), value: cliDetected)
+        .animation(.easeOut(duration: 0.25), value: anyRuntimeAvailable)
 
         // Continue button
         Button(action: {
@@ -456,15 +603,15 @@ struct ChatView: View {
             hasBetaAccepted = true
           }
         }) {
-          Text(cliDetected ? "Unlock Beta" : "Install CLI to continue")
+          Text(anyRuntimeAvailable ? "Unlock Beta" : "Configure a runtime to continue")
             .font(.custom("Nunito-SemiBold", size: 15))
-            .foregroundColor(cliDetected ? Color(hex: "593D2A") : Color(hex: "999999"))
+            .foregroundColor(anyRuntimeAvailable ? Color(hex: "593D2A") : Color(hex: "999999"))
             .padding(.horizontal, 28)
             .padding(.vertical, 12)
             .background(
               Capsule()
                 .fill(
-                  cliDetected
+                  anyRuntimeAvailable
                     ? LinearGradient(
                       colors: [
                         Color(hex: "FFF4E9"),
@@ -485,14 +632,14 @@ struct ChatView: View {
                 .overlay(
                   Capsule()
                     .stroke(
-                      cliDetected ? Color(hex: "E8C9A8") : Color(hex: "D0D0D0"),
+                      anyRuntimeAvailable ? Color(hex: "E8C9A8") : Color(hex: "D0D0D0"),
                       lineWidth: 1
                     )
                 )
             )
         }
-        .buttonStyle(BetaButtonStyle(isEnabled: cliDetected))
-        .disabled(!cliDetected)
+        .buttonStyle(BetaButtonStyle(isEnabled: anyRuntimeAvailable))
+        .disabled(!anyRuntimeAvailable)
       }
       .padding(20)
       .background(
@@ -535,7 +682,7 @@ struct ChatView: View {
         text: $inputText,
         isFocused: $isInputFocused,
         focusToken: composerFocusToken,
-        placeholder: "Ask about your day...",
+        placeholder: "Ask about your Dayflow data...",
         onSubmit: submitCurrentInputIfAllowed
       )
       .frame(height: 50, alignment: .leading)
@@ -646,18 +793,25 @@ struct ChatView: View {
   private var providerToggle: some View {
     HStack(spacing: 6) {
       ProviderTogglePill(
-        title: "Codex",
-        isSelected: selectedTool == "codex",
-        isEnabled: cliEnabled
+        title: "Gemini",
+        isSelected: selectedProvider == .gemini,
+        isEnabled: isProviderAvailable(.gemini)
       ) {
-        handleToolSelection("codex")
+        handleProviderSelection(.gemini)
+      }
+      ProviderTogglePill(
+        title: "Codex",
+        isSelected: selectedProvider == .codex,
+        isEnabled: isProviderAvailable(.codex)
+      ) {
+        handleProviderSelection(.codex)
       }
       ProviderTogglePill(
         title: "Claude",
-        isSelected: selectedTool == "claude",
-        isEnabled: cliEnabled
+        isSelected: selectedProvider == .claude,
+        isEnabled: isProviderAvailable(.claude)
       ) {
-        handleToolSelection("claude")
+        handleProviderSelection(.claude)
       }
     }
     .padding(4)
@@ -669,9 +823,7 @@ struct ChatView: View {
       RoundedRectangle(cornerRadius: 11, style: .continuous)
         .stroke(Color(hex: "E4D6C8"), lineWidth: 1)
     )
-    .opacity(cliEnabled ? 1.0 : 0.6)
-    .help(cliEnabled ? "Choose CLI provider" : "Install Codex or Claude CLI to enable")
-    .allowsHitTesting(cliEnabled)
+    .help(providerToggleHelpText)
   }
 
   private var statusInsertionIndex: Int? {
@@ -710,6 +862,7 @@ struct ChatView: View {
 
   private func sendMessage(_ text: String) {
     guard !chatService.isProcessing else { return }
+    guard selectedProviderAvailable else { return }
     let messageText = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !messageText.isEmpty else { return }
     inputText = ""
@@ -731,11 +884,12 @@ struct ChatView: View {
         "conversation_id": conversationId?.uuidString ?? "unknown",
         "is_new_conversation": isNewConversation,
         "message_index": messageIndex,
-        "provider": selectedTool,
+        "provider": selectedProvider.analyticsProvider,
+        "chat_runtime": selectedProvider.runtimeLabel,
       ])
 
     Task {
-      await chatService.sendMessage(messageText)
+      await chatService.sendMessage(messageText, provider: selectedProvider)
     }
   }
 
@@ -753,46 +907,142 @@ struct ChatView: View {
     NSPasteboard.general.setString(text, forType: .string)
   }
 
-  private func detectCLIInstallation() async {
-    cliDetectionTask?.cancel()
-    cliDetectionTask = Task { @MainActor in
-      let installed = await Task.detached(priority: .utility) {
-        CLIDetector.isInstalled(.codex) || CLIDetector.isInstalled(.claude)
-      }.value
-
-      guard !Task.isCancelled else { return }
-      cliDetected = installed
+  private func loadMemoryFromStore(resetDraft: Bool) {
+    let latest = DashboardChatMemoryStore.load()
+    storedMemoryBlob = latest
+    memoryUpdatedAt = DashboardChatMemoryStore.lastUpdatedAt()
+    if resetDraft {
+      memoryDraft = latest
     }
   }
 
-  private func handleToolSelection(_ tool: String) {
-    guard tool != selectedTool else { return }
+  private func syncMemoryFromStoreIfNeeded() {
+    if isMemoryDirty {
+      storedMemoryBlob = DashboardChatMemoryStore.load()
+      memoryUpdatedAt = DashboardChatMemoryStore.lastUpdatedAt()
+      return
+    }
+    loadMemoryFromStore(resetDraft: true)
+  }
+
+  private func saveMemoryDraft() {
+    DashboardChatMemoryStore.save(memoryDraft)
+    loadMemoryFromStore(resetDraft: true)
+    AnalyticsService.shared.capture(
+      "chat_memory_manual_saved",
+      [
+        "chars": storedMemoryBlob.count,
+      ])
+  }
+
+  private func reloadMemoryDraft() {
+    loadMemoryFromStore(resetDraft: true)
+  }
+
+  private func clearMemoryDraft() {
+    DashboardChatMemoryStore.clear()
+    loadMemoryFromStore(resetDraft: true)
+    AnalyticsService.shared.capture("chat_memory_cleared")
+  }
+
+  private func refreshRuntimeAvailability() async {
+    cliDetectionTask?.cancel()
+    cliDetectionTask = Task { @MainActor in
+      let detection = await Task.detached(priority: .utility) {
+        (
+          CLIDetector.isInstalled(.codex),
+          CLIDetector.isInstalled(.claude)
+        )
+      }.value
+
+      guard !Task.isCancelled else { return }
+      codexDetected = detection.0
+      claudeDetected = detection.1
+      geminiConfigured = isGeminiConfigured()
+      normalizeSelectedProviderIfNeeded()
+    }
+  }
+
+  private func handleProviderSelection(_ provider: DashboardChatProvider) {
+    guard provider != selectedProvider else { return }
+    guard isProviderAvailable(provider) else { return }
     guard !chatService.isProcessing else { return }
 
     if chatService.messages.isEmpty {
       resetConversation()
-      selectedTool = tool
+      applySelectedProvider(provider)
       return
     }
 
-    pendingToolSelection = tool
+    pendingProviderSelection = provider
     showToolSwitchConfirm = true
   }
 
-  private func confirmToolSwitch() {
-    guard let pendingToolSelection else { return }
+  private func confirmProviderSwitch() {
+    guard let pendingProviderSelection else { return }
     resetConversation()
-    selectedTool = pendingToolSelection
-    self.pendingToolSelection = nil
+    applySelectedProvider(pendingProviderSelection)
+    self.pendingProviderSelection = nil
   }
 
-  private var pendingToolLabel: String {
-    switch pendingToolSelection {
-    case "claude":
-      return "Claude"
-    default:
-      return "Codex"
+  private func applySelectedProvider(_ provider: DashboardChatProvider) {
+    selectedProviderRaw = provider.rawValue
+    switch provider {
+    case .gemini:
+      break
+    case .codex:
+      chatCLIPreferredTool = "codex"
+    case .claude:
+      chatCLIPreferredTool = "claude"
     }
+  }
+
+  private func isProviderAvailable(_ provider: DashboardChatProvider) -> Bool {
+    switch provider {
+    case .gemini:
+      return geminiConfigured
+    case .codex:
+      return codexDetected
+    case .claude:
+      return claudeDetected
+    }
+  }
+
+  private func normalizeSelectedProviderIfNeeded() {
+    guard !isProviderAvailable(selectedProvider) else { return }
+    if geminiConfigured {
+      applySelectedProvider(.gemini)
+    } else if codexDetected {
+      applySelectedProvider(.codex)
+    } else if claudeDetected {
+      applySelectedProvider(.claude)
+    }
+  }
+
+  private func isGeminiConfigured() -> Bool {
+    let key = KeychainManager.shared.retrieve(for: "gemini")?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return !key.isEmpty
+  }
+
+  private var pendingProviderLabel: String {
+    switch pendingProviderSelection {
+    case .gemini:
+      return "Gemini"
+    case .claude:
+      return "Claude"
+    case .codex:
+      return "Codex"
+    case .none:
+      return "selected provider"
+    }
+  }
+
+  private var providerToggleHelpText: String {
+    if selectedProviderAvailable {
+      return "Choose chat provider"
+    }
+    return "Configure Gemini key or install Codex/Claude CLI"
   }
 }
 
@@ -857,26 +1107,16 @@ private struct MessageBubble: View {
   }
 
   private func renderMarkdownLines(_ content: String) -> some View {
-    // Convert markdown bullets to bullet characters for display
-    let normalized =
-      content
-      .replacingOccurrences(of: "\r\n", with: "\n")
-      .replacingOccurrences(of: "\n- ", with: "\n• ")
-
-    let processed =
-      normalized.hasPrefix("- ")
-      ? "• " + String(normalized.dropFirst(2))
-      : normalized
-
+    let normalized = normalizeMarkdownForDisplay(content)
     let options = AttributedString.MarkdownParsingOptions(
       interpretedSyntax: .inlineOnlyPreservingWhitespace
     )
 
     let displayText: Text
-    if let parsed = try? AttributedString(markdown: processed, options: options) {
+    if let parsed = try? AttributedString(markdown: normalized, options: options) {
       displayText = Text(parsed)
     } else {
-      displayText = Text(processed)
+      displayText = Text(normalized)
     }
 
     return
@@ -885,6 +1125,12 @@ private struct MessageBubble: View {
       .foregroundColor(Color(hex: "333333"))
       .textSelection(.enabled)
       .fixedSize(horizontal: false, vertical: true)
+  }
+
+  private func normalizeMarkdownForDisplay(_ content: String) -> String {
+    content
+      .replacingOccurrences(of: "\r\n", with: "\n")
+      .replacingOccurrences(of: "\r", with: "\n")
   }
 
   private func handleAssistantLinkTap(_ url: URL) -> OpenURLAction.Result {
@@ -1042,7 +1288,7 @@ private enum ChatChartSpec: Identifiable {
           categories: payload.x,
           series: series
         ))
-    case "donut":
+    case "donut", "pie":
       guard let payload = try? JSONDecoder().decode(DonutPayload.self, from: data) else {
         return nil
       }
@@ -1221,7 +1467,7 @@ private struct GanttChartSpec: Identifiable {
 private struct ChatContentParser {
   static func blocks(from text: String) -> [ChatContentBlock] {
     let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-    let pattern = "```chart\\s+type\\s*=\\s*(\\w+)\\s*\\n([\\s\\S]*?)\\n```"
+    let pattern = "```chart\\s+type\\s*=\\s*([A-Za-z_]+)\\s*\\n?([\\s\\S]*?)\\n?```"
     guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
       return [.text(id: UUID(), content: text)]
     }
@@ -1874,6 +2120,12 @@ private struct AppKitComposerTextField: NSViewRepresentable {
       context.coordinator.lastFocusToken = focusToken
       DispatchQueue.main.async {
         nsView.window?.makeFirstResponder(nsView)
+        if let editor = nsView.currentEditor() as? NSTextView {
+          let end = (nsView.stringValue as NSString).length
+          let insertion = NSRange(location: end, length: 0)
+          editor.setSelectedRange(insertion)
+          editor.scrollRangeToVisible(insertion)
+        }
       }
     }
 

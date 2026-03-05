@@ -74,6 +74,11 @@ This document lists manual events, properties, and code locations. All events re
   - props: `timeline_day: yyyy-MM-dd`, `activity_count: int`
   - file: Views/UI/MainView.swift
 
+## Dashboard Chat
+- chat_question_asked
+  - props: `question: string`, `conversation_id: uuid`, `is_new_conversation: bool`, `message_index: int`, `provider: gemini|codex|claude`, `chat_runtime: gemini_function_calling|chat_cli`
+  - file: Views/UI/ChatView.swift
+
 ## Video
 - video_modal_opened
   - props: `source: activity_card|unknown`, `duration_bucket: string`
