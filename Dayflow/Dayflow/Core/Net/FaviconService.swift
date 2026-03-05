@@ -7,6 +7,10 @@ final class FaviconService {
   private let cache = NSCache<NSString, NSImage>()
   private var inFlight: [String: Task<NSImage?, Never>] = [:]
   private let inFlightLock = NSLock()
+  private let hostAliases: [String: String] = [
+    "codex.com": "chatgpt.com",
+    "codex.so": "chatgpt.com",
+  ]
 
   // MARK: - Hardcoded Favicon Overrides
   // Pattern-based matching (uses contains) - checked before network fetch
@@ -152,14 +156,16 @@ final class FaviconService {
   }
 
   private func fetchHost(_ host: String) async -> NSImage? {
+    let resolvedHost = resolvedHostAlias(for: host)
+
     // Pattern matching already done in fetchFavicon() — go straight to cache/network
-    let key = host as NSString
+    let key = resolvedHost as NSString
     if let cached = cache.object(forKey: key) {
       return cached
     }
 
     // Deduplicate concurrent requests for the same host
-    if let existing = existingTask(for: host) {
+    if let existing = existingTask(for: resolvedHost) {
       if let img = await existing.value {
         cache.setObject(img, forKey: key)
       }
@@ -169,11 +175,11 @@ final class FaviconService {
     // Create a new task for this host and store it in-flight
     let task = Task<NSImage?, Never> { [weak self] in
       guard let self = self else { return nil }
-      defer { self.removeTask(for: host) }
+      defer { self.removeTask(for: resolvedHost) }
 
       // Race Google S2 with direct site favicon (slight head-start to S2)
-      let siteURL = self.buildSiteFaviconURL(for: host)
-      let s2URL = self.buildS2URL(for: host)
+      let siteURL = self.buildSiteFaviconURL(for: resolvedHost)
+      let s2URL = self.buildS2URL(for: resolvedHost)
 
       let result = await withTaskGroup(of: NSImage?.self) { group -> NSImage? in
         // Aggregator fetch first (preferred default)
@@ -200,13 +206,17 @@ final class FaviconService {
         self.cache.setObject(result, forKey: key)
       } else {
         // Both S2 and direct fetch failed — log to PostHog for visibility
-        AnalyticsService.shared.capture("favicon_fetch_failed", ["host": host])
+        AnalyticsService.shared.capture("favicon_fetch_failed", ["host": resolvedHost])
       }
       return result
     }
 
-    storeTask(task, for: host)
+    storeTask(task, for: resolvedHost)
     return await task.value
+  }
+
+  private func resolvedHostAlias(for host: String) -> String {
+    hostAliases[host.lowercased()] ?? host
   }
 
   private func buildS2URL(for host: String) -> URL? {
