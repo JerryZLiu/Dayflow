@@ -576,7 +576,7 @@ final class ChatService: ObservableObject {
       ```
 
       RULES:
-      - Allowed chart types: bar, line, stacked_bar
+      - Allowed chart types: bar, line, stacked_bar, donut, heatmap, gantt
       - JSON must be valid (double quotes, no trailing commas)
       - x and y must be arrays of the same length
       - Use numbers only for y values
@@ -657,6 +657,7 @@ final class ChatService: ObservableObject {
       lastUpdated: Date()
     )
   }
+      - For donut charts use `type=donut` (not `pie`)
 
   private func updateWorkStatus(_ update: (inout ChatWorkStatus) -> Void) {
     guard var status = workStatus else { return }
