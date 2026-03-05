@@ -2365,4 +2365,1114 @@ final class GeminiDirectProvider {
       batchId: batchId
     )
   }
+
+  // MARK: - Dashboard Chat (Gemini function calling)
+
+  private static let dashboardChatModel = "gemini-3.1-flash-lite-preview"
+  private static let dashboardChatMaxToolRounds = 20
+  private static let dashboardChatTimelinePayloadSoftLimitBytes = 800_000
+  private var dashboardGenerateEndpoint: String {
+    "https://generativelanguage.googleapis.com/v1beta/models/\(Self.dashboardChatModel):generateContent"
+  }
+
+  private var dashboardStreamEndpoint: String {
+    "https://generativelanguage.googleapis.com/v1beta/models/\(Self.dashboardChatModel):streamGenerateContent"
+  }
+
+  private struct DashboardFunctionCall {
+    let name: String
+    let args: [String: Any]
+  }
+
+  private struct DashboardTurnResult {
+    let text: String
+    let functionCalls: [DashboardFunctionCall]
+    let modelFunctionCallParts: [[String: Any]]
+  }
+
+  private enum DashboardToolName: String {
+    case fetchTimeline
+    case fetchObservations
+  }
+
+  private enum DashboardToolArgError: Error, LocalizedError {
+    case invalidCombination
+    case invalidDate(String)
+    case invalidRange
+
+    var errorDescription: String? {
+      switch self {
+      case .invalidCombination:
+        return "Provide either {date} OR {startDate, endDate}."
+      case .invalidDate(let value):
+        return "Invalid date format '\(value)'. Use YYYY-MM-DD."
+      case .invalidRange:
+        return "startDate must be less than or equal to endDate."
+      }
+    }
+  }
+
+  private struct DashboardDateRange {
+    let mode: String
+    let date: String?
+    let startDate: String?
+    let endDate: String?
+    let from: Date
+    let to: Date
+  }
+
+  private var dashboardDateFormatter: DateFormatter {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone.current
+    return formatter
+  }
+
+  private var dashboardTimeFormatter: DateFormatter {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "h:mm a"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone.current
+    return formatter
+  }
+
+  private var dashboardSingleDateDisplayFormatter: DateFormatter {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "EEE, MMM d"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone.current
+    return formatter
+  }
+
+  private var dashboardRangeDateDisplayFormatter: DateFormatter {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "MMM d"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone.current
+    return formatter
+  }
+
+  func generateDashboardChatStreaming(
+    systemInstruction: String,
+    history: [DashboardChatTurn]
+  ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+    AsyncThrowingStream { continuation in
+      Task {
+        do {
+          try await runDashboardChatLoop(
+            systemInstruction: systemInstruction,
+            history: history,
+            continuation: continuation
+          )
+          continuation.finish()
+        } catch {
+          continuation.yield(.error(error.localizedDescription))
+          continuation.finish(throwing: error)
+        }
+      }
+    }
+  }
+
+  private func runDashboardChatLoop(
+    systemInstruction: String,
+    history: [DashboardChatTurn],
+    continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation
+  ) async throws {
+    var contents = dashboardChatContents(from: history)
+
+    var toolRounds = 0
+
+    while toolRounds < Self.dashboardChatMaxToolRounds {
+      let turn = try await runDashboardTurnWithFallback(
+        systemInstruction: systemInstruction,
+        contents: contents,
+        continuation: continuation
+      )
+
+      if turn.functionCalls.isEmpty {
+        continuation.yield(.complete(text: turn.text))
+        return
+      }
+
+      toolRounds += 1
+      contents.append(["role": "model", "parts": turn.modelFunctionCallParts])
+
+      var functionResponseParts: [[String: Any]] = []
+      for call in turn.functionCalls {
+        let command = describeDashboardFunctionCall(call)
+        continuation.yield(.toolStart(command: command))
+        let toolResponse = executeDashboardFunction(call)
+        let summary = toolResponse["summary"] as? String ?? "Tool finished."
+        let didFail = toolResponse["error"] != nil
+        continuation.yield(.toolEnd(output: summary, exitCode: didFail ? 1 : 0))
+        functionResponseParts.append(
+          [
+            "functionResponse": [
+              "name": call.name,
+              "response": toolResponse,
+            ]
+          ])
+      }
+
+      contents.append(["role": "user", "parts": functionResponseParts])
+    }
+
+    throw NSError(
+      domain: "GeminiDashboardChat",
+      code: 901,
+      userInfo: [
+        NSLocalizedDescriptionKey:
+          "The assistant exceeded the maximum tool-call rounds. Please try a narrower query."
+      ])
+  }
+
+  private func runDashboardTurnWithFallback(
+    systemInstruction: String,
+    contents: [[String: Any]],
+    continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation
+  ) async throws -> DashboardTurnResult {
+    var includeThinkingConfig = true
+
+    do {
+      return try await streamDashboardTurn(
+        systemInstruction: systemInstruction,
+        contents: contents,
+        includeThinkingConfig: includeThinkingConfig,
+        continuation: continuation
+      )
+    } catch {
+      if shouldRetryDashboardWithoutThinkingConfig(error) {
+        includeThinkingConfig = false
+        print("🔎 GEMINI DEBUG: dashboard_chat retrying without thinkingConfig")
+      }
+      logGeminiFailure(
+        context: "dashboard_chat.stream.attempt1",
+        response: nil,
+        data: nil,
+        error: error
+      )
+    }
+
+    do {
+      return try await streamDashboardTurn(
+        systemInstruction: systemInstruction,
+        contents: contents,
+        includeThinkingConfig: includeThinkingConfig,
+        continuation: continuation
+      )
+    } catch {
+      logGeminiFailure(
+        context: "dashboard_chat.stream.attempt2",
+        response: nil,
+        data: nil,
+        error: error
+      )
+    }
+
+    return try await generateDashboardTurnNonStreaming(
+      systemInstruction: systemInstruction,
+      contents: contents,
+      includeThinkingConfig: includeThinkingConfig
+    )
+  }
+
+  private func dashboardToolDeclarations() -> [[String: Any]] {
+    [
+      [
+        "name": DashboardToolName.fetchTimeline.rawValue,
+        "description":
+          "Fetch timeline cards for a single day or date range. Returns structured JSON cards including day, time range, title, summary, category, and optional detailed summaries.",
+        "parameters": [
+          "type": "OBJECT",
+          "properties": [
+            "date": ["type": "STRING", "description": "Single day in YYYY-MM-DD format."],
+            "startDate": ["type": "STRING", "description": "Range start date in YYYY-MM-DD."],
+            "endDate": ["type": "STRING", "description": "Range end date in YYYY-MM-DD."],
+            "includeDetailedSummary": [
+              "type": "BOOLEAN",
+              "description":
+                "When true (default), include detailedSummary. Set false for very large windows.",
+            ],
+            "limit": [
+              "type": "NUMBER",
+              "description":
+                "Optional row cap. If omitted, returns all matching rows.",
+            ],
+          ],
+        ],
+      ],
+      [
+        "name": DashboardToolName.fetchObservations.rawValue,
+        "description":
+          "Fetch raw observations for a single day or date range. Returns structured JSON grouped by day, with each day's observations ordered chronologically.",
+        "parameters": [
+          "type": "OBJECT",
+          "properties": [
+            "date": ["type": "STRING", "description": "Single day in YYYY-MM-DD format."],
+            "startDate": ["type": "STRING", "description": "Range start date in YYYY-MM-DD."],
+            "endDate": ["type": "STRING", "description": "Range end date in YYYY-MM-DD."],
+            "limit": [
+              "type": "NUMBER",
+              "description":
+                "Optional row cap. If omitted, returns all matching rows.",
+            ],
+          ],
+        ],
+      ],
+    ]
+  }
+
+  private func dashboardChatRequestBody(
+    systemInstruction: String,
+    contents: [[String: Any]],
+    includeThinkingConfig: Bool
+  ) -> [String: Any] {
+    var generationConfig: [String: Any] = [
+      "temperature": 0.2,
+      "maxOutputTokens": 8192,
+    ]
+    if includeThinkingConfig {
+      generationConfig["thinkingConfig"] = [
+        "thinkingLevel": "medium"
+      ]
+    }
+
+    var body: [String: Any] = [
+      "contents": contents,
+      "tools": [
+        [
+          "functionDeclarations": dashboardToolDeclarations()
+        ]
+      ],
+      "toolConfig": [
+        "functionCallingConfig": [
+          "mode": "AUTO"
+        ]
+      ],
+      "generationConfig": generationConfig,
+    ]
+    let trimmedInstruction = systemInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmedInstruction.isEmpty {
+      body["systemInstruction"] = [
+        "parts": [
+          ["text": trimmedInstruction]
+        ]
+      ]
+    }
+    return body
+  }
+
+  private func streamDashboardTurn(
+    systemInstruction: String,
+    contents: [[String: Any]],
+    includeThinkingConfig: Bool,
+    continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation
+  ) async throws -> DashboardTurnResult {
+    let requestBody = dashboardChatRequestBody(
+      systemInstruction: systemInstruction,
+      contents: contents,
+      includeThinkingConfig: includeThinkingConfig
+    )
+    var request = URLRequest(url: URL(string: dashboardStreamEndpoint + "?alt=sse&key=\(apiKey)")!)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.timeoutInterval = 180
+    request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+    guard let httpResponse = response as? HTTPURLResponse else {
+      throw NSError(
+        domain: "GeminiDashboardChat",
+        code: 902,
+        userInfo: [NSLocalizedDescriptionKey: "Non-HTTP response from Gemini stream endpoint."]
+      )
+    }
+
+    guard (200...299).contains(httpResponse.statusCode) else {
+      let errorBody = try await readAllData(from: bytes)
+      let message =
+        extractGeminiErrorMessage(from: errorBody)
+        ?? "Gemini stream request failed with HTTP \(httpResponse.statusCode)."
+      throw NSError(
+        domain: "GeminiDashboardChat",
+        code: httpResponse.statusCode,
+        userInfo: [NSLocalizedDescriptionKey: message]
+      )
+    }
+
+    var accumulatedText = ""
+    var lastSeenCandidateText = ""
+    var functionCalls: [DashboardFunctionCall] = []
+    var modelFunctionCallParts: [[String: Any]] = []
+    var seenFunctionCalls: Set<String> = []
+    var dataBuffer: [String] = []
+
+    for try await line in bytes.lines {
+      if line.hasPrefix("data:") {
+        let payload = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+        if !payload.isEmpty {
+          dataBuffer.append(payload)
+        }
+        continue
+      }
+
+      if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        guard !dataBuffer.isEmpty else { continue }
+        try processDashboardSSEPayload(
+          dataBuffer.joined(separator: "\n"),
+          continuation: continuation,
+          accumulatedText: &accumulatedText,
+          lastSeenCandidateText: &lastSeenCandidateText,
+          functionCalls: &functionCalls,
+          modelFunctionCallParts: &modelFunctionCallParts,
+          seenFunctionCalls: &seenFunctionCalls
+        )
+        dataBuffer.removeAll(keepingCapacity: true)
+      }
+    }
+
+    if !dataBuffer.isEmpty {
+      try processDashboardSSEPayload(
+        dataBuffer.joined(separator: "\n"),
+        continuation: continuation,
+        accumulatedText: &accumulatedText,
+        lastSeenCandidateText: &lastSeenCandidateText,
+        functionCalls: &functionCalls,
+        modelFunctionCallParts: &modelFunctionCallParts,
+        seenFunctionCalls: &seenFunctionCalls
+      )
+    }
+
+    return DashboardTurnResult(
+      text: accumulatedText,
+      functionCalls: functionCalls,
+      modelFunctionCallParts: modelFunctionCallParts
+    )
+  }
+
+  private func generateDashboardTurnNonStreaming(
+    systemInstruction: String,
+    contents: [[String: Any]],
+    includeThinkingConfig: Bool
+  ) async throws
+    -> DashboardTurnResult
+  {
+    let requestBody = dashboardChatRequestBody(
+      systemInstruction: systemInstruction,
+      contents: contents,
+      includeThinkingConfig: includeThinkingConfig
+    )
+    var request = URLRequest(url: URL(string: dashboardGenerateEndpoint + "?key=\(apiKey)")!)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.timeoutInterval = 180
+    request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let httpResponse = response as? HTTPURLResponse else {
+      throw NSError(
+        domain: "GeminiDashboardChat",
+        code: 903,
+        userInfo: [NSLocalizedDescriptionKey: "Non-HTTP response from Gemini endpoint."]
+      )
+    }
+
+    guard (200...299).contains(httpResponse.statusCode) else {
+      let message =
+        extractGeminiErrorMessage(from: data)
+        ?? "Gemini request failed with HTTP \(httpResponse.statusCode)."
+      throw NSError(
+        domain: "GeminiDashboardChat",
+        code: httpResponse.statusCode,
+        userInfo: [NSLocalizedDescriptionKey: message]
+      )
+    }
+
+    let parsed = try parseDashboardResponseData(data)
+    return DashboardTurnResult(
+      text: parsed.text,
+      functionCalls: parsed.functionCalls,
+      modelFunctionCallParts: parsed.modelFunctionCallParts
+    )
+  }
+
+  private func parseDashboardResponseData(_ data: Data) throws -> (
+    text: String, functionCalls: [DashboardFunctionCall], modelFunctionCallParts: [[String: Any]]
+  ) {
+    guard
+      let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let candidates = json["candidates"] as? [[String: Any]],
+      let firstCandidate = candidates.first,
+      let content = firstCandidate["content"] as? [String: Any],
+      let parts = content["parts"] as? [[String: Any]]
+    else {
+      throw NSError(
+        domain: "GeminiDashboardChat",
+        code: 904,
+        userInfo: [NSLocalizedDescriptionKey: "Invalid Gemini response format."]
+      )
+    }
+
+    var text = ""
+    var calls: [DashboardFunctionCall] = []
+    var modelFunctionCallParts: [[String: Any]] = []
+    var seenFunctionCalls: Set<String> = []
+
+    for part in parts {
+      if let partText = part["text"] as? String {
+        text += partText
+      }
+      if let functionCall = try parseDashboardFunctionCall(from: part) {
+        let fingerprint = dashboardFunctionCallFingerprint(functionCall)
+        guard !seenFunctionCalls.contains(fingerprint) else { continue }
+        seenFunctionCalls.insert(fingerprint)
+        calls.append(functionCall)
+        modelFunctionCallParts.append(part)
+      }
+    }
+
+    return (
+      text.trimmingCharacters(in: .whitespacesAndNewlines),
+      calls,
+      modelFunctionCallParts
+    )
+  }
+
+  private func processDashboardSSEPayload(
+    _ payload: String,
+    continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation,
+    accumulatedText: inout String,
+    lastSeenCandidateText: inout String,
+    functionCalls: inout [DashboardFunctionCall],
+    modelFunctionCallParts: inout [[String: Any]],
+    seenFunctionCalls: inout Set<String>
+  ) throws {
+    let trimmed = payload.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+    if trimmed == "[DONE]" { return }
+
+    let chunkObjects: [[String: Any]]
+    do {
+      chunkObjects = try decodeDashboardSSEChunkObjects(from: trimmed)
+    } catch {
+      logGeminiFailure(
+        context: "dashboard_chat.stream.parse_chunk",
+        response: nil,
+        data: trimmed.data(using: .utf8),
+        error: error
+      )
+      throw error
+    }
+
+    if chunkObjects.count > 1 {
+      print(
+        "🔎 GEMINI DEBUG: dashboard_chat.stream.parse_chunk decodedObjects=\(chunkObjects.count)")
+    }
+
+    for json in chunkObjects {
+      try processDashboardSSEChunkObject(
+        json,
+        continuation: continuation,
+        accumulatedText: &accumulatedText,
+        lastSeenCandidateText: &lastSeenCandidateText,
+        functionCalls: &functionCalls,
+        modelFunctionCallParts: &modelFunctionCallParts,
+        seenFunctionCalls: &seenFunctionCalls
+      )
+    }
+  }
+
+  private func processDashboardSSEChunkObject(
+    _ json: [String: Any],
+    continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation,
+    accumulatedText: inout String,
+    lastSeenCandidateText: inout String,
+    functionCalls: inout [DashboardFunctionCall],
+    modelFunctionCallParts: inout [[String: Any]],
+    seenFunctionCalls: inout Set<String>
+  ) throws {
+    guard
+      let candidates = json["candidates"] as? [[String: Any]],
+      let candidate = candidates.first,
+      let content = candidate["content"] as? [String: Any],
+      let parts = content["parts"] as? [[String: Any]]
+    else {
+      // Ignore non-content stream messages.
+      return
+    }
+
+    var aggregatedCandidateText = ""
+    for part in parts {
+      if let partText = part["text"] as? String {
+        aggregatedCandidateText += partText
+      }
+
+      if let functionCall = try parseDashboardFunctionCall(from: part) {
+        let fingerprint = dashboardFunctionCallFingerprint(functionCall)
+        guard !seenFunctionCalls.contains(fingerprint) else { continue }
+        seenFunctionCalls.insert(fingerprint)
+        functionCalls.append(functionCall)
+        // Preserve the model-emitted part verbatim so required fields like thought_signature
+        // survive when we replay functionCall parts in the next turn.
+        modelFunctionCallParts.append(part)
+      }
+    }
+
+    if functionCalls.isEmpty && !aggregatedCandidateText.isEmpty {
+      let delta: String
+      if aggregatedCandidateText.hasPrefix(lastSeenCandidateText) {
+        delta = String(aggregatedCandidateText.dropFirst(lastSeenCandidateText.count))
+      } else {
+        delta = aggregatedCandidateText
+      }
+
+      if !delta.isEmpty {
+        accumulatedText += delta
+        continuation.yield(.textDelta(delta))
+      }
+      lastSeenCandidateText = aggregatedCandidateText
+    }
+  }
+
+  private func decodeDashboardSSEChunkObjects(from payload: String) throws -> [[String: Any]] {
+    if let data = payload.data(using: .utf8) {
+      if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        return [object]
+      }
+      if let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+        return array
+      }
+    }
+
+    var lineDecodedObjects: [[String: Any]] = []
+    for rawLine in payload.split(separator: "\n", omittingEmptySubsequences: true) {
+      var line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !line.isEmpty else { continue }
+      if line == "[DONE]" { continue }
+      if line.hasPrefix("data:") {
+        line = String(line.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
+      }
+      guard !line.isEmpty else { continue }
+      guard
+        let lineData = line.data(using: .utf8),
+        let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
+      else {
+        lineDecodedObjects = []
+        break
+      }
+      lineDecodedObjects.append(object)
+    }
+    if !lineDecodedObjects.isEmpty {
+      return lineDecodedObjects
+    }
+
+    let objectStrings = extractJSONObjectStrings(from: payload)
+    var extractedObjects: [[String: Any]] = []
+    for objectString in objectStrings {
+      guard let data = objectString.data(using: .utf8) else { continue }
+      guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        continue
+      }
+      extractedObjects.append(object)
+    }
+
+    if !extractedObjects.isEmpty {
+      return extractedObjects
+    }
+
+    throw NSError(
+      domain: "GeminiDashboardChat",
+      code: 905,
+      userInfo: [
+        NSLocalizedDescriptionKey:
+          "Failed to parse streamed Gemini chunk (len=\(payload.count))."
+      ]
+    )
+  }
+
+  private func extractJSONObjectStrings(from body: String) -> [String] {
+    var objects: [String] = []
+    var depth = 0
+    var inString = false
+    var isEscaped = false
+    var objectStart: String.Index?
+    var index = body.startIndex
+
+    while index < body.endIndex {
+      let ch = body[index]
+
+      if inString {
+        if isEscaped {
+          isEscaped = false
+        } else if ch == "\\" {
+          isEscaped = true
+        } else if ch == "\"" {
+          inString = false
+        }
+      } else {
+        switch ch {
+        case "\"":
+          inString = true
+        case "{":
+          if depth == 0 {
+            objectStart = index
+          }
+          depth += 1
+        case "}":
+          if depth > 0 {
+            depth -= 1
+            if depth == 0, let start = objectStart {
+              objects.append(String(body[start...index]))
+              objectStart = nil
+            }
+          }
+        default:
+          break
+        }
+      }
+
+      index = body.index(after: index)
+    }
+
+    return objects
+  }
+
+  private func dashboardChatContents(from history: [DashboardChatTurn]) -> [[String: Any]] {
+    history.map { turn in
+      [
+        "role": turn.role.geminiRole,
+        "parts": [
+          ["text": turn.content]
+        ],
+      ]
+    }
+  }
+
+  private func parseDashboardFunctionCall(from part: [String: Any]) throws -> DashboardFunctionCall?
+  {
+    guard let functionCall = part["functionCall"] as? [String: Any] else { return nil }
+    guard let name = functionCall["name"] as? String, !name.isEmpty else {
+      throw NSError(
+        domain: "GeminiDashboardChat",
+        code: 906,
+        userInfo: [NSLocalizedDescriptionKey: "Function call is missing a name."]
+      )
+    }
+
+    if let args = functionCall["args"] as? [String: Any] {
+      return DashboardFunctionCall(name: name, args: args)
+    }
+
+    if let argsJSON = functionCall["args"] as? String,
+      let data = argsJSON.data(using: .utf8),
+      let args = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+    {
+      return DashboardFunctionCall(name: name, args: args)
+    }
+
+    return DashboardFunctionCall(name: name, args: [:])
+  }
+
+  private func extractGeminiErrorMessage(from data: Data) -> String? {
+    guard
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let errorObj = json["error"] as? [String: Any]
+    else {
+      return nil
+    }
+
+    if let message = errorObj["message"] as? String, !message.isEmpty {
+      return message
+    }
+    return nil
+  }
+
+  private func shouldRetryDashboardWithoutThinkingConfig(_ error: Error) -> Bool {
+    let message = error.localizedDescription.lowercased()
+    guard
+      message.contains("thinkingconfig")
+        || message.contains("thinking level")
+        || message.contains("thinkinglevel")
+        || message.contains("unknown name \"thinkingconfig\"")
+        || message.contains("generationconfig")
+        || message.contains("invalid enum value")
+    else {
+      return false
+    }
+
+    let nsError = error as NSError
+    return nsError.domain == "GeminiDashboardChat" || nsError.code == 400
+  }
+
+  private func readAllData(from bytes: URLSession.AsyncBytes) async throws -> Data {
+    var data = Data()
+    for try await byte in bytes {
+      data.append(byte)
+    }
+    return data
+  }
+
+  private func describeDashboardFunctionCall(_ call: DashboardFunctionCall) -> String {
+    let argsText =
+      (try? JSONSerialization.data(withJSONObject: call.args))
+      .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+    return "\(call.name) \(argsText)"
+  }
+
+  private func dashboardFunctionCallFingerprint(_ call: DashboardFunctionCall) -> String {
+    let argsData = try? JSONSerialization.data(withJSONObject: call.args, options: [.sortedKeys])
+    let argsString = argsData.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+    return "\(call.name)|\(argsString)"
+  }
+
+  private func executeDashboardFunction(_ call: DashboardFunctionCall) -> [String: Any] {
+    guard let toolName = DashboardToolName(rawValue: call.name) else {
+      return [
+        "summary": "Unknown tool '\(call.name)'.",
+        "error": [
+          "code": "unknown_tool",
+          "message": "Unknown tool '\(call.name)'.",
+        ],
+      ]
+    }
+
+    do {
+      switch toolName {
+      case .fetchTimeline:
+        return try dashboardFetchTimeline(args: call.args)
+      case .fetchObservations:
+        return try dashboardFetchObservations(args: call.args)
+      }
+    } catch {
+      return [
+        "summary": error.localizedDescription,
+        "error": [
+          "code": "validation_error",
+          "message": error.localizedDescription,
+        ],
+      ]
+    }
+  }
+
+  private func dashboardFetchTimeline(args: [String: Any]) throws -> [String: Any] {
+    let includeDetailedSummary = boolArg(args["includeDetailedSummary"]) ?? true
+    let requestedLimit = positiveIntArg(args["limit"])
+    let dateRange = try parseDashboardDateRange(args: args)
+
+    let cards: [TimelineCard]
+    if dateRange.mode == "date", let date = dateRange.date {
+      cards = StorageManager.shared.fetchTimelineCards(forDay: date)
+    } else {
+      cards = StorageManager.shared.fetchTimelineCardsByTimeRange(
+        from: dateRange.from, to: dateRange.to)
+    }
+
+    let limitedCards: [TimelineCard]
+    if let requestedLimit {
+      limitedCards = Array(cards.prefix(requestedLimit))
+    } else {
+      limitedCards = cards
+    }
+
+    var items: [[String: Any]] = limitedCards.map { card in
+      var item: [String: Any] = [
+        "day": card.day,
+        "startTime": card.startTimestamp,
+        "endTime": card.endTimestamp,
+        "title": card.title,
+        "summary": card.summary,
+        "category": card.category,
+        "subcategory": card.subcategory,
+        "distractionsCount": card.distractions?.count ?? 0,
+      ]
+
+      if let appSites = card.appSites {
+        item["appSites"] = [
+          "primary": jsonOptional(appSites.primary),
+          "secondary": jsonOptional(appSites.secondary),
+        ]
+      }
+
+      if includeDetailedSummary && !card.detailedSummary.isEmpty {
+        item["detailedSummary"] = card.detailedSummary
+      }
+
+      return item
+    }
+
+    var truncated = false
+    if includeDetailedSummary {
+      let payloadSize = (try? JSONSerialization.data(withJSONObject: items).count) ?? 0
+      if payloadSize > Self.dashboardChatTimelinePayloadSoftLimitBytes {
+        truncated = true
+        items = items.map { row in
+          var updated = row
+          updated.removeValue(forKey: "detailedSummary")
+          return updated
+        }
+      }
+    }
+
+    let dateDescription = dashboardFetchDateDescription(for: dateRange)
+    var summary =
+      "Fetched \(items.count) timeline card\(items.count == 1 ? "" : "s") for \(dateDescription)."
+    if truncated {
+      summary += " Detailed summaries were omitted due to payload size."
+    }
+
+    return [
+      "request": [
+        "mode": dateRange.mode,
+        "date": jsonOptional(dateRange.date),
+        "startDate": jsonOptional(dateRange.startDate),
+        "endDate": jsonOptional(dateRange.endDate),
+        "includeDetailedSummary": includeDetailedSummary,
+        "limit": jsonOptional(requestedLimit),
+      ],
+      "summary": summary,
+      "itemCount": items.count,
+      "truncated": truncated,
+      "items": items,
+    ]
+  }
+
+  private func dashboardFetchObservations(args: [String: Any]) throws -> [String: Any] {
+    let requestedLimit = positiveIntArg(args["limit"])
+    let dateRange = try parseDashboardDateRange(args: args)
+
+    let observations: [Observation]
+    if dateRange.mode == "date", let date = dateRange.date {
+      let dayBounds = try dashboardDayBounds(for: date)
+      observations = StorageManager.shared.fetchObservationsByTimeRange(
+        from: dayBounds.start,
+        to: dayBounds.end
+      )
+    } else {
+      observations = StorageManager.shared.fetchObservationsByTimeRange(
+        from: dateRange.from,
+        to: dateRange.to
+      )
+    }
+
+    let limitedObservations: [Observation]
+    if let requestedLimit {
+      limitedObservations = Array(observations.prefix(requestedLimit))
+    } else {
+      limitedObservations = observations
+    }
+
+    let effectiveObservations = limitedObservations
+    let items = dashboardObservationDayGroups(from: effectiveObservations)
+
+    let itemCount = effectiveObservations.count
+    let dayCount = items.count
+    let dateDescription = dashboardFetchDateDescription(for: dateRange)
+    var summary =
+      "Fetched \(itemCount) observation\(itemCount == 1 ? "" : "s") for \(dateDescription)"
+    if dayCount > 0 {
+      summary += " across \(dayCount) day\(dayCount == 1 ? "" : "s")"
+    }
+    summary += "."
+
+    return [
+      "request": [
+        "mode": dateRange.mode,
+        "date": jsonOptional(dateRange.date),
+        "startDate": jsonOptional(dateRange.startDate),
+        "endDate": jsonOptional(dateRange.endDate),
+        "limit": jsonOptional(requestedLimit),
+      ],
+      "summary": summary,
+      "dayCount": dayCount,
+      "itemCount": itemCount,
+      "truncated": false,
+      "items": items,
+    ]
+  }
+
+  private func dashboardObservationDayGroups(from observations: [Observation]) -> [[String: Any]] {
+    var groups: [[String: Any]] = []
+    var currentDay: String?
+    var currentDayObservations: [[String: Any]] = []
+
+    for observation in observations {
+      let start = Date(timeIntervalSince1970: TimeInterval(observation.startTs))
+      let end = Date(timeIntervalSince1970: TimeInterval(observation.endTs))
+      let day = start.getDayInfoFor4AMBoundary().dayString
+      let item: [String: Any] = [
+        "startTime": dashboardTimeFormatter.string(from: start),
+        "endTime": dashboardTimeFormatter.string(from: end),
+        "observation": observation.observation,
+      ]
+
+      if currentDay == day {
+        currentDayObservations.append(item)
+        continue
+      }
+
+      if let currentDay {
+        groups.append(
+          [
+            "day": currentDay,
+            "observations": currentDayObservations,
+          ])
+      }
+
+      currentDay = day
+      currentDayObservations = [item]
+    }
+
+    if let currentDay {
+      groups.append(
+        [
+          "day": currentDay,
+          "observations": currentDayObservations,
+        ])
+    }
+
+    return groups
+  }
+
+  private func parseDashboardDateRange(args: [String: Any]) throws -> DashboardDateRange {
+    let date = stringArg(args["date"])
+    let startDate = stringArg(args["startDate"])
+    let endDate = stringArg(args["endDate"])
+
+    if let date {
+      if startDate != nil || endDate != nil {
+        throw DashboardToolArgError.invalidCombination
+      }
+
+      let bounds = try dashboardDayBounds(for: date)
+      return DashboardDateRange(
+        mode: "date",
+        date: date,
+        startDate: nil,
+        endDate: nil,
+        from: bounds.start,
+        to: bounds.end
+      )
+    }
+
+    guard let startDate, let endDate else {
+      throw DashboardToolArgError.invalidCombination
+    }
+
+    let startBounds = try dashboardDayBounds(for: startDate)
+    let endBounds = try dashboardDayBounds(for: endDate)
+
+    guard startBounds.start <= endBounds.start else {
+      throw DashboardToolArgError.invalidRange
+    }
+
+    return DashboardDateRange(
+      mode: "range",
+      date: nil,
+      startDate: startDate,
+      endDate: endDate,
+      from: startBounds.start,
+      to: endBounds.end
+    )
+  }
+
+  private func dashboardDayBounds(for dateString: String) throws -> (start: Date, end: Date) {
+    guard let dayDate = dashboardDateFormatter.date(from: dateString) else {
+      throw DashboardToolArgError.invalidDate(dateString)
+    }
+
+    let calendar = Calendar.current
+    var startComponents = calendar.dateComponents([.year, .month, .day], from: dayDate)
+    startComponents.hour = 4
+    startComponents.minute = 0
+    startComponents.second = 0
+    guard let dayStart = calendar.date(from: startComponents) else {
+      throw DashboardToolArgError.invalidDate(dateString)
+    }
+
+    guard let nextDay = calendar.date(byAdding: .day, value: 1, to: dayDate) else {
+      throw DashboardToolArgError.invalidDate(dateString)
+    }
+    var endComponents = calendar.dateComponents([.year, .month, .day], from: nextDay)
+    endComponents.hour = 4
+    endComponents.minute = 0
+    endComponents.second = 0
+    guard let dayEnd = calendar.date(from: endComponents) else {
+      throw DashboardToolArgError.invalidDate(dateString)
+    }
+
+    return (dayStart, dayEnd)
+  }
+
+  private func dashboardFetchDateDescription(for dateRange: DashboardDateRange) -> String {
+    if dateRange.mode == "date", let date = dateRange.date {
+      return formattedDashboardSingleDate(date) ?? date
+    }
+
+    if let startDate = dateRange.startDate, let endDate = dateRange.endDate {
+      let formattedStart = formattedDashboardRangeDate(startDate) ?? startDate
+      let formattedEnd = formattedDashboardRangeDate(endDate) ?? endDate
+      return formattedStart == formattedEnd
+        ? formattedStart : "\(formattedStart) to \(formattedEnd)"
+    }
+
+    return "the requested dates"
+  }
+
+  private func formattedDashboardSingleDate(_ dateString: String) -> String? {
+    guard let date = dashboardDateFormatter.date(from: dateString) else { return nil }
+    return dashboardSingleDateDisplayFormatter.string(from: date)
+  }
+
+  private func formattedDashboardRangeDate(_ dateString: String) -> String? {
+    guard let date = dashboardDateFormatter.date(from: dateString) else { return nil }
+    return dashboardRangeDateDisplayFormatter.string(from: date)
+  }
+
+  private func stringArg(_ value: Any?) -> String? {
+    guard let value else { return nil }
+    if let stringValue = value as? String {
+      let trimmed = stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+      return trimmed.isEmpty ? nil : trimmed
+    }
+    return nil
+  }
+
+  private func boolArg(_ value: Any?) -> Bool? {
+    guard let value else { return nil }
+    if let boolValue = value as? Bool { return boolValue }
+    if let numberValue = value as? NSNumber { return numberValue.boolValue }
+    if let stringValue = value as? String {
+      switch stringValue.lowercased() {
+      case "true", "1", "yes":
+        return true
+      case "false", "0", "no":
+        return false
+      default:
+        return nil
+      }
+    }
+    return nil
+  }
+
+  private func positiveIntArg(_ value: Any?) -> Int? {
+    guard let value else { return nil }
+    if let intValue = value as? Int {
+      return intValue > 0 ? intValue : nil
+    }
+    if let numberValue = value as? NSNumber {
+      let intValue = numberValue.intValue
+      return intValue > 0 ? intValue : nil
+    }
+    if let stringValue = value as? String,
+      let intValue = Int(stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
+    {
+      return intValue > 0 ? intValue : nil
+    }
+    return nil
+  }
+
+  private func jsonOptional(_ value: Any?) -> Any {
+    value ?? NSNull()
+  }
 }

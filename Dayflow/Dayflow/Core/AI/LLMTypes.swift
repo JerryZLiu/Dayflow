@@ -12,6 +12,85 @@ struct ActivityGenerationContext {
   let categories: [LLMCategoryDescriptor]
 }
 
+enum DashboardChatProvider: String, Codable, CaseIterable {
+  case gemini
+  case codex
+  case claude
+
+  static func fromStoredValue(_ value: String?) -> DashboardChatProvider {
+    guard let value else { return .gemini }
+    return DashboardChatProvider(rawValue: value) ?? .gemini
+  }
+
+  var chatCLITool: ChatCLITool? {
+    switch self {
+    case .gemini:
+      return nil
+    case .codex:
+      return .codex
+    case .claude:
+      return .claude
+    }
+  }
+
+  var analyticsProvider: String {
+    rawValue
+  }
+
+  var runtimeLabel: String {
+    switch self {
+    case .gemini:
+      return "gemini_function_calling"
+    case .codex, .claude:
+      return "chat_cli"
+    }
+  }
+}
+
+enum DashboardChatTurnRole: String, Codable, Sendable {
+  case user
+  case assistant
+
+  var promptLabel: String {
+    switch self {
+    case .user:
+      return "User"
+    case .assistant:
+      return "Assistant"
+    }
+  }
+
+  var geminiRole: String {
+    switch self {
+    case .user:
+      return "user"
+    case .assistant:
+      return "model"
+    }
+  }
+}
+
+struct DashboardChatTurn: Codable, Sendable, Equatable {
+  let role: DashboardChatTurnRole
+  let content: String
+
+  static func user(_ content: String) -> DashboardChatTurn {
+    DashboardChatTurn(role: .user, content: content)
+  }
+
+  static func assistant(_ content: String) -> DashboardChatTurn {
+    DashboardChatTurn(role: .assistant, content: content)
+  }
+}
+
+struct DashboardChatRequest: Sendable {
+  let provider: DashboardChatProvider
+  let prompt: String
+  let sessionId: String?
+  let systemInstruction: String?
+  let history: [DashboardChatTurn]
+}
+
 enum LLMProviderType: Codable {
   case geminiDirect
   case dayflowBackend(endpoint: String = "https://web-production-f3361.up.railway.app")

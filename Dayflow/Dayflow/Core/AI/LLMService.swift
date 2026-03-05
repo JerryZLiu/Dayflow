@@ -25,9 +25,9 @@ protocol LLMServicing {
     completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void)
   func generateText(prompt: String) async throws -> String
   func generateTextStreaming(prompt: String) -> AsyncThrowingStream<String, Error>
-  /// Rich chat streaming with thinking, tool calls, and text events (ChatCLI only)
+  /// Rich chat streaming with thinking, tool calls, and text events.
   /// - Parameter sessionId: Optional session ID to resume a previous conversation
-  func generateChatStreaming(prompt: String, sessionId: String?) -> AsyncThrowingStream<
+  func generateChatStreaming(request: DashboardChatRequest) -> AsyncThrowingStream<
     ChatStreamEvent, Error
   >
   var batchingConfig: BatchingConfig { get }
@@ -1085,12 +1085,35 @@ final class LLMService: LLMServicing {
     }
   }
 
-  // MARK: - Rich Chat Streaming (ChatCLI only)
+  // MARK: - Rich Chat Streaming
 
-  func generateChatStreaming(prompt: String, sessionId: String? = nil) -> AsyncThrowingStream<
+  func generateChatStreaming(request: DashboardChatRequest) -> AsyncThrowingStream<
     ChatStreamEvent, Error
   > {
-    let chatCLI = makeChatCLIProvider()
-    return chatCLI.generateChatStreaming(prompt: prompt, sessionId: sessionId)
+    switch request.provider {
+    case .gemini:
+      guard let gemini = makeGeminiProvider() else {
+        return AsyncThrowingStream { continuation in
+          continuation.yield(
+            .error("Gemini is not configured. Add your Gemini API key in Settings > Providers."))
+          continuation.finish(
+            throwing: NSError(
+              domain: "LLMService",
+              code: 1101,
+              userInfo: [
+                NSLocalizedDescriptionKey:
+                  "Gemini is not configured. Add your Gemini API key in Settings > Providers."
+              ]))
+        }
+      }
+      return gemini.generateDashboardChatStreaming(
+        systemInstruction: request.systemInstruction ?? "",
+        history: request.history
+      )
+    case .codex, .claude:
+      let tool: ChatCLITool = request.provider == .claude ? .claude : .codex
+      let chatCLI = makeChatCLIProvider(preferredToolOverride: tool)
+      return chatCLI.generateChatStreaming(prompt: request.prompt, sessionId: request.sessionId)
+    }
   }
 }
