@@ -790,9 +790,10 @@ final class AnalysisManager: AnalysisManaging {
 
     let mergeCandidate = mergeCandidateForIdleBatch(startingAt: batchStart)
     let mergeGapSeconds = mergeCandidate.map { max(0, first.capturedAt - $0.endTs) }
-    let replacementStart = mergeCandidate.map {
-      Date(timeIntervalSince1970: TimeInterval($0.startTs))
-    } ?? batchStart
+    let replacementStart =
+      mergeCandidate.map {
+        Date(timeIntervalSince1970: TimeInterval($0.startTs))
+      } ?? batchStart
     let idleMetadata = IdleCardMetadata(
       classifierVersion: assessment.classifierVersion,
       inputCoverageRatio: assessment.coverageRatio,
@@ -883,7 +884,9 @@ final class AnalysisManager: AnalysisManaging {
     return true
   }
 
-  private func mergeCandidateForIdleBatch(startingAt batchStart: Date) -> TimelineCardWithTimestamps? {
+  private func mergeCandidateForIdleBatch(startingAt batchStart: Date)
+    -> TimelineCardWithTimestamps?
+  {
     guard let previousCard = store.fetchLastTimelineCard(endingBefore: batchStart) else {
       return nil
     }
@@ -917,9 +920,8 @@ final class AnalysisManager: AnalysisManaging {
     formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.timeZone = TimeZone.current
 
-    let coveragePct = Int((metadata.inputCoverageRatio * 100).rounded())
     let detailedSummary =
-      "Dayflow detected no keyboard or mouse input across \(coveragePct)% of this period and skipped AI processing for this batch."
+      "Idle period. Dayflow skipped activity summarization for this block."
 
     return TimelineCardShell(
       startTimestamp: formatter.string(from: startDate),
