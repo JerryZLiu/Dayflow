@@ -435,7 +435,9 @@ final class ChatService: ObservableObject {
 
   // MARK: - Prompt Building
 
-  private func buildChatRequest(provider: DashboardChatProvider, isResume: Bool) -> DashboardChatRequest {
+  private func buildChatRequest(provider: DashboardChatProvider, isResume: Bool)
+    -> DashboardChatRequest
+  {
     switch provider {
     case .gemini:
       currentSessionId = nil
@@ -899,43 +901,43 @@ final class ChatService: ObservableObject {
 
   private func metadataContractSection() -> String {
     """
-      ## MEMORY CONTRACT (REQUIRED)
+    ## MEMORY CONTRACT (REQUIRED)
 
-      You may receive an existing section called "## User Memory".
-      This memory is ONLY for durable assistant behavior, not a running life log.
-      Keep only these two fields:
-      - Profile: stable user context relevant to this app (very short)
-      - Style: response format/tone preferences (very short)
+    You may receive an existing section called "## User Memory".
+    This memory is ONLY for durable assistant behavior, not a running life log.
+    Keep only these two fields:
+    - Profile: stable user context relevant to this app (very short)
+    - Style: response format/tone preferences (very short)
 
-      DO NOT store:
-      - Contact names/relationships
-      - Travel plans or itineraries
-      - Investment/trading ideas
-      - One-off tasks, daily events, or temporary interests
-      - Secrets, passwords, tokens, API keys, or sensitive details
+    DO NOT store:
+    - Contact names/relationships
+    - Travel plans or itineraries
+    - Investment/trading ideas
+    - One-off tasks, daily events, or temporary interests
+    - Secrets, passwords, tokens, API keys, or sensitive details
 
-      ## RESPONSE FORMAT (REQUIRED)
+    ## RESPONSE FORMAT (REQUIRED)
 
-      At the END of every response, include exactly these blocks in order:
+    At the END of every response, include exactly these blocks in order:
 
-      ```suggestions
-      ["Question 1", "Question 2", "Question 3"]
-      ```
+    ```suggestions
+    ["Question 1", "Question 2", "Question 3"]
+    ```
 
-      ```memory
-      Profile: <short line>
-      Style: <short line>
-      ```
+    ```memory
+    Profile: <short line>
+    Style: <short line>
+    ```
 
-      Rules:
-      - Include 3-4 suggestions.
-      - Frame each suggestion as a question the user could ask Dayflow.
-      - Every suggestion must be answerable using only the user's recorded Dayflow activity/data.
-      - Do not suggest anything that requires external information, browsing, recommendations, planning help, outreach, document creation, or any other action outside analyzing the existing data.
-      - Keep suggestion text short (<50 chars).
-      - Do not add any other metadata blocks.
-      - Do not mention the memory block in normal prose.
-      """
+    Rules:
+    - Include 3-4 suggestions.
+    - Frame each suggestion as a question the user could ask Dayflow.
+    - Every suggestion must be answerable using only the user's recorded Dayflow activity/data.
+    - Do not suggest anything that requires external information, browsing, recommendations, planning help, outreach, document creation, or any other action outside analyzing the existing data.
+    - Keep suggestion text short (<50 chars).
+    - Do not add any other metadata blocks.
+    - Do not mention the memory block in normal prose.
+    """
   }
 
   // MARK: - Helpers
@@ -972,7 +974,8 @@ final class ChatService: ObservableObject {
   private func toolSummary(command: String, output: String, exitCode: Int?) -> String {
     let lowercased = command.lowercased()
     let base =
-      lowercased.contains("sqlite3") ? "Database query"
+      lowercased.contains("sqlite3")
+      ? "Database query"
       : (lowercased.contains("fetchtimeline") || lowercased.contains("fetchobservations")
         ? "Data fetch" : "Tool")
     if let exitCode, exitCode != 0 {
@@ -1017,7 +1020,9 @@ final class ChatService: ObservableObject {
     var suggestions: [String] = []
     var memoryBlob: String?
 
-    if let (stripped, rawSuggestions) = extractTaggedBlock(from: workingText, pattern: suggestionPattern) {
+    if let (stripped, rawSuggestions) = extractTaggedBlock(
+      from: workingText, pattern: suggestionPattern)
+    {
       workingText = stripped
       let jsonString = rawSuggestions.trimmingCharacters(in: .whitespacesAndNewlines)
       if let data = jsonString.data(using: .utf8),
@@ -1161,7 +1166,8 @@ final class ChatService: ObservableObject {
   }
 
   private func normalizeAutoMemoryBlob(_ raw: String) -> String? {
-    let lines = raw
+    let lines =
+      raw
       .replacingOccurrences(of: "\r\n", with: "\n")
       .replacingOccurrences(of: "\r", with: "\n")
       .split(separator: "\n")
@@ -1197,7 +1203,8 @@ final class ChatService: ObservableObject {
 extension ChatService {
   /// Check if an LLM provider is configured
   static var isProviderConfigured: Bool {
-    let geminiKey = KeychainManager.shared.retrieve(for: "gemini")?
+    let geminiKey =
+      KeychainManager.shared.retrieve(for: "gemini")?
       .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return !geminiKey.isEmpty || CLIDetector.isInstalled(.codex) || CLIDetector.isInstalled(.claude)
   }
