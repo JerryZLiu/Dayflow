@@ -190,6 +190,39 @@ struct OnboardingLLMSelectionView: View {
         }
       ),
 
+      // Doubao (Ark) card
+      FlexibleProviderCard(
+        id: "doubao",
+        title: "Doubao (Ark)",
+        badgeText: "BYOK",
+        badgeType: .blue,
+        icon: "globe.asia.australia",
+        features: [
+          ("Uses Volcengine Ark's OpenAI-compatible Chat Completions API", true),
+          ("Works with vision-capable Ark models for screen understanding", true),
+          ("Bring your own API key", true),
+          ("May require a paid Volcengine account", false),
+        ],
+        isSelected: selectedProvider == "doubao",
+        buttonMode: .onboarding(onProceed: {
+          if selectedProvider == "doubao" {
+            saveProviderSelection()
+            onNext("doubao")
+          } else {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+              didUserSelectProvider = true
+              selectedProvider = "doubao"
+            }
+          }
+        }),
+        onSelect: {
+          withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+            didUserSelectProvider = true
+            selectedProvider = "doubao"
+          }
+        }
+      ),
+
       // ChatGPT/Claude CLI card
       FlexibleProviderCard(
         id: "chatgpt_claude",
@@ -275,6 +308,8 @@ struct OnboardingLLMSelectionView: View {
       providerType = .dayflowBackend()
     case "chatgpt_claude":
       providerType = .chatGPTClaude
+    case "doubao":
+      providerType = .doubaoArk()
     default:
       providerType = .geminiDirect
     }
