@@ -38,7 +38,8 @@ enum DashboardChatMemoryStore {
   }
 
   private static func normalize(_ input: String) -> String {
-    var text = input
+    var text =
+      input
       .replacingOccurrences(of: "\r\n", with: "\n")
       .replacingOccurrences(of: "\r", with: "\n")
       .trimmingCharacters(in: .whitespacesAndNewlines)

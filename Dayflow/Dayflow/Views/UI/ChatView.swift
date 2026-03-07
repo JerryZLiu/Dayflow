@@ -571,11 +571,13 @@ struct ChatView: View {
       VStack(spacing: 16) {
         // Runtime requirement section
         VStack(spacing: 12) {
-          Image(systemName: anyRuntimeAvailable ? "checkmark.circle.fill" : "bolt.horizontal.circle")
-            .font(.system(size: 32))
-            .foregroundColor(anyRuntimeAvailable ? Color(hex: "34C759") : Color(hex: "F98D3D"))
-            .contentTransition(.symbolEffect(.replace))
-            .animation(.easeOut(duration: 0.2), value: anyRuntimeAvailable)
+          Image(
+            systemName: anyRuntimeAvailable ? "checkmark.circle.fill" : "bolt.horizontal.circle"
+          )
+          .font(.system(size: 32))
+          .foregroundColor(anyRuntimeAvailable ? Color(hex: "34C759") : Color(hex: "F98D3D"))
+          .contentTransition(.symbolEffect(.replace))
+          .animation(.easeOut(duration: 0.2), value: anyRuntimeAvailable)
 
           if anyRuntimeAvailable {
             Text("Gemini key or CLI runtime detected")
@@ -934,7 +936,7 @@ struct ChatView: View {
     AnalyticsService.shared.capture(
       "chat_memory_manual_saved",
       [
-        "chars": storedMemoryBlob.count,
+        "chars": storedMemoryBlob.count
       ])
   }
 
@@ -1025,7 +1027,8 @@ struct ChatView: View {
   }
 
   private func isGeminiConfigured() -> Bool {
-    let key = KeychainManager.shared.retrieve(for: "gemini")?
+    let key =
+      KeychainManager.shared.retrieve(for: "gemini")?
       .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return !key.isEmpty
   }
