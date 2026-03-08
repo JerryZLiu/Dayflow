@@ -18,6 +18,48 @@ private enum TimelineDeleteButtonState: Equatable {
   case deleting
 }
 
+struct ThumbRatingButtons: View {
+  var selectedDirection: TimelineRatingDirection?
+  var isEnabled: Bool = true
+  var onRate: (TimelineRatingDirection) -> Void
+
+  var body: some View {
+    HStack(spacing: 0) {
+      rateButton(for: .up)
+      rateButton(for: .down)
+    }
+  }
+
+  @ViewBuilder
+  private func rateButton(for direction: TimelineRatingDirection) -> some View {
+    let isSelected = selectedDirection == direction
+    Button(action: {
+      guard isEnabled else { return }
+      onRate(direction)
+    }) {
+      Image("ThumbsUp")
+        .renderingMode(.original)
+        .resizable()
+        .scaledToFit()
+        .frame(width: 14, height: 14)
+        .scaleEffect(x: direction == .down ? -1 : 1, y: direction == .down ? -1 : 1)
+        .padding(4)
+        .frame(width: 22, height: 22)
+        .background(
+          Circle()
+            .fill(isSelected ? Color.white : Color.clear)
+            .shadow(
+              color: isSelected ? Color.black.opacity(0.08) : Color.clear, radius: 6, x: 0, y: 3)
+        )
+    }
+    .buttonStyle(.plain)
+    .contentShape(Rectangle())
+    .hoverScaleEffect(enabled: isEnabled, scale: 1.02)
+    .pointingHandCursorOnHover(enabled: isEnabled, reassertOnPressEnd: true)
+    .accessibilityLabel(direction == .up ? Text("Thumbs up") : Text("Thumbs down"))
+  }
+}
+
 struct TimelineRateSummaryView: View {
 
   var title: String = "Rate this summary"
@@ -50,9 +92,12 @@ struct TimelineRateSummaryView: View {
               .opacity(isEnabled ? 0.95 : 0.45)
           )
 
-        HStack(spacing: 0) {
-          rateButton(for: .up)
-          rateButton(for: .down)
+        ThumbRatingButtons(selectedDirection: selectedDirection, isEnabled: isEnabled) {
+          direction in
+          withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+            selectedDirection = direction
+          }
+          onRate?(direction)
         }
       }
     }
@@ -187,37 +232,6 @@ struct TimelineRateSummaryView: View {
     }
   }
 
-  @ViewBuilder
-  private func rateButton(for direction: TimelineRatingDirection) -> some View {
-    let isSelected = selectedDirection == direction
-    Button(action: {
-      guard isEnabled else { return }
-      withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-        selectedDirection = direction
-      }
-      onRate?(direction)
-    }) {
-      Image("ThumbsUp")
-        .renderingMode(.original)
-        .resizable()
-        .scaledToFit()
-        .frame(width: 14, height: 14)
-        .scaleEffect(x: direction == .down ? -1 : 1, y: direction == .down ? -1 : 1)
-        .padding(4)
-        .frame(width: 22, height: 22)
-        .background(
-          Circle()
-            .fill(isSelected ? Color.white : Color.clear)
-            .shadow(
-              color: isSelected ? Color.black.opacity(0.08) : Color.clear, radius: 6, x: 0, y: 3)
-        )
-    }
-    .buttonStyle(.plain)
-    .contentShape(Rectangle())
-    .hoverScaleEffect(enabled: isEnabled, scale: 1.02)
-    .pointingHandCursorOnHover(enabled: isEnabled, reassertOnPressEnd: true)
-    .accessibilityLabel(direction == .up ? Text("Thumbs up") : Text("Thumbs down"))
-  }
 }
 
 #Preview("TimelineRateSummaryView", traits: .sizeThatFitsLayout) {

@@ -579,6 +579,7 @@ extension MainView {
           shareLogs: $feedbackShareLogs,
           direction: direction,
           mode: feedbackMode,
+          content: .timeline,
           onSubmit: handleFeedbackSubmit,
           onClose: { dismissFeedbackModal() }
         )
