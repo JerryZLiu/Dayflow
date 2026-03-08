@@ -44,6 +44,13 @@ struct ChatView: View {
   @State private var memoryDraft = ""
   @State private var storedMemoryBlob = ""
   @State private var memoryUpdatedAt: Date?
+  @State private var chatVoteSelections: [UUID: TimelineRatingDirection] = [:]
+  @State private var thankedMessageIDs: Set<UUID> = []
+  @State private var thankResetTasks: [UUID: Task<Void, Never>] = [:]
+  @State private var chatFeedbackTarget: ChatFeedbackTarget?
+  @State private var chatFeedbackMessage = ""
+  @State private var chatFeedbackShareLogs = true
+  @State private var chatFeedbackMode: TimelineFeedbackMode = .form
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var selectedProvider: DashboardChatProvider {
@@ -78,6 +85,20 @@ struct ChatView: View {
       return .easeOut(duration: 0.01)
     }
     return .timingCurve(0.16, 1, 0.3, 1, duration: 0.42)
+  }
+
+  private var feedbackStateAnimation: Animation {
+    if reduceMotion {
+      return .easeOut(duration: 0.01)
+    }
+    return .easeOut(duration: 0.18)
+  }
+
+  private var feedbackModalAnimation: Animation {
+    if reduceMotion {
+      return .easeOut(duration: 0.01)
+    }
+    return .spring(response: 0.28, dampingFraction: 0.88)
   }
 
   private func welcomeSuggestionAnimation(at index: Int) -> Animation {
@@ -128,7 +149,25 @@ struct ChatView: View {
             debugPanel
           }
         }
+        .allowsHitTesting(chatFeedbackTarget == nil)
         .transition(.opacity)
+
+        if let chatFeedbackTarget {
+          TimelineFeedbackModal(
+            message: $chatFeedbackMessage,
+            shareLogs: $chatFeedbackShareLogs,
+            direction: chatFeedbackTarget.direction,
+            mode: chatFeedbackMode,
+            content: .chat,
+            onSubmit: submitChatFeedback,
+            onClose: { dismissChatFeedback() }
+          )
+          .padding(.leading, 20)
+          .padding(.bottom, 16)
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+          .transition(.move(edge: .bottom).combined(with: .opacity))
+          .zIndex(2)
+        }
       } else {
         betaLockScreen
           .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -146,6 +185,10 @@ struct ChatView: View {
     .onDisappear {
       cliDetectionTask?.cancel()
       cliDetectionTask = nil
+      for task in thankResetTasks.values {
+        task.cancel()
+      }
+      thankResetTasks.removeAll()
     }
     .onChange(of: chatService.messages.count) { _, _ in
       syncMemoryFromStoreIfNeeded()
@@ -239,7 +282,14 @@ struct ChatView: View {
               {
                 WorkStatusCard(status: status, showDetails: $showWorkDetails)
               }
-              MessageBubble(message: message)
+              ChatMessageRow(
+                message: message,
+                showsAssistantFooter: shouldShowAssistantFeedbackFooter(for: message),
+                selectedDirection: chatVoteSelections[message.id],
+                showsThanks: thankedMessageIDs.contains(message.id),
+                onCopy: { copyAssistantMessage(message) },
+                onRate: { direction in handleAssistantRating(direction, for: message) }
+              )
             }
             if let status = chatService.workStatus,
               let insertionIndex = statusInsertionIndex,
@@ -281,6 +331,7 @@ struct ChatView: View {
       .onChange(of: chatService.messages.isEmpty) { _, isEmpty in
         if isEmpty {
           didAnimateWelcome = false
+          resetChatFeedbackState()
         }
       }
 
@@ -554,7 +605,7 @@ struct ChatView: View {
       // Feature description (below title)
       VStack(spacing: 6) {
         Text(
-          "We're beta testing an early version of Dashboard. It's a chat feature that intelligently pulls from your Dayflow data to generate insights. You can ask it to generate charts and other visualizations of your data."
+          "Chat lets you ask questions about your Dayflow activity and get summaries, comparisons, and insights."
         )
         .font(.custom("Nunito-Regular", size: 14))
         .foregroundColor(Color(hex: "593D2A").opacity(0.85))
@@ -571,11 +622,13 @@ struct ChatView: View {
       VStack(spacing: 16) {
         // Runtime requirement section
         VStack(spacing: 12) {
-          Image(systemName: anyRuntimeAvailable ? "checkmark.circle.fill" : "bolt.horizontal.circle")
-            .font(.system(size: 32))
-            .foregroundColor(anyRuntimeAvailable ? Color(hex: "34C759") : Color(hex: "F98D3D"))
-            .contentTransition(.symbolEffect(.replace))
-            .animation(.easeOut(duration: 0.2), value: anyRuntimeAvailable)
+          Image(
+            systemName: anyRuntimeAvailable ? "checkmark.circle.fill" : "bolt.horizontal.circle"
+          )
+          .font(.system(size: 32))
+          .foregroundColor(anyRuntimeAvailable ? Color(hex: "34C759") : Color(hex: "F98D3D"))
+          .contentTransition(.symbolEffect(.replace))
+          .animation(.easeOut(duration: 0.2), value: anyRuntimeAvailable)
 
           if anyRuntimeAvailable {
             Text("Gemini key or CLI runtime detected")
@@ -896,6 +949,7 @@ struct ChatView: View {
   private func resetConversation() {
     chatService.clearConversation()
     conversationId = nil
+    resetChatFeedbackState()
   }
 
   private func copyDebugLog() {
@@ -905,6 +959,170 @@ struct ChatView: View {
 
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(text, forType: .string)
+  }
+
+  private func shouldShowAssistantFeedbackFooter(for message: ChatMessage) -> Bool {
+    guard message.role == .assistant else { return false }
+    guard !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      return false
+    }
+
+    if chatService.isProcessing,
+      let lastMessage = chatService.messages.last,
+      lastMessage.role == .assistant,
+      lastMessage.id == message.id
+    {
+      return false
+    }
+
+    return true
+  }
+
+  private func copyAssistantMessage(_ message: ChatMessage) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(message.content, forType: .string)
+
+    AnalyticsService.shared.capture(
+      "chat_answer_copied",
+      chatFeedbackAnalyticsPayload(for: message, direction: nil)
+    )
+  }
+
+  private func handleAssistantRating(_ direction: TimelineRatingDirection, for message: ChatMessage)
+  {
+    guard message.role == .assistant else { return }
+
+    withAnimation(feedbackStateAnimation) {
+      chatVoteSelections[message.id] = direction
+    }
+
+    AnalyticsService.shared.capture(
+      "chat_answer_rated",
+      chatFeedbackAnalyticsPayload(for: message, direction: direction)
+    )
+
+    switch direction {
+    case .up:
+      showTransientThanks(for: message.id)
+    case .down:
+      openChatFeedback(for: message, direction: direction)
+    }
+  }
+
+  private func openChatFeedback(for message: ChatMessage, direction: TimelineRatingDirection) {
+    chatFeedbackMessage = ""
+    chatFeedbackShareLogs = true
+    chatFeedbackMode = .form
+
+    withAnimation(feedbackModalAnimation) {
+      chatFeedbackTarget = ChatFeedbackTarget(
+        messageID: message.id,
+        content: message.content,
+        direction: direction
+      )
+    }
+  }
+
+  private func submitChatFeedback() {
+    guard let chatFeedbackTarget else { return }
+
+    let trimmed = chatFeedbackMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+    var props = chatFeedbackAnalyticsPayload(
+      for: chatFeedbackTarget.message,
+      direction: chatFeedbackTarget.direction
+    )
+    props["feedback_message_length"] = trimmed.count
+    props["share_logs_enabled"] = chatFeedbackShareLogs
+    if !trimmed.isEmpty {
+      props["feedback_message"] = trimmed
+    }
+
+    AnalyticsService.shared.capture("chat_answer_feedback_submitted", props)
+    chatFeedbackMessage = ""
+
+    withAnimation(feedbackModalAnimation) {
+      chatFeedbackMode = .thanks
+    }
+  }
+
+  private func dismissChatFeedback(animated: Bool = true) {
+    let shouldShowThanks = chatFeedbackMode == .thanks
+    let messageID = chatFeedbackTarget?.messageID
+
+    let reset = {
+      chatFeedbackTarget = nil
+      chatFeedbackMessage = ""
+      chatFeedbackShareLogs = true
+      chatFeedbackMode = .form
+    }
+
+    if animated {
+      withAnimation(feedbackModalAnimation) {
+        reset()
+      }
+    } else {
+      reset()
+    }
+
+    if shouldShowThanks, let messageID {
+      showTransientThanks(for: messageID)
+    }
+  }
+
+  private func resetChatFeedbackState() {
+    for task in thankResetTasks.values {
+      task.cancel()
+    }
+    thankResetTasks.removeAll()
+    chatVoteSelections.removeAll()
+    thankedMessageIDs.removeAll()
+    chatFeedbackTarget = nil
+    chatFeedbackMessage = ""
+    chatFeedbackShareLogs = true
+    chatFeedbackMode = .form
+  }
+
+  private func showTransientThanks(for messageID: UUID) {
+    thankResetTasks[messageID]?.cancel()
+
+    withAnimation(feedbackStateAnimation) {
+      thankedMessageIDs.formUnion([messageID])
+    }
+
+    thankResetTasks[messageID] = Task {
+      try? await Task.sleep(nanoseconds: 1_600_000_000)
+      guard !Task.isCancelled else { return }
+      await MainActor.run {
+        withAnimation(feedbackStateAnimation) {
+          thankedMessageIDs.subtract([messageID])
+        }
+        thankResetTasks[messageID] = nil
+      }
+    }
+  }
+
+  private func chatFeedbackAnalyticsPayload(
+    for message: ChatMessage,
+    direction: TimelineRatingDirection?
+  ) -> [String: Any] {
+    let messageIndex = chatService.messages.firstIndex(where: { $0.id == message.id }) ?? -1
+    var props: [String: Any] = [
+      "conversation_id": conversationId?.uuidString ?? "unknown",
+      "message_id": message.id.uuidString,
+      "message_index": messageIndex,
+      "provider": selectedProvider.analyticsProvider,
+      "chat_runtime": selectedProvider.runtimeLabel,
+      "assistant_message_length": message.content.count,
+      "assistant_has_chart": message.content.contains("```chart"),
+      "assistant_message_preview": String(message.content.prefix(240)),
+      "share_logs_default": true,
+    ]
+
+    if let direction {
+      props["thumb_direction"] = direction.rawValue
+    }
+
+    return props
   }
 
   private func loadMemoryFromStore(resetDraft: Bool) {
@@ -934,7 +1152,7 @@ struct ChatView: View {
     AnalyticsService.shared.capture(
       "chat_memory_manual_saved",
       [
-        "chars": storedMemoryBlob.count,
+        "chars": storedMemoryBlob.count
       ])
   }
 
@@ -1025,7 +1243,8 @@ struct ChatView: View {
   }
 
   private func isGeminiConfigured() -> Bool {
-    let key = KeychainManager.shared.retrieve(for: "gemini")?
+    let key =
+      KeychainManager.shared.retrieve(for: "gemini")?
       .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return !key.isEmpty
   }
@@ -1183,6 +1402,127 @@ private struct MessageBubble: View {
     }
 
     return normalized
+  }
+}
+
+private struct ChatFeedbackTarget: Identifiable {
+  let messageID: UUID
+  let content: String
+  let direction: TimelineRatingDirection
+
+  var id: UUID { messageID }
+
+  var message: ChatMessage {
+    ChatMessage(id: messageID, role: .assistant, content: content)
+  }
+}
+
+private struct ChatMessageRow: View {
+  let message: ChatMessage
+  let showsAssistantFooter: Bool
+  let selectedDirection: TimelineRatingDirection?
+  let showsThanks: Bool
+  let onCopy: () -> Void
+  let onRate: (TimelineRatingDirection) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      MessageBubble(message: message)
+
+      if showsAssistantFooter {
+        HStack(spacing: 0) {
+          AssistantMessageFeedbackRow(
+            selectedDirection: selectedDirection,
+            showsThanks: showsThanks,
+            onCopy: onCopy,
+            onRate: onRate
+          )
+          .padding(.leading, 10)
+
+          Spacer(minLength: 60)
+        }
+      }
+    }
+  }
+}
+
+private struct AssistantMessageFeedbackRow: View {
+  let selectedDirection: TimelineRatingDirection?
+  let showsThanks: Bool
+  let onCopy: () -> Void
+  let onRate: (TimelineRatingDirection) -> Void
+
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  private var thanksTransition: AnyTransition {
+    if reduceMotion {
+      return .opacity
+    }
+    return .opacity.combined(with: .move(edge: .leading))
+  }
+
+  var body: some View {
+    HStack(spacing: 8) {
+      AssistantMessageIconButton(
+        systemName: "doc.on.doc",
+        accessibilityLabel: "Copy answer",
+        action: onCopy
+      )
+
+      ThumbRatingButtons(selectedDirection: selectedDirection) { direction in
+        onRate(direction)
+      }
+
+      if showsThanks {
+        Text("Thanks")
+          .font(.custom("Nunito", size: 11).weight(.semibold))
+          .foregroundColor(Color(hex: "9A7C60"))
+          .transition(thanksTransition)
+      }
+    }
+    .padding(.vertical, 2)
+  }
+}
+
+private struct AssistantMessageIconButton: View {
+  let systemName: String
+  let accessibilityLabel: String
+  let action: () -> Void
+
+  @State private var isHovered = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  private var hoverAnimation: Animation {
+    if reduceMotion {
+      return .easeOut(duration: 0.01)
+    }
+    return .easeOut(duration: 0.14)
+  }
+
+  var body: some View {
+    Button(action: action) {
+      Image(systemName: systemName)
+        .font(.system(size: 11, weight: .semibold))
+        .foregroundColor(Color(hex: "8F8F8F"))
+        .frame(width: 22, height: 22)
+        .background(
+          Circle()
+            .fill(isHovered ? Color.white : Color.clear)
+        )
+        .overlay(
+          Circle()
+            .stroke(Color(hex: "E4E4E4"), lineWidth: isHovered ? 1 : 0)
+        )
+    }
+    .buttonStyle(.plain)
+    .hoverScaleEffect(scale: 1.02)
+    .pointingHandCursorOnHover(reassertOnPressEnd: true)
+    .accessibilityLabel(Text(accessibilityLabel))
+    .onHover { hovering in
+      withAnimation(hoverAnimation) {
+        isHovered = hovering
+      }
+    }
   }
 }
 
