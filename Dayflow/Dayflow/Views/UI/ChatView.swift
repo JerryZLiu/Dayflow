@@ -1029,7 +1029,8 @@ struct ChatView: View {
     let trimmed = chatFeedbackMessage.trimmingCharacters(in: .whitespacesAndNewlines)
     var props = chatFeedbackAnalyticsPayload(
       for: chatFeedbackTarget.message,
-      direction: chatFeedbackTarget.direction
+      direction: chatFeedbackTarget.direction,
+      includeSharedAnswerContext: chatFeedbackShareLogs
     )
     props["feedback_message_length"] = trimmed.count
     props["share_logs_enabled"] = chatFeedbackShareLogs
@@ -1103,24 +1104,28 @@ struct ChatView: View {
 
   private func chatFeedbackAnalyticsPayload(
     for message: ChatMessage,
-    direction: TimelineRatingDirection?
+    direction: TimelineRatingDirection?,
+    includeSharedAnswerContext: Bool = true
   ) -> [String: Any] {
-    let messageIndex = chatService.messages.firstIndex(where: { $0.id == message.id }) ?? -1
     var props: [String: Any] = [
-      "conversation_id": conversationId?.uuidString ?? "unknown",
-      "message_id": message.id.uuidString,
-      "message_index": messageIndex,
       "provider": selectedProvider.analyticsProvider,
       "chat_runtime": selectedProvider.runtimeLabel,
-      "assistant_message_length": message.content.count,
-      "assistant_has_chart": message.content.contains("```chart"),
-      "assistant_message_preview": String(message.content.prefix(240)),
       "share_logs_default": true,
     ]
 
     if let direction {
       props["thumb_direction"] = direction.rawValue
     }
+
+    guard includeSharedAnswerContext else { return props }
+
+    let messageIndex = chatService.messages.firstIndex(where: { $0.id == message.id }) ?? -1
+    props["conversation_id"] = conversationId?.uuidString ?? "unknown"
+    props["message_id"] = message.id.uuidString
+    props["message_index"] = messageIndex
+    props["assistant_message_length"] = message.content.count
+    props["assistant_has_chart"] = message.content.contains("```chart")
+    props["assistant_message_preview"] = String(message.content.prefix(240))
 
     return props
   }

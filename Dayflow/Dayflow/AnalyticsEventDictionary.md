@@ -85,7 +85,7 @@ This document lists manual events, properties, and code locations. All events re
   - props: `conversation_id: uuid`, `message_id: uuid`, `message_index: int`, `provider: gemini|codex|claude`, `chat_runtime: gemini_function_calling|chat_cli`, `thumb_direction: up|down`, `assistant_message_length: int`, `assistant_has_chart: bool`, `assistant_message_preview: string`, `share_logs_default: bool`
   - file: Views/UI/ChatView.swift
 - chat_answer_feedback_submitted
-  - props: `conversation_id: uuid`, `message_id: uuid`, `message_index: int`, `provider: gemini|codex|claude`, `chat_runtime: gemini_function_calling|chat_cli`, `thumb_direction: up|down`, `assistant_message_length: int`, `assistant_has_chart: bool`, `assistant_message_preview: string`, `share_logs_default: bool`, `share_logs_enabled: bool`, `feedback_message_length: int`, `feedback_message?: string`
+  - props: `provider: gemini|codex|claude`, `chat_runtime: gemini_function_calling|chat_cli`, `thumb_direction: up|down`, `share_logs_default: bool`, `share_logs_enabled: bool`, `feedback_message_length: int`, `feedback_message?: string`; when `share_logs_enabled=true`, also include `conversation_id: uuid`, `message_id: uuid`, `message_index: int`, `assistant_message_length: int`, `assistant_has_chart: bool`, `assistant_message_preview: string`
   - file: Views/UI/ChatView.swift
 
 ## Video
