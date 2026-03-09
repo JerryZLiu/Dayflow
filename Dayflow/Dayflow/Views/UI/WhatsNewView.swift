@@ -37,21 +37,22 @@ enum WhatsNewConfiguration {
   private static let seenKey = "lastSeenWhatsNewVersion"
 
   /// Override with the specific release number you want to show.
-  private static let versionOverride: String? = "1.8.4"
+  private static let versionOverride: String? = "1.8.5"
 
   /// Update this content before shipping each release. Return nil to disable the modal entirely.
   static var configuredRelease: ReleaseNote? {
     ReleaseNote(
       version: targetVersion,
-      title: "Gemini 3.1 Flash-Lite · Timeline card deletion · Energy use improvements",
+      title: "Chat is now available to Gemini users",
       highlights: [
-        "Google just released Gemini 3.1 Flash-Lite, and it's now the default model for Gemini users. It's fast, reliable, and comes with generous rate limits.",
-        "Highly requested feature: you can now delete timeline cards directly from the timeline card footer.",
-        "We've spent a lot of time investigating reports of higher energy usage since 1.8.0, and we've shipped fixes that should address most cases. If you're still seeing unusually high energy use, please reach out.",
+        "Chat is now available to all Gemini users. This was finally unlocked by the generous new rate limits for Gemini 3.1 Flash-Lite.",
+        "Gemini is quickly becoming my preferred way to use Chat because of how fast it responds, roughly 10x faster than ChatGPT or Claude. Answers appear almost instantly, which feels great.",
+        "There's also a prototype memory feature. It should intelligently remember your preferences for things like structure, length, and tone.",
+        "As always, LLMs can hallucinate, so please report anything that seems off. You can also use thumbs up/down on answers to help improve the experience.",
+        "Lastly, I made a small tweak to Gemini card generation to reduce oversplitting.",
       ],
-      previewIntro:
-        "A sneak peek at some of the visualizations that we've been playing around with, likely coming to a new weekly view tab. Let me know if you have any cool ideas!",
-      previewImageNames: ["SankeyPreview", "TreemapPreview"],
+      previewIntro: nil,
+      previewImageNames: [],
       cta: nil
     )
   }
