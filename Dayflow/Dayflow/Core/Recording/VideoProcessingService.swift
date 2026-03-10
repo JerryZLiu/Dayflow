@@ -62,7 +62,6 @@ actor VideoProcessingService {
     let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     self.persistentTimelapsesRootURL = appSupportURL.appendingPathComponent(
       "Dayflow/timelapses", isDirectory: true)
-
     // Ensure the root timelapses directory exists
     do {
       try fileManager.createDirectory(
@@ -75,6 +74,7 @@ actor VideoProcessingService {
         "Error creating persistent timelapses root directory: \(self.persistentTimelapsesRootURL.path). Error: \(error)"
       )
     }
+
   }
 
   func generatePersistentTimelapseURL(
@@ -148,7 +148,6 @@ actor VideoProcessingService {
     let (width, height) = resolvedCanvasSize(
       sourceWidth: firstFrameSize.width, sourceHeight: firstFrameSize.height,
       maxOutputHeight: options.maxOutputHeight)
-    let decodeMaxPixel = max(width, height)
     let scanDuration = Date().timeIntervalSince(scanStart)
 
     // Ensure output directory exists
@@ -211,7 +210,7 @@ actor VideoProcessingService {
     let pixelBufferPool = adaptor.pixelBufferPool
 
     for screenshot in selectedScreenshots {
-      guard let cgImage = loadCGImage(from: screenshot.fileURL, maxPixelSize: decodeMaxPixel) else {
+      guard let cgImage = loadCGImage(from: screenshot.fileURL) else {
         print("⚠️ Skipping invalid image: \(screenshot.fileURL.lastPathComponent)")
         skippedFrames += 1
         continue
@@ -392,29 +391,15 @@ actor VideoProcessingService {
     return (makeEven(max(2, scaledWidth)), makeEven(maxOutputHeight))
   }
 
-  private func loadCGImage(from url: URL, maxPixelSize: Int) -> CGImage? {
+  private func loadCGImage(from url: URL) -> CGImage? {
     guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
       return nil
     }
-
-    // Prefer full decode and downscale during draw. In practice this can be
-    // faster than ImageIO thumbnail generation for high frame-count batches.
     let fullDecodeOptions: [CFString: Any] = [
       kCGImageSourceShouldCacheImmediately: true,
       kCGImageSourceShouldCache: true,
     ]
-    if let fullImage = CGImageSourceCreateImageAtIndex(source, 0, fullDecodeOptions as CFDictionary)
-    {
-      return fullImage
-    }
-
-    let safeMaxPixelSize = max(64, maxPixelSize)
-    let options: [CFString: Any] = [
-      kCGImageSourceCreateThumbnailFromImageAlways: true,
-      kCGImageSourceCreateThumbnailWithTransform: true,
-      kCGImageSourceThumbnailMaxPixelSize: safeMaxPixelSize,
-    ]
-    return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    return CGImageSourceCreateImageAtIndex(source, 0, fullDecodeOptions as CFDictionary)
   }
 
   private func parseTimestampFromFilename(_ filename: String) -> Int? {
