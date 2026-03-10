@@ -24,6 +24,12 @@ final class OtherSettingsViewModel: ObservableObject {
       UserDefaults.standard.set(showTimelineAppIcons, forKey: "showTimelineAppIcons")
     }
   }
+  @Published var saveAllTimelapsesToDisk: Bool {
+    didSet {
+      guard saveAllTimelapsesToDisk != oldValue else { return }
+      TimelapsePreferences.saveAllTimelapsesToDisk = saveAllTimelapsesToDisk
+    }
+  }
   @Published var outputLanguageOverride: String
   @Published var isOutputLanguageOverrideSaved: Bool = true
 
@@ -43,6 +49,7 @@ final class OtherSettingsViewModel: ObservableObject {
     showDockIcon = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
     showTimelineAppIcons =
       UserDefaults.standard.object(forKey: "showTimelineAppIcons") as? Bool ?? true
+    saveAllTimelapsesToDisk = TimelapsePreferences.saveAllTimelapsesToDisk
     outputLanguageOverride = LLMOutputLanguagePreferences.override
     exportStartDate = timelineDisplayDate(from: Date())
     exportEndDate = timelineDisplayDate(from: Date())

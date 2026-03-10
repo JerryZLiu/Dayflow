@@ -60,6 +60,21 @@ struct SettingsOtherTabView: View {
             .font(.custom("Nunito", size: 11.5))
             .foregroundColor(.black.opacity(0.5))
 
+          Toggle(isOn: $viewModel.saveAllTimelapsesToDisk) {
+            Text("Save all timelapses to disk")
+              .font(.custom("Nunito", size: 13))
+              .foregroundColor(.black.opacity(0.7))
+          }
+          .toggleStyle(.switch)
+          .pointingHandCursor()
+
+          Text(
+            "New and reprocessed timeline cards will pre-generate timelapse videos and store them on disk instead of building them on demand. Uses more storage and background processing."
+          )
+          .font(.custom("Nunito", size: 11.5))
+          .foregroundColor(.black.opacity(0.5))
+          .fixedSize(horizontal: false, vertical: true)
+
           VStack(alignment: .leading, spacing: 8) {
             Text("Output language override")
               .font(.custom("Nunito", size: 13))
