@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SettingsOtherTabView: View {
@@ -59,6 +60,8 @@ struct SettingsOtherTabView: View {
           Text("When off, timeline cards won't show app or website icons.")
             .font(.custom("Nunito", size: 11.5))
             .foregroundColor(.black.opacity(0.5))
+
+          notificationPermissionSection
 
           VStack(alignment: .leading, spacing: 8) {
             Text("Output language override")
@@ -132,6 +135,128 @@ struct SettingsOtherTabView: View {
           .foregroundColor(.black.opacity(0.45))
         }
       }
+    }
+    .onAppear {
+      viewModel.refreshNotificationPermissionState()
+    }
+    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification))
+    { _ in
+      viewModel.refreshNotificationPermissionState()
+    }
+  }
+
+  private var notificationPermissionSection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Notifications")
+        .font(.custom("Nunito", size: 13))
+        .foregroundColor(.black.opacity(0.7))
+
+      HStack(alignment: .center, spacing: 10) {
+        notificationPermissionBadge
+
+        if let actionTitle = notificationPermissionActionTitle {
+          DayflowSurfaceButton(
+            action: notificationPermissionAction,
+            content: {
+              HStack(spacing: 8) {
+                if viewModel.isUpdatingNotificationPermission {
+                  ProgressView()
+                    .scaleEffect(0.75)
+                } else {
+                  Image(systemName: notificationPermissionActionSymbol)
+                    .font(.system(size: 12, weight: .semibold))
+                }
+
+                Text(actionTitle)
+                  .font(.custom("Nunito", size: 12))
+              }
+              .padding(.horizontal, 2)
+            },
+            background: Color.white,
+            foreground: Color(red: 0.25, green: 0.17, blue: 0),
+            borderColor: Color(hex: "FFE0A5"),
+            cornerRadius: 8,
+            horizontalPadding: 12,
+            verticalPadding: 7,
+            showOverlayStroke: true
+          )
+          .disabled(viewModel.isUpdatingNotificationPermission)
+        }
+      }
+
+      Text(
+        "Automatic recording resumes can send a system notification when access is enabled. Manual Resume never sends a notification."
+      )
+      .font(.custom("Nunito", size: 11.5))
+      .foregroundColor(.black.opacity(0.5))
+      .fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
+  private var notificationPermissionBadge: some View {
+    Text(notificationPermissionStatusTitle)
+      .font(.custom("Nunito", size: 11.5))
+      .foregroundColor(notificationPermissionStatusColor)
+      .padding(.horizontal, 10)
+      .padding(.vertical, 6)
+      .background(notificationPermissionStatusColor.opacity(0.10))
+      .overlay(
+        Capsule()
+          .strokeBorder(notificationPermissionStatusColor.opacity(0.25), lineWidth: 1)
+      )
+      .clipShape(Capsule())
+  }
+
+  private var notificationPermissionStatusTitle: String {
+    switch viewModel.notificationPermissionState {
+    case .authorized:
+      return "Enabled"
+    case .notDetermined:
+      return "Not enabled"
+    case .denied:
+      return "Denied in System Settings"
+    }
+  }
+
+  private var notificationPermissionStatusColor: Color {
+    switch viewModel.notificationPermissionState {
+    case .authorized:
+      return Color(red: 0.14, green: 0.53, blue: 0.23)
+    case .notDetermined:
+      return Color(red: 0.53, green: 0.42, blue: 0.15)
+    case .denied:
+      return Color(hex: "C44D3A")
+    }
+  }
+
+  private var notificationPermissionActionTitle: String? {
+    switch viewModel.notificationPermissionState {
+    case .authorized:
+      return nil
+    case .notDetermined:
+      return "Enable notifications"
+    case .denied:
+      return "Open System Settings"
+    }
+  }
+
+  private var notificationPermissionActionSymbol: String {
+    switch viewModel.notificationPermissionState {
+    case .authorized, .notDetermined:
+      return "bell.badge"
+    case .denied:
+      return "arrow.up.right.square"
+    }
+  }
+
+  private func notificationPermissionAction() {
+    switch viewModel.notificationPermissionState {
+    case .authorized:
+      break
+    case .notDetermined:
+      viewModel.requestNotificationPermission()
+    case .denied:
+      viewModel.openNotificationSettings()
     }
   }
 }

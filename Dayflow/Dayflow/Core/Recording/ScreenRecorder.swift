@@ -115,6 +115,12 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
           guard let self else { return }
           self.wantsRecording = rec
 
+          if !rec {
+            Task { @MainActor in
+              RecordingResumeNotificationCoordinator.shared.clearPendingAutoResume()
+            }
+          }
+
           // Clear paused state when user disables recording
           if !rec && self.state == .paused {
             self.transition(to: .idle, context: "user disabled recording")
@@ -260,6 +266,14 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         }
         self.startCaptureTimer()
         self.transition(to: .capturing, context: "capture started")
+
+        Task { @MainActor in
+          if let source =
+            RecordingResumeNotificationCoordinator.shared.consumePendingAutoResumeSource()
+          {
+            NotificationService.shared.scheduleRecordingResumedNotification(source: source)
+          }
+        }
 
         // Take first screenshot immediately
         Task { await self.captureScreenshot() }

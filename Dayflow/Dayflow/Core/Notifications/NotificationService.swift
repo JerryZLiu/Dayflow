@@ -10,6 +10,16 @@ import AppKit
 import Foundation
 @preconcurrency import UserNotifications
 
+enum NotificationPermissionState: Equatable {
+  case notDetermined
+  case denied
+  case authorized
+
+  var isAuthorized: Bool {
+    self == .authorized
+  }
+}
+
 @MainActor
 final class NotificationService: NSObject, ObservableObject {
   static let shared = NotificationService()
@@ -17,6 +27,7 @@ final class NotificationService: NSObject, ObservableObject {
   private let center = UNUserNotificationCenter.current()
 
   @Published private(set) var permissionGranted: Bool = false
+  @Published private(set) var permissionState: NotificationPermissionState = .notDetermined
 
   override private init() {
     super.init()
@@ -30,7 +41,7 @@ final class NotificationService: NSObject, ObservableObject {
 
     // Check current permission status
     Task {
-      await checkPermissionStatus()
+      await refreshPermissionStatus()
 
       // Reschedule if reminders are enabled
       if NotificationPreferences.isEnabled {
@@ -44,14 +55,34 @@ final class NotificationService: NSObject, ObservableObject {
   func requestPermission() async -> Bool {
     do {
       let granted = try await center.requestAuthorization(options: [.alert, .sound, .badge])
-      await MainActor.run {
-        self.permissionGranted = granted
-      }
+      _ = await refreshPermissionStatus()
       print("[NotificationService] requestPermission granted=\(granted)")
       return granted
     } catch {
       print("[NotificationService] Permission request failed: \(error)")
       return false
+    }
+  }
+
+  @discardableResult
+  func refreshPermissionStatus() async -> NotificationPermissionState {
+    let settings = await center.notificationSettings()
+    let state = Self.permissionState(for: settings)
+    permissionState = state
+    permissionGranted = state.isAuthorized
+    return state
+  }
+
+  func openNotificationSettings() {
+    let candidateURLs = [
+      "x-apple.systempreferences:com.apple.Notifications-Settings.extension",
+      "x-apple.systempreferences:com.apple.preference.notifications",
+    ]
+
+    for candidate in candidateURLs {
+      if let url = URL(string: candidate), NSWorkspace.shared.open(url) {
+        return
+      }
     }
   }
 
@@ -166,14 +197,25 @@ final class NotificationService: NSObject, ObservableObject {
     }
   }
 
-  // MARK: - Private Methods
+  func scheduleRecordingResumedNotification(source: ResumeSource) {
+    Task {
+      let settings = await center.notificationSettings()
+      let permissionState = Self.permissionState(for: settings)
 
-  private func checkPermissionStatus() async {
-    let settings = await center.notificationSettings()
-    await MainActor.run {
-      self.permissionGranted = Self.canScheduleNotifications(for: settings.authorizationStatus)
+      guard permissionState.isAuthorized else {
+        print(
+          "[NotificationService] Skipping recording resumed notification: "
+            + "source=\(source.rawValue) permission_status=\(Self.authorizationStatusName(settings.authorizationStatus)) "
+            + "alert_setting=\(Self.notificationSettingName(settings.alertSetting))"
+        )
+        return
+      }
+
+      enqueueRecordingResumedNotification(source: source)
     }
   }
+
+  // MARK: - Private Methods
 
   private func enqueueDailyRecapReadyNotification(
     forDay day: String, settings: UNNotificationSettings
@@ -234,6 +276,34 @@ final class NotificationService: NSObject, ObservableObject {
     }
   }
 
+  private func enqueueRecordingResumedNotification(source: ResumeSource) {
+    let identifier = "recording.resumed"
+    let content = UNMutableNotificationContent()
+    content.title = "Recording resumed"
+    content.body = recordingResumedBody(for: source)
+    content.sound = .default
+    content.categoryIdentifier = "recording_resumed"
+    content.userInfo = ["source": source.rawValue]
+
+    let request = UNNotificationRequest(
+      identifier: "\(identifier).\(source.rawValue).\(Date().timeIntervalSince1970)",
+      content: content,
+      trigger: nil
+    )
+
+    center.add(request) { error in
+      if let error {
+        print(
+          "[NotificationService] Failed to schedule recording resumed notification: \(error)")
+        return
+      }
+      print(
+        "[NotificationService] Scheduled recording resumed notification "
+          + "source=\(source.rawValue)"
+      )
+    }
+  }
+
   private static func authorizationStatusName(_ status: UNAuthorizationStatus) -> String {
     switch status {
     case .notDetermined:
@@ -258,6 +328,20 @@ final class NotificationService: NSObject, ObservableObject {
     }
   }
 
+  private static func permissionState(for settings: UNNotificationSettings) -> NotificationPermissionState
+  {
+    switch settings.authorizationStatus {
+    case .authorized, .provisional:
+      return settings.alertSetting == .enabled ? .authorized : .denied
+    case .denied:
+      return .denied
+    case .notDetermined:
+      return .notDetermined
+    @unknown default:
+      return .notDetermined
+    }
+  }
+
   private static func notificationSettingName(_ setting: UNNotificationSetting) -> String {
     switch setting {
     case .notSupported:
@@ -268,6 +352,17 @@ final class NotificationService: NSObject, ObservableObject {
       return "enabled"
     @unknown default:
       return "unknown"
+    }
+  }
+
+  private func recordingResumedBody(for source: ResumeSource) -> String {
+    switch source {
+    case .timerExpired:
+      return "Dayflow resumed recording after your pause ended."
+    case .wakeFromSleep:
+      return "Dayflow resumed recording after your Mac woke up."
+    case .userClickedMenuBar, .userClickedMainApp:
+      return "Dayflow is recording again."
     }
   }
 
@@ -333,8 +428,9 @@ extension NotificationService: UNUserNotificationCenterDelegate {
 
     let isJournalNotification = identifier.hasPrefix("journal.")
     let isDailyRecapNotification = identifier.hasPrefix("daily.")
+    let isRecordingNotification = identifier.hasPrefix("recording.")
 
-    guard isJournalNotification || isDailyRecapNotification else {
+    guard isJournalNotification || isDailyRecapNotification || isRecordingNotification else {
       completionHandler()
       return
     }
@@ -347,7 +443,7 @@ extension NotificationService: UNUserNotificationCenterDelegate {
         activateAppForNotificationTap()
         print(
           "[NotificationService] didReceive journal notification handled identifier=\(identifier)")
-      } else {
+      } else if isDailyRecapNotification {
         AppDelegate.pendingNavigationToDailyDay = day
         AppDelegate.pendingNavigationToJournal = false
 
@@ -373,6 +469,9 @@ extension NotificationService: UNUserNotificationCenterDelegate {
           print("[NotificationService] didReceive daily notification navigation target_day=unknown")
         }
 
+        activateAppForNotificationTap()
+      } else {
+        print("[NotificationService] didReceive recording notification tap identifier=\(identifier)")
         activateAppForNotificationTap()
       }
     }
@@ -402,6 +501,12 @@ extension NotificationService: UNUserNotificationCenterDelegate {
     }
 
     if identifier.hasPrefix("daily.") {
+      print("[NotificationService] willPresent options=banner,sound identifier=\(identifier)")
+      completionHandler([.banner, .sound])
+      return
+    }
+
+    if identifier.hasPrefix("recording.") {
       print("[NotificationService] willPresent options=banner,sound identifier=\(identifier)")
       completionHandler([.banner, .sound])
       return
