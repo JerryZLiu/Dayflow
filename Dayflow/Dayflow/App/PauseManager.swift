@@ -98,6 +98,7 @@ final class PauseManager: ObservableObject {
   func pause(for duration: PauseDuration, source: PauseSource) {
     // Stop any existing timer
     stopTimer()
+    RecordingResumeNotificationCoordinator.shared.clearPendingAutoResume()
 
     // Store for analytics
     currentPauseDuration = duration
@@ -135,6 +136,13 @@ final class PauseManager: ObservableObject {
     pauseEndTime = nil
     isPausedIndefinitely = false
     currentPauseDuration = nil
+
+    switch source {
+    case .timerExpired, .wakeFromSleep:
+      RecordingResumeNotificationCoordinator.shared.markPendingAutoResume(source: source)
+    case .userClickedMenuBar, .userClickedMainApp:
+      RecordingResumeNotificationCoordinator.shared.clearPendingAutoResume()
+    }
 
     // Start recording
     AppState.shared.isRecording = true

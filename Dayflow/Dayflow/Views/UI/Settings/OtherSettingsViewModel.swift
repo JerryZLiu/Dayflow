@@ -24,6 +24,8 @@ final class OtherSettingsViewModel: ObservableObject {
       UserDefaults.standard.set(showTimelineAppIcons, forKey: "showTimelineAppIcons")
     }
   }
+  @Published private(set) var notificationPermissionState: NotificationPermissionState = .notDetermined
+  @Published private(set) var isUpdatingNotificationPermission = false
   @Published var outputLanguageOverride: String
   @Published var isOutputLanguageOverrideSaved: Bool = true
 
@@ -70,6 +72,27 @@ final class OtherSettingsViewModel: ObservableObject {
 
   func refreshAnalyticsState() {
     analyticsEnabled = AnalyticsService.shared.isOptedIn
+  }
+
+  func refreshNotificationPermissionState() {
+    Task { @MainActor in
+      notificationPermissionState = await NotificationService.shared.refreshPermissionStatus()
+    }
+  }
+
+  func requestNotificationPermission() {
+    guard !isUpdatingNotificationPermission else { return }
+    isUpdatingNotificationPermission = true
+
+    Task { @MainActor in
+      _ = await NotificationService.shared.requestPermission()
+      notificationPermissionState = await NotificationService.shared.refreshPermissionStatus()
+      isUpdatingNotificationPermission = false
+    }
+  }
+
+  func openNotificationSettings() {
+    NotificationService.shared.openNotificationSettings()
   }
 
   func exportTimelineRange() {
