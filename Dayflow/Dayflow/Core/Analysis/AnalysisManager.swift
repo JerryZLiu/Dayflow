@@ -32,10 +32,12 @@ final class AnalysisManager: AnalysisManaging {
   private init() {
     store = StorageManager.shared
     llmService = LLMService.shared
+    videoProcessingService = VideoProcessingService()
   }
 
   private let store: any StorageManaging
   private let llmService: any LLMServicing
+  private let videoProcessingService: VideoProcessingService
 
   // Video Processing Constants - removed old summary generation
 
@@ -483,6 +485,7 @@ final class AnalysisManager: AnalysisManaging {
       switch result {
       case .success(let processedResult):
         let activityCards = processedResult.cards
+        let cardIds = processedResult.cardIds
         print(
           "LLM succeeded for Batch \(batchId). Processing \(activityCards.count) activity cards for day \(currentLogicalDayString)."
         )
@@ -507,7 +510,11 @@ final class AnalysisManager: AnalysisManaging {
 
         // Mark batch as completed immediately
         self.updateBatchStatus(batchId: batchId, status: "completed")
-        // Timelapses are generated on demand from the UI to avoid background battery drain.
+        self.enqueueSavedTimelapseGenerationIfNeeded(
+          cardIds: cardIds,
+          cardCount: activityCards.count,
+          batchId: batchId
+        )
 
         completion?(.success(()))
 
@@ -531,6 +538,65 @@ final class AnalysisManager: AnalysisManaging {
 
   private func updateBatchStatus(batchId: Int64, status: String) {
     store.updateBatchStatus(batchId: batchId, status: status)
+  }
+
+  private func enqueueSavedTimelapseGenerationIfNeeded(
+    cardIds: [Int64],
+    cardCount: Int,
+    batchId: Int64
+  ) {
+    guard TimelapsePreferences.saveAllTimelapsesToDisk else { return }
+    guard !cardIds.isEmpty, cardCount > 0 else { return }
+
+    Task.detached(priority: .utility) { [weak self, cardIds, cardCount, batchId] in
+      guard let self else { return }
+
+      for (index, cardId) in cardIds.enumerated() {
+        if index >= cardCount { continue }
+
+        guard let timelineCard = self.store.fetchTimelineCard(byId: cardId) else {
+          print("Warning: Could not fetch timeline card \(cardId)")
+          continue
+        }
+
+        let screenshots = self.store.fetchScreenshotsInTimeRange(
+          startTs: timelineCard.startTs,
+          endTs: timelineCard.endTs
+        )
+
+        if screenshots.isEmpty {
+          print(
+            "No screenshots found for timeline card \(cardId) [\(timelineCard.startTimestamp) - \(timelineCard.endTimestamp)]"
+          )
+          continue
+        }
+
+        do {
+          print(
+            "Generating timelapse for card \(cardId): '\(timelineCard.title)' [\(timelineCard.startTimestamp) - \(timelineCard.endTimestamp)]"
+          )
+          print("  Found \(screenshots.count) screenshots in time range")
+
+          let timelapseURL = await self.videoProcessingService.generatePersistentTimelapseURL(
+            for: Date(timeIntervalSince1970: TimeInterval(timelineCard.startTs)),
+            originalFileName: String(cardId)
+          )
+
+          try await self.videoProcessingService.generateVideoFromScreenshots(
+            screenshots: screenshots,
+            outputURL: timelapseURL,
+            fps: 2,
+            useCompressedTimeline: true
+          )
+
+          self.store.updateTimelineCardVideoURL(cardId: cardId, videoSummaryURL: timelapseURL.path)
+          print("✅ Generated timelapse for card \(cardId): \(timelapseURL.path)")
+        } catch {
+          print("❌ Error generating timelapse for card \(cardId): \(error)")
+        }
+      }
+      print("✅ Timelapse generation complete for batch \(batchId)")
+    }
   }
 
   // MARK: - Screenshot-based Batching
