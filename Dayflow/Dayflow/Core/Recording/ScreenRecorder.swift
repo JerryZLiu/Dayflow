@@ -160,6 +160,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
   // ScreenCaptureKit objects (refreshed on each capture cycle)
   private var cachedContent: SCShareableContent?
   private var cachedDisplay: SCDisplay?
+  private var cachedDisplays: [SCDisplay] = []  // All displays for multi-display capture
 
   // MARK: - State Transitions
 
@@ -209,6 +210,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       self.stopCaptureTimer()
       self.cachedContent = nil
       self.cachedDisplay = nil
+      self.cachedDisplays = []
       self.currentDisplayID = nil
 
       if self.state != .paused {
@@ -246,10 +248,11 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       }
 
       cachedDisplay = display
+      cachedDisplays = content.displays
       currentDisplayID = display.displayID
       requestedDisplayID = nil
 
-      dbg("Setup complete - display \(display.displayID) (\(display.width)x\(display.height))")
+      dbg("Setup complete - \(content.displays.count) display(s), active: \(display.displayID) (\(display.width)x\(display.height))")
 
       // 3. Start capture timer
       q.async { [weak self] in
@@ -328,64 +331,68 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       dbg("captureScreenshot skipped - state: \(state.description)")
       return
     }
-    guard let display = cachedDisplay else {
-      dbg("captureScreenshot skipped - no display")
+
+    let displays = cachedDisplays.isEmpty ? [cachedDisplay].compactMap { $0 } : cachedDisplays
+    guard !displays.isEmpty else {
+      dbg("captureScreenshot skipped - no displays")
       return
     }
 
     let captureTime = Date()
     let idleSecondsAtCapture = InputIdleSnapshot.currentIdleSeconds()
 
-    do {
-      // 1. Create content filter for the display
-      let filter = SCContentFilter(display: display, excludingWindows: [])
+    for display in displays {
+      do {
+        // 1. Create content filter for the display
+        let filter = SCContentFilter(display: display, excludingWindows: [])
 
-      // 2. Configure screenshot
-      let config = SCStreamConfiguration()
+        // 2. Configure screenshot
+        let config = SCStreamConfiguration()
 
-      // Calculate dimensions to maintain aspect ratio at ~1080p
-      let aspectRatio = Double(display.width) / Double(display.height)
-      var targetWidth = Int(Double(Config.targetHeight) * aspectRatio)
-      if targetWidth % 2 != 0 { targetWidth += 1 }  // Ensure even
-      var targetHeight = Int(Config.targetHeight)
-      if targetHeight % 2 != 0 { targetHeight += 1 }
+        // Calculate dimensions to maintain aspect ratio at ~1080p
+        let aspectRatio = Double(display.width) / Double(display.height)
+        var targetWidth = Int(Double(Config.targetHeight) * aspectRatio)
+        if targetWidth % 2 != 0 { targetWidth += 1 }  // Ensure even
+        var targetHeight = Int(Config.targetHeight)
+        if targetHeight % 2 != 0 { targetHeight += 1 }
 
-      config.width = targetWidth
-      config.height = targetHeight
-      config.scalesToFit = true
-      config.showsCursor = true
+        config.width = targetWidth
+        config.height = targetHeight
+        config.scalesToFit = true
+        config.showsCursor = true
 
-      // 3. Capture screenshot
-      let image = try await SCScreenshotManager.captureImage(
-        contentFilter: filter,
-        configuration: config
-      )
+        // 3. Capture screenshot
+        let image = try await SCScreenshotManager.captureImage(
+          contentFilter: filter,
+          configuration: config
+        )
 
-      // 4. Convert to JPEG
-      guard let jpegData = jpegData(from: image, quality: Config.jpegQuality) else {
-        throw ScreenRecorderError.imageConversionFailed
-      }
+        // 4. Convert to JPEG
+        guard let jpegData = jpegData(from: image, quality: Config.jpegQuality) else {
+          throw ScreenRecorderError.imageConversionFailed
+        }
 
-      // 5. Save to file
-      let fileURL = StorageManager.shared.nextScreenshotURL()
-      try jpegData.write(to: fileURL)
+        // 5. Save to file
+        let fileURL = StorageManager.shared.nextScreenshotURL()
+        try jpegData.write(to: fileURL)
 
-      // 6. Register in database
-      _ = StorageManager.shared.saveScreenshot(
-        url: fileURL,
-        capturedAt: captureTime,
-        idleSecondsAtCapture: idleSecondsAtCapture
-      )
+        // 6. Register in database
+        _ = StorageManager.shared.saveScreenshot(
+          url: fileURL,
+          capturedAt: captureTime,
+          idleSecondsAtCapture: idleSecondsAtCapture
+        )
 
-      dbg("📸 Screenshot saved: \(fileURL.lastPathComponent) (\(jpegData.count / 1024)KB)")
+        dbg("📸 Screenshot saved: \(fileURL.lastPathComponent) display \(display.displayID) (\(jpegData.count / 1024)KB)")
 
-    } catch {
-      dbg("❌ Screenshot capture failed: \(error.localizedDescription)")
+      } catch {
+        dbg("❌ Screenshot capture failed for display \(display.displayID): \(error.localizedDescription)")
 
-      // If display became unavailable, try to refresh
-      if (error as NSError).domain == SCStreamErrorDomain {
-        dbg("SCStream error - will refresh display on next capture")
-        Task { await refreshDisplay() }
+        // If display became unavailable, try to refresh
+        if (error as NSError).domain == SCStreamErrorDomain {
+          dbg("SCStream error on display \(display.displayID) - will refresh")
+          Task { await refreshDisplay() }
+        }
       }
     }
   }
@@ -395,6 +402,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       let content = try await SCShareableContent.excludingDesktopWindows(
         false, onScreenWindowsOnly: true)
       cachedContent = content
+      cachedDisplays = content.displays
 
       // Prefer requested display (from active display tracking) over current
       let targetID = requestedDisplayID ?? currentDisplayID
@@ -410,6 +418,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         cachedDisplay = first
         currentDisplayID = first.displayID
       }
+      dbg("Refreshed displays: \(content.displays.count) available")
     } catch {
       dbg("Failed to refresh display: \(error)")
     }
