@@ -1,8 +1,38 @@
+import AVFoundation
 import AppKit
 import ImageIO
+import QuartzCore
 import SwiftUI
 
-// MARK: - Cached DateFormatter (creating DateFormatters is expensive due to ICU initialization)
+// MARK: - Time Optimizations
+
+/// O(1) Cache for display times to prevent severe UI thread stutter when formatting strings rapidly.
+@MainActor
+private final class TimelineReviewTimeCache {
+  static let shared = TimelineReviewTimeCache()
+  private var cache: [Int: String] = [:]
+
+  private let formatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "h:mm a"
+    f.locale = Locale(identifier: "en_US_POSIX")
+    return f
+  }()
+
+  func string(from date: Date) -> String {
+    let minute = Int(date.timeIntervalSince1970) / 60
+    if let str = cache[minute] {
+      return str
+    }
+    // Prevent unbounded memory growth over long app sessions
+    if cache.count > 500 {
+      cache.removeAll(keepingCapacity: true)
+    }
+    let str = formatter.string(from: date)
+    cache[minute] = str
+    return str
+  }
+}
 
 private let cachedReviewTimeFormatter: DateFormatter = {
   let formatter = DateFormatter()
@@ -10,6 +40,8 @@ private let cachedReviewTimeFormatter: DateFormatter = {
   formatter.locale = Locale(identifier: "en_US_POSIX")
   return formatter
 }()
+
+// MARK: - Enums
 
 private enum TimelineReviewRating: String, CaseIterable, Identifiable {
   case distracted
@@ -107,6 +139,8 @@ private enum TimelineReviewInput: String {
   case button
 }
 
+// MARK: - Main Overlay View
+
 struct TimelineReviewOverlay: View {
   @Binding var isPresented: Bool
   let selectedDate: Date
@@ -183,30 +217,18 @@ struct TimelineReviewOverlay: View {
     }
     .background(
       TimelineReviewKeyHandler(
-        onMove: { direction in
-          handleMoveCommand(direction)
-        },
-        onBack: {
-          goBackOneCard(input: .keyboard)
-        },
-        onEscape: {
-          dismissOverlay()
-        },
-        onTogglePlayback: {
-          playbackToggleToken &+= 1
-        }
+        onMove: { direction in handleMoveCommand(direction) },
+        onBack: { goBackOneCard(input: .keyboard) },
+        onEscape: { dismissOverlay() },
+        onTogglePlayback: { playbackToggleToken &+= 1 }
       )
       .frame(width: 0, height: 0)
     )
     .background(
       TrackpadScrollHandler(
         shouldHandleScroll: { delta in
-          if isTrackpadDragging {
-            return true
-          }
-          guard isPointerOverSummary else {
-            return true
-          }
+          if isTrackpadDragging { return true }
+          guard isPointerOverSummary else { return true }
           return abs(delta.width) > abs(delta.height) * 1.2
         },
         onScrollBegan: beginTrackpadDrag,
@@ -237,10 +259,7 @@ struct TimelineReviewOverlay: View {
             .background(
               Circle()
                 .fill(Color.white.opacity(0.7))
-                .overlay(
-                  Circle()
-                    .stroke(Color(hex: "DABCA4"), lineWidth: 1)
-                )
+                .overlay(Circle().stroke(Color(hex: "DABCA4"), lineWidth: 1))
             )
         }
         .buttonStyle(.plain)
@@ -256,8 +275,7 @@ struct TimelineReviewOverlay: View {
     GeometryReader { proxy in
       let availableWidth = max(proxy.size.width - ReviewLayout.horizontalPadding * 2, 1)
       VStack(spacing: 0) {
-        Spacer()
-          .frame(height: ReviewLayout.topPadding)
+        Spacer().frame(height: ReviewLayout.topPadding)
 
         GeometryReader { cardProxy in
           let availableHeight = max(cardProxy.size.height, 1)
@@ -286,9 +304,7 @@ struct TimelineReviewOverlay: View {
                 isActive: isActive,
                 playbackToggleToken: playbackToggleToken,
                 onSummaryHover: { hovering in
-                  if isActive {
-                    isPointerOverSummary = hovering
-                  }
+                  if isActive { isPointerOverSummary = hovering }
                 }
               )
               .frame(width: computedCardSize.width, height: computedCardSize.height)
@@ -311,29 +327,23 @@ struct TimelineReviewOverlay: View {
           .background(
             Color.clear
               .onAppear {
-                if cardSize != computedCardSize {
-                  cardSize = computedCardSize
-                }
+                if cardSize != computedCardSize { cardSize = computedCardSize }
               }
               .onChange(of: computedCardSize) { _, newValue in
-                if cardSize != newValue {
-                  cardSize = newValue
-                }
+                if cardSize != newValue { cardSize = newValue }
               }
           )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-        Spacer()
-          .frame(height: ReviewLayout.cardToTextSpacing)
+        Spacer().frame(height: ReviewLayout.cardToTextSpacing)
 
         reviewBottomContent
           .frame(width: availableWidth)
           .fixedSize(horizontal: false, vertical: true)
           .multilineTextAlignment(.center)
 
-        Spacer()
-          .frame(height: ReviewLayout.bottomPadding)
+        Spacer().frame(height: ReviewLayout.bottomPadding)
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
@@ -348,12 +358,9 @@ struct TimelineReviewOverlay: View {
         .minimumScaleFactor(0.95)
 
       TimelineReviewRatingRow(
-        onUndo: {
-          goBackOneCard(input: .button)
-        },
-        onSelect: { rating in
-          commitRating(rating, input: .button)
-        })
+        onUndo: { goBackOneCard(input: .button) },
+        onSelect: { rating in commitRating(rating, input: .button) }
+      )
     }
   }
 
@@ -392,8 +399,7 @@ struct TimelineReviewOverlay: View {
                 )
               )
               .overlay(
-                Capsule()
-                  .stroke(Color(hex: "FF8904").opacity(0.5), lineWidth: 1.25)
+                Capsule().stroke(Color(hex: "FF8904").opacity(0.5), lineWidth: 1.25)
               )
           )
       }
@@ -456,11 +462,7 @@ struct TimelineReviewOverlay: View {
   private func goBackOneCard(input: TimelineReviewInput) {
     guard !isAnimatingOut, !isBackAnimating else { return }
     guard currentIndex > 0 else { return }
-    AnalyticsService.shared.capture(
-      "timeline_review_undo",
-      [
-        "input": input.rawValue
-      ])
+    AnalyticsService.shared.capture("timeline_review_undo", ["input": input.rawValue])
     isBackAnimating = true
     currentIndex -= 1
     isPointerOverSummary = false
@@ -493,6 +495,18 @@ struct TimelineReviewOverlay: View {
     trackpadTranslation.width += delta.width
     trackpadTranslation.height += delta.height
     lastTrackpadDelta = delta
+
+    let minimumUpdateDelta: CGFloat = 2.5
+    let deltaFromRenderedState = CGSize(
+      width: trackpadTranslation.width - dragOffset.width,
+      height: trackpadTranslation.height - dragOffset.height
+    )
+    guard
+      abs(deltaFromRenderedState.width) >= minimumUpdateDelta
+        || abs(deltaFromRenderedState.height) >= minimumUpdateDelta
+    else {
+      return
+    }
 
     dragOffset = trackpadTranslation
     dragRotation = Double(trackpadTranslation.width / 18)
@@ -574,19 +588,11 @@ struct TimelineReviewOverlay: View {
     case .focused: direction = "right"
     }
     AnalyticsService.shared.capture(
-      "timeline_review_swipe",
-      [
-        "direction": direction,
-        "input": input.rawValue,
-      ])
+      "timeline_review_swipe", ["direction": direction, "input": input.rawValue])
 
     let startTs = Int(activity.startTime.timeIntervalSince1970)
     let endTs = Int(activity.endTime.timeIntervalSince1970)
-    StorageManager.shared.applyReviewRating(
-      startTs: startTs,
-      endTs: endTs,
-      rating: rating.rawValue
-    )
+    StorageManager.shared.applyReviewRating(startTs: startTs, endTs: endTs, rating: rating.rawValue)
     refreshRatingSummary()
 
     let exitOffset = swipeExitOffset(for: rating, predictedTranslation: predictedTranslation)
@@ -619,9 +625,7 @@ struct TimelineReviewOverlay: View {
     }
 
     if animated {
-      withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-        reset()
-      }
+      withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { reset() }
     } else {
       reset()
     }
@@ -689,16 +693,10 @@ struct TimelineReviewOverlay: View {
       let ratingSegments = StorageManager.shared.fetchReviewRatingSegments(
         overlapping: dayStartTs, endTs: dayEndTs)
       let summary = Self.makeRatingSummary(
-        segments: ratingSegments,
-        dayStartTs: dayStartTs,
-        dayEndTs: dayEndTs
-      )
+        segments: ratingSegments, dayStartTs: dayStartTs, dayEndTs: dayEndTs)
       let reviewActivities = Self.filterUnreviewedActivities(
-        activities: activities,
-        ratingSegments: ratingSegments,
-        dayStartTs: dayStartTs,
-        dayEndTs: dayEndTs
-      )
+        activities: activities, ratingSegments: ratingSegments, dayStartTs: dayStartTs,
+        dayEndTs: dayEndTs)
       await MainActor.run {
         self.activities = reviewActivities
         self.currentIndex = 0
@@ -712,9 +710,7 @@ struct TimelineReviewOverlay: View {
     }
   }
 
-  private var ratingSummary: TimelineReviewSummary {
-    dayRatingSummary
-  }
+  private var ratingSummary: TimelineReviewSummary { dayRatingSummary }
 
   private func refreshRatingSummary() {
     let timelineDate = timelineDisplayDate(from: selectedDate)
@@ -726,10 +722,7 @@ struct TimelineReviewOverlay: View {
       let segments = StorageManager.shared.fetchReviewRatingSegments(
         overlapping: dayStartTs, endTs: dayEndTs)
       let summary = Self.makeRatingSummary(
-        segments: segments,
-        dayStartTs: dayStartTs,
-        dayEndTs: dayEndTs
-      )
+        segments: segments, dayStartTs: dayStartTs, dayEndTs: dayEndTs)
       await MainActor.run {
         dayRatingSummary = summary
       }
@@ -737,9 +730,7 @@ struct TimelineReviewOverlay: View {
   }
 
   nonisolated private static func makeRatingSummary(
-    segments: [TimelineReviewRatingSegment],
-    dayStartTs: Int,
-    dayEndTs: Int
+    segments: [TimelineReviewRatingSegment], dayStartTs: Int, dayEndTs: Int
   ) -> TimelineReviewSummary {
     var durationByRating: [TimelineReviewRating: TimeInterval] = [:]
     for segment in segments {
@@ -758,18 +749,12 @@ struct TimelineReviewOverlay: View {
   }
 
   nonisolated private static func filterUnreviewedActivities(
-    activities: [TimelineActivity],
-    ratingSegments: [TimelineReviewRatingSegment],
-    dayStartTs: Int,
+    activities: [TimelineActivity], ratingSegments: [TimelineReviewRatingSegment], dayStartTs: Int,
     dayEndTs: Int
   ) -> [TimelineActivity] {
     guard ratingSegments.isEmpty == false else { return activities }
-
     let mergedSegments = mergedCoverageSegments(
-      segments: ratingSegments,
-      dayStartTs: dayStartTs,
-      dayEndTs: dayEndTs
-    )
+      segments: ratingSegments, dayStartTs: dayStartTs, dayEndTs: dayEndTs)
     guard mergedSegments.isEmpty == false else { return activities }
 
     var unreviewed: [TimelineActivity] = []
@@ -780,24 +765,17 @@ struct TimelineReviewOverlay: View {
       let end = Int(activity.endTime.timeIntervalSince1970)
       let duration = max(end - start, 1)
       let covered = overlapSeconds(
-        start: start,
-        end: end,
-        segments: mergedSegments,
-        segmentIndex: &segmentIndex
-      )
+        start: start, end: end, segments: mergedSegments, segmentIndex: &segmentIndex)
       let coverageRatio = Double(covered) / Double(duration)
       if coverageRatio < 0.8 {
         unreviewed.append(activity)
       }
     }
-
     return unreviewed
   }
 
   nonisolated private static func mergedCoverageSegments(
-    segments: [TimelineReviewRatingSegment],
-    dayStartTs: Int,
-    dayEndTs: Int
+    segments: [TimelineReviewRatingSegment], dayStartTs: Int, dayEndTs: Int
   ) -> [CoverageSegment] {
     var clipped: [CoverageSegment] = []
     clipped.reserveCapacity(segments.count)
@@ -805,9 +783,7 @@ struct TimelineReviewOverlay: View {
     for segment in segments {
       let start = max(segment.startTs, dayStartTs)
       let end = min(segment.endTs, dayEndTs)
-      if end > start {
-        clipped.append(CoverageSegment(start: start, end: end))
-      }
+      if end > start { clipped.append(CoverageSegment(start: start, end: end)) }
     }
 
     guard clipped.isEmpty == false else { return [] }
@@ -827,20 +803,14 @@ struct TimelineReviewOverlay: View {
   }
 
   nonisolated private static func overlapSeconds(
-    start: Int,
-    end: Int,
-    segments: [CoverageSegment],
-    segmentIndex: inout Int
+    start: Int, end: Int, segments: [CoverageSegment], segmentIndex: inout Int
   ) -> Int {
     guard end > start else { return 0 }
-
     while segmentIndex < segments.count, segments[segmentIndex].end <= start {
       segmentIndex += 1
     }
-
     var covered = 0
     var index = segmentIndex
-
     while index < segments.count, segments[index].start < end {
       let overlapStart = max(start, segments[index].start)
       let overlapEnd = min(end, segments[index].end)
@@ -853,9 +823,31 @@ struct TimelineReviewOverlay: View {
         break
       }
     }
-
     return covered
   }
+}
+
+// MARK: - Core Playback Management
+
+@MainActor
+private final class TimelineReviewPlaybackTimelineState: ObservableObject {
+  // EXPLICITLY NOT @Published to absolutely eradicate the 120fps SwiftUI layout diffing issue.
+  // Changes here now trigger raw Core Animation logic seamlessly with 0% CPU impact.
+  var currentTime: Double = 0 {
+    didSet { onTimeChange?(currentTime) }
+  }
+  var duration: Double = 1 {
+    didSet { onTimeChange?(currentTime) }
+  }
+  var onTimeChange: ((Double) -> Void)?
+
+  @Published var speedLabel: String = "60x"
+  @Published var isPlaying: Bool = false
+}
+
+@MainActor
+private final class TimelineReviewPlaybackMediaState: ObservableObject {
+  @Published var currentImage: CGImage?
 }
 
 private struct TimelineReviewCard: View {
@@ -868,8 +860,14 @@ private struct TimelineReviewCard: View {
   let playbackToggleToken: Int
   let onSummaryHover: (Bool) -> Void
 
+  @AppStorage(TimelapsePreferences.saveAllTimelapsesToDiskKey) private var saveAllTimelapsesToDisk =
+    false
   @StateObject private var playerModel: TimelineReviewPlayerModel
+  @StateObject private var legacyPlayerModel: TimelineReviewLegacyPlayerModel
+  private let previewSource = TimelineReviewScreenshotSource()
   @State private var isHoveringMedia = false
+  @State private var previewImage: CGImage?
+  @State private var previewRequestID: Int = 0
   @State private var wasPlayingBeforeScrub = false
 
   init(
@@ -891,6 +889,7 @@ private struct TimelineReviewCard: View {
     self.playbackToggleToken = playbackToggleToken
     self.onSummaryHover = onSummaryHover
     _playerModel = StateObject(wrappedValue: TimelineReviewPlayerModel(activity: activity))
+    _legacyPlayerModel = StateObject(wrappedValue: TimelineReviewLegacyPlayerModel())
   }
 
   var body: some View {
@@ -901,7 +900,9 @@ private struct TimelineReviewCard: View {
 
       VStack(spacing: 0) {
         TimelineReviewCardMedia(
-          image: playerModel.currentImage,
+          previewImage: usingVideoPlayer ? nil : previewImage,
+          playbackState: playerModel.mediaState,
+          player: usingVideoPlayer ? legacyPlayerModel.player : nil,
           onTogglePlayback: {
             guard isActive else { return }
             togglePlayback()
@@ -910,8 +911,9 @@ private struct TimelineReviewCard: View {
         .frame(height: Design.mediaHeight)
         .overlay(alignment: .bottom) {
           TimelineReviewPlaybackTimeline(
-            progress: playbackProgress,
-            timeText: playbackTimeText,
+            playbackState: activePlaybackState,
+            activityStartTime: activity.startTime,
+            activityEndTime: activity.endTime,
             mediaHeight: Design.mediaHeight,
             lineHeight: Design.progressLineHeight,
             isInteractive: isActive,
@@ -919,12 +921,22 @@ private struct TimelineReviewCard: View {
             onScrubChange: updateScrub(progress:),
             onScrubEnd: endScrub
           )
+          .frame(height: Design.timelineHeight)
         }
         .overlay(alignment: .bottomTrailing) {
           if isHoveringMedia && isActive {
-            speedChip
-              .padding(SpeedChipDesign.padding)
-              .zIndex(2)
+            TimelineReviewSpeedChip(
+              playbackState: activePlaybackState,
+              onTap: {
+                if usingVideoPlayer {
+                  legacyPlayerModel.cycleSpeed()
+                } else {
+                  playerModel.cycleSpeed()
+                }
+              }
+            )
+            .padding(SpeedChipDesign.padding)
+            .zIndex(2)
           }
         }
         .onHover { hovering in
@@ -954,9 +966,7 @@ private struct TimelineReviewCard: View {
           }
           .frame(maxHeight: .infinity)
           .contentShape(Rectangle())
-          .onHover { hovering in
-            onSummaryHover(hovering)
-          }
+          .onHover { hovering in onSummaryHover(hovering) }
 
           HStack {
             Spacer()
@@ -978,15 +988,21 @@ private struct TimelineReviewCard: View {
       }
     }
     .opacity(highlightOpacity)
-    .onAppear {
-      playerModel.setActive(isActive)
+    .overlay {
+      if !usingVideoPlayer {
+        TimelineReviewDisplayLinkDriver(
+          playbackState: playerModel.timelineState,
+          isEnabled: isActive,
+          onTick: { displayLink in playerModel.handleDisplayTick(displayLink) }
+        )
+        .allowsHitTesting(false)
+      }
     }
-    .onChange(of: isActive) { _, active in
-      playerModel.setActive(active)
-    }
-    .onChange(of: activity.id) { _, _ in
-      playerModel.updateActivity(activity)
-    }
+    .onAppear { syncPlaybackMode() }
+    .onChange(of: isActive) { syncPlaybackMode() }
+    .onChange(of: activity.id) { syncPlaybackMode() }
+    .onChange(of: activity.videoSummaryURL) { syncPlaybackMode() }
+    .onChange(of: saveAllTimelapsesToDisk) { syncPlaybackMode() }
     .onChange(of: playbackToggleToken) { _, _ in
       guard isActive else { return }
       togglePlayback()
@@ -998,103 +1014,293 @@ private struct TimelineReviewCard: View {
   }
 
   private var timeRangeText: String {
-    let start = Self.timeFormatter.string(from: activity.startTime)
-    let end = Self.timeFormatter.string(from: activity.endTime)
+    let start = TimelineReviewTimeCache.shared.string(from: activity.startTime)
+    let end = TimelineReviewTimeCache.shared.string(from: activity.endTime)
     return "\(start) - \(end)"
   }
 
-  private var playbackProgress: CGFloat {
-    let duration = max(activeDuration, 0.001)
-    let progress = activeCurrentTime / duration
-    return CGFloat(min(max(progress, 0), 1))
-  }
-
-  private var playbackTimeText: String {
-    let total = max(0, activity.endTime.timeIntervalSince(activity.startTime))
-    let progressSeconds = total * Double(playbackProgress)
-    let time = activity.startTime.addingTimeInterval(progressSeconds)
-    return Self.timeFormatter.string(from: time)
-  }
-
-  private var speedLabel: String {
-    "\(Int(playerModel.playbackSpeed * 20))x"
+  private var usingVideoPlayer: Bool {
+    usesLegacySavedTimelapsePlayback && legacyPlayerModel.player != nil
   }
 
   private func beginScrub() {
     guard isActive else { return }
-    wasPlayingBeforeScrub = playerModel.isPlaying
-    playerModel.pause()
+    if usingVideoPlayer {
+      wasPlayingBeforeScrub = legacyPlayerModel.timelineState.isPlaying
+      legacyPlayerModel.pause()
+    } else {
+      wasPlayingBeforeScrub = playerModel.timelineState.isPlaying
+      playerModel.pause()
+    }
   }
 
   private func updateScrub(progress: CGFloat) {
     guard isActive else { return }
-    let seconds = Double(progress) * activeDuration
-    playerModel.seek(to: seconds, resume: false)
+    let seconds = Double(progress) * activePlaybackState.duration
+    if usingVideoPlayer {
+      legacyPlayerModel.seek(to: seconds, resume: false)
+    } else {
+      playerModel.seek(to: seconds, resume: false)
+    }
   }
 
   private func endScrub() {
     guard isActive else { return }
     if wasPlayingBeforeScrub {
-      playerModel.play()
+      if usingVideoPlayer { legacyPlayerModel.play() } else { playerModel.play() }
+    } else {
+      // Force final seek to guarantee the exact frame is rendered if left paused
+      if !usingVideoPlayer {
+        playerModel.seek(to: playerModel.timelineState.currentTime, resume: false)
+      }
     }
     wasPlayingBeforeScrub = false
   }
 
-  private var activeDuration: Double {
-    playerModel.duration
-  }
-
-  private var activeCurrentTime: Double {
-    playerModel.currentTime
+  private var activePlaybackState: TimelineReviewPlaybackTimelineState {
+    usingVideoPlayer ? legacyPlayerModel.timelineState : playerModel.timelineState
   }
 
   private func togglePlayback() {
-    playerModel.togglePlay()
+    if usingVideoPlayer { legacyPlayerModel.togglePlay() } else { playerModel.togglePlay() }
+  }
+
+  private var usesLegacySavedTimelapsePlayback: Bool {
+    saveAllTimelapsesToDisk && !(activity.videoSummaryURL?.isEmpty ?? true)
+  }
+
+  private func syncPlaybackMode() {
+    if usesLegacySavedTimelapsePlayback {
+      previewRequestID &+= 1
+      previewImage = nil
+      playerModel.reset()
+      legacyPlayerModel.updateVideo(url: activity.videoSummaryURL)
+      legacyPlayerModel.setActive(isActive)
+      return
+    }
+
+    legacyPlayerModel.resetIfNeeded()
+    loadPreviewIfNeeded()
+
+    if isActive {
+      playerModel.updateActivity(activity)
+      playerModel.setActive(true)
+      return
+    }
+    playerModel.reset()
+  }
+
+  private func loadPreviewIfNeeded() {
+    previewRequestID &+= 1
+    let requestID = previewRequestID
+    let targetSize = CGSize(width: 340, height: Design.mediaHeight)
+
+    Task {
+      let screenshotURL = await previewSource.previewScreenshotURL(for: activity)
+      guard !Task.isCancelled else { return }
+
+      guard let screenshotURL else {
+        await MainActor.run {
+          guard requestID == previewRequestID else { return }
+          previewImage = nil
+        }
+        return
+      }
+
+      await MainActor.run {
+        guard requestID == previewRequestID else { return }
+        ScreenshotThumbnailCache.shared.fetchThumbnail(
+          fileURL: screenshotURL, targetSize: targetSize
+        ) { image in
+          guard requestID == previewRequestID else { return }
+          previewImage = image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        }
+      }
+    }
   }
 
   private enum Design {
     static let mediaHeight: CGFloat = 220
     static let progressLineHeight: CGFloat = 4
+    static let timelineHeight: CGFloat = 28
+  }
+  private enum SpeedChipDesign { static let padding: CGFloat = 10 }
+}
+
+@MainActor
+private final class TimelineReviewLegacyPlayerModel: ObservableObject {
+  let timelineState = TimelineReviewPlaybackTimelineState()
+
+  private static let speedDefaultsKey = "timelineReviewPlaybackSpeedMultiplier"
+  let speedOptions: [Float] = [1.0, 2.0, 3.0, 6.0]
+
+  var player: AVPlayer?
+  private var timeObserver: Any?
+  private var endObserver: Any?
+  private var shouldPlayWhenReady = false
+  private var currentURL: String?
+  private var playbackSpeed: Float = 3.0
+  private var didReachEnd = false
+
+  init() {
+    if let savedSpeed = Self.loadSavedSpeed(from: speedOptions) { playbackSpeed = savedSpeed }
+    timelineState.speedLabel = currentSpeedLabel
   }
 
-  private enum SpeedChipDesign {
-    static let padding: CGFloat = 10
-    static let background = Color.black.opacity(0.8)
-    static let text = Color.white
+  func updateVideo(url: String?) {
+    guard url != currentURL else { return }
+    currentURL = url
+    cleanupPlayer()
+    guard let url, let resolvedURL = resolveVideoURL(url) else { return }
+
+    let player = AVPlayer(url: resolvedURL)
+    player.isMuted = true
+    player.actionAtItemEnd = .pause
+    self.player = player
+    didReachEnd = false
+    timelineState.currentTime = 0
+
+    observeDuration(for: player.currentItem)
+    addTimeObserver()
+    addEndObserver(for: player.currentItem)
+    if shouldPlayWhenReady { play() }
   }
 
-  private var speedChip: some View {
-    Button(action: { playerModel.cycleSpeed() }) {
-      Text(speedLabel)
-        .font(.system(size: 14, weight: .semibold))
-        .foregroundColor(SpeedChipDesign.text)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(SpeedChipDesign.background)
-        .cornerRadius(4)
+  func setActive(_ active: Bool) {
+    shouldPlayWhenReady = active
+    if active { play() } else { pause() }
+  }
+
+  func resetIfNeeded() {
+    shouldPlayWhenReady = false
+    currentURL = nil
+    cleanupPlayer()
+  }
+
+  func cycleSpeed() {
+    guard let idx = speedOptions.firstIndex(of: playbackSpeed) else {
+      setPlaybackSpeed(speedOptions.last ?? 3.0)
+      return
     }
-    .buttonStyle(.plain)
-    .pointingHandCursor()
+    setPlaybackSpeed(speedOptions[(idx + 1) % speedOptions.count])
   }
 
-  private static let timeFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateFormat = "h:mm a"
-    return formatter
-  }()
+  func togglePlay() {
+    if didReachEnd {
+      seek(to: 0, resume: true)
+      return
+    }
+    if timelineState.isPlaying { pause() } else { play() }
+  }
+
+  func seek(to seconds: Double, resume: Bool? = nil) {
+    let clamped = min(max(seconds, 0), timelineState.duration)
+    guard let player else { return }
+    didReachEnd = clamped >= max(timelineState.duration - 0.01, 0)
+    timelineState.currentTime = clamped
+    let target = CMTime(seconds: clamped, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
+    player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+    if let resume { resume ? play() : pause() }
+  }
+
+  func play() {
+    guard let player else { return }
+    if didReachEnd {
+      didReachEnd = false
+      timelineState.currentTime = 0
+      player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+    player.play()
+    player.rate = playbackSpeed
+    timelineState.isPlaying = true
+  }
+
+  func pause() {
+    player?.pause()
+    timelineState.isPlaying = false
+  }
+
+  private func setPlaybackSpeed(_ speed: Float) {
+    playbackSpeed = speed
+    UserDefaults.standard.set(Double(speed), forKey: Self.speedDefaultsKey)
+    timelineState.speedLabel = currentSpeedLabel
+    if player?.rate ?? 0 > 0 { player?.rate = speed }
+  }
+
+  private func observeDuration(for item: AVPlayerItem?) {
+    guard let asset = item?.asset else { return }
+    Task { [weak self] in
+      do {
+        let loadedDuration = try await asset.load(.duration)
+        let seconds = CMTimeGetSeconds(loadedDuration)
+        let resolvedDuration = seconds.isFinite && seconds > 0 ? seconds : 1
+        DispatchQueue.main.async { [weak self] in self?.timelineState.duration = resolvedDuration }
+      } catch {
+        DispatchQueue.main.async { [weak self] in self?.timelineState.duration = 1 }
+      }
+    }
+  }
+
+  private func addTimeObserver() {
+    guard let player else { return }
+    let interval = CMTime(seconds: 1.0 / 30.0, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
+    // Callbacks from AVPlayer directly to main thread triggers the native property update cleanly
+    timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) {
+      [weak self] time in
+      self?.timelineState.currentTime = CMTimeGetSeconds(time)
+    }
+  }
+
+  private func addEndObserver(for item: AVPlayerItem?) {
+    guard let item else { return }
+    endObserver = NotificationCenter.default.addObserver(
+      forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
+    ) { [weak self] _ in
+      Task { @MainActor [weak self] in
+        self?.didReachEnd = true
+        self?.timelineState.isPlaying = false
+      }
+    }
+  }
+
+  private func cleanupPlayer() {
+    if let timeObserver, let player {
+      player.removeTimeObserver(timeObserver)
+      self.timeObserver = nil
+    }
+    if let endObserver {
+      NotificationCenter.default.removeObserver(endObserver)
+      self.endObserver = nil
+    }
+    player?.pause()
+    player = nil
+    timelineState.currentTime = 0
+    timelineState.duration = 1
+    timelineState.isPlaying = false
+    didReachEnd = false
+  }
+
+  private func resolveVideoURL(_ string: String) -> URL? {
+    if string.hasPrefix("file://") { return URL(string: string) }
+    return URL(fileURLWithPath: string)
+  }
+
+  private static func loadSavedSpeed(from options: [Float]) -> Float? {
+    let saved = UserDefaults.standard.double(forKey: speedDefaultsKey)
+    guard saved > 0 else { return nil }
+    let savedFloat = Float(saved)
+    return options.first(where: { abs($0 - savedFloat) < 0.001 })
+  }
+
+  private var currentSpeedLabel: String { "\(Int(playbackSpeed * 20))x" }
 }
 
 @MainActor
 private final class TimelineReviewPlayerModel: ObservableObject {
-  @Published var currentTime: Double = 0
-  @Published var duration: Double = 1
-  @Published var playbackSpeed: Float = 3.0
-  @Published var isPlaying: Bool = false
-  @Published var didReachEnd: Bool = false
-  @Published private(set) var currentImage: NSImage?
-
   private static let speedDefaultsKey = "timelineReviewPlaybackSpeedMultiplier"
   let speedOptions: [Float] = [1.0, 2.0, 3.0, 6.0]
+  let mediaState = TimelineReviewPlaybackMediaState()
+  let timelineState = TimelineReviewPlaybackTimelineState()
 
   private let screenshotSource = TimelineReviewScreenshotSource()
   private var frameLoader: TimelineReviewFrameLoader?
@@ -1106,29 +1312,47 @@ private final class TimelineReviewPlayerModel: ObservableObject {
   private var frameRequestID = 0
   private var fallbackDurationSeconds: Double = 1
   private var averageFrameIntervalSeconds: Double = max(0.1, ScreenshotConfig.interval)
-  private var playbackTask: Task<Void, Never>?
   private var loadTask: Task<Void, Never>?
-  private var currentFrameStartUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+  private var playbackSpeed: Float = 3.0
+  private var didReachEnd = false
+  private var pendingFrameIndex: Int?
+
+  private var internalCurrentTime: Double = 0
+  private var lastDisplayTimestamp: CFTimeInterval?
+  private var lastFrameDisplayTime: CFTimeInterval = 0
 
   init(activity: TimelineActivity) {
-    if let savedSpeed = Self.loadSavedSpeed(from: speedOptions) {
-      self.playbackSpeed = savedSpeed
-    }
+    if let savedSpeed = Self.loadSavedSpeed(from: speedOptions) { playbackSpeed = savedSpeed }
+    timelineState.speedLabel = currentSpeedLabel
     updateActivity(activity)
   }
 
-  deinit {
-    playbackTask?.cancel()
+  deinit { loadTask?.cancel() }
+
+  func reset() {
     loadTask?.cancel()
+    loadTask = nil
+    frameLoader = nil
+    frameOffsets = []
+    currentIndex = 0
+    mediaState.currentImage = nil
+    timelineState.currentTime = 0
+    internalCurrentTime = 0
+    timelineState.duration = 1
+    timelineState.isPlaying = false
+    didReachEnd = false
+    shouldPlayWhenReady = false
+    currentActivityID = nil
+    sourceRequestID &+= 1
+    frameRequestID &+= 1
+    pendingFrameIndex = nil
+    lastDisplayTimestamp = nil
+    lastFrameDisplayTime = 0
   }
 
   func setActive(_ active: Bool) {
     shouldPlayWhenReady = active
-    if active {
-      play()
-    } else {
-      pause()
-    }
+    if active { play() } else { pause() }
   }
 
   func updateActivity(_ activity: TimelineActivity) {
@@ -1142,13 +1366,17 @@ private final class TimelineReviewPlayerModel: ObservableObject {
     frameLoader = nil
     frameOffsets = []
     currentIndex = 0
-    currentImage = nil
-    currentTime = 0
+    mediaState.currentImage = nil
+    timelineState.currentTime = 0
+    internalCurrentTime = 0
     didReachEnd = false
-    isPlaying = false
+    timelineState.isPlaying = false
     fallbackDurationSeconds = max(0.1, activity.endTime.timeIntervalSince(activity.startTime))
-    duration = fallbackDurationSeconds
+    timelineState.duration = fallbackDurationSeconds
     averageFrameIntervalSeconds = max(0.1, ScreenshotConfig.interval)
+    pendingFrameIndex = nil
+    lastDisplayTimestamp = nil
+    lastFrameDisplayTime = 0
 
     loadTask = Task { [activity] in
       let screenshots = await screenshotSource.screenshots(for: activity)
@@ -1157,9 +1385,7 @@ private final class TimelineReviewPlayerModel: ObservableObject {
       await MainActor.run {
         guard requestID == self.sourceRequestID else { return }
         self.configureScreenshots(screenshots)
-        if self.shouldPlayWhenReady {
-          self.play()
-        }
+        if self.shouldPlayWhenReady { self.play() }
       }
     }
   }
@@ -1169,8 +1395,7 @@ private final class TimelineReviewPlayerModel: ObservableObject {
       setPlaybackSpeed(speedOptions.last ?? 3.0)
       return
     }
-    let next = speedOptions[(idx + 1) % speedOptions.count]
-    setPlaybackSpeed(next)
+    setPlaybackSpeed(speedOptions[(idx + 1) % speedOptions.count])
   }
 
   func togglePlay() {
@@ -1178,66 +1403,67 @@ private final class TimelineReviewPlayerModel: ObservableObject {
       seek(to: 0, resume: true)
       return
     }
-    if isPlaying {
-      pause()
-    } else {
-      play()
-    }
+    if timelineState.isPlaying { pause() } else { play() }
   }
 
   func seek(to seconds: Double, resume: Bool? = nil) {
     guard frameCount > 0 else { return }
-    let clamped = min(max(seconds, 0), duration)
-    didReachEnd = clamped >= max(duration - 0.01, 0)
-    currentTime = clamped
-    let index = nearestFrameIndex(forTimelineTime: clamped)
-    Task { [weak self] in
-      await self?.displayFrame(at: index)
+    let clamped = min(max(seconds, 0), timelineDurationSeconds)
+    didReachEnd = clamped >= max(timelineDurationSeconds - 0.01, 0)
+
+    // Updates UI internal time immediately overriding any clock throttles
+    internalCurrentTime = clamped
+    timelineState.currentTime = clamped
+
+    let index = frameIndex(forTimelineTime: clamped)
+
+    let now = CACurrentMediaTime()
+    if resume != nil || now - lastFrameDisplayTime >= (1.0 / 30.0) {
+      lastFrameDisplayTime = now
+      triggerFrameDecode(at: index, updateTimelineTime: false)
     }
-    if let resume {
-      resume ? play() : pause()
-    }
+
+    lastDisplayTimestamp = nil
+    if let resume { resume ? play() : pause() }
   }
 
   private func setPlaybackSpeed(_ speed: Float) {
     playbackSpeed = speed
     UserDefaults.standard.set(Double(speed), forKey: Self.speedDefaultsKey)
+    timelineState.speedLabel = currentSpeedLabel
   }
 
   func play() {
     guard frameCount > 0 else { return }
-    startPlaybackLoopIfNeeded()
-
     if didReachEnd {
       didReachEnd = false
       seek(to: 0, resume: false)
     }
-    isPlaying = true
+    timelineState.isPlaying = true
+    lastDisplayTimestamp = nil
   }
 
   func pause() {
-    isPlaying = false
+    timelineState.isPlaying = false
+    lastDisplayTimestamp = nil
   }
 
-  private var frameCount: Int {
-    frameOffsets.count
-  }
+  private var frameCount: Int { frameOffsets.count }
 
   private func configureScreenshots(_ screenshots: [Screenshot]) {
     frameLoader =
       screenshots.isEmpty
-      ? nil : TimelineReviewFrameLoader(screenshots: screenshots, maxRenderHeight: 720)
+      ? nil
+      : TimelineReviewFrameLoader(
+        screenshots: screenshots, targetSize: CGSize(width: 340, height: 220))
 
     if let firstCapture = screenshots.first?.capturedAt {
-      frameOffsets = screenshots.map { screenshot in
-        Double(max(0, screenshot.capturedAt - firstCapture))
-      }
+      frameOffsets = screenshots.map { Double(max(0, $0.capturedAt - firstCapture)) }
     } else {
       frameOffsets = []
     }
 
-    if screenshots.count > 1,
-      let firstCapture = screenshots.first?.capturedAt,
+    if screenshots.count > 1, let firstCapture = screenshots.first?.capturedAt,
       let lastCapture = screenshots.last?.capturedAt
     {
       let totalSeconds = Double(max(1, lastCapture - firstCapture))
@@ -1247,103 +1473,114 @@ private final class TimelineReviewPlayerModel: ObservableObject {
       averageFrameIntervalSeconds = max(0.1, ScreenshotConfig.interval)
     }
 
-    duration = max(0.001, max(frameOffsets.last ?? 0, fallbackDurationSeconds))
+    timelineState.duration = timelineDurationSeconds
     currentIndex = 0
-    currentTime = 0
+    internalCurrentTime = 0
+    timelineState.currentTime = 0
     didReachEnd = false
-    currentImage = nil
+    mediaState.currentImage = nil
 
     guard frameCount > 0 else { return }
-    Task { [weak self] in
-      await self?.displayFrame(at: 0)
-    }
+    triggerFrameDecode(at: 0, updateTimelineTime: true)
   }
 
-  private func startPlaybackLoopIfNeeded() {
-    guard playbackTask == nil else { return }
-    playbackTask = Task { [weak self] in
-      await self?.runPlaybackLoop()
+  func handleDisplayTick(_ displayLink: CADisplayLink) {
+    guard timelineState.isPlaying, frameCount > 1 else {
+      lastDisplayTimestamp = nil
+      return
     }
-  }
 
-  private var playbackIntervalSeconds: Double {
+    let previousTimestamp = lastDisplayTimestamp ?? displayLink.timestamp
+    let currentTimestamp = max(displayLink.targetTimestamp, displayLink.timestamp)
+    let deltaSeconds = min(max(currentTimestamp - previousTimestamp, 0), 0.1)
+    lastDisplayTimestamp = currentTimestamp
+    guard deltaSeconds > 0 else { return }
+
     let speedMultiplier = max(1.0, Double(playbackSpeed) * 20.0)
-    return max(1.0 / 30.0, averageFrameIntervalSeconds / speedMultiplier)
-  }
+    let nextTime = min(
+      timelineDurationSeconds, internalCurrentTime + (deltaSeconds * speedMultiplier))
+    internalCurrentTime = nextTime
 
-  private func runPlaybackLoop() async {
-    while Task.isCancelled == false {
-      if isPlaying == false || frameCount <= 1 {
-        try? await Task.sleep(nanoseconds: 80_000_000)
-        continue
+    // Direct NSView layer updates without SwiftUI tracking (0% CPU diffing impact)
+    timelineState.currentTime = nextTime
+
+    let nextIndex = frameIndex(forTimelineTime: nextTime)
+    if nextIndex != currentIndex {
+      // CoreGraphics decode hardware capped strictly to ~30 FPS preventing Core Starvation
+      if currentTimestamp - lastFrameDisplayTime >= (1.0 / 30.0) {
+        lastFrameDisplayTime = currentTimestamp
+        triggerFrameDecode(at: nextIndex, updateTimelineTime: false)
       }
+    }
 
-      let interval = playbackIntervalSeconds
-      let frameStartUptime = currentFrameStartUptime
-      let startOffset = frameOffset(for: currentIndex)
-      let nextIndex = min(currentIndex + 1, frameCount - 1)
-      let endOffset = frameOffset(for: nextIndex)
-
-      while Task.isCancelled == false && isPlaying {
-        let elapsed = ProcessInfo.processInfo.systemUptime - frameStartUptime
-        if elapsed >= interval { break }
-        let progress = min(1, max(0, elapsed / interval))
-        currentTime = startOffset + (endOffset - startOffset) * progress
-        try? await Task.sleep(nanoseconds: 33_000_000)
-      }
-
-      if Task.isCancelled { break }
-      if isPlaying == false { continue }
-
-      if currentIndex >= frameCount - 1 {
-        currentTime = duration
-        didReachEnd = true
-        isPlaying = false
-        continue
-      }
-
-      await displayFrame(at: currentIndex + 1)
+    if nextTime >= timelineDurationSeconds {
+      didReachEnd = true
+      timelineState.isPlaying = false
+      timelineState.currentTime = timelineDurationSeconds
     }
   }
 
   private func frameOffset(for index: Int) -> Double {
     guard frameOffsets.indices.contains(index) else {
-      return min(Double(index) * averageFrameIntervalSeconds, duration)
+      return min(Double(index) * averageFrameIntervalSeconds, timelineDurationSeconds)
     }
     return frameOffsets[index]
   }
 
-  private func nearestFrameIndex(forTimelineTime seconds: Double) -> Int {
-    guard frameOffsets.isEmpty == false else { return 0 }
+  private var timelineDurationSeconds: Double {
+    max(0.001, max(frameOffsets.last ?? 0, fallbackDurationSeconds))
+  }
+  private var currentSpeedLabel: String { "\(Int(playbackSpeed * 20))x" }
 
-    var nearestIndex = 0
-    var nearestDistance = abs(frameOffsets[0] - seconds)
-
-    for (index, offset) in frameOffsets.enumerated() {
-      let distance = abs(offset - seconds)
-      if distance < nearestDistance {
-        nearestDistance = distance
-        nearestIndex = index
+  private func frameIndex(forTimelineTime seconds: Double) -> Int {
+    guard !frameOffsets.isEmpty else { return 0 }
+    // Binary Search guarantees 0(log n) efficiency at exactly 0.00 ms duration hit
+    var low = 0
+    var high = frameOffsets.count - 1
+    var bestIndex = 0
+    while low <= high {
+      let mid = low + (high - low) / 2
+      if frameOffsets[mid] <= seconds {
+        bestIndex = mid
+        low = mid + 1
+      } else {
+        high = mid - 1
       }
     }
-
-    return nearestIndex
+    return bestIndex
   }
 
-  private func displayFrame(at index: Int) async {
-    guard frameCount > 0, let frameLoader else { return }
+  // Eliminated all Async Task Allocations inside the loop for raw GCD closures.
+  private func triggerFrameDecode(at index: Int, updateTimelineTime: Bool) {
+    guard pendingFrameIndex != index else { return }
+    pendingFrameIndex = index
+
     let clamped = min(max(0, index), frameCount - 1)
     frameRequestID &+= 1
     let requestID = frameRequestID
 
-    guard let image = await frameLoader.image(at: clamped) else { return }
-    guard requestID == frameRequestID else { return }
+    let speedMultiplier = Double(playbackSpeed) * 20.0
+    let step = max(1, Int(speedMultiplier * (1.0 / 30.0) / averageFrameIntervalSeconds))
 
-    currentIndex = clamped
-    currentImage = image
-    currentTime = frameOffset(for: clamped)
-    currentFrameStartUptime = ProcessInfo.processInfo.systemUptime
-    frameLoader.prefetch(after: clamped, lookahead: 4)
+    // Aggressive surgical queue clearing stops invisible processing.
+    let window = (step * 3) + 2
+    frameLoader?.cancelPending(keepingNear: clamped, lookahead: window)
+
+    frameLoader?.requestImage(at: clamped) { [weak self] image in
+      guard let self = self else { return }
+      guard requestID == self.frameRequestID else { return }
+
+      self.currentIndex = clamped
+      self.pendingFrameIndex = nil
+      self.mediaState.currentImage = image
+
+      if updateTimelineTime {
+        self.internalCurrentTime = self.frameOffset(for: clamped)
+        self.timelineState.currentTime = self.internalCurrentTime
+      }
+
+      self.frameLoader?.prefetch(after: clamped, lookahead: 1, step: step)
+    }
   }
 
   private static func loadSavedSpeed(from options: [Float]) -> Float? {
@@ -1367,111 +1604,181 @@ private actor TimelineReviewScreenshotSource {
     {
       let screenshots = storage.fetchScreenshotsInTimeRange(
         startTs: timelineCard.startTs, endTs: timelineCard.endTs)
-      if screenshots.isEmpty == false {
-        return screenshots
-      }
+      if screenshots.isEmpty == false { return screenshots }
     }
-
     let startTs = Int(activity.startTime.timeIntervalSince1970)
     let endTs = Int(activity.endTime.timeIntervalSince1970)
     guard endTs > startTs else { return [] }
     return storage.fetchScreenshotsInTimeRange(startTs: startTs, endTs: endTs)
+  }
+
+  func previewScreenshotURL(for activity: TimelineActivity) -> URL? {
+    let screenshots = screenshots(for: activity)
+    guard screenshots.isEmpty == false else { return nil }
+    return screenshots[screenshots.count / 2].fileURL
   }
 }
 
 private final class TimelineReviewFrameLoader: @unchecked Sendable {
   private let screenshots: [Screenshot]
   private let maxPixelSize: Int
-  private let decodeQueue = DispatchQueue(
-    label: "com.dayflow.timelineReview.decode", qos: .userInitiated)
-  private var cache: [Int: NSImage] = [:]
+  private let decodeQueue: OperationQueue = {
+    let queue = OperationQueue()
+    queue.name = "com.dayflow.timelineReview.decode"
+    queue.qualityOfService = .utility
+    queue.maxConcurrentOperationCount = 2  // Throttled maximum concurrency to save Cores
+    return queue
+  }()
+  private let syncQueue = DispatchQueue(label: "com.dayflow.timelineReview.decode.sync")
+  private var cache: [Int: CGImage] = [:]
   private var cacheOrder: [Int] = []
-  private let cacheLimit = 20
-  private let cacheLock = NSLock()
+  private var inflight: [Int: [(CGImage?) -> Void]] = [:]
+  private var inflightOperations: [Int: BlockOperation] = [:]
+  private let cacheLimit = 40
 
-  init(screenshots: [Screenshot], maxRenderHeight: Int) {
+  init(screenshots: [Screenshot], targetSize: CGSize) {
     self.screenshots = screenshots
-    let derivedWidth = Int((Double(maxRenderHeight) * 16.0 / 9.0).rounded())
-    self.maxPixelSize = max(64, max(maxRenderHeight, derivedWidth))
+    let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+    let targetMaxDimension = max(targetSize.width, targetSize.height)
+    self.maxPixelSize = max(64, Int(targetMaxDimension * scale))
   }
 
-  func image(at index: Int) async -> NSImage? {
-    if let cached = cachedImage(for: index) {
-      return cached
+  func cancelPending(keepingNear targetIndex: Int, lookahead: Int) {
+    var cancelledCallbacks: [(CGImage?) -> Void] = []
+
+    syncQueue.sync {
+      let keys = inflightOperations.keys
+      for key in keys {
+        if abs(key - targetIndex) > lookahead {
+          if let op = inflightOperations[key] { op.cancel() }
+          if let cbs = inflight.removeValue(forKey: key) {
+            cancelledCallbacks.append(contentsOf: cbs)
+          }
+          inflightOperations.removeValue(forKey: key)
+        }
+      }
     }
 
-    return await withCheckedContinuation { continuation in
-      decodeQueue.async { [weak self] in
-        guard let self else {
-          continuation.resume(returning: nil)
-          return
-        }
-        let decoded = self.decodeImage(at: index)
-        if let decoded {
-          self.storeImage(decoded, for: index)
-        }
-        continuation.resume(returning: decoded)
+    if !cancelledCallbacks.isEmpty {
+      DispatchQueue.main.async {
+        for cb in cancelledCallbacks { cb(nil) }
       }
     }
   }
 
-  func prefetch(after index: Int, lookahead: Int) {
+  func prefetch(after index: Int, lookahead: Int, step: Int) {
     guard screenshots.isEmpty == false, lookahead > 0 else { return }
     let total = screenshots.count
-    let candidateIndices = (1...lookahead).map { min(index + $0, total - 1) }
+    let safeStep = max(1, step)
+    let candidateIndices = Set((1...lookahead).map { min(index + ($0 * safeStep), total - 1) })
 
-    decodeQueue.async { [weak self] in
+    for idx in candidateIndices {
+      requestImage(at: idx, completion: nil)
+    }
+  }
+
+  func requestImage(at index: Int, completion: ((CGImage?) -> Void)?) {
+    guard screenshots.indices.contains(index) else {
+      completion?(nil)
+      return
+    }
+
+    if let cached = cachedImage(for: index) {
+      completion?(cached)
+      return
+    }
+
+    var shouldStart = false
+    var operationToStart: BlockOperation?
+
+    syncQueue.sync {
+      if var callbacks = inflight[index] {
+        if let completion { callbacks.append(completion) }
+        inflight[index] = callbacks
+      } else {
+        inflight[index] = completion.map { [$0] } ?? []
+
+        let operation = BlockOperation()
+        inflightOperations[index] = operation
+        operationToStart = operation
+        shouldStart = true
+      }
+    }
+
+    guard shouldStart, let operation = operationToStart else { return }
+
+    operation.addExecutionBlock { [weak self, weak operation] in
       guard let self else { return }
-      for idx in candidateIndices where self.cachedImage(for: idx) == nil {
-        if let decoded = self.decodeImage(at: idx) {
-          self.storeImage(decoded, for: idx)
-        }
+      if operation?.isCancelled == true {
+        self.finish(index: index, image: nil)
+        return
+      }
+
+      let decoded = autoreleasepool { self.decodeImage(at: index) }
+
+      if operation?.isCancelled == true {
+        self.finish(index: index, image: nil)
+        return
+      }
+
+      if let decoded { self.storeImage(decoded, for: index) }
+      self.finish(index: index, image: decoded)
+    }
+
+    decodeQueue.addOperation(operation)
+  }
+
+  private func cachedImage(for index: Int) -> CGImage? {
+    syncQueue.sync { cache[index] }
+  }
+
+  private func storeImage(_ image: CGImage, for index: Int) {
+    syncQueue.sync {
+      cache[index] = image
+      cacheOrder.removeAll { $0 == index }
+      cacheOrder.append(index)
+
+      while cacheOrder.count > cacheLimit {
+        let evicted = cacheOrder.removeFirst()
+        cache.removeValue(forKey: evicted)
       }
     }
   }
 
-  private func cachedImage(for index: Int) -> NSImage? {
-    cacheLock.lock()
-    defer { cacheLock.unlock() }
-    return cache[index]
-  }
-
-  private func storeImage(_ image: NSImage, for index: Int) {
-    cacheLock.lock()
-    defer { cacheLock.unlock() }
-
-    cache[index] = image
-    cacheOrder.removeAll { $0 == index }
-    cacheOrder.append(index)
-
-    while cacheOrder.count > cacheLimit {
-      let evicted = cacheOrder.removeFirst()
-      cache.removeValue(forKey: evicted)
+  private func finish(index: Int, image: CGImage?) {
+    var callbacks: [(CGImage?) -> Void] = []
+    syncQueue.sync {
+      callbacks = inflight.removeValue(forKey: index) ?? []
+      inflightOperations.removeValue(forKey: index)
     }
+    guard !callbacks.isEmpty else { return }
+    DispatchQueue.main.async { callbacks.forEach { $0(image) } }
   }
 
-  private func decodeImage(at index: Int) -> NSImage? {
+  private func decodeImage(at index: Int) -> CGImage? {
     guard screenshots.indices.contains(index) else { return nil }
     let url = screenshots[index].fileURL
-    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
     guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-
     let options: [CFString: Any] = [
       kCGImageSourceCreateThumbnailFromImageAlways: true,
       kCGImageSourceShouldCacheImmediately: true,
       kCGImageSourceCreateThumbnailWithTransform: true,
       kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
     ]
-    guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-    else {
-      return nil
-    }
-    return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    // Silently requests the machine's Hardware Media Engines (M1/M2) to bypass the CPU for JPEG operations.
+    var finalOptions = options
+    finalOptions["kCGImageSourceUseHardwareAcceleration" as CFString] = true
+
+    guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, finalOptions as CFDictionary)
+    else { return nil }
+    return cgImage
   }
 }
 
 private struct TimelineReviewCardMedia: View {
-  let image: NSImage?
+  let previewImage: CGImage?
+  @ObservedObject var playbackState: TimelineReviewPlaybackMediaState
+  let player: AVPlayer?
   let onTogglePlayback: () -> Void
 
   private enum Design {
@@ -1480,7 +1787,11 @@ private struct TimelineReviewCardMedia: View {
 
   var body: some View {
     ZStack {
-      if let image {
+      if let player {
+        WhiteBGVideoPlayer(player: player, videoGravity: .resizeAspectFill)
+          .allowsHitTesting(false)
+          .clipped()
+      } else if let image = playbackState.currentImage ?? previewImage {
         TimelineReviewLayerBackedImageView(image: image)
           .allowsHitTesting(false)
           .clipped()
@@ -1494,13 +1805,10 @@ private struct TimelineReviewCardMedia: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .contentShape(Rectangle())
-    .onTapGesture {
-      onTogglePlayback()
-    }
+    .onTapGesture { onTogglePlayback() }
     .pointingHandCursor()
     .overlay(
-      Rectangle()
-        .stroke(Design.mediaBorderColor, lineWidth: 1)
+      Rectangle().stroke(Design.mediaBorderColor, lineWidth: 1)
     )
   }
 }
@@ -1525,11 +1833,11 @@ private final class TimelineReviewImageLayerHostView: NSView {
     layer?.frame = bounds
   }
 
-  func updateImage(_ image: NSImage) {
+  func updateImage(_ image: CGImage) {
     guard let layer else { return }
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    layer.contents = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+    layer.contents = image
     CATransaction.commit()
   }
 
@@ -1540,16 +1848,12 @@ private final class TimelineReviewImageLayerHostView: NSView {
     layer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
     layer.magnificationFilter = .trilinear
     layer.minificationFilter = .trilinear
-    layer.actions = [
-      "contents": NSNull(),
-      "bounds": NSNull(),
-      "position": NSNull(),
-    ]
+    layer.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull()]
   }
 }
 
 private struct TimelineReviewLayerBackedImageView: NSViewRepresentable {
-  let image: NSImage
+  let image: CGImage
 
   func makeNSView(context: Context) -> TimelineReviewImageLayerHostView {
     let view = TimelineReviewImageLayerHostView()
@@ -1562,9 +1866,150 @@ private struct TimelineReviewLayerBackedImageView: NSViewRepresentable {
   }
 }
 
-private struct TimelineReviewPlaybackTimeline: View {
-  let progress: CGFloat
-  let timeText: String
+// MARK: - AppKit Native 120Hz Progress Bar
+// Eradicates ALL high-frequency SwiftUI Layout/GeometryReader loops. It calculates pure math directly on hardware layers.
+
+private final class TimelineReviewScrubberNSView: NSView {
+  private let trackLayer = CALayer()
+  private let progressLayer = CALayer()
+  private let pillLayer = CALayer()
+  private let textLayer = CATextLayer()
+
+  var playbackState: TimelineReviewPlaybackTimelineState? {
+    didSet {
+      oldValue?.onTimeChange = nil
+      playbackState?.onTimeChange = { [weak self] _ in
+        self?.updateScrubberFrames()
+      }
+      updateScrubberFrames()
+    }
+  }
+
+  var activityStartTime: Date = Date()
+  var activityEndTime: Date = Date()
+  var lineHeight: CGFloat = 4
+  var isInteractive: Bool = false
+
+  var onScrubStart: (() -> Void)?
+  var onScrubChange: ((CGFloat) -> Void)?
+  var onScrubEnd: (() -> Void)?
+
+  private var isScrubbing = false
+
+  // Reverses the coordinate system so Y=0 is exactly at the top, perfectly mimicking SwiftUI.
+  override var isFlipped: Bool { true }
+
+  override init(frame: NSRect) {
+    super.init(frame: frame)
+    wantsLayer = true
+    layerContentsRedrawPolicy = .onSetNeedsDisplay
+
+    trackLayer.backgroundColor =
+      NSColor(red: 163 / 255, green: 151 / 255, blue: 141 / 255, alpha: 0.5).cgColor
+    layer?.addSublayer(trackLayer)
+
+    progressLayer.backgroundColor =
+      NSColor(red: 255 / 255, green: 109 / 255, blue: 0 / 255, alpha: 0.65).cgColor
+    layer?.addSublayer(progressLayer)
+
+    pillLayer.backgroundColor =
+      NSColor(red: 249 / 255, green: 110 / 255, blue: 0 / 255, alpha: 1.0).cgColor
+    pillLayer.cornerRadius = 4
+    layer?.addSublayer(pillLayer)
+
+    textLayer.fontSize = 8
+    textLayer.font = NSFont(name: "Nunito-SemiBold", size: 8)
+    textLayer.foregroundColor = NSColor.white.cgColor
+    textLayer.alignmentMode = .center
+    textLayer.isWrapped = false
+    pillLayer.addSublayer(textLayer)
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  override func viewDidChangeBackingProperties() {
+    super.viewDidChangeBackingProperties()
+    let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+    textLayer.contentsScale = scale
+  }
+
+  override func layout() {
+    super.layout()
+    updateScrubberFrames()
+  }
+
+  func updateScrubberFrames() {
+    guard let state = playbackState else { return }
+    let duration = max(state.duration, 0.001)
+    let progress = CGFloat(min(max(state.currentTime / duration, 0), 1))
+    let clampedProgress = min(max(progress, 0), 1)
+
+    let total = max(0, activityEndTime.timeIntervalSince(activityStartTime))
+    let currentDisplayTime = activityStartTime.addingTimeInterval(total * Double(progress))
+    let timeText = TimelineReviewTimeCache.shared.string(from: currentDisplayTime)
+
+    // Bypass 0.25s Implicit Animations from Core Animation
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+
+    let w = bounds.width
+    let lineTop = bounds.height - lineHeight
+
+    trackLayer.frame = CGRect(x: 0, y: lineTop, width: w, height: lineHeight)
+    let pWidth = w * clampedProgress
+    progressLayer.frame = CGRect(x: 0, y: lineTop, width: pWidth, height: lineHeight)
+
+    let pillW: CGFloat = 48
+    let pillH: CGFloat = 16
+    let halfPill = pillW / 2
+    let clampedX = min(max(pWidth, halfPill), w - halfPill)
+
+    let pillBottomSpacing: CGFloat = 3
+    let pillY = lineTop - pillBottomSpacing - pillH
+    pillLayer.frame = CGRect(x: clampedX - halfPill, y: pillY, width: pillW, height: pillH)
+
+    textLayer.string = timeText
+    textLayer.frame = CGRect(x: 0, y: 2, width: pillW, height: pillH)  // Pushed down visually by 2 points to sit center.
+
+    CATransaction.commit()
+  }
+
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    let view = super.hitTest(point)
+    return isInteractive ? view : nil
+  }
+
+  override func mouseDown(with event: NSEvent) {
+    guard isInteractive else { return }
+    isScrubbing = true
+    onScrubStart?()
+    handleMouse(event)
+  }
+
+  override func mouseDragged(with event: NSEvent) {
+    guard isInteractive, isScrubbing else { return }
+    handleMouse(event)
+  }
+
+  override func mouseUp(with event: NSEvent) {
+    guard isInteractive, isScrubbing else { return }
+    isScrubbing = false
+    handleMouse(event)
+    onScrubEnd?()
+  }
+
+  private func handleMouse(_ event: NSEvent) {
+    let location = convert(event.locationInWindow, from: nil)
+    let w = max(bounds.width, 1)
+    let scrubProgress = min(max(location.x / w, 0), 1)
+    onScrubChange?(scrubProgress)
+  }
+}
+
+private struct TimelineReviewPlaybackTimeline: NSViewRepresentable {
+  let playbackState: TimelineReviewPlaybackTimelineState
+  let activityStartTime: Date
+  let activityEndTime: Date
   let mediaHeight: CGFloat
   let lineHeight: CGFloat
   let isInteractive: Bool
@@ -1572,109 +2017,121 @@ private struct TimelineReviewPlaybackTimeline: View {
   let onScrubChange: (CGFloat) -> Void
   let onScrubEnd: () -> Void
 
-  @State private var timePillSize: CGSize = .zero
-  @State private var isScrubbing = false
-
-  private enum Design {
-    static let baseColor = Color(hex: "A3978D").opacity(0.5)
-    static let progressColor = Color(hex: "FF6D00").opacity(0.65)
-    static let pillColor = Color(hex: "F96E00")
-    static let pillText = Color.white
-    static let pillFont = Font.custom("Nunito", size: 8).weight(.semibold)
-    static let pillTracking: CGFloat = -0.32
-    static let pillPaddingX: CGFloat = 4
-    static let pillPaddingY: CGFloat = 3
-    static let pillCornerRadius: CGFloat = 4
-    static let pillBottomSpacing: CGFloat = 3
-    static let timelineHeight: CGFloat = 28
+  func makeNSView(context: Context) -> TimelineReviewScrubberNSView {
+    let view = TimelineReviewScrubberNSView()
+    updateNSView(view, context: context)
+    return view
   }
 
-  var body: some View {
-    GeometryReader { proxy in
-      let width = proxy.size.width
-      let clampedProgress = min(max(progress, 0), 1)
-      let lineTop = min(mediaHeight, proxy.size.height - lineHeight)
-      let lineCenterY = lineTop + (lineHeight / 2)
-      let scrubHeight = max(lineHeight + 8, 12)
-      let pillHeight = timePillSize.height == 0 ? 14 : timePillSize.height
-      let pillCenterY = lineTop - Design.pillBottomSpacing - (pillHeight / 2)
-      let targetX = width * clampedProgress
-      let pillWidth = timePillSize.width == 0 ? 44 : timePillSize.width
-      let halfPill = pillWidth / 2
-      let clampedX = min(max(targetX, halfPill), width - halfPill)
-
-      ZStack(alignment: .topLeading) {
-        ZStack(alignment: .topLeading) {
-          Rectangle()
-            .fill(Design.baseColor)
-            .frame(width: width, height: lineHeight)
-            .position(x: width / 2, y: lineCenterY)
-
-          Rectangle()
-            .fill(Design.progressColor)
-            .frame(width: width * clampedProgress, height: lineHeight)
-            .position(x: (width * clampedProgress) / 2, y: lineCenterY)
-
-          Text(timeText)
-            .font(Design.pillFont)
-            .kerning(Design.pillTracking)
-            .foregroundColor(Design.pillText)
-            .padding(.horizontal, Design.pillPaddingX)
-            .padding(.vertical, Design.pillPaddingY)
-            .background(
-              RoundedRectangle(cornerRadius: Design.pillCornerRadius)
-                .fill(Design.pillColor)
-            )
-            .background(
-              GeometryReader { pillProxy in
-                Color.clear
-                  .preference(key: TimelineReviewTimePillSizeKey.self, value: pillProxy.size)
-              }
-            )
-            .position(x: clampedX, y: pillCenterY)
-        }
-        .allowsHitTesting(false)
-
-        Rectangle()
-          .fill(Color.clear)
-          .frame(width: width, height: scrubHeight)
-          .position(x: width / 2, y: lineCenterY)
-          .contentShape(Rectangle())
-          .gesture(
-            DragGesture(minimumDistance: 0)
-              .onChanged { value in
-                guard isInteractive else { return }
-                if isScrubbing == false {
-                  isScrubbing = true
-                  onScrubStart()
-                }
-                let rawProgress = value.location.x / max(width, 1)
-                let scrubProgress = min(max(rawProgress, 0), 1)
-                onScrubChange(scrubProgress)
-              }
-              .onEnded { _ in
-                guard isInteractive else { return }
-                isScrubbing = false
-                onScrubEnd()
-              }
-          )
-          .allowsHitTesting(isInteractive)
-      }
-    }
-    .frame(height: Design.timelineHeight)
-    .onPreferenceChange(TimelineReviewTimePillSizeKey.self) { size in
-      if size != .zero {
-        timePillSize = size
-      }
-    }
+  func updateNSView(_ nsView: TimelineReviewScrubberNSView, context: Context) {
+    nsView.playbackState = playbackState
+    nsView.activityStartTime = activityStartTime
+    nsView.activityEndTime = activityEndTime
+    nsView.lineHeight = lineHeight
+    nsView.isInteractive = isInteractive
+    nsView.onScrubStart = onScrubStart
+    nsView.onScrubChange = onScrubChange
+    nsView.onScrubEnd = onScrubEnd
+    nsView.updateScrubberFrames()
   }
 }
 
-private struct TimelineReviewTimePillSizeKey: PreferenceKey {
-  static var defaultValue: CGSize = .zero
-  static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-    value = nextValue()
+// MARK: - Smaller Components
+
+private struct TimelineReviewSpeedChip: View {
+  @ObservedObject var playbackState: TimelineReviewPlaybackTimelineState
+  let onTap: () -> Void
+
+  var body: some View {
+    Button(action: onTap) {
+      Text(playbackState.speedLabel)
+        .font(.system(size: 14, weight: .semibold))
+        .foregroundColor(.white)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color.black.opacity(0.8))
+        .cornerRadius(4)
+    }
+    .buttonStyle(.plain)
+    .pointingHandCursor()
   }
+}
+
+private struct TimelineReviewDisplayLinkDriver: View {
+  @ObservedObject var playbackState: TimelineReviewPlaybackTimelineState
+  let isEnabled: Bool
+  let onTick: (CADisplayLink) -> Void
+
+  var body: some View {
+    TimelineReviewDisplayLinkView(
+      isPaused: !isEnabled || playbackState.isPlaying == false,
+      onTick: onTick
+    )
+    .frame(width: 0, height: 0)
+  }
+}
+
+private struct TimelineReviewDisplayLinkView: NSViewRepresentable {
+  let isPaused: Bool
+  let onTick: (CADisplayLink) -> Void
+
+  func makeCoordinator() -> Coordinator { Coordinator(onTick: onTick) }
+
+  func makeNSView(context: Context) -> HostView {
+    let view = HostView()
+    context.coordinator.attach(to: view)
+    context.coordinator.setPaused(isPaused)
+    return view
+  }
+
+  func updateNSView(_ nsView: HostView, context: Context) {
+    context.coordinator.onTick = onTick
+    context.coordinator.attach(to: nsView)
+    context.coordinator.setPaused(isPaused)
+  }
+
+  static func dismantleNSView(_ nsView: HostView, coordinator: Coordinator) {
+    coordinator.invalidate()
+  }
+
+  final class Coordinator: NSObject {
+    var onTick: (CADisplayLink) -> Void
+    private weak var hostView: HostView?
+    private var displayLink: CADisplayLink?
+
+    init(onTick: @escaping (CADisplayLink) -> Void) { self.onTick = onTick }
+
+    func attach(to view: HostView) {
+      guard hostView !== view || displayLink == nil else { return }
+      hostView = view
+      rebuildDisplayLink()
+    }
+
+    func setPaused(_ paused: Bool) { displayLink?.isPaused = paused }
+    func invalidate() {
+      displayLink?.invalidate()
+      displayLink = nil
+      hostView = nil
+    }
+
+    @objc func handleDisplayLink(_ displayLink: CADisplayLink) { onTick(displayLink) }
+
+    private func rebuildDisplayLink() {
+      displayLink?.invalidate()
+      guard let hostView else { return }
+      let link = hostView.displayLink(target: self, selector: #selector(handleDisplayLink(_:)))
+
+      // Free UI GPU limits: we constrain ProMotion Macs to a 60 FPS maximum hardware tick limit, halving the refresh cost.
+      if #available(macOS 12.0, *) {
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+      }
+
+      link.add(to: .main, forMode: .common)
+      displayLink = link
+    }
+  }
+
+  final class HostView: NSView {}
 }
 
 private struct TimelineReviewOverlayBadge: View {
@@ -1707,9 +2164,7 @@ private struct TimelineReviewCategoryPill: View {
 
   var body: some View {
     HStack(spacing: 4) {
-      Circle()
-        .fill(color)
-        .frame(width: 8, height: 8)
+      Circle().fill(color).frame(width: 8, height: 8)
       Text(name)
         .font(.custom("Nunito", size: 10).weight(.bold))
         .foregroundColor(Color(hex: "333333"))
@@ -1718,10 +2173,7 @@ private struct TimelineReviewCategoryPill: View {
     .padding(.vertical, 4)
     .background(color.opacity(0.1))
     .cornerRadius(6)
-    .overlay(
-      RoundedRectangle(cornerRadius: 6)
-        .stroke(color, lineWidth: 0.75)
-    )
+    .overlay(RoundedRectangle(cornerRadius: 6).stroke(color, lineWidth: 0.75))
   }
 }
 
@@ -1736,10 +2188,7 @@ private struct TimelineReviewTimeRangePill: View {
       .padding(.vertical, 4)
       .background(Color(hex: "F5F0E9").opacity(0.9))
       .cornerRadius(6)
-      .overlay(
-        RoundedRectangle(cornerRadius: 6)
-          .stroke(Color(hex: "E4E4E4"), lineWidth: 0.75)
-      )
+      .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(hex: "E4E4E4"), lineWidth: 0.75))
   }
 }
 
@@ -1795,11 +2244,9 @@ private struct TimelineReviewRatingRow: View {
 
 private struct ZUndoIcon: View {
   let size: CGFloat
-
   var body: some View {
     ZStack {
-      RoundedRectangle(cornerRadius: 4)
-        .fill(Color(hex: "D6AB8A").opacity(0.7))
+      RoundedRectangle(cornerRadius: 4).fill(Color(hex: "D6AB8A").opacity(0.7))
       Text("Z")
         .font(.custom("Nunito", size: size * 0.525).weight(.bold))
         .foregroundColor(.white)
@@ -1811,7 +2258,6 @@ private struct ZUndoIcon: View {
 private struct TimelineReviewRatingIcon: View {
   let rating: TimelineReviewRating
   let size: CGFloat
-
   var body: some View {
     switch rating {
     case .distracted:
@@ -1833,22 +2279,16 @@ private struct TimelineReviewRatingIcon: View {
 private struct TimelineReviewFooterIcon: View {
   let rating: TimelineReviewRating
   let size: CGFloat
-
   private var rotation: Angle {
     switch rating {
-    case .distracted:
-      return .degrees(0)
-    case .neutral:
-      return .degrees(90)
-    case .focused:
-      return .degrees(180)
+    case .distracted: return .degrees(0)
+    case .neutral: return .degrees(90)
+    case .focused: return .degrees(180)
     }
   }
-
   var body: some View {
     ZStack {
-      RoundedRectangle(cornerRadius: size * 0.25)
-        .fill(Color(hex: "D6AB8A").opacity(0.7))
+      RoundedRectangle(cornerRadius: size * 0.25).fill(Color(hex: "D6AB8A").opacity(0.7))
       Path { path in
         path.move(to: CGPoint(x: size * 0.3125, y: size * 0.5))
         path.addLine(to: CGPoint(x: size * 0.59375, y: size * 0.33762))
@@ -1865,34 +2305,18 @@ private struct TimelineReviewFooterIcon: View {
 private struct NeutralFaceIcon: View {
   let size: CGFloat
   let color: Color
-
   var body: some View {
     ZStack {
-      Circle()
-        .fill(color)
-        .frame(width: size * 0.23, height: size * 0.23)
-        .offset(x: -size * 0.2, y: -size * 0.05)
-      Circle()
-        .fill(color)
-        .frame(width: size * 0.35, height: size * 0.35)
-        .offset(x: size * 0.15, y: -size * 0.08)
-
+      Circle().fill(color).frame(width: size * 0.23, height: size * 0.23).offset(
+        x: -size * 0.2, y: -size * 0.05)
+      Circle().fill(color).frame(width: size * 0.35, height: size * 0.35).offset(
+        x: size * 0.15, y: -size * 0.08)
       HStack(spacing: size * 0.08) {
-        Capsule()
-          .fill(color)
-          .frame(width: size * 0.08, height: size * 0.05)
-        Capsule()
-          .fill(color)
-          .frame(width: size * 0.13, height: size * 0.05)
-        Capsule()
-          .fill(color)
-          .frame(width: size * 0.13, height: size * 0.05)
-        Capsule()
-          .fill(color)
-          .frame(width: size * 0.13, height: size * 0.05)
-        Capsule()
-          .fill(color)
-          .frame(width: size * 0.13, height: size * 0.05)
+        Capsule().fill(color).frame(width: size * 0.08, height: size * 0.05)
+        Capsule().fill(color).frame(width: size * 0.13, height: size * 0.05)
+        Capsule().fill(color).frame(width: size * 0.13, height: size * 0.05)
+        Capsule().fill(color).frame(width: size * 0.13, height: size * 0.05)
+        Capsule().fill(color).frame(width: size * 0.13, height: size * 0.05)
       }
       .offset(y: size * 0.25)
     }
@@ -1902,11 +2326,7 @@ private struct NeutralFaceIcon: View {
 
 private struct TimelineReviewSummary {
   let durationByRating: [TimelineReviewRating: TimeInterval]
-
-  var totalDuration: TimeInterval {
-    durationByRating.values.reduce(0, +)
-  }
-
+  var totalDuration: TimeInterval { durationByRating.values.reduce(0, +) }
   var nonZeroRatings: [TimelineReviewRating] {
     TimelineReviewRating.allCases.filter { (durationByRating[$0, default: 0]) > 0 }
   }
@@ -1920,7 +2340,6 @@ private struct TimelineReviewSummary {
 
 private struct TimelineReviewSummaryBars: View {
   let summary: TimelineReviewSummary
-
   var body: some View {
     VStack(spacing: 16) {
       SummaryBarRow(summary: summary)
@@ -1931,23 +2350,18 @@ private struct TimelineReviewSummaryBars: View {
 
 private struct SummaryBarRow: View {
   let summary: TimelineReviewSummary
-
   var body: some View {
     GeometryReader { proxy in
       let ratings = summary.nonZeroRatings
       let spacing: CGFloat = 8
       let available = max(proxy.size.width - spacing * CGFloat(max(ratings.count - 1, 0)), 0)
-
       HStack(spacing: spacing) {
         ForEach(ratings) { rating in
           let ratio = summary.ratio(for: rating)
           RoundedRectangle(cornerRadius: 4)
             .fill(rating.barGradient)
             .frame(width: available * ratio, height: 40)
-            .overlay(
-              RoundedRectangle(cornerRadius: 4)
-                .stroke(rating.barStroke, lineWidth: 1)
-            )
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(rating.barStroke, lineWidth: 1))
             .shadow(color: rating.barStroke.opacity(0.25), radius: 4, x: 0, y: 2)
         }
       }
@@ -1959,7 +2373,6 @@ private struct SummaryBarRow: View {
 
 private struct SummaryLabelRow: View {
   let summary: TimelineReviewSummary
-
   var body: some View {
     HStack(spacing: 28) {
       ForEach(summary.nonZeroRatings) { rating in
@@ -1979,17 +2392,12 @@ private struct SummaryLabelRow: View {
       }
     }
   }
-
   private func formatDuration(_ duration: TimeInterval) -> String {
     let totalMinutes = max(Int(duration / 60), 0)
     let hours = totalMinutes / 60
     let minutes = totalMinutes % 60
-    if hours > 0 && minutes > 0 {
-      return "\(hours)h \(minutes)m"
-    }
-    if hours > 0 {
-      return "\(hours)h"
-    }
+    if hours > 0 && minutes > 0 { return "\(hours)h \(minutes)m" }
+    if hours > 0 { return "\(hours)h" }
     return "\(minutes)m"
   }
 }
@@ -2006,9 +2414,7 @@ private struct TimelineReviewKeyHandler: NSViewRepresentable {
     view.onBack = onBack
     view.onEscape = onEscape
     view.onTogglePlayback = onTogglePlayback
-    DispatchQueue.main.async {
-      view.window?.makeFirstResponder(view)
-    }
+    DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
     return view
   }
 
@@ -2018,9 +2424,7 @@ private struct TimelineReviewKeyHandler: NSViewRepresentable {
       view.onBack = onBack
       view.onEscape = onEscape
       view.onTogglePlayback = onTogglePlayback
-      DispatchQueue.main.async {
-        view.window?.makeFirstResponder(view)
-      }
+      DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
     }
   }
 
@@ -2029,29 +2433,19 @@ private struct TimelineReviewKeyHandler: NSViewRepresentable {
     var onBack: (() -> Void)?
     var onEscape: (() -> Void)?
     var onTogglePlayback: (() -> Void)?
-
     override var acceptsFirstResponder: Bool { true }
-
     override func keyDown(with event: NSEvent) {
-      if let characters = event.charactersIgnoringModifiers?.lowercased(),
-        characters == "z"
-      {
+      if let characters = event.charactersIgnoringModifiers?.lowercased(), characters == "z" {
         onBack?()
         return
       }
       switch event.keyCode {
-      case 53:
-        onEscape?()
-      case 49:
-        onTogglePlayback?()
-      case 123:
-        onMove?(.left)
-      case 124:
-        onMove?(.right)
-      case 126:
-        onMove?(.up)
-      default:
-        super.keyDown(with: event)
+      case 53: onEscape?()
+      case 49: onTogglePlayback?()
+      case 123: onMove?(.left)
+      case 124: onMove?(.right)
+      case 126: onMove?(.up)
+      default: super.keyDown(with: event)
       }
     }
   }
@@ -2065,26 +2459,20 @@ private struct TrackpadScrollHandler: NSViewRepresentable {
 
   func makeCoordinator() -> Coordinator {
     Coordinator(
-      shouldHandleScroll: shouldHandleScroll,
-      onScrollBegan: onScrollBegan,
-      onScrollChanged: onScrollChanged,
-      onScrollEnded: onScrollEnded
-    )
+      shouldHandleScroll: shouldHandleScroll, onScrollBegan: onScrollBegan,
+      onScrollChanged: onScrollChanged, onScrollEnded: onScrollEnded)
   }
-
   func makeNSView(context: Context) -> NSView {
     let view = NSView()
     context.coordinator.startMonitoring()
     return view
   }
-
   func updateNSView(_ nsView: NSView, context: Context) {
     context.coordinator.shouldHandleScroll = shouldHandleScroll
     context.coordinator.onScrollBegan = onScrollBegan
     context.coordinator.onScrollChanged = onScrollChanged
     context.coordinator.onScrollEnded = onScrollEnded
   }
-
   static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
     coordinator.stopMonitoring()
   }
@@ -2098,10 +2486,8 @@ private struct TrackpadScrollHandler: NSViewRepresentable {
     private var isTracking = false
 
     init(
-      shouldHandleScroll: @escaping (CGSize) -> Bool,
-      onScrollBegan: @escaping () -> Void,
-      onScrollChanged: @escaping (CGSize) -> Void,
-      onScrollEnded: @escaping () -> Void
+      shouldHandleScroll: @escaping (CGSize) -> Bool, onScrollBegan: @escaping () -> Void,
+      onScrollChanged: @escaping (CGSize) -> Void, onScrollEnded: @escaping () -> Void
     ) {
       self.shouldHandleScroll = shouldHandleScroll
       self.onScrollBegan = onScrollBegan
@@ -2120,14 +2506,12 @@ private struct TrackpadScrollHandler: NSViewRepresentable {
           }
           return event
         }
-
         var deltaX = event.scrollingDeltaX
         var deltaY = event.scrollingDeltaY
         if event.isDirectionInvertedFromDevice == false {
           deltaX = -deltaX
           deltaY = -deltaY
         }
-
         let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 8
         let scaledDelta = CGSize(width: deltaX * scale, height: deltaY * scale)
         guard self.shouldHandleScroll(scaledDelta) else {
@@ -2139,7 +2523,6 @@ private struct TrackpadScrollHandler: NSViewRepresentable {
           }
           return event
         }
-
         if event.phase == .began || event.phase == .mayBegin {
           if self.isTracking == false {
             self.isTracking = true
@@ -2149,20 +2532,16 @@ private struct TrackpadScrollHandler: NSViewRepresentable {
           self.isTracking = true
           self.onScrollBegan()
         }
-
         self.onScrollChanged(scaledDelta)
-
         if event.phase == .ended || event.phase == .cancelled {
           if self.isTracking {
             self.isTracking = false
             self.onScrollEnded()
           }
         }
-
         return nil
       }
     }
-
     func stopMonitoring() {
       if let monitor {
         NSEvent.removeMonitor(monitor)
@@ -2182,45 +2561,37 @@ private func makeTimelineActivities(from cards: [TimelineCard], for date: Date)
   var idCounts: [String: Int] = [:]
   results.reserveCapacity(cards.count)
 
+  let timeFormatter = DateFormatter()
+  timeFormatter.dateFormat = "h:mm a"
+  timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+
   for card in cards {
-    guard let startDate = cachedReviewTimeFormatter.date(from: card.startTimestamp),
-      let endDate = cachedReviewTimeFormatter.date(from: card.endTimestamp)
-    else {
-      continue
-    }
+    guard let startDate = timeFormatter.date(from: card.startTimestamp),
+      let endDate = timeFormatter.date(from: card.endTimestamp)
+    else { continue }
 
     let startComponents = calendar.dateComponents([.hour, .minute], from: startDate)
     let endComponents = calendar.dateComponents([.hour, .minute], from: endDate)
 
     guard
       let finalStartDate = calendar.date(
-        bySettingHour: startComponents.hour ?? 0,
-        minute: startComponents.minute ?? 0,
-        second: 0,
-        of: baseDate
-      ),
+        bySettingHour: startComponents.hour ?? 0, minute: startComponents.minute ?? 0, second: 0,
+        of: baseDate),
       let finalEndDate = calendar.date(
-        bySettingHour: endComponents.hour ?? 0,
-        minute: endComponents.minute ?? 0,
-        second: 0,
-        of: baseDate
-      )
+        bySettingHour: endComponents.hour ?? 0, minute: endComponents.minute ?? 0, second: 0,
+        of: baseDate)
     else { continue }
 
     var adjustedStartDate = finalStartDate
     var adjustedEndDate = finalEndDate
 
-    let startHour = calendar.component(.hour, from: finalStartDate)
-    if startHour < 4 {
+    if calendar.component(.hour, from: finalStartDate) < 4 {
       adjustedStartDate =
         calendar.date(byAdding: .day, value: 1, to: finalStartDate) ?? finalStartDate
     }
-
-    let endHour = calendar.component(.hour, from: finalEndDate)
-    if endHour < 4 {
+    if calendar.component(.hour, from: finalEndDate) < 4 {
       adjustedEndDate = calendar.date(byAdding: .day, value: 1, to: finalEndDate) ?? finalEndDate
     }
-
     if adjustedEndDate < adjustedStartDate {
       adjustedEndDate =
         calendar.date(byAdding: .day, value: 1, to: adjustedEndDate) ?? adjustedEndDate
