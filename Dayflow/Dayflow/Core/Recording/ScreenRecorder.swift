@@ -332,7 +332,20 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       return
     }
 
-    let displays = cachedDisplays.isEmpty ? [cachedDisplay].compactMap { $0 } : cachedDisplays
+    // Refresh the display list every tick to pick up newly connected displays
+    let displays: [SCDisplay]
+    do {
+      let content = try await SCShareableContent.excludingDesktopWindows(
+        false, onScreenWindowsOnly: true)
+      cachedContent = content
+      cachedDisplays = content.displays
+      displays = content.displays
+    } catch {
+      // Fall back to cached displays
+      displays = cachedDisplays.isEmpty ? [cachedDisplay].compactMap { $0 } : cachedDisplays
+      dbg("Failed to refresh displays, using cached: \(error.localizedDescription)")
+    }
+
     guard !displays.isEmpty else {
       dbg("captureScreenshot skipped - no displays")
       return
