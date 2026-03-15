@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import ImageIO
+import QuartzCore
 import SwiftUI
 
 struct ActivityCard: View {
@@ -14,6 +15,8 @@ struct ActivityCard: View {
   @EnvironmentObject private var appState: AppState
   @EnvironmentObject private var categoryStore: CategoryStore
   @EnvironmentObject private var retryCoordinator: RetryCoordinator
+  @AppStorage(TimelapsePreferences.saveAllTimelapsesToDiskKey) private var saveAllTimelapsesToDisk =
+    false
 
   @State private var showCategoryPicker = false
   @State private var isPreparingSlideshow = false
@@ -238,9 +241,20 @@ struct ActivityCard: View {
           .lineLimit(1)
       }
 
-      // Timelapse thumbnail (slideshow pipeline)
       if !isFailedCard(activity) {
-        timelapsePreviewView(for: activity)
+        if saveAllTimelapsesToDisk, let videoURL = activity.videoSummaryURL {
+          VideoThumbnailView(
+            videoURL: videoURL,
+            title: activity.title,
+            startTime: activity.startTime,
+            endTime: activity.endTime
+          )
+          .id(videoURL)
+          .frame(height: 200)
+        } else {
+          // Timelapse thumbnail (slideshow pipeline)
+          timelapsePreviewView(for: activity)
+        }
       }
 
       // Summary section (scrolls internally when constrained)
@@ -468,7 +482,7 @@ struct ActivityCard: View {
               HStack(spacing: 8) {
                 ProgressView()
                   .scaleEffect(0.8)
-                Text("Loading slideshow...")
+                Text("Preparing timelapse...")
                   .font(.custom("Nunito", size: 12).weight(.semibold))
                   .foregroundColor(.white)
               }
@@ -664,7 +678,7 @@ private struct ScreenshotSlideshowModal: View {
     self.startTime = startTime
     self.endTime = endTime
     _playbackModel = StateObject(
-      wrappedValue: ScreenshotSlideshowPlaybackModel(screenshots: screenshots, maxRenderHeight: 720)
+      wrappedValue: ScreenshotSlideshowPlaybackModel(screenshots: screenshots, maxRenderHeight: 540)
     )
   }
 
@@ -707,63 +721,16 @@ private struct ScreenshotSlideshowModal: View {
 
       Divider()
 
-      GeometryReader { geometry in
-        ZStack {
-          Color.black.opacity(0.95)
-
-          if let image = playbackModel.currentImage {
-            Image(nsImage: image)
-              .resizable()
-              .aspectRatio(contentMode: .fit)
-              .frame(maxWidth: geometry.size.width, maxHeight: geometry.size.height)
-          } else {
-            ProgressView()
-              .controlSize(.large)
-              .allowsHitTesting(false)
-          }
-
-          Rectangle()
-            .fill(Color.clear)
-            .contentShape(Rectangle())
-            .onTapGesture {
-              playbackModel.togglePlayPause()
-            }
-            .pointingHandCursor()
-
-          if !playbackModel.isPlaying {
-            ZStack {
-              Circle()
-                .strokeBorder(Color.white.opacity(0.9), lineWidth: 2)
-                .frame(width: 68, height: 68)
-                .background(Circle().fill(Color.black.opacity(0.35)))
-              Image(systemName: "play.fill")
-                .foregroundColor(.white)
-                .font(.system(size: 26, weight: .bold))
-            }
-            .allowsHitTesting(false)
-          }
-
-          VStack {
-            Spacer()
-            HStack {
-              Spacer()
-              Button(action: { playbackModel.cycleSpeed() }) {
-                Text(playbackModel.speedLabel)
-                  .font(.system(size: 16, weight: .semibold))
-                  .foregroundColor(.white)
-                  .padding(.horizontal, 12)
-                  .padding(.vertical, 6)
-                  .background(Color.black.opacity(0.8))
-                  .cornerRadius(4)
-              }
-              .buttonStyle(PlainButtonStyle())
-              .hoverScaleEffect(scale: 1.02)
-              .pointingHandCursorOnHover(reassertOnPressEnd: true)
-              .padding(12)
-            }
-          }
+      ScreenshotSlideshowStageView(
+        mediaState: playbackModel.mediaState,
+        playbackState: playbackModel.timelineState,
+        onTogglePlayback: {
+          playbackModel.togglePlayPause()
+        },
+        onCycleSpeed: {
+          playbackModel.cycleSpeed()
         }
-      }
+      )
       .frame(maxWidth: .infinity, maxHeight: .infinity)
 
       Divider()
@@ -771,8 +738,7 @@ private struct ScreenshotSlideshowModal: View {
       VStack(spacing: 12) {
         ScreenshotScrubberView(
           screenshots: screenshots,
-          duration: max(0.001, playbackModel.timelineDurationSeconds),
-          currentTime: playbackModel.currentTimelineTimeSeconds,
+          playbackState: playbackModel.timelineState,
           onSeek: { timelineTime in
             playbackModel.seek(toTimelineTime: timelineTime)
           },
@@ -789,6 +755,15 @@ private struct ScreenshotSlideshowModal: View {
     }
     .frame(minWidth: 960, minHeight: 640)
     .background(Color.white)
+    .overlay {
+      ScreenshotSlideshowDisplayLinkDriver(
+        playbackState: playbackModel.timelineState,
+        onTick: { displayLink in
+          playbackModel.handleDisplayTick(displayLink)
+        }
+      )
+      .allowsHitTesting(false)
+    }
     .onAppear {
       playbackModel.start()
       setupKeyMonitor()
@@ -830,6 +805,222 @@ private struct ScreenshotSlideshowModal: View {
       keyMonitor = nil
     }
   }
+}
+
+@MainActor
+private final class ScreenshotSlideshowPlaybackTimelineState: ObservableObject {
+  @Published var currentTime: Double = 0
+  @Published var duration: Double = 1
+  @Published var speedLabel: String = "20x"
+  @Published var isPlaying: Bool = true
+}
+
+@MainActor
+private final class ScreenshotSlideshowPlaybackMediaState: ObservableObject {
+  @Published var currentImage: CGImage?
+}
+
+private struct ScreenshotSlideshowStageView: View {
+  @ObservedObject var mediaState: ScreenshotSlideshowPlaybackMediaState
+  @ObservedObject var playbackState: ScreenshotSlideshowPlaybackTimelineState
+  let onTogglePlayback: () -> Void
+  let onCycleSpeed: () -> Void
+
+  var body: some View {
+    GeometryReader { geometry in
+      ZStack {
+        Color.black.opacity(0.95)
+
+        if let image = mediaState.currentImage {
+          ScreenshotSlideshowLayerBackedImageView(image: image)
+            .frame(maxWidth: geometry.size.width, maxHeight: geometry.size.height)
+            .allowsHitTesting(false)
+        } else {
+          ProgressView()
+            .controlSize(.large)
+            .allowsHitTesting(false)
+        }
+
+        Rectangle()
+          .fill(Color.clear)
+          .contentShape(Rectangle())
+          .onTapGesture {
+            onTogglePlayback()
+          }
+          .pointingHandCursor()
+
+        if !playbackState.isPlaying {
+          ZStack {
+            Circle()
+              .strokeBorder(Color.white.opacity(0.9), lineWidth: 2)
+              .frame(width: 68, height: 68)
+              .background(Circle().fill(Color.black.opacity(0.35)))
+            Image(systemName: "play.fill")
+              .foregroundColor(.white)
+              .font(.system(size: 26, weight: .bold))
+          }
+          .allowsHitTesting(false)
+        }
+
+        VStack {
+          Spacer()
+          HStack {
+            Spacer()
+            Button(action: onCycleSpeed) {
+              Text(playbackState.speedLabel)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.black.opacity(0.8))
+                .cornerRadius(4)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .hoverScaleEffect(scale: 1.02)
+            .pointingHandCursorOnHover(reassertOnPressEnd: true)
+            .padding(12)
+          }
+        }
+      }
+    }
+  }
+}
+
+private final class ScreenshotSlideshowImageLayerHostView: NSView {
+  override init(frame frameRect: NSRect) {
+    super.init(frame: frameRect)
+    wantsLayer = true
+    layer = CALayer()
+    configureLayer()
+  }
+
+  required init?(coder: NSCoder) {
+    super.init(coder: coder)
+    wantsLayer = true
+    layer = CALayer()
+    configureLayer()
+  }
+
+  override func layout() {
+    super.layout()
+    layer?.frame = bounds
+  }
+
+  func updateImage(_ image: CGImage) {
+    guard let layer else { return }
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    layer.contents = image
+    CATransaction.commit()
+  }
+
+  private func configureLayer() {
+    guard let layer else { return }
+    layer.masksToBounds = true
+    layer.contentsGravity = .resizeAspect
+    layer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
+    layer.magnificationFilter = .trilinear
+    layer.minificationFilter = .trilinear
+    layer.actions = [
+      "contents": NSNull(),
+      "bounds": NSNull(),
+      "position": NSNull(),
+    ]
+  }
+}
+
+private struct ScreenshotSlideshowLayerBackedImageView: NSViewRepresentable {
+  let image: CGImage
+
+  func makeNSView(context: Context) -> ScreenshotSlideshowImageLayerHostView {
+    let view = ScreenshotSlideshowImageLayerHostView()
+    view.updateImage(image)
+    return view
+  }
+
+  func updateNSView(_ nsView: ScreenshotSlideshowImageLayerHostView, context: Context) {
+    nsView.updateImage(image)
+  }
+}
+
+private struct ScreenshotSlideshowDisplayLinkDriver: View {
+  @ObservedObject var playbackState: ScreenshotSlideshowPlaybackTimelineState
+  let onTick: (CADisplayLink) -> Void
+
+  var body: some View {
+    ScreenshotSlideshowDisplayLinkView(
+      isPaused: playbackState.isPlaying == false,
+      onTick: onTick
+    )
+    .frame(width: 0, height: 0)
+  }
+}
+
+private struct ScreenshotSlideshowDisplayLinkView: NSViewRepresentable {
+  let isPaused: Bool
+  let onTick: (CADisplayLink) -> Void
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(onTick: onTick)
+  }
+
+  func makeNSView(context: Context) -> HostView {
+    let view = HostView()
+    context.coordinator.attach(to: view)
+    context.coordinator.setPaused(isPaused)
+    return view
+  }
+
+  func updateNSView(_ nsView: HostView, context: Context) {
+    context.coordinator.onTick = onTick
+    context.coordinator.attach(to: nsView)
+    context.coordinator.setPaused(isPaused)
+  }
+
+  static func dismantleNSView(_ nsView: HostView, coordinator: Coordinator) {
+    coordinator.invalidate()
+  }
+
+  final class Coordinator: NSObject {
+    var onTick: (CADisplayLink) -> Void
+    private weak var hostView: HostView?
+    private var displayLink: CADisplayLink?
+
+    init(onTick: @escaping (CADisplayLink) -> Void) {
+      self.onTick = onTick
+    }
+
+    func attach(to view: HostView) {
+      guard hostView !== view || displayLink == nil else { return }
+      hostView = view
+      rebuildDisplayLink()
+    }
+
+    func setPaused(_ paused: Bool) {
+      displayLink?.isPaused = paused
+    }
+
+    func invalidate() {
+      displayLink?.invalidate()
+      displayLink = nil
+      hostView = nil
+    }
+
+    @objc
+    func handleDisplayLink(_ displayLink: CADisplayLink) {
+      onTick(displayLink)
+    }
+
+    private func rebuildDisplayLink() {
+      displayLink?.invalidate()
+      guard let hostView else { return }
+      let link = hostView.displayLink(target: self, selector: #selector(handleDisplayLink(_:)))
+      link.add(to: .main, forMode: .common)
+      displayLink = link
+    }
+  }
+
+  final class HostView: NSView {}
 }
 
 private let cachedScreenshotScrubberTimeFormatter: DateFormatter = {
@@ -975,8 +1166,7 @@ private final class ScreenshotFilmstripGenerator {
 
 private struct ScreenshotScrubberView: View {
   let screenshots: [Screenshot]
-  let duration: Double
-  let currentTime: Double
+  @ObservedObject var playbackState: ScreenshotSlideshowPlaybackTimelineState
   let onSeek: (Double) -> Void
   let onScrubStateChange: (Bool) -> Void
   var absoluteStart: Date? = nil
@@ -985,7 +1175,7 @@ private struct ScreenshotScrubberView: View {
   @State private var images: [NSImage] = []
   @State private var isDragging: Bool = false
 
-  private let frameCount = 12
+  private let frameCount = 8
   private let filmstripHeight: CGFloat = 64
   private let aspect: CGFloat = 16.0 / 9.0
   private let zoom: CGFloat = 1.2
@@ -996,6 +1186,8 @@ private struct ScreenshotScrubberView: View {
 
   var body: some View {
     GeometryReader { outer in
+      let duration = max(0.001, playbackState.duration)
+      let currentTime = playbackState.currentTime
       let stripWidth = max(1, outer.size.width - sideGutter * 2)
       let xInsideRaw = xFor(time: currentTime, width: stripWidth)
       let scale = NSScreen.main?.backingScaleFactor ?? 2.0
@@ -1105,11 +1297,13 @@ private struct ScreenshotScrubberView: View {
   }
 
   private func xFor(time: Double, width: CGFloat) -> CGFloat {
+    let duration = max(0.001, playbackState.duration)
     guard duration > 0 else { return 0 }
     return CGFloat(time / duration) * width
   }
 
   private func timeLabel(for time: Double) -> String {
+    let duration = max(0.001, playbackState.duration)
     if let absoluteStart, let absoluteEnd, duration > 0 {
       let total = absoluteEnd.timeIntervalSince(absoluteStart)
       let progress = max(0, min(1, time / duration))
@@ -1142,13 +1336,9 @@ extension Comparable {
 
 @MainActor
 private final class ScreenshotSlideshowPlaybackModel: ObservableObject {
-  @Published private(set) var currentImage: NSImage?
-  @Published private(set) var currentIndex: Int = 0
-  @Published private(set) var currentTimelineTimeSeconds: Double = 0
-  @Published private(set) var speedLabel: String = "20x"
-  @Published var isPlaying: Bool = true
-
   let frameCount: Int
+  let mediaState = ScreenshotSlideshowPlaybackMediaState()
+  let timelineState = ScreenshotSlideshowPlaybackTimelineState()
 
   private let loader: ScreenshotSlideshowFrameLoader
   private let frameOffsets: [Double]
@@ -1156,12 +1346,13 @@ private final class ScreenshotSlideshowPlaybackModel: ObservableObject {
   private let averageFrameIntervalSeconds: Double
   private static let speedDefaultsKey = "activitySlideshowPlaybackSpeedX"
   private let speedOptions: [Double] = [20, 40, 60]
-  private let playheadTickNanoseconds: UInt64 = 33_000_000
-  private var speedOptionIndex: Int = 0
-  private var requestID: Int = 0
-  private var currentFrameStartUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+  private var currentIndex = 0
+  private var speedOptionIndex = 0
+  private var requestID = 0
   private var wasPlayingBeforeScrubbing = false
-  private var playbackTask: Task<Void, Never>?
+  private var isPlaying = true
+  private var lastDisplayTimestamp: CFTimeInterval?
+  private var pendingFrameIndex: Int?
 
   init(screenshots: [Screenshot], maxRenderHeight: Int) {
     self.frameCount = screenshots.count
@@ -1187,62 +1378,66 @@ private final class ScreenshotSlideshowPlaybackModel: ObservableObject {
     }
 
     if let savedIndex = Self.savedSpeedIndex(in: speedOptions) {
-      self.speedOptionIndex = savedIndex
-      self.speedLabel = "\(Int(speedOptions[savedIndex]))x"
+      speedOptionIndex = savedIndex
     }
-  }
 
-  deinit {
-    playbackTask?.cancel()
+    timelineState.duration = timelineDurationSeconds
+    timelineState.speedLabel = currentSpeedLabel
+    timelineState.isPlaying = isPlaying
   }
 
   func start() {
     guard frameCount > 0 else { return }
-    guard playbackTask == nil else { return }
-    playbackTask = Task { [weak self] in
-      await self?.runPlaybackLoop()
-    }
+    lastDisplayTimestamp = nil
+    scheduleFrameDisplay(at: currentIndex, updateTimelineTime: true)
   }
 
   func stop() {
-    playbackTask?.cancel()
-    playbackTask = nil
+    isPlaying = false
+    timelineState.isPlaying = false
+    lastDisplayTimestamp = nil
+    pendingFrameIndex = nil
   }
 
   func togglePlayPause() {
     isPlaying.toggle()
+    timelineState.isPlaying = isPlaying
+    lastDisplayTimestamp = nil
   }
 
   func cycleSpeed() {
     speedOptionIndex = (speedOptionIndex + 1) % speedOptions.count
-    speedLabel = "\(Int(speedOptions[speedOptionIndex]))x"
+    timelineState.speedLabel = currentSpeedLabel
     UserDefaults.standard.set(speedOptions[speedOptionIndex], forKey: Self.speedDefaultsKey)
   }
 
   func seek(to index: Int) {
     guard frameCount > 0 else { return }
     let clamped = min(max(0, index), frameCount - 1)
-    currentTimelineTimeSeconds = frameOffset(for: clamped)
-    Task { [weak self] in
-      await self?.displayFrame(at: clamped)
-    }
+    timelineState.currentTime = frameOffset(for: clamped)
+    scheduleFrameDisplay(at: clamped, updateTimelineTime: false)
+    lastDisplayTimestamp = nil
   }
 
   func seek(toTimelineTime seconds: Double) {
     guard frameCount > 0 else { return }
     let clampedSeconds = min(max(0, seconds), timelineDurationSeconds)
-    currentTimelineTimeSeconds = clampedSeconds
-    let nearest = nearestFrameIndex(forTimelineTime: clampedSeconds)
+    timelineState.currentTime = clampedSeconds
+    let nearest = frameIndex(forTimelineTime: clampedSeconds)
     seek(to: nearest)
   }
 
   func setScrubbing(_ isScrubbing: Bool) {
     if isScrubbing {
-      wasPlayingBeforeScrubbing = isPlaying
-      isPlaying = false
+      wasPlayingBeforeScrubbing = self.isPlaying
+      self.isPlaying = false
+      timelineState.isPlaying = false
+      lastDisplayTimestamp = nil
       return
     }
     isPlaying = wasPlayingBeforeScrubbing
+    timelineState.isPlaying = isPlaying
+    lastDisplayTimestamp = nil
   }
 
   var timelineDurationSeconds: Double {
@@ -1250,40 +1445,37 @@ private final class ScreenshotSlideshowPlaybackModel: ObservableObject {
     return max(0.001, max(offsetDuration, fallbackTimelineDurationSeconds))
   }
 
-  private var playbackIntervalSeconds: Double {
-    let speed = speedOptions[speedOptionIndex]
-    return max(1.0 / 30.0, averageFrameIntervalSeconds / speed)
+  func handleDisplayTick(_ displayLink: CADisplayLink) {
+    guard isPlaying, frameCount > 1 else {
+      lastDisplayTimestamp = nil
+      return
+    }
+
+    let previousTimestamp = lastDisplayTimestamp ?? displayLink.timestamp
+    let currentTimestamp = max(displayLink.targetTimestamp, displayLink.timestamp)
+    let deltaSeconds = min(max(currentTimestamp - previousTimestamp, 0), 0.1)
+    lastDisplayTimestamp = currentTimestamp
+    guard deltaSeconds > 0 else { return }
+
+    var nextTime = timelineState.currentTime + (deltaSeconds * speedOptions[speedOptionIndex])
+    let totalDuration = timelineDurationSeconds
+    if nextTime >= totalDuration {
+      nextTime.formTruncatingRemainder(dividingBy: totalDuration)
+      if nextTime.isNaN || nextTime.isInfinite {
+        nextTime = 0
+      }
+      currentIndex = 0
+    }
+
+    timelineState.currentTime = nextTime
+    let nextIndex = frameIndex(forTimelineTime: nextTime)
+    if nextIndex != currentIndex {
+      scheduleFrameDisplay(at: nextIndex, updateTimelineTime: false)
+    }
   }
 
-  private func runPlaybackLoop() async {
-    await displayFrame(at: currentIndex)
-
-    while !Task.isCancelled {
-      if !isPlaying || frameCount <= 1 {
-        try? await Task.sleep(nanoseconds: 80_000_000)
-        continue
-      }
-
-      let interval = playbackIntervalSeconds
-      let frameStartUptime = currentFrameStartUptime
-      let startOffset = frameOffset(for: currentIndex)
-      let endOffset = nextFrameOffset(after: currentIndex)
-
-      while !Task.isCancelled && isPlaying {
-        let elapsed = ProcessInfo.processInfo.systemUptime - frameStartUptime
-        if elapsed >= interval {
-          break
-        }
-        let progress = min(1, max(0, elapsed / interval))
-        currentTimelineTimeSeconds = startOffset + (endOffset - startOffset) * progress
-        try? await Task.sleep(nanoseconds: playheadTickNanoseconds)
-      }
-      if Task.isCancelled { break }
-      if !isPlaying { continue }
-
-      let nextIndex = (currentIndex + 1) % frameCount
-      await displayFrame(at: nextIndex)
-    }
+  private var currentSpeedLabel: String {
+    "\(Int(speedOptions[speedOptionIndex]))x"
   }
 
   private func frameOffset(for index: Int) -> Double {
@@ -1293,30 +1485,23 @@ private final class ScreenshotSlideshowPlaybackModel: ObservableObject {
     return frameOffsets[index]
   }
 
-  private func nextFrameOffset(after index: Int) -> Double {
-    let nextIndex = index + 1
-    if frameOffsets.indices.contains(nextIndex) {
-      return frameOffsets[nextIndex]
-    }
-    return timelineDurationSeconds
-  }
-
-  private func nearestFrameIndex(forTimelineTime seconds: Double) -> Int {
+  private func frameIndex(forTimelineTime seconds: Double) -> Int {
     guard !frameOffsets.isEmpty else { return 0 }
-
-    var nearestIndex = 0
-    var nearestDistance = abs(frameOffsets[0] - seconds)
-    for (index, offset) in frameOffsets.enumerated() {
-      let distance = abs(offset - seconds)
-      if distance < nearestDistance {
-        nearestDistance = distance
-        nearestIndex = index
-      }
+    if let index = frameOffsets.lastIndex(where: { $0 <= seconds }) {
+      return index
     }
-    return nearestIndex
+    return 0
   }
 
-  private func displayFrame(at index: Int) async {
+  private func scheduleFrameDisplay(at index: Int, updateTimelineTime: Bool) {
+    guard pendingFrameIndex != index else { return }
+    pendingFrameIndex = index
+    Task { [weak self] in
+      await self?.displayFrame(at: index, updateTimelineTime: updateTimelineTime)
+    }
+  }
+
+  private func displayFrame(at index: Int, updateTimelineTime: Bool) async {
     guard frameCount > 0 else { return }
     let clamped = min(max(0, index), frameCount - 1)
     requestID &+= 1
@@ -1326,10 +1511,12 @@ private final class ScreenshotSlideshowPlaybackModel: ObservableObject {
     guard currentRequestID == requestID else { return }
 
     currentIndex = clamped
-    currentImage = image
-    currentTimelineTimeSeconds = frameOffset(for: clamped)
-    currentFrameStartUptime = ProcessInfo.processInfo.systemUptime
-    loader.prefetch(after: clamped, lookahead: 4)
+    pendingFrameIndex = nil
+    mediaState.currentImage = image
+    if updateTimelineTime {
+      timelineState.currentTime = frameOffset(for: clamped)
+    }
+    loader.prefetch(after: clamped, lookahead: 2)
   }
 
   private static func savedSpeedIndex(in options: [Double]) -> Int? {
@@ -1342,12 +1529,18 @@ private final class ScreenshotSlideshowPlaybackModel: ObservableObject {
 private final class ScreenshotSlideshowFrameLoader: @unchecked Sendable {
   private let screenshots: [Screenshot]
   private let maxPixelSize: Int
-  private let decodeQueue = DispatchQueue(
-    label: "com.dayflow.slideshow.decode", qos: .userInitiated)
-  private var cache: [Int: NSImage] = [:]
+  private let decodeQueue: OperationQueue = {
+    let queue = OperationQueue()
+    queue.name = "com.dayflow.slideshow.decode"
+    queue.qualityOfService = .userInitiated
+    queue.maxConcurrentOperationCount = 3
+    return queue
+  }()
+  private let syncQueue = DispatchQueue(label: "com.dayflow.slideshow.decode.sync")
+  private var cache: [Int: CGImage] = [:]
   private var cacheOrder: [Int] = []
-  private let cacheLimit = 24
-  private let cacheLock = NSLock()
+  private var inflight: [Int: [(CGImage?) -> Void]] = [:]
+  private let cacheLimit = 16
 
   init(screenshots: [Screenshot], maxRenderHeight: Int) {
     self.screenshots = screenshots
@@ -1355,22 +1548,14 @@ private final class ScreenshotSlideshowFrameLoader: @unchecked Sendable {
     self.maxPixelSize = max(64, max(maxRenderHeight, derivedWidth))
   }
 
-  func image(at index: Int) async -> NSImage? {
+  func image(at index: Int) async -> CGImage? {
     if let cached = cachedImage(for: index) {
       return cached
     }
 
     return await withCheckedContinuation { continuation in
-      decodeQueue.async { [weak self] in
-        guard let self else {
-          continuation.resume(returning: nil)
-          return
-        }
-        let decoded = self.decodeImage(at: index)
-        if let decoded {
-          self.storeImage(decoded, for: index)
-        }
-        continuation.resume(returning: decoded)
+      requestImage(at: index) { image in
+        continuation.resume(returning: image)
       }
     }
   }
@@ -1381,37 +1566,80 @@ private final class ScreenshotSlideshowFrameLoader: @unchecked Sendable {
 
     let total = screenshots.count
     let candidateIndices = (1...lookahead).map { (index + $0) % total }
-    decodeQueue.async { [weak self] in
-      guard let self else { return }
-      for idx in candidateIndices where self.cachedImage(for: idx) == nil {
-        if let decoded = self.decodeImage(at: idx) {
-          self.storeImage(decoded, for: idx)
+    for idx in candidateIndices {
+      requestImage(at: idx, completion: nil)
+    }
+  }
+
+  private func requestImage(at index: Int, completion: ((CGImage?) -> Void)?) {
+    guard screenshots.indices.contains(index) else {
+      completion?(nil)
+      return
+    }
+
+    if let cached = cachedImage(for: index) {
+      completion?(cached)
+      return
+    }
+
+    var shouldStart = false
+    syncQueue.sync {
+      if var callbacks = inflight[index] {
+        if let completion {
+          callbacks.append(completion)
         }
+        inflight[index] = callbacks
+      } else {
+        inflight[index] = completion.map { [$0] } ?? []
+        shouldStart = true
+      }
+    }
+
+    guard shouldStart else { return }
+
+    decodeQueue.addOperation { [weak self] in
+      guard let self else { return }
+      let decoded = autoreleasepool { self.decodeImage(at: index) }
+      if let decoded {
+        self.storeImage(decoded, for: index)
+      }
+      self.finish(index: index, image: decoded)
+    }
+  }
+
+  private func cachedImage(for index: Int) -> CGImage? {
+    syncQueue.sync {
+      cache[index]
+    }
+  }
+
+  private func storeImage(_ image: CGImage, for index: Int) {
+    syncQueue.sync {
+      cache[index] = image
+      cacheOrder.removeAll { $0 == index }
+      cacheOrder.append(index)
+
+      while cacheOrder.count > cacheLimit {
+        let evicted = cacheOrder.removeFirst()
+        cache.removeValue(forKey: evicted)
       }
     }
   }
 
-  private func cachedImage(for index: Int) -> NSImage? {
-    cacheLock.lock()
-    defer { cacheLock.unlock() }
-    return cache[index]
-  }
+  private func finish(index: Int, image: CGImage?) {
+    var callbacks: [(CGImage?) -> Void] = []
+    syncQueue.sync {
+      callbacks = inflight[index] ?? []
+      inflight.removeValue(forKey: index)
+    }
 
-  private func storeImage(_ image: NSImage, for index: Int) {
-    cacheLock.lock()
-    defer { cacheLock.unlock() }
-
-    cache[index] = image
-    cacheOrder.removeAll { $0 == index }
-    cacheOrder.append(index)
-
-    while cacheOrder.count > cacheLimit {
-      let evicted = cacheOrder.removeFirst()
-      cache.removeValue(forKey: evicted)
+    guard !callbacks.isEmpty else { return }
+    DispatchQueue.main.async {
+      callbacks.forEach { $0(image) }
     }
   }
 
-  private func decodeImage(at index: Int) -> NSImage? {
+  private func decodeImage(at index: Int) -> CGImage? {
     guard screenshots.indices.contains(index) else { return nil }
     let url = screenshots[index].fileURL
     guard FileManager.default.fileExists(atPath: url.path) else { return nil }
@@ -1427,6 +1655,6 @@ private final class ScreenshotSlideshowFrameLoader: @unchecked Sendable {
     else {
       return nil
     }
-    return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    return cgImage
   }
 }
