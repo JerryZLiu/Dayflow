@@ -353,8 +353,9 @@ final class DailyRecapScheduler: @unchecked Sendable {
     for observation in ordered {
       let text = observation.observation.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !text.isEmpty else { continue }
-      let time = humanReadableClockTime(unixTimestamp: observation.startTs)
-      lines.append("\(time): \(text)")
+      let start = humanReadableClockTime(unixTimestamp: observation.startTs)
+      let end = humanReadableClockTime(unixTimestamp: observation.endTs)
+      lines.append("\(start) - \(end): \(text)")
     }
 
     if lines.count <= 2 {

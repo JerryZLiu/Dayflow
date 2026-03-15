@@ -1000,8 +1000,9 @@ struct DailyView: View {
     for observation in ordered {
       let body = observation.observation.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !body.isEmpty else { continue }
-      let time = humanReadableClockTime(unixTimestamp: observation.startTs)
-      lines.append("\(time): \(body)")
+      let start = humanReadableClockTime(unixTimestamp: observation.startTs)
+      let end = humanReadableClockTime(unixTimestamp: observation.endTs)
+      lines.append("\(start) - \(end): \(body)")
     }
 
     if lines.count <= 2 {
