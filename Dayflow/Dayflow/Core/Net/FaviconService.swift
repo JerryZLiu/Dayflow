@@ -115,18 +115,17 @@ final class FaviconService {
   func fetchFavicon(
     primaryRaw: String?, secondaryRaw: String?, primaryHost: String?, secondaryHost: String?
   ) async -> NSImage? {
-    // First, try single pattern matching against raw strings (preserves paths like /xcode)
-    if let raw = primaryRaw, let img = matchPattern(raw) { return img }
-    if let raw = secondaryRaw, let img = matchPattern(raw) { return img }
-
-    // Then try dual pattern matching (requires both patterns, e.g., "mail" + "apple")
-    if let raw = primaryRaw, let img = matchDualPattern(raw) { return img }
-    if let raw = secondaryRaw, let img = matchDualPattern(raw) { return img }
-
-    // Fall back to network fetch using normalized hosts
+    if let img = resolveRawFavicon(primaryRaw) { return img }
     if let host = primaryHost, let img = await fetchHost(host) { return img }
+    if let img = resolveRawFavicon(secondaryRaw) { return img }
     if let host = secondaryHost, let img = await fetchHost(host) { return img }
     return nil
+  }
+
+  private func resolveRawFavicon(_ raw: String?) -> NSImage? {
+    guard let raw else { return nil }
+    if let img = matchPattern(raw) { return img }
+    return matchDualPattern(raw)
   }
 
   /// Check raw string against hardcoded patterns (no network fetch)
