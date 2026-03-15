@@ -53,6 +53,8 @@ struct SettingsView: View {
 
   var body: some View {
     contentWithSheets
+      .environment(\.colorScheme, .light)
+      .preferredColorScheme(.light)
   }
 
   private var contentWithSheets: some View {
