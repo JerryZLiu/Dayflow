@@ -236,6 +236,59 @@ private struct ClaudeJSONLEvent: Decodable {
 // MARK: - Process Runner
 
 struct ChatCLIProcessRunner {
+  private enum Constants {
+    static let readChunkSize = 64 * 1024
+    static let timeoutSeconds: TimeInterval = 300
+  }
+
+  private final class BufferedPipeReader {
+    private let handle: FileHandle
+    private let queue: DispatchQueue
+    private let stateQueue: DispatchQueue
+    private let group = DispatchGroup()
+    private var buffer = Data()
+
+    init(handle: FileHandle, label: String) {
+      self.handle = handle
+      queue = DispatchQueue(label: label, qos: .utility)
+      stateQueue = DispatchQueue(label: label + ".state")
+    }
+
+    func start() {
+      group.enter()
+      queue.async {
+        defer { self.group.leave() }
+
+        while true {
+          let chunk: Data
+          do {
+            guard let data = try self.handle.read(upToCount: Constants.readChunkSize), !data.isEmpty
+            else { break }
+            chunk = data
+          } catch {
+            break
+          }
+
+          self.stateQueue.sync {
+            self.buffer.append(chunk)
+          }
+        }
+      }
+    }
+
+    func wait(timeout: DispatchTime = .distantFuture) -> DispatchTimeoutResult {
+      group.wait(timeout: timeout)
+    }
+
+    func snapshotData() -> Data {
+      stateQueue.sync { buffer }
+    }
+
+    func snapshotString() -> String {
+      String(data: snapshotData(), encoding: .utf8) ?? ""
+    }
+  }
+
   private struct PseudoTerminal {
     let master: FileHandle
     let slaveFd: Int32
@@ -360,18 +413,25 @@ struct ChatCLIProcessRunner {
     }
 
     let stderrPipe = Pipe()
+    let stderrHandle = stderrPipe.fileHandleForReading
     process.standardError = stderrPipe
 
+    let stateQueue = DispatchQueue(label: "ChatCLI.StreamState")
     var accumulatedText = ""
     var lineBuffer = Data()
+    var stderrBuffer = Data()
     var sawTextDelta = false
     var didYieldComplete = false
 
-    stdoutHandle.readabilityHandler = { handle in
-      let data = handle.availableData
-      guard !data.isEmpty else { return }
+    func cleanupStreamingResources() {
+      stdoutHandle.readabilityHandler = nil
+      stderrHandle.readabilityHandler = nil
+      cleanupPty?()
+      cleanupPty = nil
+    }
 
-      lineBuffer.append(data)
+    func drainBufferedLines() -> [ChatStreamEvent] {
+      var parsedEvents: [ChatStreamEvent] = []
 
       while let newlineRange = lineBuffer.range(of: Data([0x0A])) {
         let lineData = lineBuffer.subdata(in: 0..<newlineRange.lowerBound)
@@ -379,32 +439,67 @@ struct ChatCLIProcessRunner {
 
         guard let rawLine = String(data: lineData, encoding: .utf8) else { continue }
         let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-        let line = self.stripANSIEscapes(trimmed)
+        let line = stripANSIEscapes(trimmed)
         guard !line.isEmpty else { continue }
 
-        if let event = self.parseJSONLLine(tool: tool, line: line) {
+        if let event = parseJSONLLine(tool: tool, line: line) {
+          var shouldYield = true
           if case .textDelta(let text) = event {
             sawTextDelta = true
             accumulatedText += text
           } else if case .complete(let text) = event {
             if sawTextDelta || didYieldComplete {
-              continue
+              shouldYield = false
+            } else {
+              didYieldComplete = true
+              accumulatedText = text
             }
-            didYieldComplete = true
-            accumulatedText = text
           }
-          continuation.yield(event)
+
+          if shouldYield {
+            parsedEvents.append(event)
+          }
         }
+      }
+
+      return parsedEvents
+    }
+
+    stdoutHandle.readabilityHandler = { handle in
+      let data = handle.availableData
+      guard !data.isEmpty else {
+        handle.readabilityHandler = nil
+        return
+      }
+
+      let parsedEvents = stateQueue.sync { () -> [ChatStreamEvent] in
+        lineBuffer.append(data)
+        return drainBufferedLines()
+      }
+
+      for event in parsedEvents {
+        continuation.yield(event)
+      }
+    }
+
+    stderrHandle.readabilityHandler = { handle in
+      let data = handle.availableData
+      guard !data.isEmpty else {
+        handle.readabilityHandler = nil
+        return
+      }
+
+      stateQueue.sync {
+        stderrBuffer.append(data)
       }
     }
 
     try process.run()
     defer {
-      stdoutHandle.readabilityHandler = nil
-      cleanupPty?()
+      cleanupStreamingResources()
     }
 
-    let timeoutSeconds: TimeInterval = 300
+    let timeoutSeconds = Constants.timeoutSeconds
     let semaphore = DispatchSemaphore(value: 0)
     DispatchQueue.global().async {
       process.waitUntilExit()
@@ -413,40 +508,80 @@ struct ChatCLIProcessRunner {
     let result = semaphore.wait(timeout: .now() + timeoutSeconds)
     if result == .timedOut {
       process.terminate()
+      cleanupStreamingResources()
+      // Capture partial streaming output before throwing
+      let partial = stateQueue.sync {
+        (
+          accumulatedText,
+          String(data: lineBuffer, encoding: .utf8) ?? "",
+          String(data: stderrBuffer, encoding: .utf8) ?? ""
+        )
+      }
       throw NSError(
         domain: "ChatCLI", code: -3,
         userInfo: [
-          NSLocalizedDescriptionKey: "CLI process timed out after \(Int(timeoutSeconds)) seconds"
+          NSLocalizedDescriptionKey: "CLI process timed out after \(Int(timeoutSeconds)) seconds",
+          "partialStdout": partial.0.isEmpty ? partial.1 : partial.0,
+          "partialStderr": partial.2,
         ])
     }
 
-    if !lineBuffer.isEmpty,
-      let rawLine = String(data: lineBuffer, encoding: .utf8)
-    {
-      let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-      let line = stripANSIEscapes(trimmed)
-      if !line.isEmpty, let event = parseJSONLLine(tool: tool, line: line) {
-        var shouldYield = true
-        if case .textDelta(let text) = event {
-          sawTextDelta = true
-          accumulatedText += text
-        } else if case .complete(let text) = event {
-          if sawTextDelta || didYieldComplete {
-            shouldYield = false
-          } else {
-            didYieldComplete = true
-            accumulatedText = text
+    cleanupStreamingResources()
+    let finalEvents = stateQueue.sync { () -> [ChatStreamEvent] in
+      var parsedEvents = drainBufferedLines()
+      let remainingStdout = stdoutHandle.readDataToEndOfFile()
+      let remainingStderr = stderrHandle.readDataToEndOfFile()
+
+      if !remainingStdout.isEmpty {
+        lineBuffer.append(remainingStdout)
+        parsedEvents.append(contentsOf: drainBufferedLines())
+      }
+      if !remainingStderr.isEmpty {
+        stderrBuffer.append(remainingStderr)
+      }
+
+      if !lineBuffer.isEmpty,
+        let rawLine = String(data: lineBuffer, encoding: .utf8)
+      {
+        let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let line = stripANSIEscapes(trimmed)
+        if !line.isEmpty, let event = parseJSONLLine(tool: tool, line: line) {
+          var shouldYield = true
+          if case .textDelta(let text) = event {
+            sawTextDelta = true
+            accumulatedText += text
+          } else if case .complete(let text) = event {
+            if sawTextDelta || didYieldComplete {
+              shouldYield = false
+            } else {
+              didYieldComplete = true
+              accumulatedText = text
+            }
+          }
+          if shouldYield {
+            parsedEvents.append(event)
           }
         }
-        if shouldYield {
-          continuation.yield(event)
-        }
+        lineBuffer.removeAll(keepingCapacity: false)
       }
+
+      return parsedEvents
+    }
+
+    for event in finalEvents {
+      continuation.yield(event)
+    }
+
+    let finalState = stateQueue.sync {
+      (
+        accumulatedText,
+        didYieldComplete,
+        String(data: stderrBuffer, encoding: .utf8) ?? ""
+      )
     }
 
     if process.terminationStatus != 0 {
-      let stderr =
-        String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+      let stderr = finalState.2
       if stderr.contains("command not found") {
         continuation.yield(
           .error(
@@ -457,8 +592,8 @@ struct ChatCLIProcessRunner {
       }
     }
 
-    if !accumulatedText.isEmpty, !didYieldComplete {
-      continuation.yield(.complete(text: accumulatedText))
+    if !finalState.0.isEmpty, !finalState.1 {
+      continuation.yield(.complete(text: finalState.0))
     }
 
     continuation.finish()
@@ -667,50 +802,25 @@ struct ChatCLIProcessRunner {
     let process = Process()
     process.executableURL = shell
     process.arguments = ["-l", "-i", "-c", shellCommand]
-
-    var cleanupPty: (() -> Void)?
-    let stdoutHandle: FileHandle
-    if tool == .claude {
-      let pty = try makePseudoTerminal()
-      stdoutHandle = pty.master
-      let slaveHandle = FileHandle(fileDescriptor: pty.slaveFd, closeOnDealloc: false)
-      process.standardInput = slaveHandle
-      process.standardOutput = slaveHandle
-      cleanupPty = {
-        close(pty.slaveFd)
-      }
-    } else {
-      let stdoutPipe = Pipe()
-      process.standardOutput = stdoutPipe
-      process.standardInput = FileHandle.nullDevice
-      stdoutHandle = stdoutPipe.fileHandleForReading
-    }
+    let stdoutPipe = Pipe()
+    process.standardOutput = stdoutPipe
+    process.standardInput = FileHandle.nullDevice
+    let stdoutHandle = stdoutPipe.fileHandleForReading
 
     let stderrPipe = Pipe()
+    let stderrHandle = stderrPipe.fileHandleForReading
     process.standardError = stderrPipe
 
     try process.run()
 
-    let outputQueue = DispatchQueue(label: "ChatCLI.Output")
-    var stdoutBuffer = Data()
-    var stderrBuffer = Data()
+    let stdoutReader = BufferedPipeReader(
+      handle: stdoutHandle, label: "ChatCLI.StdoutCollector")
+    let stderrReader = BufferedPipeReader(
+      handle: stderrHandle, label: "ChatCLI.StderrCollector")
+    stdoutReader.start()
+    stderrReader.start()
 
-    stdoutHandle.readabilityHandler = { handle in
-      let data = handle.availableData
-      guard !data.isEmpty else { return }
-      outputQueue.sync {
-        stdoutBuffer.append(data)
-      }
-    }
-    stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-      let data = handle.availableData
-      guard !data.isEmpty else { return }
-      outputQueue.sync {
-        stderrBuffer.append(data)
-      }
-    }
-
-    let timeoutSeconds: TimeInterval = 300
+    let timeoutSeconds = Constants.timeoutSeconds
     let semaphore = DispatchSemaphore(value: 0)
     DispatchQueue.global().async {
       process.waitUntilExit()
@@ -719,31 +829,28 @@ struct ChatCLIProcessRunner {
     let result = semaphore.wait(timeout: .now() + timeoutSeconds)
     if result == .timedOut {
       process.terminate()
+      _ = stdoutReader.wait(timeout: .now() + 2)
+      _ = stderrReader.wait(timeout: .now() + 2)
+      let partialStdout = stdoutReader.snapshotString()
+      let partialStderr = stderrReader.snapshotString()
       throw NSError(
         domain: "ChatCLI", code: -3,
         userInfo: [
-          NSLocalizedDescriptionKey: "CLI process timed out after \(Int(timeoutSeconds)) seconds"
+          NSLocalizedDescriptionKey: "CLI process timed out after \(Int(timeoutSeconds)) seconds",
+          "partialStdout": partialStdout,
+          "partialStderr": partialStderr,
         ])
     }
     let finished = Date()
 
-    cleanupPty?()
-    stdoutHandle.readabilityHandler = nil
-    stderrPipe.fileHandleForReading.readabilityHandler = nil
-    outputQueue.sync {}
-    let remainingStdout = stdoutHandle.readDataToEndOfFile()
-    let remainingStderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-    outputQueue.sync {
-      if !remainingStdout.isEmpty {
-        stdoutBuffer.append(remainingStdout)
-      }
-      if !remainingStderr.isEmpty {
-        stderrBuffer.append(remainingStderr)
-      }
-    }
+    _ = stdoutReader.wait()
+    _ = stderrReader.wait()
+    let stdoutBuffer = stdoutReader.snapshotData()
+    let stderrBuffer = stderrReader.snapshotData()
 
     var rawOut = String(data: stdoutBuffer, encoding: .utf8) ?? ""
     if tool == .claude {
+      // Plain pipes are sufficient for Claude non-streaming mode and avoid PTY escape noise.
       rawOut = stripANSIEscapes(rawOut)
     }
     let stderr = String(data: stderrBuffer, encoding: .utf8) ?? ""
