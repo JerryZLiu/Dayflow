@@ -434,7 +434,7 @@ final class ChatCLIProvider {
           Identify the main app or website used for each card. Output the canonical DOMAIN, not the app name.
 
           Rules:
-          - primary: The canonical domain of the MAIN activity's app/website.
+          - primary: The canonical domain of the main app/website used in the card.
           - secondary: Another meaningful app used during this session, if relevant.
           - Format: lower-case, no protocol, no query or fragments.
           - Use product subdomains/paths when canonical (e.g., docs.google.com for Google Docs).
