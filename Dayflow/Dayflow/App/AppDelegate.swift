@@ -21,6 +21,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   private var statusBar: StatusBarController!
   private var recorder: ScreenRecorder!
   private var analyticsSub: AnyCancellable?
+  private var analyticsPreferenceObserver: NSObjectProtocol?
   private var powerObserver: NSObjectProtocol?
   private var deepLinkRouter: AppDeepLinkRouter?
   private var pendingDeepLinkURLs: [URL] = []
@@ -56,6 +57,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Start heartbeat for DAU tracking
     appLaunchDate = Date()
     startHeartbeat()
+    updateCPUMonitoring(analyticsEnabled: AnalyticsService.shared.isOptedIn)
 
     // App updated check
     let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
@@ -148,6 +150,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     ) { _ in
       MainActor.assumeIsolated {
         AppDelegate.allowTermination = true
+      }
+    }
+
+    analyticsPreferenceObserver = NotificationCenter.default.addObserver(
+      forName: .analyticsPreferenceChanged,
+      object: nil,
+      queue: .main
+    ) { [weak self] notification in
+      MainActor.assumeIsolated {
+        guard let self else { return }
+        let enabled =
+          notification.userInfo?["enabled"] as? Bool ?? AnalyticsService.shared.isOptedIn
+        self.updateCPUMonitoring(analyticsEnabled: enabled)
       }
     }
 
@@ -244,10 +259,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     heartbeatTimer?.invalidate()
     heartbeatTimer = nil
+    ProcessCPUMonitor.shared.stop()
 
     if let observer = powerObserver {
       NSWorkspace.shared.notificationCenter.removeObserver(observer)
       powerObserver = nil
+    }
+    if let observer = analyticsPreferenceObserver {
+      NotificationCenter.default.removeObserver(observer)
+      analyticsPreferenceObserver = nil
     }
     DailyRecapScheduler.shared.stop()
     // If onboarding not completed, mark abandoned with last step
@@ -286,8 +306,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Send initial heartbeat
     sendHeartbeat()
 
-    // Schedule repeating timer every 12 hours
-    heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 12 * 60 * 60, repeats: true) {
+    // Schedule repeating timer every hour
+    heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) {
       [weak self] _ in
       MainActor.assumeIsolated {
         self?.sendHeartbeat()
@@ -301,7 +321,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       let sessionHours = Date().timeIntervalSince(launch) / 3600
       props["session_hours"] = round(sessionHours * 10) / 10  // 1 decimal place
     }
+    if let cpuSnapshot = ProcessCPUMonitor.shared.heartbeatSnapshotAndReset() {
+      props["cpu_current_pct_bucket"] = AnalyticsService.shared.cpuPercentBucket(
+        cpuSnapshot.currentCPUPercent)
+      props["cpu_avg_pct_bucket"] = AnalyticsService.shared.cpuPercentBucket(
+        cpuSnapshot.averageCPUPercent)
+      props["cpu_peak_pct_bucket"] = AnalyticsService.shared.cpuPercentBucket(
+        cpuSnapshot.peakCPUPercent)
+      props["cpu_sample_count"] = cpuSnapshot.sampleCount
+      props["cpu_sampler_interval_s"] = Int(cpuSnapshot.samplerInterval)
+    }
     AnalyticsService.shared.capture("app_heartbeat", props)
+  }
+
+  private func updateCPUMonitoring(analyticsEnabled: Bool) {
+    if analyticsEnabled {
+      ProcessCPUMonitor.shared.start()
+    } else {
+      ProcessCPUMonitor.shared.stop()
+    }
   }
 }
 

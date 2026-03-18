@@ -15,6 +15,12 @@ This document lists manual events, properties, and code locations. All events re
 - app_updated
   - props: `from_version: string`, `to_version: string`
   - file: App/AppDelegate.swift
+- app_heartbeat
+  - props: `session_hours: number`, `cpu_current_pct_bucket?: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_avg_pct_bucket?: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_peak_pct_bucket?: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_sample_count?: int`, `cpu_sampler_interval_s?: int`
+  - file: App/AppDelegate.swift
+- app_cpu_spike
+  - props: `cpu_current_pct_bucket: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_hour_peak_pct_bucket: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_threshold_pct: number`, `cpu_sampler_interval_s: int`
+  - file: System/ProcessCPUMonitor.swift
 - app_terminated
   - file: App/AppDelegate.swift
 - screen_viewed

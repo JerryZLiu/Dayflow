@@ -142,6 +142,11 @@ final class AnalyticsService {
     if enabled {
       PostHogSDK.shared.optIn()
       SentryHelper.setEnabled(true)
+      NotificationCenter.default.post(
+        name: .analyticsPreferenceChanged,
+        object: nil,
+        userInfo: ["enabled": enabled]
+      )
 
       guard previousValue != enabled else { return }
 
@@ -156,6 +161,11 @@ final class AnalyticsService {
     guard previousValue != enabled else {
       SentryHelper.setEnabled(false)
       PostHogSDK.shared.optOut()
+      NotificationCenter.default.post(
+        name: .analyticsPreferenceChanged,
+        object: nil,
+        userInfo: ["enabled": enabled]
+      )
       return
     }
 
@@ -166,6 +176,11 @@ final class AnalyticsService {
     PostHogSDK.shared.capture("analytics_opt_in_changed", properties: ["enabled": enabled])
     PostHogSDK.shared.flush()
     PostHogSDK.shared.optOut()
+    NotificationCenter.default.post(
+      name: .analyticsPreferenceChanged,
+      object: nil,
+      userInfo: ["enabled": enabled]
+    )
   }
 
   func capture(_ name: String, _ props: [String: Any] = [:]) {
@@ -246,6 +261,19 @@ final class AnalyticsService {
     case ..<0.5: return "25-50%"
     case ..<0.75: return "50-75%"
     default: return "75-100%"
+    }
+  }
+
+  func cpuPercentBucket(_ value: Double) -> String {
+    let pct = value.isFinite ? max(0.0, value) : 0.0
+    switch pct {
+    case ..<5: return "0-5%"
+    case ..<20: return "5-20%"
+    case ..<50: return "20-50%"
+    case ..<100: return "50-100%"
+    case ..<150: return "100-150%"
+    case ..<200: return "150-200%"
+    default: return ">200%"
     }
   }
 

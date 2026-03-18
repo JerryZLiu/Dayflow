@@ -257,6 +257,7 @@ struct DayflowApp: App {
 // MARK: - Notification Names
 
 extension Notification.Name {
+  static let analyticsPreferenceChanged = Notification.Name("analyticsPreferenceChanged")
   static let showWhatsNew = Notification.Name("showWhatsNew")
   static let navigateToJournal = Notification.Name("navigateToJournal")
   static let navigateToDaily = Notification.Name("navigateToDaily")
