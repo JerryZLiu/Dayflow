@@ -81,6 +81,12 @@ enum LLMLogger {
       if let groupId = ctx.callGroupId { props["group_id"] = groupId }
       if let errorCode { props["error_code"] = errorCode }
       if let errorMessage, !errorMessage.isEmpty { props["error_message"] = errorMessage }
+      if let body = http?.responseBody,
+        let bodyStr = String(data: body, encoding: .utf8),
+        !bodyStr.isEmpty
+      {
+        props["response_body"] = bodyStr
+      }
 
       AnalyticsService.shared.capture("llm_api_call", props)
     }
