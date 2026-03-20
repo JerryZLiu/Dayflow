@@ -138,21 +138,13 @@ struct TimelineRateSummaryView: View {
             .progressViewStyle(CircularProgressViewStyle(tint: .white))
             .transition(transition)
         } else if deleteButtonState == .confirming {
-          HStack(spacing: 4) {
-            Image(systemName: "checkmark")
-              .font(.system(size: 10, weight: .semibold))
-            Text("Confirm")
-              .font(Font.custom("Nunito", size: 10).weight(.semibold))
-          }
-          .transition(transition)
+          Text("Confirm")
+            .font(Font.custom("Nunito", size: 12).weight(.medium))
+            .transition(transition)
         } else {
-          HStack(spacing: 4) {
-            Image(systemName: "trash")
-              .font(.system(size: 10, weight: .semibold))
-            Text("Delete")
-              .font(Font.custom("Nunito", size: 10).weight(.medium))
-          }
-          .transition(transition)
+          Text("Delete")
+            .font(Font.custom("Nunito", size: 12).weight(.medium))
+            .transition(transition)
         }
       }
       .padding(.horizontal, isConfirmVisualState ? 9 : 0)
