@@ -11,6 +11,7 @@ import AppKit
 import Combine
 import CoreGraphics
 import Foundation
+import ImageIO
 @preconcurrency import ScreenCaptureKit
 import Sentry
 
@@ -418,23 +419,18 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
   // MARK: - Image Conversion
 
   private func jpegData(from cgImage: CGImage, quality: CGFloat) -> Data? {
-    let nsImage = NSImage(
-      cgImage: cgImage,
-      size: NSSize(
-        width: cgImage.width,
-        height: cgImage.height
-      ))
-
-    guard let tiffData = nsImage.tiffRepresentation,
-      let bitmap = NSBitmapImageRep(data: tiffData)
+    let data = NSMutableData()
+    guard
+      let destination = CGImageDestinationCreateWithData(
+        data as CFMutableData, "public.jpeg" as CFString, 1, nil)
     else {
       return nil
     }
-
-    return bitmap.representation(
-      using: .jpeg,
-      properties: [.compressionFactor: quality]
-    )
+    CGImageDestinationAddImage(
+      destination, cgImage,
+      [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+    guard CGImageDestinationFinalize(destination) else { return nil }
+    return data as Data
   }
 
   // MARK: - Display Change Handling

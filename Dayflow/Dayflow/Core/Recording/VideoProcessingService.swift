@@ -57,6 +57,18 @@ actor VideoProcessingService {
   private let persistentTimelapsesRootURL: URL
   private let colorSpace = CGColorSpaceCreateDeviceRGB()
 
+  // Cached DateFormatters to avoid repeated allocation
+  private let dateFormatter_yyyyMMdd: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd"
+    return f
+  }()
+  private let dateFormatter_filenameTimestamp: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "yyyyMMdd_HHmmssSSS"
+    return f
+  }()
+
   init() {
     // Create a persistent directory for timelapses within Application Support
     let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -81,9 +93,7 @@ actor VideoProcessingService {
     for date: Date,
     originalFileName: String
   ) -> URL {
-    let dateFormatter = DateFormatter()
-    dateFormatter.dateFormat = "yyyy-MM-dd"
-    let dateString = dateFormatter.string(from: date)
+    let dateString = dateFormatter_yyyyMMdd.string(from: date)
 
     let dateSpecificDir =
       persistentTimelapsesRootURL
@@ -403,9 +413,7 @@ actor VideoProcessingService {
   }
 
   private func parseTimestampFromFilename(_ filename: String) -> Int? {
-    let formatter = DateFormatter()
-    formatter.dateFormat = "yyyyMMdd_HHmmssSSS"
-    if let date = formatter.date(from: filename) {
+    if let date = dateFormatter_filenameTimestamp.date(from: filename) {
       return Int(date.timeIntervalSince1970)
     }
     return nil
