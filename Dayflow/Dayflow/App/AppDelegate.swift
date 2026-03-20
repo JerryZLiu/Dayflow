@@ -10,14 +10,19 @@ import ServiceManagement
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
+  enum PendingNotificationNavigationDestination: Equatable {
+    case journal
+    case daily(day: String?)
+  }
+
   // Controls whether the app is allowed to terminate.
   // Default is false so Cmd+Q/Dock/App menu quit will be cancelled
   // and the app will continue running in the background.
   static var allowTermination: Bool = false
 
   // Flag set when app is opened via notification tap - skips video intro
-  static var pendingNavigationToJournal: Bool = false
-  static var pendingNavigationToDailyDay: String? = nil
+  static var pendingNotificationNavigationDestination: PendingNotificationNavigationDestination? =
+    nil
   private var statusBar: StatusBarController!
   private var recorder: ScreenRecorder!
   private var analyticsSub: AnyCancellable?

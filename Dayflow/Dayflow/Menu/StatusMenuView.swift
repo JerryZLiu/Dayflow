@@ -42,28 +42,15 @@ struct StatusMenuView: View {
   }
 
   private func openDayflow() {
-    let menuWindowNumber = NSApp.keyWindow?.windowNumber
-
     performAfterMenuDismiss {
-      // Only show Dock icon if user preference allows it
       let showDockIcon = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
       if showDockIcon {
         NSApp.setActivationPolicy(.regular)
       }
+
       NSApp.unhide(nil)
+      MainWindowController.shared.showMainWindow()
       NSApp.activate(ignoringOtherApps: true)
-
-      var showedWindow = false
-      for window in NSApp.windows
-      where window.canBecomeKey && window.windowNumber != menuWindowNumber {
-        if window.isMiniaturized { window.deminiaturize(nil) }
-        window.makeKeyAndOrderFront(nil)
-        showedWindow = true
-      }
-
-      if !showedWindow {
-        MainWindowManager.shared.showMainWindow()
-      }
     }
   }
 
