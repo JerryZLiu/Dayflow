@@ -21,6 +21,11 @@ final class ActiveDisplayTracker: ObservableObject {
   private let stateQueue = DispatchQueue(label: "com.dayflow.ActiveDisplayTracker.state")
   nonisolated(unsafe) private var candidateID: CGDirectDisplayID?
   nonisolated(unsafe) private var candidateSince: Date?
+  // Cache of the last committed display ID so the background poll can skip
+  // redundant @Published updates. Accessing @Published from a Task{@MainActor}
+  // triggered expensive Swift runtime conformance checks (swift_dynamicCast /
+  // swift_conformsToProtocol) causing 5s+ hangs (Sentry APPLE-MACOS-MN).
+  nonisolated(unsafe) private var lastCommittedID: CGDirectDisplayID?
 
   // Tunables
   private let pollHz: Double
@@ -116,11 +121,12 @@ final class ActiveDisplayTracker: ObservableObject {
     // Candidate is stable long enough - update the published property on main actor
     if let since = candidateSince, now.timeIntervalSince(since) >= debounceSeconds {
       let stableID = id
+      // Fast path: skip the MainActor hop entirely when the display hasn't changed.
+      guard stableID != lastCommittedID else { return }
+      lastCommittedID = stableID
       Task { @MainActor [weak self] in
         guard let self = self else { return }
-        if self.activeDisplayID != stableID {
-          self.activeDisplayID = stableID
-        }
+        self.activeDisplayID = stableID
       }
     }
   }

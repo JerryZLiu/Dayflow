@@ -85,6 +85,9 @@ struct CanvasTimelineDataView: View {
   @State private var loadTask: Task<Void, Never>?
   // Staggered entrance animation state (Emil Kowalski principle: sequential reveal)
   @State private var cardEntranceProgress: [String: Bool] = [:]
+  // Read once at the parent level so every CanvasActivityCard gets a plain
+  // Bool instead of its own @AppStorage (avoids per-card UserDefaults I/O).
+  @AppStorage("showTimelineAppIcons") private var showTimelineAppIcons: Bool = true
   @EnvironmentObject private var categoryStore: CategoryStore
   @EnvironmentObject private var appState: AppState
   @EnvironmentObject private var retryCoordinator: RetryCoordinator
@@ -279,6 +282,7 @@ struct CanvasTimelineDataView: View {
         ForEach(Array(positionedActivities.enumerated()), id: \.element.id) { index, item in
           let isVisible = cardEntranceProgress[item.id] ?? false
           CanvasActivityCard(
+            showTimelineAppIcons: showTimelineAppIcons,
             title: item.title,
             time: item.timeLabel,
             height: item.height,
@@ -1049,7 +1053,12 @@ struct CanvasActivityCardStyle {
 }
 
 struct CanvasActivityCard: View {
-  @AppStorage("showTimelineAppIcons") private var showTimelineAppIcons: Bool = true
+  // Hoisted from @AppStorage to a plain parameter to avoid per-card
+  // UserDefaults lookups during every SwiftUI body evaluation.
+  // Each @AppStorage instance caused CFPreferences reads + memory
+  // allocation on init, triggering 5s+ hangs with many cards
+  // (Sentry APPLE-MACOS-DY, APPLE-MACOS-TN).
+  let showTimelineAppIcons: Bool
 
   let title: String
   let time: String

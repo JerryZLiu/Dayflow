@@ -222,22 +222,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
   // Start Gemini analysis as a background task
   private func setupGeminiAnalysis() {
-    // Perform after a short delay to ensure other initialization completes
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+    // Initialize singletons off the main thread to avoid blocking the UI.
+    // AnalysisManager.shared triggers StorageManager.shared init which runs
+    // a database integrity check (PRAGMA quick_check) – a heavy I/O operation
+    // that was causing 5+ second hangs on main (Sentry APPLE-MACOS-B8, APPLE-MACOS-A7).
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2.0) {
+      // Accessing .shared here forces lazy singleton init on this background queue
+      // instead of the main thread, avoiding the app hang.
       AnalysisManager.shared.startAnalysisJob()
-      print("AppDelegate: Gemini analysis job started")
-      AnalyticsService.shared.capture(
-        "analysis_job_started",
-        [
-          "provider": {
-            switch LLMProviderType.load() {
-            case .geminiDirect: return "gemini"
-            case .dayflowBackend: return "dayflow"
-            case .ollamaLocal: return "ollama"
-            case .chatGPTClaude: return "chat_cli"
-            }
-          }()
-        ])
+      DispatchQueue.main.async {
+        print("AppDelegate: Gemini analysis job started")
+        AnalyticsService.shared.capture(
+          "analysis_job_started",
+          [
+            "provider": {
+              switch LLMProviderType.load() {
+              case .geminiDirect: return "gemini"
+              case .dayflowBackend: return "dayflow"
+              case .ollamaLocal: return "ollama"
+              case .chatGPTClaude: return "chat_cli"
+              }
+            }()
+          ])
+      }
     }
   }
 

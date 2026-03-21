@@ -167,6 +167,10 @@ final class OtherSettingsViewModel: ObservableObject {
       })
   }
 
+  // Use begin(completionHandler:) instead of runModal() so the save panel
+  // doesn't block the main run loop. runModal() was triggering "App hanging
+  // for at least 5000 ms" reports whenever the user took more than 5 seconds
+  // to pick a save location (Sentry APPLE-MACOS-QM).
   @MainActor
   private func presentSavePanelAndWrite(
     exportText: String,
@@ -186,35 +190,39 @@ final class OtherSettingsViewModel: ObservableObject {
     savePanel.allowedContentTypes = [.text, .plainText]
     savePanel.canCreateDirectories = true
 
-    let response = savePanel.runModal()
+    savePanel.begin { [weak self] response in
+      // The completion handler is called on the main thread.
+      Task { @MainActor in
+        guard let self else { return }
+        defer { self.isExportingTimelineRange = false }
 
-    defer { isExportingTimelineRange = false }
+        guard response == .OK, let url = savePanel.url else {
+          self.exportStatusMessage = nil
+          self.exportErrorMessage = "Export canceled"
+          return
+        }
 
-    guard response == .OK, let url = savePanel.url else {
-      exportStatusMessage = nil
-      exportErrorMessage = "Export canceled"
-      return
-    }
+        do {
+          try exportText.write(to: url, atomically: true, encoding: .utf8)
+          self.exportErrorMessage = nil
+          self.exportStatusMessage =
+            "Saved \(activityCount) activit\(activityCount == 1 ? "y" : "ies") across \(dayCount) day\(dayCount == 1 ? "" : "s") to \(url.lastPathComponent)"
 
-    do {
-      try exportText.write(to: url, atomically: true, encoding: .utf8)
-      exportErrorMessage = nil
-      exportStatusMessage =
-        "Saved \(activityCount) activit\(activityCount == 1 ? "y" : "ies") across \(dayCount) day\(dayCount == 1 ? "" : "s") to \(url.lastPathComponent)"
-
-      AnalyticsService.shared.capture(
-        "timeline_exported",
-        [
-          "start_day": dayFormatter.string(from: startDate),
-          "end_day": dayFormatter.string(from: endDate),
-          "day_count": dayCount,
-          "activity_count": activityCount,
-          "format": "markdown",
-          "file_extension": url.pathExtension.lowercased(),
-        ])
-    } catch {
-      exportStatusMessage = nil
-      exportErrorMessage = "Couldn't save file: \(error.localizedDescription)"
+          AnalyticsService.shared.capture(
+            "timeline_exported",
+            [
+              "start_day": dayFormatter.string(from: startDate),
+              "end_day": dayFormatter.string(from: endDate),
+              "day_count": dayCount,
+              "activity_count": activityCount,
+              "format": "markdown",
+              "file_extension": url.pathExtension.lowercased(),
+            ])
+        } catch {
+          self.exportStatusMessage = nil
+          self.exportErrorMessage = "Couldn't save file: \(error.localizedDescription)"
+        }
+      }
     }
   }
 }

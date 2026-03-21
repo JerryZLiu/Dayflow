@@ -687,8 +687,12 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
       }
     #endif
 
-    // Run integrity check on launch (logs warning if issues found)
-    performIntegrityCheck()
+    // Run integrity check on a background queue to avoid blocking app launch.
+    // PRAGMA quick_check reads every database page – on large databases this
+    // caused 5+ second hangs on the main thread (Sentry APPLE-MACOS-B8).
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      self?.performIntegrityCheck()
+    }
 
     migrate()
     migrateLegacyChunkPathsIfNeeded()
