@@ -1805,19 +1805,16 @@ struct ChatCLITestView: View {
         cwd: safeWorkingDir
       )
     case .claude:
-      // --strict-mcp-config disables all user MCP servers
-      // -- separator ensures prompt isn't parsed as an option
-      return try runCLI(
-        "claude",
-        args: [
-          "--print",
-          "--output-format", "text",
-          "--strict-mcp-config",
-          "--",
-          prompt,
-        ],
-        cwd: safeWorkingDir
+      // Use the shared runner so the setup test benefits from the same
+      // temporary Claude stream-json workaround as production calls.
+      let runner = ChatCLIProcessRunner()
+      let run = try runner.run(
+        tool: .claude,
+        prompt: prompt,
+        workingDirectory: safeWorkingDir,
+        disableTools: true
       )
+      return CLIResult(stdout: run.stdout, stderr: run.stderr, exitCode: run.exitCode)
     }
   }
 
