@@ -219,6 +219,7 @@ private struct ClaudeJSONLEvent: Decodable {
   let type: String
   let session_id: String?
   let event: ClaudeEvent?
+  let message: ClaudeMessage?
   let result: String?
 
   struct ClaudeEvent: Decodable {
@@ -231,14 +232,50 @@ private struct ClaudeJSONLEvent: Decodable {
     let text: String?
     let thinking: String?
   }
+
+  struct ClaudeMessage: Decodable {
+    let content: [ClaudeContent]
+  }
+
+  struct ClaudeContent: Decodable {
+    let type: String
+    let text: String?
+  }
 }
 
 // MARK: - Process Runner
 
 struct ChatCLIProcessRunner {
+  private enum ClaudeOutputMode {
+    case text
+    case streamJSON
+  }
+
   private enum Constants {
     static let readChunkSize = 64 * 1024
     static let timeoutSeconds: TimeInterval = 300
+    static let claudeFallbackWindowSeconds: TimeInterval = 6 * 60 * 60
+  }
+
+  private static let claudeFallbackStateQueue = DispatchQueue(
+    label: "ChatCLI.ClaudeFallbackState")
+  private static var forceClaudeStreamJSONUntil: Date?
+
+  private static func shouldForceClaudeStreamJSON(now: Date = Date()) -> Bool {
+    claudeFallbackStateQueue.sync {
+      guard let until = forceClaudeStreamJSONUntil else { return false }
+      if until > now {
+        return true
+      }
+      forceClaudeStreamJSONUntil = nil
+      return false
+    }
+  }
+
+  private static func enableClaudeStreamJSONFallback(now: Date = Date()) {
+    claudeFallbackStateQueue.sync {
+      forceClaudeStreamJSONUntil = now.addingTimeInterval(Constants.claudeFallbackWindowSeconds)
+    }
   }
 
   private final class BufferedPipeReader {
@@ -701,6 +738,194 @@ struct ChatCLIProcessRunner {
     return output
   }
 
+  private func buildClaudeCommandParts(
+    prompt: String,
+    imagePaths: [String],
+    model: String?,
+    disableTools: Bool,
+    outputMode: ClaudeOutputMode
+  ) -> [String] {
+    var cmdParts: [String] = ["claude", "-p"]
+    if outputMode == .streamJSON {
+      cmdParts.append(contentsOf: ["--output-format", "stream-json"])
+      cmdParts.append("--include-partial-messages")
+      cmdParts.append("--verbose")
+    }
+    if let model = model {
+      cmdParts.append(contentsOf: ["--model", model])
+    }
+    if disableTools {
+      cmdParts.append("--allowedTools")
+      cmdParts.append(LoginShellRunner.shellEscape("[]"))
+    } else {
+      cmdParts.append("--dangerously-skip-permissions")
+    }
+    cmdParts.append("--strict-mcp-config")
+    cmdParts.append("--")
+    cmdParts.append(
+      LoginShellRunner.shellEscape(promptWithImageHints(prompt: prompt, imagePaths: imagePaths)))
+    return cmdParts
+  }
+
+  private func cleanedClaudeText(_ text: String) -> String {
+    text
+      .replacingOccurrences(of: "```json", with: "")
+      .replacingOccurrences(of: "```", with: "")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private func extractClaudeJSONPayload(from text: String) -> String? {
+    let cleaned = cleanedClaudeText(text)
+    guard !cleaned.isEmpty else { return nil }
+
+    if cleaned.hasPrefix("{") || cleaned.hasPrefix("[") {
+      return cleaned
+    }
+
+    if let segmentsRange = cleaned.range(of: "\"segments\"") {
+      let prefix = cleaned[..<segmentsRange.lowerBound]
+      if let start = prefix.lastIndex(of: "{"),
+        let end = cleaned.lastIndex(of: "}")
+      {
+        return String(cleaned[start...end]).trimmingCharacters(in: .whitespacesAndNewlines)
+      }
+    }
+
+    if let start = cleaned.firstIndex(of: "{"),
+      let end = cleaned.lastIndex(of: "}")
+    {
+      return String(cleaned[start...end]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    return nil
+  }
+
+  private func extractClaudeStreamJSONText(from raw: String) -> String {
+    var assistantTextBlocks: [String] = []
+    var resultText = ""
+
+    for rawLine in raw.components(separatedBy: .newlines) {
+      let trimmed = stripANSIEscapes(rawLine.trimmingCharacters(in: .whitespacesAndNewlines))
+      guard !trimmed.isEmpty,
+        let data = trimmed.data(using: .utf8),
+        let event = try? JSONDecoder().decode(ClaudeJSONLEvent.self, from: data)
+      else {
+        continue
+      }
+
+      if event.type == "assistant",
+        let textBlocks = event.message?.content.compactMap({
+          (content: ClaudeJSONLEvent.ClaudeContent) -> String? in
+          guard content.type == "text" else { return nil }
+          return content.text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }).filter({ !$0.isEmpty }),
+        !textBlocks.isEmpty
+      {
+        assistantTextBlocks.append(contentsOf: textBlocks)
+        continue
+      }
+
+      if event.type == "result",
+        let result = event.result?.trimmingCharacters(in: .whitespacesAndNewlines),
+        !result.isEmpty
+      {
+        resultText = result
+      }
+    }
+
+    for candidate in assistantTextBlocks.reversed() {
+      if let payload = extractClaudeJSONPayload(from: candidate) {
+        return payload
+      }
+    }
+
+    if let fallback = assistantTextBlocks.last {
+      return cleanedClaudeText(fallback)
+    }
+    return cleanedClaudeText(resultText)
+  }
+
+  private func runClaudeStreamJSONWorkaround(
+    prompt: String,
+    workingDirectory: URL,
+    imagePaths: [String],
+    model: String?,
+    disableTools: Bool
+  ) -> ChatCLIRunResult? {
+    let cmdParts = buildClaudeCommandParts(
+      prompt: prompt,
+      imagePaths: imagePaths,
+      model: model,
+      disableTools: disableTools,
+      outputMode: .streamJSON
+    )
+
+    let shellCommand =
+      "cd \(LoginShellRunner.shellEscape(workingDirectory.path)) && exec \(cmdParts.joined(separator: " "))"
+    let started = Date()
+    let process = Process()
+    process.executableURL = LoginShellRunner.userLoginShell
+    process.arguments = ["-l", "-i", "-c", shellCommand]
+
+    let stdoutPipe = Pipe()
+    process.standardOutput = stdoutPipe
+    process.standardInput = FileHandle.nullDevice
+    let stdoutHandle = stdoutPipe.fileHandleForReading
+
+    let stderrPipe = Pipe()
+    let stderrHandle = stderrPipe.fileHandleForReading
+    process.standardError = stderrPipe
+
+    do {
+      try process.run()
+    } catch {
+      return nil
+    }
+
+    let stdoutReader = BufferedPipeReader(
+      handle: stdoutHandle, label: "ChatCLI.ClaudeWorkaroundStdout")
+    let stderrReader = BufferedPipeReader(
+      handle: stderrHandle, label: "ChatCLI.ClaudeWorkaroundStderr")
+    stdoutReader.start()
+    stderrReader.start()
+
+    let semaphore = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async {
+      process.waitUntilExit()
+      semaphore.signal()
+    }
+
+    let waitResult = semaphore.wait(timeout: .now() + Constants.timeoutSeconds)
+    if waitResult == .timedOut {
+      process.terminate()
+      _ = stdoutReader.wait(timeout: .now() + 2)
+      _ = stderrReader.wait(timeout: .now() + 2)
+      return nil
+    }
+
+    _ = stdoutReader.wait()
+    _ = stderrReader.wait()
+
+    let finished = Date()
+    guard process.terminationStatus == 0 else { return nil }
+
+    let rawStdout = stripANSIEscapes(
+      String(data: stdoutReader.snapshotData(), encoding: .utf8) ?? "")
+    let stderr = String(data: stderrReader.snapshotData(), encoding: .utf8) ?? ""
+    let parsedText = extractClaudeStreamJSONText(from: rawStdout)
+    guard !parsedText.isEmpty else { return nil }
+
+    return ChatCLIRunResult(
+      exitCode: process.terminationStatus,
+      stdout: parsedText,
+      rawStdout: rawStdout,
+      stderr: stderr,
+      startedAt: started,
+      finishedAt: finished,
+      usage: nil
+    )
+  }
+
   private func parseAssistant(tool: ChatCLITool, raw: String) -> (text: String, usage: TokenUsage?)
   {
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -761,6 +986,24 @@ struct ChatCLIProcessRunner {
   ) throws -> ChatCLIRunResult {
     let toolName = tool.rawValue
 
+    if tool == .claude, Self.shouldForceClaudeStreamJSON(),
+      let workaroundRun = runClaudeStreamJSONWorkaround(
+        prompt: prompt,
+        workingDirectory: workingDirectory,
+        imagePaths: imagePaths,
+        model: model,
+        disableTools: disableTools
+      )
+    {
+      print("↩️ [ChatCLI] Claude fallback window active; using stream-json workaround")
+      let duration = workaroundRun.finishedAt.timeIntervalSince(workaroundRun.startedAt)
+      let modelLabel = model ?? "default"
+      print(
+        "⏱️ [ChatCLI] \(tool.rawValue) \(modelLabel) workaround \(String(format: "%.2f", duration))s"
+      )
+      return workaroundRun
+    }
+
     var cmdParts: [String] = [toolName]
     switch tool {
     case .codex:
@@ -780,18 +1023,13 @@ struct ChatCLIProcessRunner {
       cmdParts.append("--")
       cmdParts.append(LoginShellRunner.shellEscape(prompt))
     case .claude:
-      cmdParts.append("-p")
-      if let model = model { cmdParts.append(contentsOf: ["--model", model]) }
-      if disableTools {
-        cmdParts.append("--allowedTools")
-        cmdParts.append(LoginShellRunner.shellEscape("[]"))
-      } else {
-        cmdParts.append("--dangerously-skip-permissions")
-      }
-      cmdParts.append("--strict-mcp-config")
-      cmdParts.append("--")
-      cmdParts.append(
-        LoginShellRunner.shellEscape(promptWithImageHints(prompt: prompt, imagePaths: imagePaths)))
+      cmdParts = buildClaudeCommandParts(
+        prompt: prompt,
+        imagePaths: imagePaths,
+        model: model,
+        disableTools: disableTools,
+        outputMode: .text
+      )
     }
 
     let shellCommand =
@@ -867,6 +1105,28 @@ struct ChatCLIProcessRunner {
     }
 
     let parsed = parseAssistant(tool: tool, raw: rawOut)
+    if tool == .claude,
+      process.terminationStatus == 0,
+      parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+      let workaroundRun = runClaudeStreamJSONWorkaround(
+        prompt: prompt,
+        workingDirectory: workingDirectory,
+        imagePaths: imagePaths,
+        model: model,
+        disableTools: disableTools
+      )
+    {
+      Self.enableClaudeStreamJSONFallback()
+      // Temporary workaround for Claude Code returning blank stdout in text mode.
+      print("↩️ [ChatCLI] Claude text mode returned empty output; using stream-json workaround")
+      let duration = workaroundRun.finishedAt.timeIntervalSince(workaroundRun.startedAt)
+      let modelLabel = model ?? "default"
+      print(
+        "⏱️ [ChatCLI] \(tool.rawValue) \(modelLabel) workaround \(String(format: "%.2f", duration))s"
+      )
+      return workaroundRun
+    }
+
     let duration = finished.timeIntervalSince(started)
     let modelLabel = model ?? "default"
     print("⏱️ [ChatCLI] \(tool.rawValue) \(modelLabel) \(String(format: "%.2f", duration))s")
