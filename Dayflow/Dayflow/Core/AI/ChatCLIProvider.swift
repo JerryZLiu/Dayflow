@@ -452,7 +452,9 @@ final class ChatCLIProvider {
           - Slack → slack.com
           - Twitter/X → x.com
           - Messages → support.apple.com/messages
-          - Terminal → omit (no canonical domain)
+          - Terminal → terminal (exception, doens't have a url)
+          - Codex → chatgpt.com
+          - Claude Code/Claude → claude.ai
 
           ✗ WRONG: "primary": "Messages" (app name, not a domain)
           ✗ WRONG: "primary": "Ghostty IDE" (app name, not a domain)
