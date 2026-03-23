@@ -363,12 +363,7 @@ extension MainView {
 
   private var timelineHeader: some View {
     HStack(alignment: .center) {
-      HStack(spacing: 16) {
-        Text(formatDateForDisplay(selectedDate))
-          .font(.custom("InstrumentSerif-Regular", size: 36))
-          .foregroundColor(Color.black)
-          .frame(width: Self.maxDateTitleWidth, alignment: .leading)
-
+      HStack(spacing: 12) {
         HStack(spacing: 3) {
           Button(action: {
             let from = selectedDate
@@ -425,6 +420,40 @@ extension MainView {
             enabled: canNavigateForward(from: selectedDate),
             reassertOnPressEnd: true
           )
+        }
+
+        Text(formatDateForDisplay(selectedDate))
+          .font(.custom("InstrumentSerif-Regular", size: 36))
+          .foregroundColor(Color.black)
+          .frame(width: Self.maxDateTitleWidth, alignment: .leading)
+
+        if !timelineIsToday(selectedDate) {
+          Button(action: {
+            let from = selectedDate
+            let today = timelineDisplayDate(from: Date())
+            previousDate = selectedDate
+            setSelectedDate(today)
+            lastDateNavMethod = "today"
+            AnalyticsService.shared.capture(
+              "date_navigation",
+              [
+                "method": "today",
+                "from_day": dayString(from),
+                "to_day": dayString(today),
+              ])
+          }) {
+            Text("Today")
+              .font(Font.custom("Nunito", size: 12).weight(.semibold))
+              .foregroundColor(Color(hex: "E8854A"))
+              .padding(.horizontal, 10)
+              .padding(.vertical, 4)
+              .background(Color(hex: "E8854A").opacity(0.12))
+              .cornerRadius(6)
+          }
+          .buttonStyle(PlainButtonStyle())
+          .hoverScaleEffect(scale: 1.04)
+          .pointingHandCursorOnHover(reassertOnPressEnd: true)
+          .transition(.opacity.combined(with: .scale(scale: 0.9)))
         }
       }
       .offset(x: timelineOffset)

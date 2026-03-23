@@ -76,7 +76,7 @@ struct MainView: View {
     let referenceText = "Today, Sep 30"
     let font = NSFont(name: "InstrumentSerif-Regular", size: 36) ?? NSFont.systemFont(ofSize: 36)
     let width = referenceText.size(withAttributes: [.font: font]).width
-    return ceil(width) + 4  // small buffer so arrows never nudge
+    return ceil(width) + 9  // small buffer so arrows never nudge
   }()
   let iso8601Formatter: ISO8601DateFormatter = {
     let formatter = ISO8601DateFormatter()
