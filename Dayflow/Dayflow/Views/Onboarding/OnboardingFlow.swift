@@ -11,31 +11,34 @@ import SwiftUI
 
 struct OnboardingFlow: View {
   @AppStorage("onboardingStep") private var savedStepRawValue = 0
-  @State private var step: Step = .welcome
+  @State private var step: OnboardingStep = OnboardingStepMigration.restoredStep()
   @AppStorage("didOnboard") private var didOnboard = false
-  @State private var timelineOffset: CGFloat = 300  // Start below screen
-  @State private var textOpacity: Double = 0
-  @AppStorage("selectedLLMProvider") private var selectedProvider: String = "gemini"  // Persist across sessions
+  @AppStorage("selectedLLMProvider") private var selectedProvider: String = "gemini"
+  @AppStorage("onboardingHasPaidAI") private var savedHasPaidAISelection = ""
   @EnvironmentObject private var categoryStore: CategoryStore
-  private let fullText = "Your day has a story. Uncover it with Dayflow."
+  @State private var userHasPaidAI: Bool? = OnboardingFlow.loadSavedHasPaidAISelection()
 
   @ViewBuilder
   var body: some View {
     ZStack {
       // NO NESTING! Just render the appropriate view directly - NO GROUP!
       switch step {
-      case .welcome:
-        WelcomeView(
-          fullText: fullText,
-          textOpacity: $textOpacity,
-          timelineOffset: $timelineOffset,
-          onStart: advance
+      case .introVideo:
+        OnboardingPrototypeVideoIntroStep(
+          videoName: "DayflowOnboarding",
+          onPlaybackStarted: {
+            AnalyticsService.shared.capture(
+              "onboarding_video_started", ["asset": "DayflowOnboarding.mp4"])
+          },
+          onPlaybackCompleted: { reason in
+            AnalyticsService.shared.capture("onboarding_video_completed", ["reason": reason])
+            advance()
+          }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.opacity)
         .onAppear {
-          restoreSavedStep()
-          // screen + start event
-          AnalyticsService.shared.screen("onboarding_welcome")
+          AnalyticsService.shared.screen("onboarding_intro_video")
           if !UserDefaults.standard.bool(forKey: "onboardingStarted") {
             AnalyticsService.shared.capture("onboarding_started")
             UserDefaults.standard.set(true, forKey: "onboardingStarted")
@@ -43,40 +46,59 @@ struct OnboardingFlow: View {
           }
         }
 
-      case .howItWorks:
-        HowItWorksView(
-          onBack: {
-            setStep(.welcome)
-          },
-          onNext: { advance() }
+      case .roleSelection:
+        OnboardingPrototypeRoleSelectionStep(
+          onContinue: { selectedRole in
+            AnalyticsService.shared.capture("onboarding_role_selected", ["role": selectedRole])
+            advance()
+          }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.opacity)
         .onAppear {
-          restoreSavedStep()
-          AnalyticsService.shared.screen("onboarding_how_it_works")
+          AnalyticsService.shared.screen("onboarding_role_selection")
         }
 
-      case .llmSelection:
-        OnboardingLLMSelectionView(
-          onBack: {
-            setStep(.howItWorks)
-          },
-          onNext: { provider in
-            selectedProvider = provider
-            var props: [String: Any] = ["provider": provider]
-            // If ollama is selected, include the engine type that will be chosen
-            if provider == "ollama" {
-              let localEngine = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
-              props["local_engine"] = localEngine
-            }
-            AnalyticsService.shared.capture("llm_provider_selected", props)
-            AnalyticsService.shared.setPersonProperties(["current_llm_provider": provider])
+      case .preferences:
+        OnboardingPrototypePreferencesStep(
+          onContinue: { hasPaidAI in
+            userHasPaidAI = hasPaidAI
+            savedHasPaidAISelection = hasPaidAI ? "yes" : "no"
+            AnalyticsService.shared.capture("onboarding_preferences", ["has_paid_ai": hasPaidAI])
             advance()
           }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-          restoreSavedStep()
+          AnalyticsService.shared.screen("onboarding_preferences")
+        }
+
+      case .llmSelection:
+        OnboardingPrototypeChooseProviderStep(
+          hasPaidAI: userHasPaidAI ?? false,
+          onSelect: { providerTitle in
+            // Map display title → internal provider ID
+            let providerID: String
+            switch providerTitle {
+            case "ChatGPT or Claude": providerID = "chatgpt_claude"
+            case "Google Gemini": providerID = "gemini"
+            case "Local AI": providerID = "ollama"
+            default: providerID = "gemini"
+            }
+            selectedProvider = providerID
+
+            var props: [String: Any] = ["provider": providerID]
+            if providerID == "ollama" {
+              let localEngine = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
+              props["local_engine"] = localEngine
+            }
+            AnalyticsService.shared.capture("llm_provider_selected", props)
+            AnalyticsService.shared.setPersonProperties(["current_llm_provider": providerID])
+            advance()
+          }
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
           AnalyticsService.shared.screen("onboarding_llm_selection")
         }
 
@@ -93,7 +115,6 @@ struct OnboardingFlow: View {
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-          restoreSavedStep()
           AnalyticsService.shared.screen("onboarding_llm_setup")
         }
 
@@ -106,7 +127,6 @@ struct OnboardingFlow: View {
         .environmentObject(categoryStore)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-          restoreSavedStep()
           AnalyticsService.shared.screen("onboarding_categories")
         }
 
@@ -119,7 +139,6 @@ struct OnboardingFlow: View {
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-          restoreSavedStep()
           AnalyticsService.shared.screen("onboarding_screen_recording")
         }
 
@@ -131,16 +150,20 @@ struct OnboardingFlow: View {
 
             didOnboard = true
             savedStepRawValue = 0
+            savedHasPaidAISelection = ""
             AnalyticsService.shared.capture("onboarding_completed")
             AnalyticsService.shared.setPersonProperties(["onboarding_status": "completed"])
           }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-          restoreSavedStep()
           AnalyticsService.shared.screen("onboarding_completion")
         }
       }
+    }
+    .animation(.easeInOut(duration: 0.5), value: step)
+    .onAppear {
+      restoreSavedStep()
     }
     .background {
       // Background at parent level - fills entire window!
@@ -157,44 +180,42 @@ struct OnboardingFlow: View {
     if migratedValue != savedStepRawValue {
       savedStepRawValue = migratedValue
     }
-    if let savedStep = Step(rawValue: migratedValue) {
+    userHasPaidAI = persistedHasPaidAISelection
+    if let savedStep = OnboardingStep(rawValue: migratedValue) {
       step = savedStep
     }
   }
 
-  private func setStep(_ newStep: Step) {
+  private var persistedHasPaidAISelection: Bool? {
+    Self.decodeHasPaidAISelection(savedHasPaidAISelection)
+  }
+
+  private func setStep(_ newStep: OnboardingStep) {
     step = newStep
     savedStepRawValue = newStep.rawValue
   }
 
   private func advance() {
-    // Mark current step completed before advancing
-    func markStepCompleted(_ s: Step) {
-      let name: String
-      switch s {
-      case .welcome: name = "welcome"
-      case .howItWorks: name = "how_it_works"
-      case .llmSelection: name = "llm_selection"
-      case .llmSetup: name = "llm_setup"
-      case .categories: name = "categories"
-      case .screen: name = "screen_recording"
-      case .completion: name = "completion"
-      }
-      AnalyticsService.shared.capture("onboarding_step_completed", ["step": name])
+    func markStepCompleted(_ s: OnboardingStep) {
+      AnalyticsService.shared.capture("onboarding_step_completed", ["step": s.analyticsName])
     }
 
     switch step {
-    case .welcome:
+    case .introVideo:
       markStepCompleted(step)
       step.next()
       savedStepRawValue = step.rawValue
-    case .howItWorks:
+    case .roleSelection:
+      markStepCompleted(step)
+      step.next()
+      savedStepRawValue = step.rawValue
+    case .preferences:
       markStepCompleted(step)
       step.next()
       savedStepRawValue = step.rawValue
     case .llmSelection:
       markStepCompleted(step)
-      let nextStep: Step = (selectedProvider == "dayflow") ? .categories : .llmSetup
+      let nextStep: OnboardingStep = (selectedProvider == "dayflow") ? .categories : .llmSetup
       setStep(nextStep)
     case .llmSetup:
       markStepCompleted(step)
@@ -234,19 +255,61 @@ struct OnboardingFlow: View {
     }
   }
 
+  private static func loadSavedHasPaidAISelection(defaults: UserDefaults = .standard) -> Bool? {
+    decodeHasPaidAISelection(defaults.string(forKey: "onboardingHasPaidAI") ?? "")
+  }
+
+  private static func decodeHasPaidAISelection(_ value: String) -> Bool? {
+    switch value {
+    case "yes":
+      return true
+    case "no":
+      return false
+    default:
+      return nil
+    }
+  }
+
 }
 
 /// Wizard step order
-private enum Step: Int, CaseIterable {
-  case welcome, howItWorks, llmSelection, llmSetup, categories, screen, completion
+enum OnboardingStep: Int, CaseIterable {
+  case introVideo, roleSelection, preferences, llmSelection, llmSetup, categories, screen,
+    completion
 
-  mutating func next() { self = Step(rawValue: rawValue + 1)! }
+  var analyticsName: String {
+    switch self {
+    case .introVideo:
+      return "intro_video"
+    case .roleSelection:
+      return "role_selection"
+    case .preferences:
+      return "preferences"
+    case .llmSelection:
+      return "llm_selection"
+    case .llmSetup:
+      return "llm_setup"
+    case .categories:
+      return "categories"
+    case .screen:
+      return "screen_recording"
+    case .completion:
+      return "completion"
+    }
+  }
+
+  static func hasPassedScreenRecordingStep(rawValue: Int) -> Bool {
+    guard let step = OnboardingStep(rawValue: rawValue) else { return false }
+    return step.rawValue > OnboardingStep.screen.rawValue
+  }
+
+  mutating func next() { self = OnboardingStep(rawValue: rawValue + 1)! }
 }
 
 enum OnboardingStepMigration {
   static let schemaVersionKey = "onboardingStepSchemaVersion"
   private static let onboardingStepKey = "onboardingStep"
-  static let currentVersion = 1
+  static let currentVersion = 2
 
   @discardableResult
   static func migrateIfNeeded(defaults: UserDefaults = .standard) -> Int {
@@ -256,13 +319,30 @@ enum OnboardingStepMigration {
       return rawValue
     }
 
-    let migratedValue = migrateRawValue(rawValue)
+    var migratedValue = rawValue
+
+    // v0 → v1: reorder steps
+    if storedVersion < 1 {
+      migratedValue = migrateV0toV1(migratedValue)
+    }
+
+    // v1 → v2: welcome/howItWorks replaced by introVideo/roleSelection/preferences
+    // Old v1: welcome=0, howItWorks=1, llmSelection=2, llmSetup=3, categories=4, screen=5, completion=6
+    // New v2: introVideo=0, roleSelection=1, preferences=2, llmSelection=3, llmSetup=4, categories=5, screen=6, completion=7
+    if storedVersion < 2 {
+      migratedValue = migrateV1toV2(migratedValue)
+    }
+
     defaults.set(migratedValue, forKey: onboardingStepKey)
     defaults.set(currentVersion, forKey: schemaVersionKey)
     return migratedValue
   }
 
-  static func migrateRawValue(_ rawValue: Int) -> Int {
+  static func restoredStep(defaults: UserDefaults = .standard) -> OnboardingStep {
+    OnboardingStep(rawValue: migrateIfNeeded(defaults: defaults)) ?? .introVideo
+  }
+
+  static func migrateV0toV1(_ rawValue: Int) -> Int {
     switch rawValue {
     case 0: return 0  // welcome
     case 1: return 1  // how it works
@@ -273,6 +353,24 @@ enum OnboardingStepMigration {
     case 6: return 6  // completion
     default: return 0
     }
+  }
+
+  static func migrateV1toV2(_ rawValue: Int) -> Int {
+    switch rawValue {
+    case 0: return 0  // welcome → introVideo (restart from beginning)
+    case 1: return 0  // howItWorks → introVideo (restart from beginning)
+    case 2: return 3  // llmSelection → llmSelection
+    case 3: return 4  // llmSetup → llmSetup
+    case 4: return 5  // categories → categories
+    case 5: return 6  // screen → screen
+    case 6: return 7  // completion → completion
+    default: return 0
+    }
+  }
+
+  // Keep for testing compatibility
+  static func migrateRawValue(_ rawValue: Int) -> Int {
+    migrateV1toV2(migrateV0toV1(rawValue))
   }
 }
 
@@ -400,13 +498,6 @@ struct CompletionView: View {
           .font(.custom("InstrumentSerif-Regular", size: 36))
           .foregroundColor(.black.opacity(0.9))
 
-        Text(
-          "Welcome to Dayflow! Let it run for about 30 minutes to gather enough data, then come back to explore your personalized timeline. If you have any issues, feature requests, or feedback please use the feedback tab. I would love to hear from you! "
-        )
-        .font(.custom("Nunito", size: 15))
-        .foregroundColor(.black.opacity(0.6))
-        .multilineTextAlignment(.center)
-        .fixedSize(horizontal: false, vertical: true)
       }
 
       // Referral survey replaces the static preview
