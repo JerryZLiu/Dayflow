@@ -196,11 +196,11 @@ struct DayflowApp: App {
           dispatchPendingNotificationNavigation(after: 0.1)
         }
       }
-      .frame(minWidth: 900, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)
+      .frame(minWidth: 900, maxWidth: .infinity, minHeight: 508, maxHeight: .infinity)
     }
     .windowStyle(.hiddenTitleBar)
     .windowResizability(.contentMinSize)
-    .defaultSize(width: 1200, height: 800)
+    .defaultSize(width: 1195, height: 675)
     .commands {
       // Remove the "New Window" command if you want a single window app
       CommandGroup(replacing: .newItem) {}
@@ -213,6 +213,7 @@ struct DayflowApp: App {
           UserDefaults.standard.set(false, forKey: "didOnboard")
           // Reset the saved onboarding step to start from beginning
           UserDefaults.standard.set(0, forKey: "onboardingStep")
+          UserDefaults.standard.removeObject(forKey: "onboardingHasPaidAI")
           // Reset the selected LLM provider to default
           UserDefaults.standard.set("gemini", forKey: "selectedLLMProvider")
           // Force quit and restart the app to show onboarding
