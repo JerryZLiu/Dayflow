@@ -171,6 +171,19 @@ struct DayflowApp: App {
           .transition(.opacity)
         }
       }
+      // Replay intro animation when app is reopened after a soft-quit
+      .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+        guard AppDelegate.didSoftQuit else { return }
+        AppDelegate.didSoftQuit = false
+
+        // Skip replay if reopened via notification tap
+        guard !hasPendingNotificationNavigation else { return }
+
+        // Reset video launch state so the intro plays again
+        showVideoLaunch = true
+        contentOpacity = 0.0
+        contentScale = 0.98
+      }
       // Inline background behind the main app UI only
       .background {
         if didOnboard {

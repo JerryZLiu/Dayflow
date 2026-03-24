@@ -15,6 +15,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   // and the app will continue running in the background.
   static var allowTermination: Bool = false
 
+  // True after a soft-quit so the intro animation replays on reopen
+  static var didSoftQuit: Bool = false
+
   // Flag set when app is opened via notification tap - skips video intro
   static var pendingNavigationToJournal: Bool = false
   static var pendingNavigationToDailyDay: String? = nil
@@ -175,6 +178,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       return .terminateNow
     }
     // Soft-quit: hide windows and remove Dock icon, but keep status item + background tasks
+    Self.didSoftQuit = true
     NSApp.hide(nil)
     NSApp.setActivationPolicy(.accessory)
     return .terminateCancel
