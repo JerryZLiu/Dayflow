@@ -1805,8 +1805,6 @@ struct ChatCLITestView: View {
         cwd: safeWorkingDir
       )
     case .claude:
-      // Use the shared runner so the setup test benefits from the same
-      // temporary Claude stream-json workaround as production calls.
       let runner = ChatCLIProcessRunner()
       let run = try runner.run(
         tool: .claude,
