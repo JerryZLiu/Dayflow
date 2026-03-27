@@ -517,7 +517,9 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     func markExecutionStarted(id: Int64) {
       lock.lock()
       defer { lock.unlock() }
-      guard var operation = activeOperations[id], operation.executionStartedAt == nil else { return }
+      guard var operation = activeOperations[id], operation.executionStartedAt == nil else {
+        return
+      }
       operation.executionStartedAt = CFAbsoluteTimeGetCurrent()
       activeOperations[id] = operation
     }
@@ -559,10 +561,12 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         .sorted { $0.startedAt < $1.startedAt }
 
       let cutoff = now - recentWindowSeconds
-      let recentReads = recentOperations
+      let recentReads =
+        recentOperations
         .filter { $0.kind == .read && $0.completedAt >= cutoff }
         .sorted { $0.completedAt > $1.completedAt }
-      let recentWrites = recentOperations
+      let recentWrites =
+        recentOperations
         .filter { $0.kind == .write && $0.completedAt >= cutoff }
         .sorted { $0.completedAt > $1.completedAt }
 
