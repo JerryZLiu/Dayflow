@@ -86,9 +86,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     AppState.shared.isRecording = false
     recorder = ScreenRecorder(autoStart: true)
 
-    // Only attempt to start recording if we're past the screen step or fully onboarded
-    // Steps: 0=welcome, 1=howItWorks, 2=llmSelection, 3=llmSetup, 4=categories, 5=screen, 6=completion
-    if didOnboard || onboardingStep > 5 {
+    // Only attempt to start recording if we're past the screen step or fully onboarded.
+    if didOnboard || OnboardingStep.hasPassedScreenRecordingStep(rawValue: onboardingStep) {
       // Onboarding complete - enable persistence and restore user preference
       AppState.shared.enablePersistence()
 
@@ -279,18 +278,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let didOnboard = UserDefaults.standard.bool(forKey: "didOnboard")
     if !didOnboard {
       let stepIdx = OnboardingStepMigration.migrateIfNeeded()
-      let stepName: String = {
-        switch stepIdx {
-        case 0: return "welcome"
-        case 1: return "how_it_works"
-        case 2: return "llm_selection"
-        case 3: return "llm_setup"
-        case 4: return "categories"
-        case 5: return "screen_recording"
-        case 6: return "completion"
-        default: return "unknown"
-        }
-      }()
+      let stepName = OnboardingStep(rawValue: stepIdx)?.analyticsName ?? "unknown"
       AnalyticsService.shared.capture("onboarding_abandoned", ["last_step": stepName])
     }
     AnalyticsService.shared.capture("app_terminated")
