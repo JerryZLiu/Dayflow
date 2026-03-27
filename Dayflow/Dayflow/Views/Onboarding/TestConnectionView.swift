@@ -2,17 +2,20 @@
 //  TestConnectionView.swift
 //  Dayflow
 //
-//  Test connection button for Gemini API
+//  Test connection button for supported API providers
 //
 
+import Foundation
 import SwiftUI
 
 struct TestConnectionView: View {
+  let provider: LLMProviderID
   let onTestComplete: ((Bool) -> Void)?
 
   @State private var isTesting = false
   @State private var testResult: TestResult?
-  init(onTestComplete: ((Bool) -> Void)? = nil) {
+  init(provider: LLMProviderID = .gemini, onTestComplete: ((Bool) -> Void)? = nil) {
+    self.provider = provider
     self.onTestComplete = onTestComplete
   }
 
@@ -118,37 +121,68 @@ struct TestConnectionView: View {
   private func testConnection() {
     guard !isTesting else { return }
 
-    // Get API key from keychain
-    guard let apiKey = KeychainManager.shared.retrieve(for: "gemini") else {
-      testResult = .failure("No API key found. Please enter your API key first.")
+    let analyticsProvider = provider.analyticsName
+
+    func finishFailure(_ message: String, errorCode: String? = nil) {
+      testResult = .failure(message)
       onTestComplete?(false)
-      AnalyticsService.shared.capture(
-        "connection_test_failed", ["provider": "gemini", "error_code": "no_api_key"])
+      var props: [String: Any] = ["provider": analyticsProvider]
+      if let errorCode {
+        props["error_code"] = errorCode
+      }
+      AnalyticsService.shared.capture("connection_test_failed", props)
+    }
+
+    func finishSuccess(_ message: String) {
+      testResult = .success(message)
+      isTesting = false
+      onTestComplete?(true)
+      AnalyticsService.shared.capture("connection_test_succeeded", ["provider": analyticsProvider])
+    }
+
+    // Get API key from keychain
+    let keychainKey: String
+    switch provider {
+    case .gemini:
+      keychainKey = "gemini"
+    default:
+      finishFailure(
+        "This provider doesn't support connection tests yet.", errorCode: "unsupported_provider")
+      return
+    }
+
+    guard let apiKey = KeychainManager.shared.retrieve(for: keychainKey),
+      !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else {
+      finishFailure("No API key found. Please enter your API key first.", errorCode: "no_api_key")
       return
     }
 
     isTesting = true
     testResult = nil
-    AnalyticsService.shared.capture("connection_test_started", ["provider": "gemini"])
+    AnalyticsService.shared.capture("connection_test_started", ["provider": analyticsProvider])
 
     Task {
       do {
-        let _ = try await GeminiAPIHelper.shared.testConnection(apiKey: apiKey)
-        await MainActor.run {
-          testResult = .success("Connection successful! Your API key is working.")
-          isTesting = false
-          onTestComplete?(true)
+        switch provider {
+        case .gemini:
+          let _ = try await GeminiAPIHelper.shared.testConnection(apiKey: apiKey)
+          await MainActor.run {
+            finishSuccess("Connection successful! Your API key is working.")
+          }
+        default:
+          await MainActor.run {
+            isTesting = false
+            finishFailure(
+              "This provider doesn't support connection tests yet.",
+              errorCode: "unsupported_provider")
+          }
         }
-        AnalyticsService.shared.capture("connection_test_succeeded", ["provider": "gemini"])
       } catch {
         await MainActor.run {
-          testResult = .failure(error.localizedDescription)
           isTesting = false
-          onTestComplete?(false)
+          finishFailure(error.localizedDescription, errorCode: String((error as NSError).code))
         }
-        AnalyticsService.shared.capture(
-          "connection_test_failed",
-          ["provider": "gemini", "error_code": String((error as NSError).code)])
       }
     }
   }
