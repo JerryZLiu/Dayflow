@@ -43,7 +43,7 @@
 ## What is Dayflow?
 
 Dayflow is a **native macOS app** (SwiftUI) that watches your screen, analyzes it with AI, and generates a **timeline** of your activities with summaries.
-It's lightweight (25MB app size) and uses ~100MB of RAM and <1% cpu. 
+It's lightweight (25MB app size) and uses ~100MB of RAM and <1% CPU.
 
 > _Privacy‑minded by design_: You choose your AI provider. Use **Gemini** (bring your own API key), **local models** (Ollama / LM Studio), or **ChatGPT/Claude** (requires paid subscription). See **Data & Privacy** for details.
 
