@@ -39,7 +39,7 @@ class SplashWindow: NSWindow {
     self.makeKeyAndOrderFront(nil)
 
     // Auto-close after delay
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
       self.fadeOut()
     }
   }
@@ -47,7 +47,7 @@ class SplashWindow: NSWindow {
   private func fadeOut() {
     NSAnimationContext.runAnimationGroup(
       { context in
-        context.duration = 0.3
+        context.duration = 0.15
         self.animator().alphaValue = 0
       },
       completionHandler: {
@@ -72,7 +72,7 @@ struct SplashView: View {
     }
     .frame(width: 250, height: 250)
     .onAppear {
-      withAnimation(.easeIn(duration: 0.5)) {
+      withAnimation(.easeIn(duration: 0.15)) {
         logoOpacity = 1.0
       }
     }
