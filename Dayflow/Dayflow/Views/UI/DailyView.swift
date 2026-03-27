@@ -73,8 +73,8 @@ struct DailyView: View {
   private let requiredCodeHash = "6979ce2825cb3f440f987bbc487d62087c333abb99b56062c561ca557392d960"
   private let betaNoticeCopy =
     "Daily is a new way to visualize your day and turn it into a standup update fast."
-  private let onboardingNoticeCopy =
-    "Currently doing custom onboarding while we refine the workflow. If you’re interested, book some time and I’ll walk you through it."
+  private let bookingNoticeCopy =
+    "Daily is currently in beta and uses a Dayflow backend to generate your daily summary while we refine the workflow. If you’re interested, book some time and I’ll walk you through it."
   private let onboardingBookingURL = "https://cal.com/jerry-liu/15min"
   private let dayflowBackendDefaultEndpoint = "https://web-production-f3361.up.railway.app"
   private let dayflowBackendInfoPlistKey = "DayflowBackendURL"
@@ -133,7 +133,7 @@ struct DailyView: View {
         .padding(.top, 6)
 
       VStack(spacing: 8) {
-        Text(onboardingNoticeCopy)
+        Text(bookingNoticeCopy)
           .font(.custom("Nunito-Regular", size: 13))
           .foregroundColor(Color(red: 0.35, green: 0.22, blue: 0.12).opacity(0.75))
           .multilineTextAlignment(.center)
