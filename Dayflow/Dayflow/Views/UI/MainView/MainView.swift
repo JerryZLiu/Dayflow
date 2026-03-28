@@ -55,6 +55,7 @@ struct MainView: View {
   @State var copyTimelineState: TimelineCopyState = .idle
   @State var copyTimelineTask: Task<Void, Never>? = nil
   @State var deleteTimelineTask: Task<Void, Never>? = nil
+  @State var headerWidth: CGFloat = 1000
   @State var weeklyTrackedMinutes: Double = 0
   @State var cardsToReviewCount: Int = 0
   @State var showTimelineReview = false
