@@ -14,7 +14,7 @@ struct BugReportView: View {
     var body: some View {
         VStack(spacing: 36) {
             VStack(spacing: 16) {
-                Text("Thanks for using Dayflow")
+                Text("Thank you for using Dayflow")
                     .font(.custom("InstrumentSerif-Regular", size: 40))
                     .foregroundColor(.black.opacity(0.9))
 
@@ -154,8 +154,6 @@ struct BugReportView: View {
     }
 
     private func composeEmail() {
-        AnalyticsService.shared.capture("bug_report_email_tapped", ["destination": emailAddress])
-
         var components = URLComponents()
         components.scheme = "mailto"
         components.path = emailAddress
@@ -171,7 +169,6 @@ struct BugReportView: View {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(emailAddress, forType: .string)
-        AnalyticsService.shared.capture("bug_report_email_copied")
 
         withAnimation(.easeOut(duration: 0.2)) {
             didCopyEmail = true
@@ -189,15 +186,11 @@ struct BugReportView: View {
     }
 
     private func openDiscord() {
-        AnalyticsService.shared.capture("bug_report_discord_tapped")
-
         guard let url = discordInviteURL else { return }
         NSWorkspace.shared.open(url)
     }
 
     private func bookCall() {
-        AnalyticsService.shared.capture("bug_report_call_tapped")
-
         guard let url = callBookingURL else { return }
         NSWorkspace.shared.open(url)
     }
@@ -233,16 +226,6 @@ struct BugReportView: View {
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
                 pasteboard.setString(logString, forType: .string)
-
-                AnalyticsService.shared.capture(
-                    "bug_report_debug_logs_copied",
-                    [
-                        "timeline_count": timeline.count,
-                        "llm_call_count": llmCalls.count,
-                        "llm_call_source": llmCallSource,
-                        "batch_count": batches.count
-                    ]
-                )
 
                 withAnimation(.easeOut(duration: 0.2)) {
                     didCopyDebugLogs = true

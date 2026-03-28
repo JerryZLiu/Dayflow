@@ -2184,6 +2184,94 @@ private func uploadResumable(data: Data, mimeType: String) async throws -> Strin
         throw lastError ?? NSError(domain: "GeminiError", code: 999, userInfo: [NSLocalizedDescriptionKey: "generateText failed after \(maxRetries) attempts"])
     }
 
+    // MARK: - Multi-Turn Chat
+
+    func generateChat(messages: [[String: Any]], generationConfig: [String: Any]) async throws -> (text: String, log: LLMCall) {
+        let callStart = Date()
+
+        let requestBody: [String: Any] = [
+            "contents": messages,
+            "generationConfig": generationConfig
+        ]
+
+        let maxRetries = 4
+        var attempt = 0
+        var lastError: Error?
+        var modelState = ModelRunState(models: modelPreference.orderedModels)
+
+        while attempt < maxRetries {
+            do {
+                let activeModel = modelState.current
+                let urlWithKey = endpointForModel(activeModel) + "?key=\(apiKey)"
+
+                var request = URLRequest(url: URL(string: urlWithKey)!)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.timeoutInterval = 120
+                request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+                let (data, response) = try await URLSession.shared.data(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw NSError(domain: "GeminiError", code: 9, userInfo: [NSLocalizedDescriptionKey: "Non-HTTP response"])
+                }
+
+                if httpResponse.statusCode >= 400 {
+                    var errorMessage = "HTTP \(httpResponse.statusCode) error"
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let error = json["error"] as? [String: Any],
+                       let message = error["message"] as? String {
+                        errorMessage = message
+                    }
+                    throw NSError(domain: "GeminiError", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMessage])
+                }
+
+                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let candidates = json["candidates"] as? [[String: Any]],
+                      let firstCandidate = candidates.first,
+                      let content = firstCandidate["content"] as? [String: Any],
+                      let parts = content["parts"] as? [[String: Any]],
+                      let text = parts.first?["text"] as? String else {
+                    throw NSError(domain: "GeminiError", code: 7, userInfo: [NSLocalizedDescriptionKey: "Failed to parse chat response"])
+                }
+
+                let log = LLMCall(
+                    timestamp: callStart,
+                    latency: Date().timeIntervalSince(callStart),
+                    input: "chat(\(messages.count) messages)",
+                    output: text
+                )
+                return (text.trimmingCharacters(in: .whitespacesAndNewlines), log)
+
+            } catch {
+                lastError = error
+
+                var appliedFallback = false
+                if let nsError = error as NSError?,
+                   nsError.domain == "GeminiError",
+                   Self.capacityErrorCodes.contains(nsError.code),
+                   let transition = modelState.advance() {
+                    appliedFallback = true
+                    print("↔️ [Chat] Switching to \(transition.to.rawValue) after \(nsError.code)")
+                }
+
+                if !appliedFallback {
+                    let strategy = classifyError(error)
+                    if strategy == .noRetry || attempt >= maxRetries - 1 {
+                        throw error
+                    }
+                    let delay = delayForStrategy(strategy, attempt: attempt)
+                    if delay > 0 {
+                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    }
+                }
+            }
+
+            attempt += 1
+        }
+
+        throw lastError ?? NSError(domain: "GeminiError", code: 999, userInfo: [NSLocalizedDescriptionKey: "generateChat failed after \(maxRetries) attempts"])
+    }
 
     private struct GeminiFileMetadata: Codable {
         let file: GeminiFileInfo

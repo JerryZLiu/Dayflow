@@ -4,7 +4,6 @@
 //
 
 import SwiftUI
-import Sparkle
 
 struct AppRootView: View {
     @EnvironmentObject private var categoryStore: CategoryStore
@@ -55,7 +54,7 @@ struct AppRootView: View {
     }
 
     private func handleWhatsNewDismissed() {
-                guard let version = activeWhatsNewVersion else { return }
+        guard let version = activeWhatsNewVersion else { return }
         if shouldMarkWhatsNewSeen {
             WhatsNewConfiguration.markReleaseAsSeen(version: version)
             AnalyticsService.shared.capture("whats_new_viewed", [
@@ -81,19 +80,16 @@ struct DayflowApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @AppStorage("didOnboard") private var didOnboard = false
     @AppStorage("useBlankUI") private var useBlankUI = false
-    @AppStorage("hasCompletedJournalOnboarding") private var hasCompletedJournalOnboarding = false
     @State private var showVideoLaunch = true
     @State private var contentOpacity = 0.0
     @State private var contentScale = 0.98
     @StateObject private var categoryStore = CategoryStore()
-    @StateObject private var journalCoordinator = JournalCoordinator()
 
     init() {
         // Comment out for production - only use for testing onboarding
         // UserDefaults.standard.set(false, forKey: "didOnboard")
     }
-    
-    // Sparkle updater manager
+
     private let updaterManager = UpdaterManager.shared
 
     var body: some Scene {
@@ -106,7 +102,6 @@ struct DayflowApp: App {
                         AppRootView()
                             .environmentObject(categoryStore)
                             .environmentObject(updaterManager)
-                            .environmentObject(journalCoordinator)
                     } else {
                         OnboardingFlow()
                             .environmentObject(AppState.shared)
@@ -138,10 +133,10 @@ struct DayflowApp: App {
                             }
 
                             // Handle pending navigation from notification tap
-                            if AppDelegate.pendingNavigationToJournal {
-                                AppDelegate.pendingNavigationToJournal = false
+                            if AppDelegate.pendingNavigationToChat {
+                                AppDelegate.pendingNavigationToChat = false
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    NotificationCenter.default.post(name: .navigateToJournal, object: nil)
+                                    NotificationCenter.default.post(name: .navigateToChat, object: nil)
                                 }
                             }
                         }
@@ -150,24 +145,12 @@ struct DayflowApp: App {
                         .animation(.easeIn(duration: 0.2), value: showVideoLaunch)
                         .onAppear {
                             // Skip video if opening via notification tap
-                            if AppDelegate.pendingNavigationToJournal {
+                            if AppDelegate.pendingNavigationToChat {
                                 showVideoLaunch = false
                                 contentOpacity = 1.0
                                 contentScale = 1.0
                             }
                         }
-                }
-
-                // Journal onboarding video (full window coverage, above sidebar)
-                if journalCoordinator.showOnboardingVideo {
-                    JournalOnboardingVideoView(onComplete: {
-                        withAnimation(.easeOut(duration: 0.3)) {
-                            journalCoordinator.showOnboardingVideo = false
-                            hasCompletedJournalOnboarding = true
-                        }
-                    })
-                    .ignoresSafeArea()
-                    .transition(.opacity)
                 }
             }
             // Inline background behind the main app UI only
@@ -189,7 +172,7 @@ struct DayflowApp: App {
         .commands {
             // Remove the "New Window" command if you want a single window app
             CommandGroup(replacing: .newItem) { }
-            
+
             // Add custom menu items after the app info section
             CommandGroup(after: .appInfo) {
                 Divider()
@@ -208,8 +191,8 @@ struct DayflowApp: App {
                 }
                 .keyboardShortcut("R", modifiers: [.command, .shift])
             }
-            
-            // Add Sparkle's update menu item
+
+            // Add update-related menu items
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
                     updaterManager.checkForUpdates(showUI: true)
@@ -233,6 +216,6 @@ struct DayflowApp: App {
 
 extension Notification.Name {
     static let showWhatsNew = Notification.Name("showWhatsNew")
-    static let navigateToJournal = Notification.Name("navigateToJournal")
+    static let navigateToChat = Notification.Name("navigateToChat")
     static let timelineDataUpdated = Notification.Name("timelineDataUpdated")
 }

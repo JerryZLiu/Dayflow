@@ -210,11 +210,9 @@ struct ScreenRecordingPermissionView: View {
         _ = CGRequestScreenCaptureAccess()
         if CGPreflightScreenCaptureAccess() {
             permissionState = .granted
-            AnalyticsService.shared.capture("screen_permission_granted")
             Task { @MainActor in AppDelegate.allowTermination = false }
         } else {
             permissionState = .needsAction
-            AnalyticsService.shared.capture("screen_permission_denied")
             Task { @MainActor in AppDelegate.allowTermination = true }
         }
         isCheckingPermission = false
@@ -237,3 +235,4 @@ struct ScreenRecordingPermissionView: View {
         }
     }
 }
+

@@ -1,6 +1,5 @@
 import SwiftUI
 import AppKit
-import Sentry
 
 extension MainView {
     var mainLayout: some View {
@@ -25,11 +24,6 @@ extension MainView {
                 )
             }
             .onAppear {
-                // screen viewed and initial timeline view
-                AnalyticsService.shared.screen("timeline")
-                AnalyticsService.shared.withSampling(probability: 0.01) {
-                    AnalyticsService.shared.capture("timeline_viewed", ["date_bucket": dayString(selectedDate)])
-                }
                 // Orchestrated entrance animations following Emil Kowalski principles
                 // Fast, under 300ms, natural spring motion
 
@@ -76,8 +70,8 @@ extension MainView {
                 }
             }
             .onChange(of: selectedIcon) { _, newIcon in
-                // Clear journal notification badge when navigating to journal
-                if newIcon == .journal {
+                // Clear notification badge when navigating to chat
+                if newIcon == .chat {
                     NotificationBadgeManager.shared.clearBadge()
                 }
 
@@ -86,56 +80,31 @@ extension MainView {
                 switch newIcon {
                 case .timeline: tabName = "timeline"
                 case .dashboard: tabName = "dashboard"
-                case .journal: tabName = "journal"
+                case .chat: tabName = "chat"
                 case .bug: tabName = "bug_report"
                 case .settings: tabName = "settings"
                 }
 
-                // Add Sentry context for app state tracking
-                SentryHelper.configureScope { scope in
-                    scope.setContext(value: [
-                        "active_view": tabName,
-                        "selected_date": dayString(selectedDate),
-                        "is_recording": appState.isRecording
-                    ], key: "app_state")
-                }
-
-                // Add breadcrumb for view navigation
-                let navBreadcrumb = Breadcrumb(level: .info, category: "navigation")
-                navBreadcrumb.message = "Navigated to \(tabName)"
-                navBreadcrumb.data = ["view": tabName]
-                SentryHelper.addBreadcrumb(navBreadcrumb)
-
-                AnalyticsService.shared.capture("tab_selected", ["tab": tabName])
-                AnalyticsService.shared.screen(tabName)
+                // No Sentry or Analytics calls here (removed)
                 if newIcon == .timeline {
-                    AnalyticsService.shared.withSampling(probability: 0.01) {
-                        AnalyticsService.shared.capture("timeline_viewed", ["date_bucket": dayString(selectedDate)])
-                    }
                     updateCardsToReviewCount()
                 } else {
                     showTimelineReview = false
                 }
             }
-            // Handle navigation from journal reminder notification tap
-            .onReceive(NotificationCenter.default.publisher(for: .navigateToJournal)) { _ in
+            // Handle navigation from notification tap
+            .onReceive(NotificationCenter.default.publisher(for: .navigateToChat)) { _ in
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
-                    selectedIcon = .journal
+                    selectedIcon = .chat
                 }
             }
             .onChange(of: selectedDate) { _, newDate in
                 // If changed via picker, emit navigation now
                 if let method = lastDateNavMethod, method == "picker" {
-                    AnalyticsService.shared.capture("date_navigation", [
-                        "method": method,
-                        "from_day": dayString(previousDate),
-                        "to_day": dayString(newDate)
-                    ])
+                    // Removed AnalyticsService.capture call
                 }
                 previousDate = newDate
-                AnalyticsService.shared.withSampling(probability: 0.01) {
-                    AnalyticsService.shared.capture("timeline_viewed", ["date_bucket": dayString(newDate)])
-                }
+                // Removed AnalyticsService.withSampling call
                 updateCardsToReviewCount()
             }
             .onChange(of: refreshActivitiesTrigger) {
@@ -145,11 +114,7 @@ extension MainView {
                 dismissFeedbackModal(animated: false)
                 guard let a = selectedActivity else { return }
                 let dur = a.endTime.timeIntervalSince(a.startTime)
-                AnalyticsService.shared.capture("activity_card_opened", [
-                    "activity_type": a.category,
-                    "duration_bucket": AnalyticsService.shared.secondsBucket(dur),
-                    "has_video": a.videoSummaryURL != nil
-                ])
+                // Removed AnalyticsService.capture call
             }
             // If user returns from Settings and a reset was pending, perform it once
             .onChange(of: selectedIcon) { _, newIcon in
@@ -227,8 +192,8 @@ extension MainView {
             case .dashboard:
                 DashboardView()
                     .padding(15)
-            case .journal:
-                JournalView()
+            case .chat:
+                ChatView()
                     .padding(15)
             case .bug:
                 BugReportView()

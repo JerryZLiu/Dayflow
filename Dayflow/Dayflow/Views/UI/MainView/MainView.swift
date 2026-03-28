@@ -10,7 +10,7 @@ import AVKit
 import AVFoundation
 import AppKit
 import Foundation
-import Sentry
+
 
 struct MainView: View {
     @EnvironmentObject var appState: AppState

@@ -22,6 +22,7 @@ enum LLMProcessingStep: Sendable, Equatable {
 protocol LLMServicing {
     func processBatch(_ batchId: Int64, progressHandler: ((LLMProcessingStep) -> Void)?, completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void)
     func generateText(prompt: String) async throws -> String
+    func generateChat(messages: [[String: Any]], generationConfig: [String: Any]) async throws -> String
     var batchingConfig: BatchingConfig { get }
 }
 
@@ -502,6 +503,17 @@ final class LLMService: LLMServicing {
         }
 
         let (text, _) = try await provider.generateText(prompt: prompt)
+        return text
+    }
+
+    // MARK: - Multi-Turn Chat
+
+    func generateChat(messages: [[String: Any]], generationConfig: [String: Any]) async throws -> String {
+        guard let provider = provider else {
+            throw NSError(domain: "LLMService", code: 1, userInfo: [NSLocalizedDescriptionKey: "No LLM provider configured. Please configure in settings."])
+        }
+
+        let (text, _) = try await provider.generateChat(messages: messages, generationConfig: generationConfig)
         return text
     }
 }

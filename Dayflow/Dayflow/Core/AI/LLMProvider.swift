@@ -10,6 +10,9 @@ protocol LLMProvider {
     func transcribeScreenshots(_ screenshots: [Screenshot], batchStartTime: Date, batchId: Int64?) async throws -> (observations: [Observation], log: LLMCall)
     func generateActivityCards(observations: [Observation], context: ActivityGenerationContext, batchId: Int64?) async throws -> (cards: [ActivityCardData], log: LLMCall)
     func generateText(prompt: String) async throws -> (text: String, log: LLMCall)
+
+    /// Multi-turn chat with optional inline images. `messages` uses Gemini contents format.
+    func generateChat(messages: [[String: Any]], generationConfig: [String: Any]) async throws -> (text: String, log: LLMCall)
 }
 
 struct ActivityGenerationContext {
@@ -57,6 +60,13 @@ struct ActivityCardData: Codable {
 
 
 extension LLMProvider {
+    // Default: chat not supported
+    func generateChat(messages: [[String: Any]], generationConfig: [String: Any]) async throws -> (text: String, log: LLMCall) {
+        throw NSError(domain: "LLMProvider", code: 100, userInfo: [
+            NSLocalizedDescriptionKey: "Chat is not supported by this provider. Please use Gemini."
+        ])
+    }
+
     // Convert "MM:SS" or "HH:MM:SS" to seconds from video start
     func parseVideoTimestamp(_ timestamp: String) -> Int {
         let components = timestamp.components(separatedBy: ":")

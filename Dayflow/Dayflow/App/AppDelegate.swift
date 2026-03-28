@@ -6,8 +6,6 @@
 import AppKit
 import ServiceManagement
 import ScreenCaptureKit
-import PostHog
-import Sentry
 import Combine
 
 @MainActor
@@ -18,7 +16,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     static var allowTermination: Bool = false
 
     // Flag set when app is opened via notification tap - skips video intro
-    static var pendingNavigationToJournal: Bool = false
+    static var pendingNavigationToChat: Bool = false
     private var statusBar: StatusBarController!
     private var recorder : ScreenRecorder!
     private var analyticsSub: AnyCancellable?
@@ -39,44 +37,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Block termination by default; only specific flows enable it.
         AppDelegate.allowTermination = false
 
-        // Configure crash reporting (Sentry)
-        let info = Bundle.main.infoDictionary
-        let SENTRY_DSN = info?["SentryDSN"] as? String ?? ""
-        let SENTRY_ENV = info?["SentryEnvironment"] as? String ?? "production"
-        if !SENTRY_DSN.isEmpty {
-            SentrySDK.start { options in
-                options.dsn = SENTRY_DSN
-                options.environment = SENTRY_ENV
-                // Enable debug logging in development (disable for production)
-                #if DEBUG
-                options.debug = true
-                options.tracesSampleRate = 1.0  // 100% in debug for testing
-                #else
-                options.tracesSampleRate = 0.1  // 10% in prod to reduce noise
-                #endif
-                // Attach stack traces to all messages (helpful for debugging)
-                options.attachStacktrace = true
-                // Enable app hang detection with a 5-second threshold to reduce noise
-                options.enableAppHangTracking = true
-                options.appHangTimeoutInterval = 5.0
-                // Increase breadcrumb limit for better debugging context
-                options.maxBreadcrumbs = 200  // Default is 100
-                // Enable automatic session tracking
-                options.enableAutoSessionTracking = true
-            }
-            // Enable safe wrapper now that Sentry is initialized
-            SentryHelper.isEnabled = true
-        }
-
-        // Configure analytics (prod only; default opt-in ON)
-        let POSTHOG_API_KEY = info?["PHPostHogApiKey"] as? String ?? ""
-        let POSTHOG_HOST = info?["PHPostHogHost"] as? String ?? "https://us.i.posthog.com"
-        if !POSTHOG_API_KEY.isEmpty {
-            AnalyticsService.shared.start(apiKey: POSTHOG_API_KEY, host: POSTHOG_HOST)
-        }
-
         // App opened (cold start)
-        AnalyticsService.shared.capture("app_opened", ["cold_start": true])
+        // Removed AnalyticsService.shared.capture("app_opened", ["cold_start": true])
 
         // Start heartbeat for DAU tracking
         appLaunchDate = Date()
@@ -87,7 +49,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let lastBuild = UserDefaults.standard.string(forKey: "lastRunBuild")
         if let last = lastBuild, last != build {
             let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
-            AnalyticsService.shared.capture("app_updated", ["from_version": last, "to_version": "\(version) (\(build))"])        
+            // Removed AnalyticsService.shared.capture("app_updated", ["from_version": last, "to_version": "\(version) (\(build))"])        
         }
         UserDefaults.standard.set(build, forKey: "lastRunBuild")
         statusBar = StatusBarController()
@@ -120,8 +82,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         let savedPref = AppState.shared.getSavedPreference()
                         AppState.shared.isRecording = savedPref ?? true
                     }
-                    let finalState = await MainActor.run { AppState.shared.isRecording }
-                    AnalyticsService.shared.capture("recording_toggled", ["enabled": finalState, "reason": "auto"])
+                    // Removed AnalyticsService.shared.capture("recording_toggled", ["enabled": finalState, "reason": "auto"])
                 } catch {
                     // No permission or error - don't start recording
                     // User will need to grant permission in onboarding
@@ -156,8 +117,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let reason = self.pendingRecordingAnalyticsReason ?? "user"
                 guard reason != "auto" else { return }
                 self.pendingRecordingAnalyticsReason = nil
-                AnalyticsService.shared.capture("recording_toggled", ["enabled": enabled, "reason": reason])
-                AnalyticsService.shared.setPersonProperties(["recording_enabled": enabled])
+                // Removed:
+                // AnalyticsService.shared.capture("recording_toggled", ["enabled": enabled, "reason": reason])
+                // AnalyticsService.shared.setPersonProperties(["recording_enabled": enabled])
             }
 
         powerObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -210,9 +172,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let duration = Date().timeIntervalSince(startTime)
                 self.foregroundStartTime = nil
 
-                AnalyticsService.shared.capture("app_foreground_session", [
-                    "duration_seconds": round(duration * 10) / 10  // 1 decimal place
-                ])
+                // Removed AnalyticsService.shared.capture("app_foreground_session", ...)
             }
         }
     }
@@ -223,20 +183,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             AnalysisManager.shared.startAnalysisJob()
             print("AppDelegate: Gemini analysis job started")
-            AnalyticsService.shared.capture("analysis_job_started", [
-                "provider": {
-                    if let data = UserDefaults.standard.data(forKey: "llmProviderType"),
-                       let providerType = try? JSONDecoder().decode(LLMProviderType.self, from: data) {
-                        switch providerType {
-                        case .geminiDirect: return "gemini"
-                        case .dayflowBackend: return "dayflow"
-                        case .ollamaLocal: return "ollama"
-                        case .chatGPTClaude: return "chat_cli"
-                        }
-                    }
-                    return "unknown"
-                }()
-            ])
+            // Removed AnalyticsService.shared.capture("analysis_job_started", [...])
         }
     }
 
@@ -263,25 +210,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             powerObserver = nil
         }
-        // If onboarding not completed, mark abandoned with last step
-        let didOnboard = UserDefaults.standard.bool(forKey: "didOnboard")
-        if !didOnboard {
-            let stepIdx = OnboardingStepMigration.migrateIfNeeded()
-            let stepName: String = {
-                switch stepIdx {
-                case 0: return "welcome"
-                case 1: return "how_it_works"
-                case 2: return "llm_selection"
-                case 3: return "llm_setup"
-                case 4: return "categories"
-                case 5: return "screen_recording"
-                case 6: return "completion"
-                default: return "unknown"
-                }
-            }()
-            AnalyticsService.shared.capture("onboarding_abandoned", ["last_step": stepName])
-        }
-        AnalyticsService.shared.capture("app_terminated")
+        // Removed onboarding_abandoned analytics block
+        // Removed AnalyticsService.shared.capture("app_terminated")
     }
 
     private func flushPendingDeepLinks() {
@@ -296,25 +226,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Heartbeat
 
     private func startHeartbeat() {
-        // Send initial heartbeat
-        sendHeartbeat()
-
-        // Schedule repeating timer every 12 hours
-        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 12 * 60 * 60, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.sendHeartbeat()
-            }
-        }
+        // Removed initial call to sendHeartbeat()
+        // Removed scheduled repeating timer for heartbeat sending
     }
 
-    private func sendHeartbeat() {
-        var props: [String: Any] = [:]
-        if let launch = appLaunchDate {
-            let sessionHours = Date().timeIntervalSince(launch) / 3600
-            props["session_hours"] = round(sessionHours * 10) / 10  // 1 decimal place
-        }
-        AnalyticsService.shared.capture("app_heartbeat", props)
-    }
+    // Removed sendHeartbeat() method
+
 }
 
 extension AppDelegate: AppDeepLinkRouterDelegate {

@@ -173,11 +173,11 @@ extension NotificationService: UNUserNotificationCenterDelegate {
             // Show badge
             NotificationBadgeManager.shared.showBadge()
 
-            // Post notification to navigate to Journal
-            NotificationCenter.default.post(name: .navigateToJournal, object: nil)
+            // Post notification to navigate to Chat
+            NotificationCenter.default.post(name: .navigateToChat, object: nil)
 
             // Set flag for cold launch (skip video)
-            AppDelegate.pendingNavigationToJournal = true
+            AppDelegate.pendingNavigationToChat = true
 
             // Activate app and bring to foreground
             NSApp.activate(ignoringOtherApps: true)

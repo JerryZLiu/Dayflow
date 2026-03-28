@@ -3,7 +3,7 @@ import SwiftUI
 enum SidebarIcon: CaseIterable {
     case timeline
     case dashboard
-    case journal
+    case chat
     case bug
     case settings
 
@@ -11,7 +11,7 @@ enum SidebarIcon: CaseIterable {
         switch self {
         case .timeline: return "TimelineIcon"
         case .dashboard: return "DashboardIcon"
-        case .journal: return "JournalIcon"
+        case .chat: return "JournalIcon"
         case .bug: return nil
         case .settings: return nil
         }
@@ -36,7 +36,7 @@ struct SidebarView: View {
                 SidebarIconButton(
                     icon: icon,
                     isSelected: selectedIcon == icon,
-                    showBadge: icon == .journal && badgeManager.hasPendingReminder,
+                    showBadge: icon == .chat && badgeManager.hasPendingReminder,
                     action: { selectedIcon = icon }
                 )
                 .frame(width: 40, height: 40)

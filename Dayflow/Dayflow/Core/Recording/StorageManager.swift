@@ -5,7 +5,7 @@
 
 import Foundation
 import GRDB
-import Sentry
+
 
 extension DateFormatter {
     static let yyyyMMdd: DateFormatter = {
@@ -453,11 +453,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         var execStart: CFAbsoluteTime = 0
         var execEnd: CFAbsoluteTime = 0
 
-        let writeBreadcrumb = Breadcrumb(level: .debug, category: "database")
-        writeBreadcrumb.message = "DB write: \(label)"
-        writeBreadcrumb.type = "debug"
-        SentryHelper.addBreadcrumb(writeBreadcrumb)
-
         do {
             let result = try db.write { db in
                 execStart = CFAbsoluteTimeGetCurrent()
@@ -470,16 +465,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
             if debugSlowQueries && (execMs > slowThresholdMs || waitMs > slowThresholdMs) {
                 print("⚠️ SLOW WRITE [\(label)]: wait=\(Int(waitMs))ms exec=\(Int(execMs))ms")
-
-                let slowWriteBreadcrumb = Breadcrumb(level: .warning, category: "database")
-                slowWriteBreadcrumb.message = "SLOW DB write: \(label)"
-                slowWriteBreadcrumb.data = [
-                    "duration_ms": Int((waitMs + execMs).rounded()),
-                    "wait_ms": Int(waitMs.rounded()),
-                    "exec_ms": Int(execMs.rounded())
-                ]
-                slowWriteBreadcrumb.type = "error"
-                SentryHelper.addBreadcrumb(slowWriteBreadcrumb)
             }
 
             return result
@@ -493,15 +478,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             let waitMs = max(0, (execStart - callStart) * 1000)
             let execMs = max(0, (execEnd - execStart) * 1000)
 
-            let slowWriteBreadcrumb = Breadcrumb(level: .error, category: "database")
-            slowWriteBreadcrumb.message = "FAILED DB write: \(label)"
-            slowWriteBreadcrumb.data = [
-                "wait_ms": Int(waitMs.rounded()),
-                "exec_ms": Int(execMs.rounded()),
-                "error": "\(error)"
-            ]
-            slowWriteBreadcrumb.type = "error"
-            SentryHelper.addBreadcrumb(slowWriteBreadcrumb)
             throw error
         }
     }
@@ -510,11 +486,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let callStart = CFAbsoluteTimeGetCurrent()
         var execStart: CFAbsoluteTime = 0
         var execEnd: CFAbsoluteTime = 0
-
-        let readBreadcrumb = Breadcrumb(level: .debug, category: "database")
-        readBreadcrumb.message = "DB read: \(label)"
-        readBreadcrumb.type = "debug"
-        SentryHelper.addBreadcrumb(readBreadcrumb)
 
         do {
             let result = try db.read { db in
@@ -528,16 +499,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
             if debugSlowQueries && (execMs > slowThresholdMs || waitMs > slowThresholdMs) {
                 print("⚠️ SLOW READ [\(label)]: wait=\(Int(waitMs))ms exec=\(Int(execMs))ms")
-
-                let slowReadBreadcrumb = Breadcrumb(level: .warning, category: "database")
-                slowReadBreadcrumb.message = "SLOW DB read: \(label)"
-                slowReadBreadcrumb.data = [
-                    "duration_ms": Int((waitMs + execMs).rounded()),
-                    "wait_ms": Int(waitMs.rounded()),
-                    "exec_ms": Int(execMs.rounded())
-                ]
-                slowReadBreadcrumb.type = "error"
-                SentryHelper.addBreadcrumb(slowReadBreadcrumb)
             }
 
             return result
@@ -551,15 +512,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             let waitMs = max(0, (execStart - callStart) * 1000)
             let execMs = max(0, (execEnd - execStart) * 1000)
 
-            let slowReadBreadcrumb = Breadcrumb(level: .error, category: "database")
-            slowReadBreadcrumb.message = "FAILED DB read: \(label)"
-            slowReadBreadcrumb.data = [
-                "wait_ms": Int(waitMs.rounded()),
-                "exec_ms": Int(execMs.rounded()),
-                "error": "\(error)"
-            ]
-            slowReadBreadcrumb.type = "error"
-            SentryHelper.addBreadcrumb(slowReadBreadcrumb)
             throw error
         }
     }
@@ -1374,7 +1326,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         let encoder = JSONEncoder()
         let meta = TimelineMetadata(
             distractions: nil,
-            appSites: AppSites(primary: "dayflow.so", secondary: nil)
+            appSites: nil
         )
         let metadataString: String? = (try? encoder.encode(meta)).flatMap { String(data: $0, encoding: .utf8) }
 
@@ -2595,11 +2547,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             print("✅ [StorageManager] WAL checkpoint completed (mode: \(mode))")
         } catch {
             print("⚠️ [StorageManager] WAL checkpoint failed: \(error)")
-            // Log to Sentry for visibility
-            let breadcrumb = Breadcrumb(level: .warning, category: "database")
-            breadcrumb.message = "WAL checkpoint failed"
-            breadcrumb.data = ["mode": "\(mode)", "error": "\(error)"]
-            SentryHelper.addBreadcrumb(breadcrumb)
         }
     }
 
@@ -2631,11 +2578,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         } catch {
             print("⚠️ [StorageManager] Failed to open database: \(error)")
 
-            let breadcrumb = Breadcrumb(level: .error, category: "database")
-            breadcrumb.message = "Database open failed, attempting recovery"
-            breadcrumb.data = ["error": "\(error)"]
-            SentryHelper.addBreadcrumb(breadcrumb)
-
             // Attempt 2: Restore from most recent backup
             if let backupURL = findMostRecentBackup(in: backupsDir, fileManager: fileManager) {
                 print("🔄 [StorageManager] Attempting recovery from backup: \(backupURL.lastPathComponent)")
@@ -2652,12 +2594,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                     try fileManager.copyItem(at: backupURL, to: dbURL)
                     let pool = try DatabasePool(path: dbURL.path, configuration: config)
                     print("✅ [StorageManager] Successfully recovered from backup")
-
-                    let recoveryBreadcrumb = Breadcrumb(level: .info, category: "database")
-                    recoveryBreadcrumb.message = "Database recovered from backup"
-                    recoveryBreadcrumb.data = ["backup": backupURL.lastPathComponent]
-                    SentryHelper.addBreadcrumb(recoveryBreadcrumb)
-
                     return pool
                 } catch {
                     print("❌ [StorageManager] Backup recovery failed: \(error)")
@@ -2674,11 +2610,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
             do {
                 let pool = try DatabasePool(path: dbURL.path, configuration: config)
-
-                let freshBreadcrumb = Breadcrumb(level: .warning, category: "database")
-                freshBreadcrumb.message = "Started with fresh database after all recovery attempts failed"
-                SentryHelper.addBreadcrumb(freshBreadcrumb)
-
                 return pool
             } catch {
                 // This is truly fatal - can't even create a fresh database
@@ -2723,19 +2654,9 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                 print("✅ [StorageManager] Database integrity check passed")
             } else {
                 print("⚠️ [StorageManager] Database integrity issues: \(result ?? "unknown")")
-
-                let breadcrumb = Breadcrumb(level: .warning, category: "database")
-                breadcrumb.message = "Database integrity check found issues"
-                breadcrumb.data = ["result": result ?? "unknown"]
-                SentryHelper.addBreadcrumb(breadcrumb)
             }
         } catch {
             print("⚠️ [StorageManager] Integrity check failed: \(error)")
-
-            let breadcrumb = Breadcrumb(level: .error, category: "database")
-            breadcrumb.message = "Database integrity check error"
-            breadcrumb.data = ["error": "\(error)"]
-            SentryHelper.addBreadcrumb(breadcrumb)
         }
     }
 
@@ -2764,21 +2685,11 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
                 print("✅ [StorageManager] Backup created: \(backupName)")
 
-                let breadcrumb = Breadcrumb(level: .info, category: "database")
-                breadcrumb.message = "Database backup created"
-                breadcrumb.data = ["filename": backupName]
-                SentryHelper.addBreadcrumb(breadcrumb)
-
                 // Prune old backups, keeping last 3
                 self.pruneOldBackups(keeping: 3)
 
             } catch {
                 print("❌ [StorageManager] Backup failed: \(error)")
-
-                let breadcrumb = Breadcrumb(level: .error, category: "database")
-                breadcrumb.message = "Database backup failed"
-                breadcrumb.data = ["error": "\(error)"]
-                SentryHelper.addBreadcrumb(breadcrumb)
             }
         }
     }

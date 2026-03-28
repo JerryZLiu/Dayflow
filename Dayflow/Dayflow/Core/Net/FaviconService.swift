@@ -197,7 +197,7 @@ final class FaviconService {
             if let result {
                 self.cache.setObject(result, forKey: key)
             } else {
-                // Both S2 and direct fetch failed — log to PostHog for visibility
+                // Both S2 and direct fetch failed
                 AnalyticsService.shared.capture("favicon_fetch_failed", ["host": host])
             }
             return result

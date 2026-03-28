@@ -9,7 +9,6 @@
 //
 import Foundation
 import GRDB
-import Sentry
 
 
 protocol AnalysisManaging {
@@ -378,25 +377,6 @@ final class AnalysisManager: AnalysisManaging {
             return
         }
 
-        // Start performance tracking for batch processing
-        let transaction = SentrySDK.startTransaction(
-            name: "batch_processing",
-            operation: "llm.batch"
-        )
-        transaction.setData(value: batchId, key: "batch_id")
-        transaction.setData(value: itemCount, key: "screenshot_count")
-        transaction.setData(value: totalDurationSeconds, key: "duration_s")
-
-        // Add breadcrumb for batch processing start
-        let breadcrumb = Breadcrumb(level: .info, category: "analysis")
-        breadcrumb.message = "Starting batch \(batchId) processing"
-        breadcrumb.data = [
-            "mode": "screenshots",
-            "count": itemCount,
-            "duration_s": totalDurationSeconds
-        ]
-        SentrySDK.addBreadcrumb(breadcrumb)
-
         updateBatchStatus(batchId: batchId, status: "processing")
 
         llmService.processBatch(batchId, progressHandler: progressHandler) { [weak self] (result: Result<ProcessedBatchResult, Error>) in
@@ -412,9 +392,6 @@ final class AnalysisManager: AnalysisManaging {
                 let activityCards = processedResult.cards
                 let cardIds = processedResult.cardIds
                 print("LLM succeeded for Batch \(batchId). Processing \(activityCards.count) activity cards for day \(currentLogicalDayString).")
-
-                // Finish performance transaction - LLM processing completed successfully
-                transaction.finish(status: .ok)
 
                 // Debug: Check for duplicate cards from LLM
                 print("\n🔍 DEBUG: Checking for duplicate cards from LLM:")
@@ -493,9 +470,6 @@ final class AnalysisManager: AnalysisManaging {
 
             case .failure(let err):
                 print("LLM failed for Batch \(batchId). Day \(currentLogicalDayString) may have been cleared. Error: \(err.localizedDescription)")
-
-                // Finish performance transaction - LLM processing failed
-                transaction.finish(status: .internalError)
 
                 self.markBatchFailed(batchId: batchId, reason: err.localizedDescription)
                 completion?(.failure(err))

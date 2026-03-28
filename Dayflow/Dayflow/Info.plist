@@ -21,21 +21,7 @@
 	<string>83</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Dayflow uses screen access to create your timeline. Recordings stay on your Mac and you can pause or delete them anytime.</string>
-	<key>SUAllowsAutomaticUpdates</key>
-	<true/>
-	<key>SUAutomaticallyUpdate</key>
-	<true/>
-	<key>SUEnableAutomaticChecks</key>
-	<true/>
-	<key>SUEnableInstallerLauncherService</key>
-	<true/>
-	<key>SUFeedURL</key>
-	<string>https://dayflow.so/appcast.xml</string>
-	<key>SUPublicEDKey</key>
-	<string>lf33Kn/Gx26j9zfGtsNNc6Lk2QTBHyXkFxxwnsXmdYA=</string>
-	<key>SUScheduledCheckInterval</key>
-	<integer>3600</integer>
-	<key>UIAppFonts</key>
+<key>UIAppFonts</key>
 	<array>
 		<string>Nunito-VariableFont_wght.ttf</string>
 		<string>Nunito-Italic-VariableFont_wght.ttf</string>

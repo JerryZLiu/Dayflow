@@ -865,7 +865,7 @@ final class ChatCLIProvider: LLMProvider {
 
         // If we still have no results after all parsing attempts, throw with the raw output
         guard !results.isEmpty else {
-            // Capture richer diagnostics to PostHog so we can debug Codex vs Claude failures
+            // Capture richer diagnostics so we can debug Codex vs Claude failures
             let fullStdout = run.stdout
             let fullStderr = run.stderr
 

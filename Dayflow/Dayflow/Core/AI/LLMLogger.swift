@@ -33,49 +33,12 @@ enum LLMLogger {
         let latencyMs = Int(finishedAt.timeIntervalSince(ctx.startedAt) * 1000)
         let record = makeRecord(ctx: ctx, http: http, status: .success, latencyMs: latencyMs, error: nil)
         StorageManager.shared.insertLLMCall(record)
-        Task { @MainActor in
-            var props: [String: Any] = [
-                "provider": ctx.provider,
-                "model": ctx.model ?? "unknown",
-                "latency_ms": latencyMs,
-                "outcome": "success",
-                "operation": ctx.operation
-            ]
-
-            if let batchId = ctx.batchId { props["batch_id"] = batchId }
-            if let groupId = ctx.callGroupId { props["group_id"] = groupId }
-
-            // Bubble token usage if present in response headers (non-HTTP calls may stuff them here).
-            if let headers = http.responseHeaders {
-                if let v = headers["x-usage-input"], let n = Int(v) { props["usage_input_tokens"] = n }
-                if let v = headers["x-usage-cached-input"], let n = Int(v) { props["usage_cached_input_tokens"] = n }
-                if let v = headers["x-usage-output"], let n = Int(v) { props["usage_output_tokens"] = n }
-            }
-
-            AnalyticsService.shared.capture("llm_api_call", props)
-        }
     }
 
     static func logFailure(ctx: LLMCallContext, http: LLMHTTPInfo?, finishedAt: Date, errorDomain: String?, errorCode: Int?, errorMessage: String?) {
         let latencyMs = Int(finishedAt.timeIntervalSince(ctx.startedAt) * 1000)
         let record = makeRecord(ctx: ctx, http: http, status: .failure, latencyMs: latencyMs, error: (errorDomain, errorCode, errorMessage))
         StorageManager.shared.insertLLMCall(record)
-        Task { @MainActor in
-            var props: [String: Any] = [
-                "provider": ctx.provider,
-                "model": ctx.model ?? "unknown",
-                "latency_ms": latencyMs,
-                "outcome": "error",
-                "operation": ctx.operation
-            ]
-
-            if let batchId = ctx.batchId { props["batch_id"] = batchId }
-            if let groupId = ctx.callGroupId { props["group_id"] = groupId }
-            if let errorCode { props["error_code"] = errorCode }
-            if let errorMessage, !errorMessage.isEmpty { props["error_message"] = errorMessage }
-
-            AnalyticsService.shared.capture("llm_api_call", props)
-        }
     }
 
     private static func makeRecord(ctx: LLMCallContext, http: LLMHTTPInfo?, status: LLMLogStatus, latencyMs: Int?, error: (String?, Int?, String?)?) -> LLMCallDBRecord {
@@ -145,3 +108,4 @@ enum LLMLogger {
         return nil
     }
 }
+
