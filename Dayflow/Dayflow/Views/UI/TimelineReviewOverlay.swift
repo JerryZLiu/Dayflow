@@ -900,7 +900,7 @@ private struct TimelineReviewCard: View {
 
       VStack(spacing: 0) {
         TimelineReviewCardMedia(
-          previewImage: usingVideoPlayer ? nil : previewImage,
+          previewImage: previewImage,
           playbackState: playerModel.mediaState,
           player: usingVideoPlayer ? legacyPlayerModel.player : nil,
           onTogglePlayback: {
@@ -1072,10 +1072,21 @@ private struct TimelineReviewCard: View {
   private func syncPlaybackMode() {
     if usesLegacySavedTimelapsePlayback {
       previewRequestID &+= 1
-      previewImage = nil
+      let requestID = previewRequestID
       playerModel.reset()
       legacyPlayerModel.updateVideo(url: activity.videoSummaryURL)
       legacyPlayerModel.setActive(isActive)
+
+      // Generate a thumbnail from the video to show while the player loads
+      if let videoURL = activity.videoSummaryURL {
+        let targetSize = CGSize(width: 340, height: Design.mediaHeight)
+        ThumbnailCache.shared.fetchThumbnail(videoURL: videoURL, targetSize: targetSize) { image in
+          guard requestID == previewRequestID else { return }
+          previewImage = image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        }
+      } else {
+        previewImage = nil
+      }
       return
     }
 
@@ -1781,6 +1792,8 @@ private struct TimelineReviewCardMedia: View {
   let player: AVPlayer?
   let onTogglePlayback: () -> Void
 
+  @State private var isPlayerReady = false
+
   private enum Design {
     static let mediaBorderColor = Color.white.opacity(0.2)
   }
@@ -1788,9 +1801,21 @@ private struct TimelineReviewCardMedia: View {
   var body: some View {
     ZStack {
       if let player {
-        WhiteBGVideoPlayer(player: player, videoGravity: .resizeAspectFill)
-          .allowsHitTesting(false)
-          .clipped()
+        WhiteBGVideoPlayer(
+          player: player,
+          videoGravity: .resizeAspectFill,
+          onReadyForDisplay: { ready in isPlayerReady = ready }
+        )
+        .allowsHitTesting(false)
+        .clipped()
+        .opacity(isPlayerReady ? 1 : 0)
+
+        // Show thumbnail until the player layer has rendered its first frame
+        if !isPlayerReady, let image = previewImage {
+          TimelineReviewLayerBackedImageView(image: image)
+            .allowsHitTesting(false)
+            .clipped()
+        }
       } else if let image = playbackState.currentImage ?? previewImage {
         TimelineReviewLayerBackedImageView(image: image)
           .allowsHitTesting(false)
@@ -1810,6 +1835,9 @@ private struct TimelineReviewCardMedia: View {
     .overlay(
       Rectangle().stroke(Design.mediaBorderColor, lineWidth: 1)
     )
+    .onChange(of: player) {
+      isPlayerReady = false
+    }
   }
 }
 
