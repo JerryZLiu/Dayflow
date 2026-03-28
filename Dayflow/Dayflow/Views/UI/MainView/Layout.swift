@@ -453,22 +453,23 @@ extension MainView {
           .buttonStyle(PlainButtonStyle())
           .hoverScaleEffect(scale: 1.04)
           .pointingHandCursorOnHover(reassertOnPressEnd: true)
+          .fixedSize()
           .transition(.opacity.combined(with: .scale(scale: 0.9)))
         }
       }
+      .fixedSize(horizontal: true, vertical: false)
       .offset(x: timelineOffset)
       .opacity(timelineOpacity)
 
       Spacer()
 
-      // Recording toggle (now inline with header)
+      // Recording toggle
       HStack(spacing: 4) {
-        Text("Record")
-          .font(
-            Font.custom("Nunito", size: 12)
-              .weight(.medium)
-          )
-          .foregroundColor(Color(red: 0.62, green: 0.44, blue: 0.36))
+        if headerWidth > 450 {
+          Text("Record")
+            .font(Font.custom("Nunito", size: 12).weight(.medium))
+            .foregroundColor(Color(red: 0.62, green: 0.44, blue: 0.36))
+        }
 
         Toggle("Record", isOn: $appState.isRecording)
           .labelsHidden()
@@ -476,8 +477,17 @@ extension MainView {
           .scaleEffect(0.7)
           .accessibilityLabel(Text("Recording"))
       }
+      .fixedSize()
     }
     .padding(.horizontal, 10)
+    .background(
+      GeometryReader { geo in
+        Color.clear.onChange(of: geo.size.width) { _, newWidth in
+          headerWidth = newWidth
+        }
+        .onAppear { headerWidth = geo.size.width }
+      }
+    )
   }
 
   private var timelineContent: some View {
