@@ -112,8 +112,17 @@ This document lists manual events, properties, and code locations. All events re
 
 ## Recording
 - recording_toggled
-  - props: `enabled: bool`, `reason: user|auto`
+  - props: `enabled: bool`, `reason: auto|unknown|onboarding|deeplink|menu_bar|main_app|user_menu_bar|user_main_app|timer_expired|wake_from_sleep`
   - file: App/AppDelegate.swift (observation) and AppDelegate auto-start
+- recording_paused
+  - props: `source: menu_bar|main_app|deeplink`, `pause_type: 15_mins|30_mins|1_hour|indefinite`
+  - file: App/PauseManager.swift
+- recording_resumed
+  - props: `source: user_menu_bar|user_main_app|timer_expired|wake_from_sleep`, `was_timed: bool`, `original_pause_type: 15_mins|30_mins|1_hour|indefinite|unknown`
+  - file: App/PauseManager.swift
+- timeline_paused_card_clicked
+  - props: `action: resume_recording`
+  - file: Views/UI/CanvasTimelineDataView.swift
 - recording_started
   - file: Core/Recording/ScreenRecorder.swift (startStream)
 - recording_stopped
