@@ -30,7 +30,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   private var powerObserver: NSObjectProtocol?
   private var deepLinkRouter: AppDeepLinkRouter?
   private var pendingDeepLinkURLs: [URL] = []
-  private var pendingRecordingAnalyticsReason: String?
   private var heartbeatTimer: Timer?
   private var appLaunchDate: Date?
   private var foregroundStartTime: Date?
@@ -100,7 +99,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
           // Permission granted - restore saved preference or default to ON
           await MainActor.run {
             let savedPref = AppState.shared.getSavedPreference()
-            AppState.shared.isRecording = savedPref ?? true
+            AppState.shared.setRecording(savedPref ?? true, analyticsReason: "auto")
           }
           let finalState = await MainActor.run { AppState.shared.isRecording }
           AnalyticsService.shared.capture(
@@ -137,11 +136,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Observe recording state
     analyticsSub = AppState.shared.$isRecording
       .removeDuplicates()
-      .sink { [weak self] enabled in
-        guard let self else { return }
-        let reason = self.pendingRecordingAnalyticsReason ?? "user"
+      .sink { enabled in
+        let reason = AppState.shared.consumePendingRecordingAnalyticsReason() ?? "unknown"
         guard reason != "auto" else { return }
-        self.pendingRecordingAnalyticsReason = nil
         AnalyticsService.shared.capture(
           "recording_toggled", ["enabled": enabled, "reason": reason])
         AnalyticsService.shared.setPersonProperties(["recording_enabled": enabled])
@@ -338,6 +335,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension AppDelegate: AppDeepLinkRouterDelegate {
   func prepareForRecordingToggle(reason: String) {
-    pendingRecordingAnalyticsReason = reason
+    AppState.shared.prepareForRecordingToggle(reason: reason)
   }
 }
