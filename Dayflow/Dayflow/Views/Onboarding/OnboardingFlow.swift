@@ -240,7 +240,7 @@ struct OnboardingFlow: View {
               false, onScreenWindowsOnly: true)
             // Start recording
             await MainActor.run {
-              AppState.shared.isRecording = true
+              AppState.shared.setRecording(true, analyticsReason: "onboarding")
             }
           } catch {
             // Permission not granted yet, that's ok
