@@ -114,7 +114,7 @@ final class PauseManager: ObservableObject {
     }
 
     // Stop recording
-    AppState.shared.isRecording = false
+    AppState.shared.setRecording(false, analyticsReason: source.rawValue)
 
     // Send analytics
     AnalyticsService.shared.capture(
@@ -137,7 +137,7 @@ final class PauseManager: ObservableObject {
     currentPauseDuration = nil
 
     // Start recording
-    AppState.shared.isRecording = true
+    AppState.shared.setRecording(true, analyticsReason: source.rawValue)
 
     // Send analytics
     AnalyticsService.shared.capture(
