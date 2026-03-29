@@ -315,23 +315,7 @@ struct SettingsDataTabView: View {
         .font(.custom("Nunito", size: 11.5))
         .foregroundColor(.black.opacity(0.5))
 
-      DatePicker("", selection: date, displayedComponents: .date)
-        .datePickerStyle(.graphical)
-        .labelsHidden()
-        .onChange(of: date.wrappedValue) { _, _ in
-          onDateSelected()
-        }
-        .frame(maxWidth: 290, alignment: .leading)
-        .padding(10)
-        .background(
-          RoundedRectangle(cornerRadius: 12)
-            .fill(Color.white.opacity(disabled ? 0.45 : 0.82))
-            .overlay(
-              RoundedRectangle(cornerRadius: 12)
-                .stroke(Color(hex: "FFE0A5"), lineWidth: 1.2)
-            )
-        )
-        .shadow(color: .black.opacity(disabled ? 0 : 0.04), radius: 7, x: 0, y: 2)
+      DayflowCalendarGrid(selectedDate: date, onDateSelected: onDateSelected)
         .disabled(disabled)
     }
     .opacity(disabled ? 0.7 : 1)
@@ -342,4 +326,174 @@ struct SettingsDataTabView: View {
     formatter.setLocalizedDateFormatFromTemplate("MMM d, yyyy")
     return formatter
   }()
+}
+
+// MARK: - Custom Calendar Grid
+
+private struct DayflowCalendarGrid: View {
+  @Binding var selectedDate: Date
+  var onDateSelected: () -> Void
+
+  @State private var displayedMonth: Date = Date()
+  @Environment(\.isEnabled) private var isEnabled
+
+  private let calendar = Calendar.current
+  private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 7)
+
+  private let accentColor = Color(hex: "E8854A")
+  private let strokeColor = Color(hex: "FFE0A5")
+
+  var body: some View {
+    VStack(spacing: 12) {
+      monthHeader
+      weekdayLabels
+      dayGrid
+    }
+    .padding(14)
+    .frame(maxWidth: 290, alignment: .leading)
+    .background(
+      RoundedRectangle(cornerRadius: 12)
+        .fill(Color.white.opacity(isEnabled ? 0.82 : 0.45))
+        .overlay(
+          RoundedRectangle(cornerRadius: 12)
+            .stroke(strokeColor, lineWidth: 1.2)
+        )
+    )
+    .shadow(color: .black.opacity(isEnabled ? 0.04 : 0), radius: 7, x: 0, y: 2)
+    .onAppear {
+      displayedMonth =
+        calendar.date(
+          from: calendar.dateComponents([.year, .month], from: selectedDate)
+        ) ?? selectedDate
+    }
+  }
+
+  // MARK: Month header with navigation arrows
+
+  private var monthHeader: some View {
+    HStack {
+      Text(monthYearString)
+        .font(.custom("Nunito", size: 14))
+        .fontWeight(.semibold)
+        .foregroundColor(.black.opacity(0.82))
+
+      Spacer()
+
+      HStack(spacing: 4) {
+        Button {
+          changeMonth(by: -1)
+        } label: {
+          Image("CalendarLeftButton")
+            .resizable()
+            .scaledToFit()
+            .frame(width: 22, height: 22)
+        }
+        .buttonStyle(.plain)
+        .pointingHandCursor()
+
+        Button {
+          changeMonth(by: 1)
+        } label: {
+          Image("CalendarRightButton")
+            .resizable()
+            .scaledToFit()
+            .frame(width: 22, height: 22)
+        }
+        .buttonStyle(.plain)
+        .pointingHandCursor()
+      }
+    }
+  }
+
+  // MARK: Weekday labels row
+
+  private var weekdayLabels: some View {
+    let symbols = calendar.veryShortWeekdaySymbols
+    let firstWeekday = calendar.firstWeekday
+    let ordered = Array(symbols[(firstWeekday - 1)...]) + Array(symbols[..<(firstWeekday - 1)])
+
+    return LazyVGrid(columns: columns, spacing: 2) {
+      ForEach(ordered, id: \.self) { symbol in
+        Text(symbol)
+          .font(.custom("Nunito", size: 11))
+          .fontWeight(.medium)
+          .foregroundColor(.black.opacity(0.35))
+          .frame(maxWidth: .infinity)
+          .frame(height: 24)
+      }
+    }
+  }
+
+  // MARK: Day number grid
+
+  private var dayGrid: some View {
+    let firstOfMonth = calendar.date(
+      from: calendar.dateComponents([.year, .month], from: displayedMonth)
+    )!
+    let daysInMonth = calendar.range(of: .day, in: .month, for: firstOfMonth)!.count
+    let weekday = calendar.component(.weekday, from: firstOfMonth)
+    let offset = (weekday - calendar.firstWeekday + 7) % 7
+
+    return LazyVGrid(columns: columns, spacing: 2) {
+      // Leading blank cells
+      ForEach(0..<offset, id: \.self) { _ in
+        Color.clear.frame(height: 32)
+      }
+
+      // Day cells
+      ForEach(1...daysInMonth, id: \.self) { day in
+        let date = makeDate(
+          year: calendar.component(.year, from: firstOfMonth),
+          month: calendar.component(.month, from: firstOfMonth),
+          day: day)
+        let isSelected = date.map { calendar.isDate($0, inSameDayAs: selectedDate) } ?? false
+        let isToday = date.map { calendar.isDateInToday($0) } ?? false
+
+        Button {
+          if let date {
+            selectedDate = date
+            onDateSelected()
+          }
+        } label: {
+          Text("\(day)")
+            .font(.custom("Nunito", size: 13))
+            .fontWeight(isSelected ? .bold : (isToday ? .semibold : .regular))
+            .foregroundColor(isSelected ? .white : (isToday ? accentColor : .black.opacity(0.75)))
+            .frame(maxWidth: .infinity)
+            .frame(height: 32)
+            .background {
+              if isSelected {
+                Circle()
+                  .fill(accentColor)
+                  .frame(width: 30, height: 30)
+              } else if isToday {
+                Circle()
+                  .stroke(accentColor.opacity(0.4), lineWidth: 1.2)
+                  .frame(width: 30, height: 30)
+              }
+            }
+        }
+        .buttonStyle(.plain)
+        .pointingHandCursor()
+      }
+    }
+  }
+
+  // MARK: Helpers
+
+  private var monthYearString: String {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "MMMM yyyy"
+    return formatter.string(from: displayedMonth)
+  }
+
+  private func changeMonth(by value: Int) {
+    var components = calendar.dateComponents([.year, .month], from: displayedMonth)
+    components.month = (components.month ?? 1) + value
+    displayedMonth = calendar.date(from: components) ?? displayedMonth
+  }
+
+  private func makeDate(year: Int, month: Int, day: Int) -> Date? {
+    calendar.date(from: DateComponents(year: year, month: month, day: day))
+  }
 }
