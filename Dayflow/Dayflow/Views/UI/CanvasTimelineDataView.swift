@@ -1050,6 +1050,7 @@ struct CanvasActivityCardStyle {
 
 struct CanvasActivityCard: View {
   @AppStorage("showTimelineAppIcons") private var showTimelineAppIcons: Bool = true
+  @State private var isHovering = false
 
   let title: String
   let time: String
@@ -1214,10 +1215,30 @@ struct CanvasActivityCard: View {
           .stroke(selectionStroke, lineWidth: 1.5)
           .opacity(isSelected ? 1 : 0)
       )
+      .overlay(
+        RoundedRectangle(cornerRadius: 2, style: .continuous)
+          .stroke(Color.black.opacity(isHovering ? 0.08 : 0), lineWidth: 1)
+      )
+      .shadow(
+        color: .black.opacity(isHovering ? 0.08 : 0),
+        radius: 1,
+        x: 0,
+        y: 1
+      )
+      .shadow(
+        color: .black.opacity(isHovering ? 0.06 : 0),
+        radius: 2,
+        x: 0,
+        y: 2
+      )
     }
     .buttonStyle(CanvasCardButtonStyle())
     .pointingHandCursor()
     .hoverScaleEffect(scale: 1.01)
+    .onHover { hovering in
+      isHovering = hovering
+    }
+    .animation(.easeOut(duration: 0.18), value: isHovering)
     .padding(.horizontal, 6)
   }
 }
