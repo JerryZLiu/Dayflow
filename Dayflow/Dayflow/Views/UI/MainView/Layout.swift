@@ -2,6 +2,32 @@ import AppKit
 import Sentry
 import SwiftUI
 
+private enum TimelineHeaderTrackedElement {
+  static let dateSection = "date_section"
+  static let pauseControl = "pause_control"
+}
+
+private struct TimelineHeaderFramesPreferenceKey: PreferenceKey {
+  static var defaultValue: [String: CGRect] = [:]
+
+  static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+    value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+  }
+}
+
+extension View {
+  fileprivate func trackTimelineHeaderFrame(_ id: String) -> some View {
+    background(
+      GeometryReader { proxy in
+        Color.clear.preference(
+          key: TimelineHeaderFramesPreferenceKey.self,
+          value: [id: proxy.frame(in: .named("TimelineHeaderSpace"))]
+        )
+      }
+    )
+  }
+}
+
 extension MainView {
   var mainLayout: some View {
     contentStack
@@ -328,6 +354,7 @@ extension MainView {
   private func timelinePanel(geo: GeometryProxy) -> some View {
     HStack(alignment: .top, spacing: 0) {
       timelineLeftColumn
+        .zIndex(1)
       Rectangle()
         .fill(Color(hex: "ECECEC"))
         .frame(width: 1)
@@ -422,64 +449,62 @@ extension MainView {
           )
         }
 
-        Text(formatDateForDisplay(selectedDate))
-          .font(.custom("InstrumentSerif-Regular", size: 36))
-          .foregroundColor(Color.black)
-          .frame(width: Self.maxDateTitleWidth, alignment: .leading)
+        HStack(spacing: 12) {
+          Text(formatDateForDisplay(selectedDate))
+            .font(.custom("InstrumentSerif-Regular", size: 36))
+            .foregroundColor(Color.black)
+            .frame(width: Self.maxDateTitleWidth, alignment: .leading)
 
-        if !timelineIsToday(selectedDate) {
-          Button(action: {
-            let from = selectedDate
-            let today = timelineDisplayDate(from: Date())
-            previousDate = selectedDate
-            setSelectedDate(today)
-            lastDateNavMethod = "today"
-            AnalyticsService.shared.capture(
-              "date_navigation",
-              [
-                "method": "today",
-                "from_day": dayString(from),
-                "to_day": dayString(today),
-              ])
-          }) {
-            Text("Today")
-              .font(Font.custom("Nunito", size: 12).weight(.semibold))
-              .foregroundColor(Color(hex: "E8854A"))
-              .padding(.horizontal, 10)
-              .padding(.vertical, 4)
-              .background(Color(hex: "E8854A").opacity(0.12))
-              .cornerRadius(6)
+          if !timelineIsToday(selectedDate) {
+            Button(action: {
+              let from = selectedDate
+              let today = timelineDisplayDate(from: Date())
+              previousDate = selectedDate
+              setSelectedDate(today)
+              lastDateNavMethod = "today"
+              AnalyticsService.shared.capture(
+                "date_navigation",
+                [
+                  "method": "today",
+                  "from_day": dayString(from),
+                  "to_day": dayString(today),
+                ])
+            }) {
+              Text("Today")
+                .font(Font.custom("Nunito", size: 12).weight(.semibold))
+                .foregroundColor(Color(hex: "E8854A"))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color(hex: "E8854A").opacity(0.12))
+                .cornerRadius(6)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .hoverScaleEffect(scale: 1.04)
+            .pointingHandCursorOnHover(reassertOnPressEnd: true)
+            .fixedSize()
+            .transition(.opacity.combined(with: .scale(scale: 0.9)))
           }
-          .buttonStyle(PlainButtonStyle())
-          .hoverScaleEffect(scale: 1.04)
-          .pointingHandCursorOnHover(reassertOnPressEnd: true)
-          .fixedSize()
-          .transition(.opacity.combined(with: .scale(scale: 0.9)))
         }
+        .opacity(shouldHideTimelineDateSection ? 0 : 1)
+        .allowsHitTesting(!shouldHideTimelineDateSection)
+        .trackTimelineHeaderFrame(TimelineHeaderTrackedElement.dateSection)
       }
       .fixedSize(horizontal: true, vertical: false)
       .offset(x: timelineOffset)
       .opacity(timelineOpacity)
 
       Spacer()
-
-      // Recording toggle
-      HStack(spacing: 4) {
-        if headerWidth > 450 {
-          Text("Record")
-            .font(Font.custom("Nunito", size: 12).weight(.medium))
-            .foregroundColor(Color(red: 0.62, green: 0.44, blue: 0.36))
-        }
-
-        Toggle("Record", isOn: $appState.isRecording)
-          .labelsHidden()
-          .toggleStyle(SunriseGlassPillToggleStyle())
-          .scaleEffect(0.7)
-          .accessibilityLabel(Text("Recording"))
-      }
-      .fixedSize()
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .overlay(alignment: .trailing) {
+      PausePillView()
+        .trackTimelineHeaderFrame(TimelineHeaderTrackedElement.pauseControl)
     }
     .padding(.horizontal, 10)
+    .coordinateSpace(name: "TimelineHeaderSpace")
+    .onPreferenceChange(TimelineHeaderFramesPreferenceKey.self) { frames in
+      updateTimelineHeaderOverlap(frames)
+    }
     .background(
       GeometryReader { geo in
         Color.clear.onChange(of: geo.size.width) { _, newWidth in
@@ -488,6 +513,27 @@ extension MainView {
         .onAppear { headerWidth = geo.size.width }
       }
     )
+  }
+
+  private func updateTimelineHeaderOverlap(_ frames: [String: CGRect]) {
+    guard
+      let dateFrame = frames[TimelineHeaderTrackedElement.dateSection],
+      let pauseFrame = frames[TimelineHeaderTrackedElement.pauseControl]
+    else {
+      if shouldHideTimelineDateSection {
+        withAnimation(.easeOut(duration: 0.18)) {
+          shouldHideTimelineDateSection = false
+        }
+      }
+      return
+    }
+
+    let shouldHide = dateFrame.intersects(pauseFrame)
+    guard shouldHide != shouldHideTimelineDateSection else { return }
+
+    withAnimation(.easeOut(duration: 0.18)) {
+      shouldHideTimelineDateSection = shouldHide
+    }
   }
 
   private var timelineContent: some View {
@@ -726,23 +772,27 @@ extension MainView {
     let stroke = Color(red: 0.97, green: 0.89, blue: 0.81)
     let textColor = Color(red: 0.84, green: 0.65, blue: 0.52)
 
-    let transition = AnyTransition.opacity.combined(with: .scale(scale: 0.5))
+    // Slide up + fade: no text scaling (scaling distorts letterforms)
+    let enterTransition = AnyTransition.opacity
+      .combined(with: .move(edge: .bottom))
+    let exitTransition = AnyTransition.opacity
+      .combined(with: .move(edge: .top))
 
     return Button(action: copyTimelineToClipboard) {
       ZStack {
         if copyTimelineState == .copying {
           ProgressView()
-            .scaleEffect(0.5)
+            .scaleEffect(0.6)
             .progressViewStyle(CircularProgressViewStyle(tint: textColor))
-            .transition(transition)
+            .transition(.asymmetric(insertion: enterTransition, removal: exitTransition))
         } else if copyTimelineState == .copied {
           HStack(spacing: 4) {
             Image(systemName: "checkmark")
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: 11.5, weight: .medium))
             Text("Copied")
-              .font(Font.custom("Nunito", size: 10).weight(.medium))
+              .font(Font.custom("Nunito", size: 11.5).weight(.medium))
           }
-          .transition(transition)
+          .transition(.asymmetric(insertion: enterTransition, removal: exitTransition))
         } else {
           HStack(spacing: 4) {
             Image("Copy")
@@ -750,21 +800,22 @@ extension MainView {
               .interpolation(.high)
               .renderingMode(.template)
               .scaledToFit()
-              .frame(width: 10, height: 10)
+              .frame(width: 11.5, height: 11.5)
             Text("Copy timeline")
-              .font(Font.custom("Nunito", size: 10).weight(.medium))
+              .font(Font.custom("Nunito", size: 11.5).weight(.medium))
           }
-          .transition(transition)
+          .transition(.asymmetric(insertion: enterTransition, removal: exitTransition))
         }
       }
-      .frame(width: 90, height: 20)
+      .animation(.spring(response: 0.3, dampingFraction: 0.85), value: copyTimelineState)
+      .frame(width: 104, height: 23)
       .foregroundColor(textColor)
       .background(background)
-      .cornerRadius(6)
+      .clipShape(RoundedRectangle(cornerRadius: 7))
       .overlay(
-        RoundedRectangle(cornerRadius: 6)
-          .inset(by: 0.38)
-          .stroke(stroke, lineWidth: 0.75)
+        RoundedRectangle(cornerRadius: 7)
+          .inset(by: 0.5)
+          .stroke(stroke, lineWidth: 1)
       )
       .contentShape(Rectangle())
     }
@@ -785,9 +836,8 @@ extension MainView {
 private struct ShrinkButtonStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
-      .scaleEffect(configuration.isPressed ? 0.96 : 1)
-      .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
-      .opacity(1)
+      .scaleEffect(configuration.isPressed ? 0.97 : 1)
+      .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
   }
 }
 
