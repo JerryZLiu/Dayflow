@@ -85,11 +85,16 @@ struct CanvasTimelineDataView: View {
   @State private var loadTask: Task<Void, Never>?
   // Staggered entrance animation state (Emil Kowalski principle: sequential reveal)
   @State private var cardEntranceProgress: [String: Bool] = [:]
+  @ObservedObject private var pauseManager = PauseManager.shared
   @EnvironmentObject private var categoryStore: CategoryStore
   @EnvironmentObject private var appState: AppState
   @EnvironmentObject private var retryCoordinator: RetryCoordinator
 
   private let storageManager = StorageManager.shared
+
+  private var recordingControlMode: RecordingControlMode {
+    RecordingControl.currentMode(appState: appState, pauseManager: pauseManager)
+  }
 
   var body: some View {
     ScrollViewReader { proxy in
@@ -337,7 +342,8 @@ struct CanvasTimelineDataView: View {
   @ViewBuilder
   private var currentTimeIndicator: some View {
     if timelineIsToday(selectedDate), let projection = recordingProjection {
-      if appState.isRecording {
+      switch recordingControlMode {
+      case .active:
         let projectionHeight = recordingProjectionHeight(for: projection)
         let isCompactProjection = projectionHeight < 24
         timelineStatusCard(
@@ -355,7 +361,7 @@ struct CanvasTimelineDataView: View {
             generatingStatusText
           }
         }
-      } else {
+      case .pausedTimed, .pausedIndefinite:
         let projectionHeight = recordingProjectionHeight(for: projection)
         timelineStatusCard(
           height: projectionHeight,
@@ -370,6 +376,22 @@ struct CanvasTimelineDataView: View {
           onTap: handlePausedStatusCardTap
         ) {
           pausedStatusText
+        }
+      case .stopped:
+        let projectionHeight = recordingProjectionHeight(for: projection)
+        timelineStatusCard(
+          height: projectionHeight,
+          yPosition: calculateYPosition(for: projection.start) + 1,
+          gradient: pausedStatusGradient,
+          gradientOpacity: 1.0,
+          baseColor: .clear,
+          strokeColor: .white,
+          strokeWidth: 1,
+          shadowColor: .black.opacity(0.03),
+          shadowRadius: 2,
+          onTap: handlePausedStatusCardTap
+        ) {
+          stoppedStatusText
         }
       }
     }
@@ -471,11 +493,25 @@ struct CanvasTimelineDataView: View {
   }
 
   private var pausedStatusText: some View {
+    statusText(
+      iconName: "pause.fill",
+      message: "Dayflow is paused. Click 'Resume' to generate new activity cards."
+    )
+  }
+
+  private var stoppedStatusText: some View {
+    statusText(
+      iconName: "play.fill",
+      message: "Dayflow isn't recording. Click 'Resume' to generate new activity cards."
+    )
+  }
+
+  private func statusText(iconName: String, message: String) -> some View {
     HStack(spacing: 10) {
-      Image(systemName: "pause.fill")
+      Image(systemName: iconName)
         .font(.system(size: 11, weight: .semibold))
         .foregroundColor(Color(hex: "888D95"))
-      Text("Dayflow is paused. Click 'Record' to generate new activity cards.")
+      Text(message)
     }
     .font(
       Font.custom("Nunito", size: 12)
@@ -490,13 +526,24 @@ struct CanvasTimelineDataView: View {
 
   @MainActor
   private func handlePausedStatusCardTap() {
-    guard !appState.isRecording else { return }
-    AnalyticsService.shared.capture(
-      "timeline_paused_card_clicked",
-      [
-        "action": "resume_recording"
-      ])
-    PauseManager.shared.resume(source: .userClickedMainApp)
+    switch recordingControlMode {
+    case .active:
+      return
+    case .pausedTimed, .pausedIndefinite:
+      AnalyticsService.shared.capture(
+        "timeline_paused_card_clicked",
+        [
+          "action": "resume_recording"
+        ])
+      PauseManager.shared.resume(source: .userClickedMainApp)
+    case .stopped:
+      AnalyticsService.shared.capture(
+        "timeline_stopped_card_clicked",
+        [
+          "action": "start_recording"
+        ])
+      RecordingControl.start(reason: "user_main_app")
+    }
   }
 
   private func clearSelection() {
