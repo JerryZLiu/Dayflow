@@ -74,7 +74,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     UserDefaults.standard.set(build, forKey: "lastRunBuild")
     statusBar = StatusBarController()
     LaunchAtLoginManager.shared.bootstrapDefaultPreference()
-    deepLinkRouter = AppDeepLinkRouter(delegate: self)
+    deepLinkRouter = AppDeepLinkRouter()
 
     // Check if we've passed the screen recording permission step
     let onboardingStep = OnboardingStepMigration.migrateIfNeeded()
@@ -108,7 +108,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
           // No permission or error - don't start recording
           // User will need to grant permission in onboarding
           await MainActor.run {
-            AppState.shared.isRecording = false
+            AppState.shared.setRecording(
+              false,
+              analyticsReason: "auto",
+              persistPreference: false
+            )
           }
           print("Screen recording permission not granted, skipping auto-start")
         }
@@ -330,11 +334,5 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     } else {
       ProcessCPUMonitor.shared.stop()
     }
-  }
-}
-
-extension AppDelegate: AppDeepLinkRouterDelegate {
-  func prepareForRecordingToggle(reason: String) {
-    AppState.shared.prepareForRecordingToggle(reason: reason)
   }
 }

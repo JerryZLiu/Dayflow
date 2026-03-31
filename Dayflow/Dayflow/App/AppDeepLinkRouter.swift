@@ -1,11 +1,6 @@
 import Foundation
 
 @MainActor
-protocol AppDeepLinkRouterDelegate: AnyObject {
-  func prepareForRecordingToggle(reason: String)
-}
-
-@MainActor
 final class AppDeepLinkRouter {
   enum Action: String {
     case startRecording = "start-recording"
@@ -23,11 +18,7 @@ final class AppDeepLinkRouter {
     }
   }
 
-  private weak var delegate: AppDeepLinkRouterDelegate?
-
-  init(delegate: AppDeepLinkRouterDelegate?) {
-    self.delegate = delegate
-  }
+  init() {}
 
   @discardableResult
   func handle(_ url: URL) -> Bool {
@@ -79,21 +70,19 @@ final class AppDeepLinkRouter {
   }
 
   private func startRecording() {
-    guard !AppState.shared.isRecording else {
+    guard RecordingControl.currentMode() != .active else {
       print("[DeepLink] Recording already active; ignoring start request")
       return
     }
-    delegate?.prepareForRecordingToggle(reason: "deeplink")
-    AppState.shared.isRecording = true
+    RecordingControl.start(reason: "deeplink")
   }
 
   private func stopRecording() {
-    guard AppState.shared.isRecording else {
+    guard RecordingControl.currentMode() != .stopped else {
       print("[DeepLink] Recording already stopped; ignoring stop request")
       return
     }
-    delegate?.prepareForRecordingToggle(reason: "deeplink")
-    AppState.shared.isRecording = false
+    RecordingControl.stop(reason: "deeplink")
   }
 
 }
