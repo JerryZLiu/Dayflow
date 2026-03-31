@@ -2,8 +2,8 @@
 //  PauseManager.swift
 //  Dayflow
 //
-//  Manages timed pause functionality for recording.
-//  Keeps pause state in-memory only (no persistence) so app restart = resume recording.
+//  Manages pause functionality for recording.
+//  Timed pauses are session-local, while indefinite pause keeps recording off until resumed.
 //
 
 import AppKit
@@ -91,13 +91,19 @@ final class PauseManager: ObservableObject {
 
   // MARK: - Public API
 
+  func clearPauseState() {
+    stopTimer()
+    pauseEndTime = nil
+    isPausedIndefinitely = false
+    currentPauseDuration = nil
+  }
+
   /// Pause recording for a specific duration from a specific source.
   /// - Parameters:
   ///   - duration: The pause duration (15 mins, 30 mins, 1 hour, or indefinite)
   ///   - source: Where the pause was initiated from (menu bar, main app, etc.)
   func pause(for duration: PauseDuration, source: PauseSource) {
-    // Stop any existing timer
-    stopTimer()
+    clearPauseState()
 
     // Store for analytics
     currentPauseDuration = duration
@@ -114,7 +120,11 @@ final class PauseManager: ObservableObject {
     }
 
     // Stop recording
-    AppState.shared.setRecording(false, analyticsReason: source.rawValue)
+    AppState.shared.setRecording(
+      false,
+      analyticsReason: source.rawValue,
+      persistPreference: duration == .indefinite
+    )
 
     // Send analytics
     AnalyticsService.shared.capture(
@@ -131,10 +141,7 @@ final class PauseManager: ObservableObject {
     let wasTimed = pauseEndTime != nil
     let pauseType = currentPauseDuration?.analyticsValue ?? "unknown"
 
-    stopTimer()
-    pauseEndTime = nil
-    isPausedIndefinitely = false
-    currentPauseDuration = nil
+    clearPauseState()
 
     // Start recording
     AppState.shared.setRecording(true, analyticsReason: source.rawValue)
