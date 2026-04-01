@@ -202,8 +202,8 @@ struct LLMProviderSetupView: View {
         .padding(.leading, 40)  // Gap between sidebar and content
       }
       .padding(.leading, fixedOffset)
-      .padding(.top, fixedOffset)
-      .padding(.bottom, 40)
+      .padding(.top, fixedOffset / 2)
+      .padding(.bottom, 20)
 
       // Main content area with sidebar and content
       HStack(alignment: .top, spacing: 40) {
@@ -1085,10 +1085,10 @@ class ProviderSetupState: ObservableObject {
   func ensureCLICheckStarted() {
     guard !hasStartedCLICheck else { return }
     hasStartedCLICheck = true
-    refreshCLIStatuses()
+    refreshCLIStatuses(source: "initial")
   }
 
-  func refreshCLIStatuses() {
+  func refreshCLIStatuses(source: String = "manual_recheck") {
     if isCheckingCLIStatus { return }
     isCheckingCLIStatus = true
     codexCLIStatus = .checking
@@ -1109,6 +1109,7 @@ class ProviderSetupState: ObservableObject {
         self.claudeCLIStatus = claudeResult.state
         self.isCheckingCLIStatus = false
         self.ensurePreferredCLIToolIsValid()
+        self.captureChatCLIDetectionChecked(source: source)
       }
     }
   }
@@ -1149,6 +1150,7 @@ class ProviderSetupState: ObservableObject {
     guard isToolAvailable(tool) else { return }
     preferredCLITool = tool
     persistPreferredCLITool()
+    captureChatCLIToolSelected(tool)
   }
 
   func persistPreferredCLITool() {
@@ -1171,6 +1173,65 @@ class ProviderSetupState: ObservableObject {
       preferredCLITool = nil
     }
     persistPreferredCLITool()
+  }
+
+  private func captureChatCLIDetectionChecked(source: String) {
+    AnalyticsService.shared.capture(
+      "chat_cli_detection_checked",
+      chatCLIDetectionAnalyticsProperties(
+        source: source,
+        selectedTool: preferredCLITool
+      )
+    )
+  }
+
+  private func captureChatCLIToolSelected(_ tool: CLITool) {
+    AnalyticsService.shared.capture(
+      "chat_cli_tool_selected",
+      chatCLIDetectionAnalyticsProperties(
+        source: "detection_step",
+        selectedTool: tool
+      )
+    )
+  }
+
+  private func chatCLIDetectionAnalyticsProperties(
+    source: String,
+    selectedTool: CLITool?
+  ) -> [String: Any] {
+    let codexAvailable = isToolAvailable(.codex)
+    let claudeAvailable = isToolAvailable(.claude)
+    let availableToolCount = [codexAvailable, claudeAvailable].filter { $0 }.count
+    let selectedToolAvailable = selectedTool.map(isToolAvailable(_:)) ?? false
+
+    return [
+      "source": source,
+      "setup_step": "detect",
+      "selected_tool": selectedTool?.rawValue ?? "none",
+      "selected_tool_available": selectedToolAvailable,
+      "codex_available": codexAvailable,
+      "claude_available": claudeAvailable,
+      "any_cli_available": codexAvailable || claudeAvailable,
+      "both_clis_available": codexAvailable && claudeAvailable,
+      "available_tool_count": availableToolCount,
+      "codex_status": analyticsValue(for: codexCLIStatus),
+      "claude_status": analyticsValue(for: claudeCLIStatus),
+    ]
+  }
+
+  private func analyticsValue(for status: CLIDetectionState) -> String {
+    switch status {
+    case .unknown:
+      return "unknown"
+    case .checking:
+      return "checking"
+    case .installed:
+      return "installed"
+    case .notFound:
+      return "not_found"
+    case .failed:
+      return "failed"
+    }
   }
 
   private func isToolAvailable(_ tool: CLITool) -> Bool {
@@ -1901,6 +1962,13 @@ enum CLITool: String, CaseIterable {
     case .claude: return "bolt.horizontal.circle"
     }
   }
+
+  var logoAssetName: String {
+    switch self {
+    case .codex: return "ChatGPTLogo"
+    case .claude: return "ClaudeLogo"
+    }
+  }
 }
 
 enum CLIDetectionState: Equatable {
@@ -2161,12 +2229,10 @@ struct ChatCLIToolStatusRow: View {
     VStack(alignment: .leading, spacing: 10) {
       // Icon and title row
       HStack(spacing: 10) {
-        Image(systemName: tool.iconName)
-          .font(.system(size: 16, weight: .semibold))
-          .foregroundColor(.black.opacity(0.75))
+        Image(tool.logoAssetName)
+          .resizable()
+          .aspectRatio(contentMode: .fit)
           .frame(width: 30, height: 30)
-          .background(Color.white.opacity(0.7))
-          .cornerRadius(6)
 
         Text(tool.shortName)
           .font(.custom("Nunito", size: 15))
@@ -2176,14 +2242,6 @@ struct ChatCLIToolStatusRow: View {
         Spacer()
 
         statusView
-      }
-
-      // Version info if installed
-      if let detail = status.detailMessage, !detail.isEmpty {
-        Text(detail)
-          .font(.custom("Nunito", size: 11))
-          .foregroundColor(.black.opacity(0.55))
-          .lineLimit(1)
       }
 
       // Install button if needed
