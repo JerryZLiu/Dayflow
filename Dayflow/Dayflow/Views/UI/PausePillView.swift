@@ -8,6 +8,7 @@ import SwiftUI
 ///   Menu → Paused:  chips exit, pill 250→84 (bounce 0.2), content morph, status text in
 ///   Paused → Idle:  status out, pill 84→73 (bounce 0.35), content morph back
 struct PausePillView: View {
+  @ObservedObject private var appState = AppState.shared
   @ObservedObject private var pauseManager = PauseManager.shared
 
   private enum Phase { case idle, menu, paused }
@@ -78,7 +79,11 @@ struct PausePillView: View {
     phase == .menu || chipOpacity.contains { $0 > 0.001 }
   }
 
-  private var showsPauseContent: Bool {
+  private var controlMode: RecordingControlMode {
+    RecordingControl.currentMode(appState: appState, pauseManager: pauseManager)
+  }
+
+  private var showsPrimaryContent: Bool {
     phase != .paused || pauseOpacity > 0.001
   }
 
@@ -110,6 +115,9 @@ struct PausePillView: View {
     .fixedSize(horizontal: true, vertical: false)
     .onAppear(perform: syncOnAppear)
     .onDisappear { cancelStatusVisibilityTask() }
+    .onChange(of: appState.isRecording) {
+      handleExternalRecordingChange()
+    }
     .onChange(of: pauseManager.isPaused) { _, isPaused in
       handleExternalPauseChange(isPaused)
     }
@@ -135,10 +143,10 @@ struct PausePillView: View {
       .allowsHitTesting(false)
       .animation(.easeInOut(duration: 0.35), value: phase)
 
-      if showsPauseContent || showsChips {
+      if showsPrimaryContent || showsChips {
         HStack(spacing: 0) {
-          if showsPauseContent {
-            pauseContent
+          if showsPrimaryContent {
+            primaryContent
           }
 
           if showsChips {
@@ -176,7 +184,7 @@ struct PausePillView: View {
     .pointingHandCursor()
   }
 
-  private var pauseContent: some View {
+  private var primaryContent: some View {
     HStack(spacing: 4) {
       PillPauseIcon()
       Text("Pause")
@@ -272,10 +280,29 @@ struct PausePillView: View {
 
   private func handlePillTap() {
     switch phase {
-    case .idle: openMenu()
+    case .idle:
+      if controlMode == .stopped {
+        startRecordingFromResumePill()
+      } else {
+        openMenu()
+      }
     case .menu: closeMenu()
-    case .paused: resumeFromPause()
+    case .paused:
+      switch controlMode {
+      case .pausedTimed, .pausedIndefinite:
+        resumeFromPause()
+      case .stopped:
+        startRecordingFromResumePill()
+      case .active:
+        openMenu()
+      }
     }
+  }
+
+  private func startRecordingFromResumePill() {
+    phase = .idle
+    RecordingControl.start(reason: "user_main_app")
+    animatePausedToIdle()
   }
 
   // MARK: - Idle → Menu
@@ -386,6 +413,69 @@ struct PausePillView: View {
     }
   }
 
+  private func setResumePillState(showStatusText: Bool) {
+    phase = .paused
+    pillWidth = 84
+    pauseOpacity = 0
+    pauseScale = 0.7
+    pauseBlur = 5
+    resumeOpacity = 1
+    resumeScale = 1
+    resumeBlur = 0
+
+    if showStatusText {
+      isStatusPresented = true
+      statusOpacity = 1
+      statusY = 0
+      statusBlurVal = 0
+    } else {
+      cancelStatusVisibilityTask()
+      isStatusPresented = false
+      statusOpacity = 0
+      statusY = 6
+      statusBlurVal = 6
+    }
+  }
+
+  private func transitionToResumePill(showStatusText: Bool) {
+    phase = .paused
+    exitChips()
+
+    withAnimation(.spring(duration: 0.5, bounce: 0.2)) {
+      pillWidth = 84
+    }
+
+    withAnimation(.spring(duration: 0.2, bounce: 0)) {
+      pauseOpacity = 0
+      pauseScale = 0.7
+      pauseBlur = 5
+    }
+
+    resumeOpacity = 0
+    resumeScale = 0.8
+    resumeBlur = 5
+
+    if !showStatusText {
+      cancelStatusVisibilityTask()
+      isStatusPresented = false
+      statusOpacity = 0
+      statusY = 6
+      statusBlurVal = 6
+    }
+
+    Task { @MainActor in
+      withAnimation(.spring(duration: 0.35, bounce: 0.25).delay(0.06)) {
+        resumeOpacity = 1
+        resumeScale = 1
+        resumeBlur = 0
+      }
+
+      if showStatusText {
+        presentStatusText(autoHide: pauseManager.isPausedIndefinitely, animationDelay: 0.1)
+      }
+    }
+  }
+
   // MARK: - Helpers
 
   private func exitChips() {
@@ -410,52 +500,43 @@ struct PausePillView: View {
   // MARK: - External State Sync
 
   private func syncOnAppear() {
-    guard pauseManager.isPaused else { return }
-    phase = .paused
-    pillWidth = 84
-    pauseOpacity = 0
-    resumeOpacity = 1
-    resumeScale = 1
-    resumeBlur = 0
-    isStatusPresented = true
-    statusOpacity = 1
-    statusY = 0
-    statusBlurVal = 0
-    if pauseManager.isPausedIndefinitely {
-      scheduleStatusAutoHide(after: 3)
+    switch controlMode {
+    case .pausedTimed, .pausedIndefinite:
+      setResumePillState(showStatusText: true)
+      if pauseManager.isPausedIndefinitely {
+        scheduleStatusAutoHide(after: 3)
+      }
+    case .stopped:
+      setResumePillState(showStatusText: false)
+    case .active:
+      break
     }
   }
 
   private func handleExternalPauseChange(_ isPaused: Bool) {
-    if isPaused, phase != .paused {
-      // External pause (menu bar)
-      phase = .paused
-      exitChips()
-
-      withAnimation(.spring(duration: 0.5, bounce: 0.2)) { pillWidth = 84 }
-      withAnimation(.spring(duration: 0.2, bounce: 0)) {
-        pauseOpacity = 0
-        pauseScale = 0.7
-        pauseBlur = 5
-      }
-
-      resumeOpacity = 0
-      resumeScale = 0.8
-      resumeBlur = 5
-
-      Task { @MainActor in
-        withAnimation(.spring(duration: 0.35, bounce: 0.25).delay(0.06)) {
-          resumeOpacity = 1
-          resumeScale = 1
-          resumeBlur = 0
-        }
-        presentStatusText(autoHide: pauseManager.isPausedIndefinitely, animationDelay: 0.1)
-      }
+    if isPaused {
+      transitionToResumePill(showStatusText: true)
     } else if !isPaused, phase == .paused {
-      // External resume (timer expired or menu bar)
+      if controlMode == .stopped {
+        setResumePillState(showStatusText: false)
+      } else {
+        phase = .idle
+        animatePausedToIdle()
+      }
+    }
+  }
+
+  private func handleExternalRecordingChange() {
+    guard !pauseManager.isPaused else { return }
+    if controlMode == .active {
+      guard phase == .paused else { return }
       phase = .idle
       animatePausedToIdle()
+      return
     }
+
+    guard phase != .paused else { return }
+    transitionToResumePill(showStatusText: false)
   }
 
   private func presentStatusText(autoHide: Bool, animationDelay: Double = 0) {
@@ -581,23 +662,23 @@ private enum Grad {
   // Chip default — 320deg CSS ≈ bottomTrailing→topLeading
   static let chip = LinearGradient(
     stops: [
-      .init(color: Color.white.opacity(0.4), location: 0.079),
-      .init(color: Color.white.opacity(0.8), location: 0.624),
-      .init(color: Color.white.opacity(0.4), location: 0.913),
+      .init(color: Color.white.opacity(0.72), location: 0),
+      .init(color: Color.white.opacity(0.56), location: 0.38),
+      .init(color: Color.white.opacity(0.44), location: 1),
     ],
-    startPoint: UnitPoint(x: 0.77, y: 0.98),
-    endPoint: UnitPoint(x: 0.23, y: 0.02)
+    startPoint: UnitPoint(x: 0.91, y: 0.97),
+    endPoint: UnitPoint(x: 0.11, y: 0)
   )
 
   // Chip hover — orange gradient overlay
   static let chipHover = LinearGradient(
     stops: [
-      .init(color: Color(red: 1, green: 0.553, blue: 0.251).opacity(0.8), location: 0.079),
-      .init(color: Color(red: 1, green: 0.702, blue: 0.565).opacity(0.8), location: 0.624),
-      .init(color: Color(red: 1, green: 0.553, blue: 0.251).opacity(0.8), location: 0.913),
+      .init(color: Color(red: 1, green: 0.702, blue: 0.565).opacity(0.82), location: 0),
+      .init(color: Color(red: 1, green: 0.624, blue: 0.416).opacity(0.82), location: 0.42),
+      .init(color: Color(red: 1, green: 0.553, blue: 0.251).opacity(0.82), location: 1),
     ],
-    startPoint: UnitPoint(x: 0.77, y: 0.98),
-    endPoint: UnitPoint(x: 0.23, y: 0.02)
+    startPoint: UnitPoint(x: 0.91, y: 0.97),
+    endPoint: UnitPoint(x: 0.11, y: 0)
   )
 }
 
