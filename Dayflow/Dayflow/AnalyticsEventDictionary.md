@@ -123,6 +123,9 @@ This document lists manual events, properties, and code locations. All events re
 - timeline_paused_card_clicked
   - props: `action: resume_recording`
   - file: Views/UI/CanvasTimelineDataView.swift
+- timeline_stopped_card_clicked
+  - props: `action: start_recording`
+  - file: Views/UI/CanvasTimelineDataView.swift
 - recording_started
   - file: Core/Recording/ScreenRecorder.swift (startStream)
 - recording_stopped
