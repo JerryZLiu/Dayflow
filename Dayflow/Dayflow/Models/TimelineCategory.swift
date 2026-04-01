@@ -104,8 +104,19 @@ final class CategoryStore: ObservableObject {
   }
 
   func assignColor(_ hex: String, to id: UUID) {
+    let previousHex = categories.first(where: { $0.id == id })?.colorHex
+    let categoryName = categories.first(where: { $0.id == id })?.name ?? "unknown"
     updateCategory(id: id) { cat in
       cat.colorHex = hex
+    }
+    if hex != previousHex {
+      AnalyticsService.shared.capture(
+        "category_color_changed",
+        [
+          "category_name": categoryName,
+          "color_hex": hex,
+          "previous_color_hex": previousHex ?? "none",
+        ])
     }
   }
 
