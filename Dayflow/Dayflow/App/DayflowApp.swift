@@ -113,7 +113,7 @@ struct DayflowApp: App {
               .environmentObject(categoryStore)
               .environmentObject(updaterManager)
               .environmentObject(journalCoordinator)
-          } else {
+          } else if !showVideoLaunch {
             OnboardingFlow()
               .environmentObject(AppState.shared)
               .environmentObject(categoryStore)
