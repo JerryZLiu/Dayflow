@@ -24,163 +24,222 @@ struct ScreenRecordingPermissionView: View {
     case needsAction  // requested or settings opened, awaiting quit & reopen / toggle
   }
 
+  private let brownAccent = Color(hex: "492304")
+  private let privacyTextColor = Color(hex: "89380E")
+
   var body: some View {
-    HStack(spacing: 60) {
-      // Left side - text and controls
-      VStack(alignment: .leading, spacing: 24) {
-        Text("Last step!")
-          .font(.custom("Nunito", size: 20))
-          .foregroundColor(.black.opacity(0.7))
-          .multilineTextAlignment(.leading)
-          .fixedSize(horizontal: false, vertical: true)
-          .padding(.bottom, 20)
+    ZStack(alignment: .bottomTrailing) {
+      HStack(alignment: .top, spacing: 60) {
+        // Left side — text and controls
+        VStack(alignment: .leading, spacing: 10) {
+          Text("Last step!")
+            .font(.custom("Nunito-Bold", size: 16))
+            .foregroundColor(Color(hex: "F96E00"))
 
-        Text("Screen Recording")
-          .font(.custom("Nunito", size: 32))
-          .fontWeight(.bold)
-          .foregroundColor(.black.opacity(0.9))
+          Text("Permission")
+            .font(.custom("InstrumentSerif-Regular", size: 28))
+            .foregroundColor(.black)
 
-        Text(
-          "Screen recordings are stored locally on your Mac and can be processed entirely on-device using local AI models."
-        )
-        .font(.custom("Nunito", size: 16))
-        .foregroundColor(.black.opacity(0.6))
-        .fixedSize(horizontal: false, vertical: true)
+          Text("Enable screen recording so Dayflow can help understand your activities.")
+            .font(.custom("Nunito-Medium", size: 14))
+            .foregroundColor(Color(hex: "5B5B5B"))
+            .fixedSize(horizontal: false, vertical: true)
 
-        // State-based messaging
-        Group {
-          switch permissionState {
-          case .notRequested:
-            EmptyView()
-          case .granted:
-            Text("✓ Permission granted! Click Next to continue.")
-              .font(.custom("Nunito", size: 14))
-              .foregroundColor(.green)
-          case .needsAction:
-            Text("Turn on Screen Recording for Dayflow, then quit and reopen the app to finish.")
-              .font(.custom("Nunito", size: 14))
-              .foregroundColor(.orange)
+          // Privacy info box
+          VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+              Image(systemName: "shield.fill")
+                .font(.system(size: 14))
+                .foregroundColor(privacyTextColor)
+              Text("We care about your privacy")
+                .font(.custom("Nunito-Bold", size: 14))
+                .foregroundColor(privacyTextColor)
+            }
+
+            Text(
+              "Dayflow stores all recordings locally on your Mac, and can process everything privately on your device using local AI models."
+            )
+            .font(.custom("Nunito-Medium", size: 14))
+            .foregroundColor(privacyTextColor)
+
+            Text("You are always in control — you can pause or turn off Dayflow whenever you like.")
+              .font(.custom("Nunito-Medium", size: 14))
+              .foregroundColor(privacyTextColor)
           }
-        }
-        .padding(.top, 8)
+          .padding(16)
+          .frame(maxWidth: 351, alignment: .leading)
+          .background(Color.white.opacity(0.3))
+          .cornerRadius(5)
+          .overlay(
+            RoundedRectangle(cornerRadius: 5)
+              .stroke(Color(red: 0.8, green: 0.278, blue: 0).opacity(0.15), lineWidth: 1)
+          )
+          .shadow(
+            color: Color(red: 0.725, green: 0.608, blue: 0.482).opacity(0.3), radius: 4, x: 0, y: 0)
 
-        // Action buttons
-        Group {
-          switch permissionState {
-          case .notRequested:
-            DayflowSurfaceButton(
-              action: { requestPermission() },
-              content: {
-                HStack {
+          // State-based messaging
+          Group {
+            switch permissionState {
+            case .notRequested:
+              EmptyView()
+            case .granted:
+              Text("✓ Permission granted! Click Next to continue.")
+                .font(.custom("Nunito", size: 14))
+                .foregroundColor(.green)
+            case .needsAction:
+              Text("Turn on Screen Recording for Dayflow, then quit and reopen the app to finish.")
+                .font(.custom("Nunito", size: 14))
+                .foregroundColor(.orange)
+            }
+          }
+
+          // Action buttons
+          Group {
+            switch permissionState {
+            case .notRequested:
+              Button(action: requestPermission) {
+                HStack(spacing: 6) {
                   if isCheckingPermission {
                     ProgressView()
-                      .scaleEffect(0.8)
+                      .scaleEffect(0.7)
                       .progressViewStyle(CircularProgressViewStyle())
                   }
-                  Text(isCheckingPermission ? "Checking..." : "Grant Permission")
-                    .font(.custom("Nunito", size: 16))
-                    .fontWeight(.medium)
+                  Text(isCheckingPermission ? "Checking..." : "Open System Settings")
+                    .font(.custom("Nunito-SemiBold", size: 12))
+                    .tracking(-0.48)
+                    .foregroundColor(brownAccent)
                 }
-              },
-              background: Color(red: 0.25, green: 0.17, blue: 0),
-              foreground: .white,
-              borderColor: .clear,
-              cornerRadius: 8,
-              horizontalPadding: 24,
-              verticalPadding: 12,
-              showOverlayStroke: true
-            )
-            .disabled(isCheckingPermission)
-          case .needsAction:
-            HStack(spacing: 12) {
-              DayflowSurfaceButton(
-                action: openSystemSettings,
-                content: {
-                  Text("Open System Settings")
-                    .font(.custom("Nunito", size: 16))
-                    .fontWeight(.medium)
-                },
-                background: Color(red: 0.25, green: 0.17, blue: 0),
-                foreground: .white,
-                borderColor: .clear,
-                cornerRadius: 8,
-                horizontalPadding: 24,
-                verticalPadding: 12,
-                showOverlayStroke: true
-              )
-              DayflowSurfaceButton(
-                action: quitAndReopen,
-                content: {
-                  Text("Quit & Reopen")
-                    .font(.custom("Nunito", size: 16))
-                    .fontWeight(.medium)
-                },
-                background: .white,
-                foreground: Color(red: 0.25, green: 0.17, blue: 0),
-                borderColor: .clear,
-                cornerRadius: 8,
-                horizontalPadding: 24,
-                verticalPadding: 12,
-                showOverlayStroke: true
-              )
-            }
-          case .granted:
-            EmptyView()
-          }
-        }
-        .padding(.top, 16)
-
-        // Navigation buttons
-        HStack(spacing: 16) {
-          DayflowSurfaceButton(
-            action: onBack,
-            content: { Text("Back").font(.custom("Nunito", size: 14)).fontWeight(.semibold) },
-            background: .white,
-            foreground: Color(red: 0.25, green: 0.17, blue: 0),
-            borderColor: .clear,
-            cornerRadius: 8,
-            horizontalPadding: 20,
-            verticalPadding: 12,
-            minWidth: 120,
-            isSecondaryStyle: true
-          )
-          DayflowSurfaceButton(
-            action: {
-              if permissionState == .granted {
-                onNext()
+                .padding(12)
               }
-            },
-            content: { Text("Next").font(.custom("Nunito", size: 14)).fontWeight(.semibold) },
-            background: permissionState == .granted
-              ? Color(red: 0.25, green: 0.17, blue: 0)
-              : Color(red: 0.25, green: 0.17, blue: 0).opacity(0.3),
-            foreground: permissionState == .granted ? .white : .white.opacity(0.5),
-            borderColor: .clear,
-            cornerRadius: 8,
-            horizontalPadding: 20,
-            verticalPadding: 12,
-            minWidth: 120,
-            showOverlayStroke: permissionState == .granted
-          )
-          .disabled(permissionState != .granted)
+              .buttonStyle(.plain)
+              .background(
+                LinearGradient(
+                  stops: [
+                    .init(
+                      color: Color(red: 1, green: 0.773, blue: 0.341).opacity(0.7), location: 0.73),
+                    .init(
+                      color: Color(red: 1, green: 0.98, blue: 0.945).opacity(0), location: 0.99),
+                  ],
+                  startPoint: UnitPoint(x: 0.7, y: 1),
+                  endPoint: UnitPoint(x: 0.3, y: 0)
+                )
+                .background(Color.white.opacity(0.69))
+              )
+              .cornerRadius(6)
+              .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                  .stroke(Color(hex: "FFBC80"), lineWidth: 1)
+              )
+              .disabled(isCheckingPermission)
+            case .needsAction:
+              HStack(spacing: 12) {
+                Button(action: openSystemSettings) {
+                  Text("Open System Settings")
+                    .font(.custom("Nunito-SemiBold", size: 12))
+                    .tracking(-0.48)
+                    .foregroundColor(brownAccent)
+                    .padding(12)
+                }
+                .buttonStyle(.plain)
+                .background(
+                  LinearGradient(
+                    stops: [
+                      .init(
+                        color: Color(red: 1, green: 0.773, blue: 0.341).opacity(0.7), location: 0.73
+                      ),
+                      .init(
+                        color: Color(red: 1, green: 0.98, blue: 0.945).opacity(0), location: 0.99),
+                    ],
+                    startPoint: UnitPoint(x: 0.7, y: 1),
+                    endPoint: UnitPoint(x: 0.3, y: 0)
+                  )
+                  .background(Color.white.opacity(0.69))
+                )
+                .cornerRadius(6)
+                .overlay(
+                  RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color(hex: "FFBC80"), lineWidth: 1)
+                )
+
+                Button(action: quitAndReopen) {
+                  Text("Quit & Reopen")
+                    .font(.custom("Nunito-SemiBold", size: 12))
+                    .tracking(-0.48)
+                    .foregroundColor(brownAccent)
+                    .padding(12)
+                }
+                .buttonStyle(.plain)
+                .background(Color.white.opacity(0.69))
+                .cornerRadius(6)
+                .overlay(
+                  RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color(hex: "FFBC80"), lineWidth: 1)
+                )
+              }
+            case .granted:
+              EmptyView()
+            }
+          }
+
+          Spacer()
         }
-        .padding(.top, 20)
+        .frame(maxWidth: 374)
 
         Spacer()
-      }
-      .frame(maxWidth: 400)
 
-      // Right side - image
-      if let image = NSImage(named: "ScreenRecordingPermissions") {
-        Image(nsImage: image)
-          .resizable()
-          .aspectRatio(contentMode: .fit)
-          .frame(maxWidth: 500)
-          .cornerRadius(12)
-          .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
+        // Right side - image
+        if let image = NSImage(named: "ScreenRecordingPermissions") {
+          Image(nsImage: image)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(maxWidth: 486)
+            .background(Color(hex: "FCFCFC"))
+            .cornerRadius(8)
+            .overlay(
+              RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(hex: "F0F0F0"), lineWidth: 1)
+            )
+            .shadow(
+              color: Color(red: 0.725, green: 0.608, blue: 0.482).opacity(0.25), radius: 3, x: 0,
+              y: 2)
+        }
+      }
+
+      // Navigation buttons — bottom right
+      HStack(spacing: 15) {
+        DayflowSurfaceButton(
+          action: onBack,
+          content: { Text("Back").font(.custom("Nunito-Medium", size: 12)).tracking(-0.48) },
+          background: .white,
+          foreground: Color(hex: "B6B6B6"),
+          borderColor: Color(hex: "B6B6B6"),
+          cornerRadius: 4,
+          horizontalPadding: 40,
+          verticalPadding: 12,
+          isSecondaryStyle: true
+        )
+        DayflowSurfaceButton(
+          action: {
+            if permissionState == .granted { onNext() }
+          },
+          content: { Text("Next").font(.custom("Nunito-Medium", size: 12)).tracking(-0.48) },
+          background: permissionState == .granted
+            ? Color(hex: "402B00")
+            : Color(hex: "402B00").opacity(0.3),
+          foreground: .white,
+          borderColor: .clear,
+          cornerRadius: 4,
+          horizontalPadding: 40,
+          verticalPadding: 12,
+          showOverlayStroke: permissionState == .granted
+        )
+        .disabled(permissionState != .granted)
       }
     }
-    .padding(60)
+    .padding(.leading, 105)
+    .padding(.trailing, 60)
+    .padding(.top, 30)
+    .padding(.bottom, 40)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .onAppear {
       // If already granted, mark as granted; otherwise start in notRequested
