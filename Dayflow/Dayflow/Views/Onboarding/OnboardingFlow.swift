@@ -18,9 +18,27 @@ struct OnboardingFlow: View {
   @EnvironmentObject private var categoryStore: CategoryStore
   @State private var userHasPaidAI: Bool? = OnboardingFlow.loadSavedHasPaidAISelection()
 
+  private var onboardingFilledSegments: Int {
+    switch step {
+    case .introVideo: return 0
+    case .roleSelection: return 0
+    case .referral: return 1
+    case .preferences: return 2
+    case .llmSelection: return 3
+    case .llmSetup: return 4
+    case .categories: return 5
+    case .screen: return 6
+    case .completion: return 7
+    }
+  }
+
+  private var showsProgressRing: Bool {
+    step != .introVideo && step != .llmSelection
+  }
+
   @ViewBuilder
   var body: some View {
-    ZStack {
+    ZStack(alignment: .bottomLeading) {
       // NO NESTING! Just render the appropriate view directly - NO GROUP!
       switch step {
       case .introVideo:
@@ -57,6 +75,27 @@ struct OnboardingFlow: View {
         .transition(.opacity)
         .onAppear {
           AnalyticsService.shared.screen("onboarding_role_selection")
+        }
+
+      case .referral:
+        OnboardingPrototypeReferralStep(
+          onContinue: { option, detail in
+            var payload: [String: String] = [
+              "source": option.analyticsValue,
+              "surface": "onboarding_referral",
+            ]
+
+            if let detail, !detail.isEmpty {
+              payload["detail"] = detail
+            }
+
+            AnalyticsService.shared.capture("onboarding_referral", payload)
+            advance()
+          }
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+          AnalyticsService.shared.screen("onboarding_referral")
         }
 
       case .preferences:
@@ -119,7 +158,13 @@ struct OnboardingFlow: View {
         }
 
       case .categories:
-        OnboardingCategorySetupView(
+        OnboardingCategoryStepView(
+          onBack: {
+            // Go back to llmSetup, or llmSelection if they picked dayflow
+            let backStep: OnboardingStep =
+              (selectedProvider == "dayflow") ? .llmSelection : .llmSetup
+            setStep(backStep)
+          },
           onNext: {
             advance()
           }
@@ -160,6 +205,14 @@ struct OnboardingFlow: View {
           AnalyticsService.shared.screen("onboarding_completion")
         }
       }
+
+      // Progress ring — bottom-left, always in tree (opacity toggle preserves @State)
+      ProgressRingView(totalSegments: 7, filledSegments: onboardingFilledSegments)
+        .opacity(showsProgressRing ? 1 : 0)
+        .animation(.easeInOut(duration: 0.3), value: showsProgressRing)
+        .padding(.leading, 0)
+        .padding(.bottom, 0)
+        .allowsHitTesting(false)
     }
     .animation(.easeInOut(duration: 0.5), value: step)
     .onAppear {
@@ -206,6 +259,10 @@ struct OnboardingFlow: View {
       step.next()
       savedStepRawValue = step.rawValue
     case .roleSelection:
+      markStepCompleted(step)
+      step.next()
+      savedStepRawValue = step.rawValue
+    case .referral:
       markStepCompleted(step)
       step.next()
       savedStepRawValue = step.rawValue
@@ -274,7 +331,7 @@ struct OnboardingFlow: View {
 
 /// Wizard step order
 enum OnboardingStep: Int, CaseIterable {
-  case introVideo, roleSelection, preferences, llmSelection, llmSetup, categories, screen,
+  case introVideo, roleSelection, referral, preferences, llmSelection, llmSetup, categories, screen,
     completion
 
   var analyticsName: String {
@@ -283,6 +340,8 @@ enum OnboardingStep: Int, CaseIterable {
       return "intro_video"
     case .roleSelection:
       return "role_selection"
+    case .referral:
+      return "referral"
     case .preferences:
       return "preferences"
     case .llmSelection:
@@ -309,7 +368,7 @@ enum OnboardingStep: Int, CaseIterable {
 enum OnboardingStepMigration {
   static let schemaVersionKey = "onboardingStepSchemaVersion"
   private static let onboardingStepKey = "onboardingStep"
-  static let currentVersion = 2
+  static let currentVersion = 3
 
   @discardableResult
   static func migrateIfNeeded(defaults: UserDefaults = .standard) -> Int {
@@ -331,6 +390,13 @@ enum OnboardingStepMigration {
     // New v2: introVideo=0, roleSelection=1, preferences=2, llmSelection=3, llmSetup=4, categories=5, screen=6, completion=7
     if storedVersion < 2 {
       migratedValue = migrateV1toV2(migratedValue)
+    }
+
+    // v2 → v3: insert referral after role selection
+    // Old v2: introVideo=0, roleSelection=1, preferences=2, llmSelection=3, llmSetup=4, categories=5, screen=6, completion=7
+    // New v3: introVideo=0, roleSelection=1, referral=2, preferences=3, llmSelection=4, llmSetup=5, categories=6, screen=7, completion=8
+    if storedVersion < 3 {
+      migratedValue = migrateV2toV3(migratedValue)
     }
 
     defaults.set(migratedValue, forKey: onboardingStepKey)
@@ -368,9 +434,23 @@ enum OnboardingStepMigration {
     }
   }
 
+  static func migrateV2toV3(_ rawValue: Int) -> Int {
+    switch rawValue {
+    case 0: return 0  // introVideo → introVideo
+    case 1: return 1  // roleSelection → roleSelection
+    case 2: return 3  // preferences → preferences
+    case 3: return 4  // llmSelection → llmSelection
+    case 4: return 5  // llmSetup → llmSetup
+    case 5: return 6  // categories → categories
+    case 6: return 7  // screen → screen
+    case 7: return 8  // completion → completion
+    default: return 0
+    }
+  }
+
   // Keep for testing compatibility
   static func migrateRawValue(_ rawValue: Int) -> Int {
-    migrateV1toV2(migrateV0toV1(rawValue))
+    migrateV2toV3(migrateV1toV2(migrateV0toV1(rawValue)))
   }
 }
 
@@ -470,19 +550,87 @@ struct OnboardingCategorySetupView: View {
   }
 }
 
-struct CompletionView: View {
-  let onFinish: () -> Void
-  @State private var referralSelection: ReferralOption? = nil
-  @State private var referralDetail: String = ""
+struct OnboardingPrototypeReferralStep: View {
+  let onContinue: (ReferralOption, String?) -> Void
 
-  /// User must select a referral option (and provide detail if required) to proceed
-  private var canProceed: Bool {
-    guard let option = referralSelection else { return false }
+  @State private var selectedReferral: ReferralOption? = nil
+  @State private var referralDetail = ""
+
+  private var trimmedDetail: String {
+    referralDetail.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private var canContinue: Bool {
+    guard let option = selectedReferral else { return false }
     if option.requiresDetail {
-      return !referralDetail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      return !trimmedDetail.isEmpty
     }
     return true
   }
+
+  var body: some View {
+    VStack(spacing: 0) {
+      Spacer()
+        .frame(height: 39)
+
+      Text("One quick question")
+        .font(.custom("InstrumentSerif-Regular", size: 40))
+        .tracking(-1.2)
+        .multilineTextAlignment(.center)
+        .foregroundColor(Color(hex: "492304"))
+        .lineSpacing(40 * 0.2)
+        .frame(maxWidth: 708)
+        .fixedSize(horizontal: false, vertical: true)
+
+      Spacer()
+        .frame(height: 48)
+
+      VStack(spacing: 20) {
+        ReferralSurveyView(
+          prompt: "Where did you first hear about Dayflow?",
+          showSubmitButton: false,
+          selectedReferral: $selectedReferral,
+          customReferral: $referralDetail
+        )
+      }
+      .frame(maxWidth: 720)
+      .padding(.horizontal, 24)
+
+      Spacer()
+
+      DayflowSurfaceButton(
+        action: {
+          guard let option = selectedReferral else { return }
+          let detail = option.requiresDetail ? trimmedDetail : nil
+          onContinue(option, detail)
+        },
+        content: {
+          Text("Continue")
+            .font(.custom("Nunito", size: 14))
+            .fontWeight(.semibold)
+        },
+        background: Color(hex: "402C00"),
+        foreground: .white,
+        borderColor: .clear,
+        cornerRadius: 8,
+        horizontalPadding: 59,
+        verticalPadding: 12,
+        minWidth: 234,
+        showOverlayStroke: true
+      )
+      .opacity(canContinue ? 1.0 : 0.4)
+      .allowsHitTesting(canContinue)
+      .animation(.easeInOut(duration: 0.2), value: canContinue)
+
+      Spacer()
+        .frame(height: 60)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+}
+
+struct CompletionView: View {
+  let onFinish: () -> Void
 
   var body: some View {
     VStack(spacing: 16) {
@@ -498,31 +646,25 @@ struct CompletionView: View {
           .font(.custom("InstrumentSerif-Regular", size: 36))
           .foregroundColor(.black.opacity(0.9))
 
+        Text(
+          "Dayflow is set up and recording is ready. Launch the app to start seeing your timeline fill in."
+        )
+        .font(.custom("Nunito", size: 15))
+        .foregroundColor(.black.opacity(0.6))
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
       }
 
-      // Referral survey replaces the static preview
-      ReferralSurveyView(
-        prompt:
-          "I have a small favor to ask. I'd love to understand where you first heard about Dayflow.",
-        showSubmitButton: false,
-        selectedReferral: $referralSelection,
-        customReferral: $referralDetail
-      )
-
-      // Proceed button (disabled until referral is selected)
       DayflowSurfaceButton(
         action: {
-          submitReferralIfNeeded()
           onFinish()
         },
         content: {
-          Text("Start")
+          Text("Launch Dayflow")
             .font(.custom("Nunito", size: 16))
             .fontWeight(.semibold)
         },
-        background: canProceed
-          ? Color(red: 0.25, green: 0.17, blue: 0)
-          : Color(red: 0.88, green: 0.84, blue: 0.78),
+        background: Color(red: 0.25, green: 0.17, blue: 0),
         foreground: .white,
         borderColor: .clear,
         cornerRadius: 8,
@@ -531,38 +673,12 @@ struct CompletionView: View {
         minWidth: 200,
         showOverlayStroke: true
       )
-      .disabled(!canProceed)
       .padding(.top, 16)
     }
     .padding(.horizontal, 48)
     .padding(.vertical, 60)
     .frame(maxWidth: 720)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-  }
-
-  private func submitReferralIfNeeded() {
-    guard let payload = referralPayload() else { return }
-    AnalyticsService.shared.capture("onboarding_referral", payload)
-  }
-
-  private func referralPayload() -> [String: String]? {
-    guard let option = referralSelection else { return nil }
-
-    var payload: [String: String] = [
-      "source": option.analyticsValue,
-      "surface": "onboarding_completion",
-    ]
-
-    let trimmedDetail = referralDetail.trimmingCharacters(in: .whitespacesAndNewlines)
-
-    if option.requiresDetail {
-      guard !trimmedDetail.isEmpty else { return nil }
-      payload["detail"] = trimmedDetail
-    } else if !trimmedDetail.isEmpty {
-      payload["detail"] = trimmedDetail
-    }
-
-    return payload
   }
 }
 
