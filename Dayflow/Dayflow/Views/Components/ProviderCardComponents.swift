@@ -278,19 +278,28 @@ enum BadgeType {
 struct BadgeView: View {
   let text: String
   let type: BadgeType
+  let scale: CGFloat
+  let fontScale: CGFloat
+
+  init(text: String, type: BadgeType, scale: CGFloat = 1, fontScale: CGFloat = 1) {
+    self.text = text
+    self.type = type
+    self.scale = scale
+    self.fontScale = fontScale
+  }
 
   var body: some View {
-    HStack(spacing: 4) {
+    HStack(spacing: 4 * scale) {
       Text(text)
-        .font(Font.custom("Nunito", size: 10).weight(textWeight))
-        .kerning(kerningValue)
+        .font(Font.custom("Nunito", size: 10 * scale * fontScale).weight(textWeight))
+        .kerning(kerningValue * scale * fontScale)
         .foregroundColor(textColor)
     }
-    .padding(.horizontal, 8)
-    .padding(.vertical, 4)
+    .padding(.horizontal, 8 * scale)
+    .padding(.vertical, 4 * scale)
     .background(badgeBackground)
-    .cornerRadius(2)
-    .modifier(BadgeShadowModifier(shadowColor: shadowColor))
+    .cornerRadius(2 * scale)
+    .modifier(BadgeShadowModifier(shadowColor: shadowColor, scale: scale))
     .overlay(badgeOverlay)
   }
 
@@ -386,27 +395,59 @@ struct BadgeView: View {
 
 struct BadgeShadowModifier: ViewModifier {
   let shadowColor: Color
+  let scale: CGFloat
+
+  init(shadowColor: Color, scale: CGFloat = 1) {
+    self.shadowColor = shadowColor
+    self.scale = scale
+  }
 
   func body(content: Content) -> some View {
     content
-      .shadow(color: shadowColor.opacity(0.14), radius: 1.5, x: 0, y: 1)
-      .shadow(color: shadowColor.opacity(0.12), radius: 2.5, x: 2, y: 4)
-      .shadow(color: shadowColor.opacity(0.07), radius: 3, x: 4, y: 10)
-      .shadow(color: shadowColor.opacity(0.02), radius: 3.5, x: 7, y: 17)
-      .shadow(color: shadowColor.opacity(0), radius: 4, x: 10, y: 27)
+      .shadow(color: shadowColor.opacity(0.14), radius: 1.5 * scale, x: 0, y: 1 * scale)
+      .shadow(
+        color: shadowColor.opacity(0.12),
+        radius: 2.5 * scale,
+        x: 2 * scale,
+        y: 4 * scale
+      )
+      .shadow(
+        color: shadowColor.opacity(0.07),
+        radius: 3 * scale,
+        x: 4 * scale,
+        y: 10 * scale
+      )
+      .shadow(
+        color: shadowColor.opacity(0.02),
+        radius: 3.5 * scale,
+        x: 7 * scale,
+        y: 17 * scale
+      )
+      .shadow(
+        color: shadowColor.opacity(0),
+        radius: 4 * scale,
+        x: 10 * scale,
+        y: 27 * scale
+      )
   }
 }
 
 struct ProviderIconView: View {
   let icon: String
+  let scale: CGFloat
+
+  init(icon: String, scale: CGFloat = 1) {
+    self.icon = icon
+    self.scale = scale
+  }
 
   var body: some View {
     iconContent
-      .frame(width: containerWidth, height: 40)
+      .frame(width: containerWidth, height: 40 * scale)
   }
 
   private var containerWidth: CGFloat {
-    icon == "chatgpt_claude_asset" ? 104 : 40
+    (icon == "chatgpt_claude_asset" ? 104 : 40) * scale
   }
 
   @ViewBuilder
@@ -415,7 +456,7 @@ struct ProviderIconView: View {
     case "gemini_asset":
       logoBox(name: "GeminiLogo")
     case "chatgpt_claude_asset":
-      HStack(spacing: 8) {
+      HStack(spacing: 8 * scale) {
         logoBox(name: "ChatGPTLogo")
         logoBox(name: "ClaudeLogo")
       }
@@ -432,48 +473,61 @@ struct ProviderIconView: View {
       .interpolation(.high)
       .antialiased(true)
       .scaledToFit()
-      .frame(width: 28, height: 28)
-      .padding(6)
+      .frame(width: 28 * scale, height: 28 * scale)
+      .padding(6 * scale)
       .background(.white.opacity(0.9))
-      .cornerRadius(6)
-      .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 2)
+      .cornerRadius(6 * scale)
+      .shadow(color: Color.black.opacity(0.05), radius: 2 * scale, x: 0, y: 2 * scale)
       .overlay(
-        RoundedRectangle(cornerRadius: 6)
-          .stroke(Color.black.opacity(0.05), lineWidth: 0.5)
+        RoundedRectangle(cornerRadius: 6 * scale)
+          .stroke(Color.black.opacity(0.05), lineWidth: 0.5 * scale)
       )
   }
 
   @ViewBuilder
   private func logoBox(systemName: String) -> some View {
     Image(systemName: systemName)
-      .font(.system(size: 20, weight: .medium))
+      .font(.system(size: 20 * scale, weight: .medium))
       .foregroundColor(.black.opacity(0.7))
-      .frame(width: 40, height: 40)
+      .frame(width: 40 * scale, height: 40 * scale)
       .background(.white.opacity(0.6))
-      .cornerRadius(3)
-      .shadow(color: Color(red: 0.92, green: 0.91, blue: 0.91), radius: 1, x: -1, y: 2)
+      .cornerRadius(3 * scale)
+      .shadow(
+        color: Color(red: 0.92, green: 0.91, blue: 0.91),
+        radius: 1 * scale,
+        x: -1 * scale,
+        y: 2 * scale
+      )
       .overlay(
-        RoundedRectangle(cornerRadius: 3)
+        RoundedRectangle(cornerRadius: 3 * scale)
           .inset(by: 0.23)
-          .stroke(.white.opacity(0.87), lineWidth: 0.46508)
+          .stroke(.white.opacity(0.87), lineWidth: 0.46508 * scale)
       )
   }
 }
 
 struct FeatureRowView: View {
   let feature: (text: String, isAvailable: Bool)
+  let scale: CGFloat
+  let fontScale: CGFloat
+
+  init(feature: (text: String, isAvailable: Bool), scale: CGFloat = 1, fontScale: CGFloat = 1) {
+    self.feature = feature
+    self.scale = scale
+    self.fontScale = fontScale
+  }
 
   var body: some View {
-    HStack(alignment: .center, spacing: 8) {
+    HStack(alignment: .center, spacing: 8 * scale) {
       Image(systemName: feature.isAvailable ? "checkmark" : "xmark")
-        .font(.system(size: 12, weight: .bold))
+        .font(.system(size: 12 * scale, weight: .bold))
         .foregroundColor(
           feature.isAvailable ? Color(red: 0.34, green: 1, blue: 0.45) : Color(hex: "E91515")
         )
-        .frame(width: 16)
+        .frame(width: 16 * scale)
 
       Text(feature.text)
-        .font(.custom("Nunito", size: 14))
+        .font(.custom("Nunito", size: 14 * scale * fontScale))
         .foregroundColor(.black.opacity(0.75))
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
