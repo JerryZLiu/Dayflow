@@ -214,6 +214,11 @@ struct DayflowApp: App {
           // Reset the saved onboarding step to start from beginning
           UserDefaults.standard.set(0, forKey: "onboardingStep")
           UserDefaults.standard.removeObject(forKey: "onboardingHasPaidAI")
+          UserDefaults.standard.removeObject(forKey: CategoryStore.StoreKeys.onboardingSelectedRole)
+          UserDefaults.standard.removeObject(
+            forKey: CategoryStore.StoreKeys.onboardingAppliedCategoryPreset)
+          UserDefaults.standard.removeObject(
+            forKey: CategoryStore.StoreKeys.onboardingCategoriesCustomized)
           // Reset the selected LLM provider to default
           UserDefaults.standard.set("gemini", forKey: "selectedLLMProvider")
           // Force quit and restart the app to show onboarding
