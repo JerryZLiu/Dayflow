@@ -16,11 +16,13 @@ struct OnboardingCategoryStepView: View {
 
   @State private var editingCategoryID: UUID?
   @State private var draftName: String = ""
+  @State private var pendingDeleteCategory: TimelineCategory?
 
   // Analytics counters for the completion summary
   @State private var renameCount = 0
   @State private var addCount = 0
   @State private var colorChangeCount = 0
+  @State private var deleteCount = 0
 
   private var categories: [TimelineCategory] {
     categoryStore.editableCategories
@@ -28,6 +30,10 @@ struct OnboardingCategoryStepView: View {
 
   private var canAddMore: Bool {
     categories.count < 20
+  }
+
+  private var canContinue: Bool {
+    !categories.isEmpty
   }
 
   var body: some View {
@@ -56,6 +62,20 @@ struct OnboardingCategoryStepView: View {
         .padding(.trailing, 80)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .alert(
+      "Delete category?",
+      isPresented: deleteAlertBinding,
+      presenting: pendingDeleteCategory
+    ) { category in
+      Button("Delete", role: .destructive) {
+        deleteCategory(category)
+      }
+      Button("Cancel", role: .cancel) {
+        pendingDeleteCategory = nil
+      }
+    } message: { category in
+      Text("“\(category.name)” will be removed from your onboarding categories.")
+    }
   }
 
   // MARK: - Left Column
@@ -129,6 +149,19 @@ struct OnboardingCategoryStepView: View {
       .buttonStyle(.plain)
       .pointingHandCursor()
 
+      if !category.isSystem {
+        Button {
+          requestDelete(category)
+        } label: {
+          Image("CategoriesDelete")
+            .resizable()
+            .frame(width: 16, height: 16)
+            .accessibilityLabel("Delete category")
+        }
+        .buttonStyle(.plain)
+        .pointingHandCursor()
+      }
+
       Button {
         cancelEditing()
       } label: {
@@ -163,15 +196,28 @@ struct OnboardingCategoryStepView: View {
       Spacer()
 
       if !category.isSystem {
-        Button {
-          startEditing(category)
-        } label: {
-          Image(systemName: "pencil")
-            .font(.system(size: 12))
-            .foregroundColor(.black.opacity(0.4))
+        HStack(spacing: 10) {
+          Button {
+            startEditing(category)
+          } label: {
+            Image(systemName: "pencil")
+              .font(.system(size: 12))
+              .foregroundColor(.black.opacity(0.4))
+          }
+          .buttonStyle(.plain)
+          .pointingHandCursor()
+
+          Button {
+            requestDelete(category)
+          } label: {
+            Image("CategoriesDelete")
+              .resizable()
+              .frame(width: 16, height: 16)
+              .accessibilityLabel("Delete category")
+          }
+          .buttonStyle(.plain)
+          .pointingHandCursor()
         }
-        .buttonStyle(.plain)
-        .pointingHandCursor()
       }
     }
     .padding(.horizontal, 14)
@@ -209,6 +255,7 @@ struct OnboardingCategoryStepView: View {
   private var addCategoryButton: some View {
     Button {
       commitPendingEdits()
+      categoryStore.markOnboardingCategoriesCustomized()
       categoryStore.addCategory(name: "New Category")
       addCount += 1
       AnalyticsService.shared.capture(
@@ -274,6 +321,7 @@ struct OnboardingCategoryStepView: View {
             "renamed_count": renameCount,
             "added_count": addCount,
             "color_changed_count": colorChangeCount,
+            "deleted_count": deleteCount,
           ])
         onNext()
       } label: {
@@ -288,6 +336,8 @@ struct OnboardingCategoryStepView: View {
       }
       .buttonStyle(.plain)
       .pointingHandCursor()
+      .opacity(canContinue ? 1 : 0.45)
+      .allowsHitTesting(canContinue)
     }
   }
 
@@ -302,6 +352,7 @@ struct OnboardingCategoryStepView: View {
   private func saveEdits(for category: TimelineCategory) {
     let trimmedName = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
     if !trimmedName.isEmpty, trimmedName != category.name {
+      categoryStore.markOnboardingCategoriesCustomized()
       categoryStore.renameCategory(id: category.id, to: trimmedName)
       renameCount += 1
       AnalyticsService.shared.capture(
@@ -313,6 +364,41 @@ struct OnboardingCategoryStepView: View {
         ])
     }
     editingCategoryID = nil
+  }
+
+  private var deleteAlertBinding: Binding<Bool> {
+    Binding(
+      get: { pendingDeleteCategory != nil },
+      set: { isPresented in
+        if !isPresented {
+          pendingDeleteCategory = nil
+        }
+      }
+    )
+  }
+
+  private func requestDelete(_ category: TimelineCategory) {
+    pendingDeleteCategory = category
+  }
+
+  private func deleteCategory(_ category: TimelineCategory) {
+    pendingDeleteCategory = nil
+    categoryStore.markOnboardingCategoriesCustomized()
+
+    if editingCategoryID == category.id {
+      cancelEditing()
+    }
+
+    categoryStore.removeCategory(id: category.id)
+    deleteCount += 1
+
+    AnalyticsService.shared.capture(
+      "onboarding_category_deleted",
+      [
+        "category_name": category.name,
+        "remaining_count": categoryStore.editableCategories.count,
+        "surface": "onboarding",
+      ])
   }
 
   private func cancelEditing() {
