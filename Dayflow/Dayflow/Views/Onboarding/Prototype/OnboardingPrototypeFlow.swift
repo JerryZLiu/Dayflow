@@ -547,6 +547,17 @@ struct OnboardingPrototypeChooseProviderStep: View {
 
   @State private var showAllOptions = false
 
+  private let layoutScale: CGFloat = 0.8
+  private let textScale: CGFloat = 1.1
+
+  private func scaled(_ value: CGFloat) -> CGFloat {
+    value * layoutScale
+  }
+
+  private func scaledText(_ value: CGFloat) -> CGFloat {
+    scaled(value) * textScale
+  }
+
   private var recommendedProviders: (first: String, second: String) {
     hasPaidAI ? ("chatgpt_claude", "gemini") : ("gemini", "local")
   }
@@ -599,34 +610,34 @@ struct OnboardingPrototypeChooseProviderStep: View {
     VStack(spacing: 0) {
       // Title
       Text("Choose a way to run Dayflow")
-        .font(.custom("InstrumentSerif-Regular", size: 40))
-        .tracking(-1.2)
+        .font(.custom("InstrumentSerif-Regular", size: scaledText(40)))
+        .tracking(-1.2 * layoutScale)
         .multilineTextAlignment(.center)
         .foregroundColor(Color(hex: "492304"))
         .frame(maxWidth: .infinity)
-        .padding(.top, 25)
-        .padding(.bottom, 30)
+        .padding(.top, scaled(25))
+        .padding(.bottom, scaled(30))
 
       // Cards area
       if showAllOptions {
-        VStack(spacing: 12) {
-          HStack(spacing: 12) {
+        VStack(spacing: scaled(12)) {
+          HStack(spacing: scaled(12)) {
             compactCard(for: "chatgpt_claude")
             compactCard(for: "gemini")
           }
-          HStack(spacing: 12) {
+          HStack(spacing: scaled(12)) {
             compactCard(for: "local")
             Color.clear.frame(maxWidth: .infinity, minHeight: 1)
           }
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, scaled(40))
         .transition(.opacity)
       } else {
         let recs = recommendedProviders
         let first = providerInfo(for: recs.first)
         let second = providerInfo(for: recs.second)
 
-        HStack(spacing: 20) {
+        HStack(spacing: scaled(20)) {
           tallCard(
             icon: first.icon, title: first.title,
             badgeText: "RECOMMENDED", badgeType: .orange,
@@ -641,7 +652,7 @@ struct OnboardingPrototypeChooseProviderStep: View {
             isHighlighted: false
           )
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, scaled(40))
         .transition(.opacity)
       }
 
@@ -654,18 +665,23 @@ struct OnboardingPrototypeChooseProviderStep: View {
         }
       } label: {
         Text(showAllOptions ? "See recommendations only" : "See all options")
-          .font(.custom("Nunito", size: 16))
+          .font(.custom("Nunito", size: scaledText(16)))
           .foregroundColor(Color(hex: "492304"))
-          .padding(.horizontal, 20)
-          .padding(.vertical, 8)
+          .padding(.horizontal, scaled(20))
+          .padding(.vertical, scaled(8))
           .background(Color.white.opacity(0.4))
           .clipShape(Capsule())
           .overlay(Capsule().stroke(Color(hex: "E4D3C2"), lineWidth: 1))
-          .shadow(color: Color(hex: "AF7246").opacity(0.15), radius: 2, x: 0, y: 0)
+          .shadow(
+            color: Color(hex: "AF7246").opacity(0.15),
+            radius: scaled(2),
+            x: 0,
+            y: 0
+          )
       }
       .buttonStyle(.plain)
       .pointingHandCursor()
-      .padding(.bottom, 30)
+      .padding(.bottom, scaled(30))
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
@@ -682,43 +698,50 @@ struct OnboardingPrototypeChooseProviderStep: View {
       VStack(alignment: .leading, spacing: 0) {
         HStack {
           Spacer()
-          ProviderIconView(icon: icon)
+          ProviderIconView(icon: icon, scale: layoutScale)
           Spacer()
         }
-        .padding(.top, 24).padding(.bottom, 16)
+        .padding(.top, scaled(24))
+        .padding(.bottom, scaled(16))
 
         HStack {
           Spacer()
-          Text(title).font(.custom("Nunito", size: 18)).fontWeight(.semibold).foregroundColor(
-            .black.opacity(0.9))
+          Text(title)
+            .font(.custom("Nunito", size: scaledText(18)))
+            .fontWeight(.semibold)
+            .foregroundColor(.black.opacity(0.9))
           Spacer()
         }
-        .padding(.bottom, 8)
+        .padding(.bottom, scaled(8))
 
         HStack {
           Spacer()
-          BadgeView(text: badgeText, type: badgeType)
+          BadgeView(text: badgeText, type: badgeType, scale: layoutScale, fontScale: textScale)
           Spacer()
         }
-        .padding(.bottom, 24)
+        .padding(.bottom, scaled(24))
 
         ScrollView(.vertical, showsIndicators: false) {
-          VStack(alignment: .leading, spacing: 10) {
-            ForEach(pros, id: \.self) { FeatureRowView(feature: ($0, true)) }
-            ForEach(caveats, id: \.self) { FeatureRowView(feature: ($0, false)) }
+          VStack(alignment: .leading, spacing: scaled(10)) {
+            ForEach(pros, id: \.self) {
+              FeatureRowView(feature: ($0, true), scale: layoutScale, fontScale: textScale)
+            }
+            ForEach(caveats, id: \.self) {
+              FeatureRowView(feature: ($0, false), scale: layoutScale, fontScale: textScale)
+            }
           }
-          .padding(.horizontal, 24)
+          .padding(.horizontal, scaled(24))
         }
       }
 
       Spacer()
 
       selectButton(title: title)
-        .padding(.horizontal, 24)
-        .padding(.bottom, 24)
+        .padding(.horizontal, scaled(24))
+        .padding(.bottom, scaled(24))
     }
     .frame(maxWidth: .infinity)
-    .frame(maxHeight: 432)
+    .frame(maxHeight: scaled(432))
     .background(
       isHighlighted ? AnyView(SelectedCardBackground()) : AnyView(Color.white.opacity(0.3))
     )
@@ -740,20 +763,24 @@ struct OnboardingPrototypeChooseProviderStep: View {
     let info = providerInfo(for: id)
 
     return VStack(alignment: .leading, spacing: 0) {
-      VStack(alignment: .leading, spacing: 8) {
-        HStack(spacing: 12) {
-          ProviderIconView(icon: info.icon)
+      VStack(alignment: .leading, spacing: scaled(8)) {
+        HStack(spacing: scaled(12)) {
+          ProviderIconView(icon: info.icon, scale: layoutScale)
           Text(info.title)
-            .font(.custom("Nunito", size: 18))
+            .font(.custom("Nunito", size: scaledText(18)))
             .fontWeight(.semibold)
             .foregroundColor(.black.opacity(0.9))
             .lineLimit(1)
         }
 
         ScrollView(.vertical, showsIndicators: false) {
-          VStack(alignment: .leading, spacing: 2) {
-            ForEach(info.pros, id: \.self) { FeatureRowView(feature: ($0, true)) }
-            ForEach(info.caveats, id: \.self) { FeatureRowView(feature: ($0, false)) }
+          VStack(alignment: .leading, spacing: scaled(2)) {
+            ForEach(info.pros, id: \.self) {
+              FeatureRowView(feature: ($0, true), scale: layoutScale, fontScale: textScale)
+            }
+            ForEach(info.caveats, id: \.self) {
+              FeatureRowView(feature: ($0, false), scale: layoutScale, fontScale: textScale)
+            }
           }
         }
       }
@@ -765,10 +792,10 @@ struct OnboardingPrototypeChooseProviderStep: View {
         selectButton(title: info.title)
       }
     }
-    .padding(.horizontal, 20)
-    .padding(.vertical, 18)
+    .padding(.horizontal, scaled(20))
+    .padding(.vertical, scaled(18))
     .frame(maxWidth: .infinity)
-    .frame(height: 205)
+    .frame(height: scaled(205))
     .background(Color.white.opacity(0.3))
     .cornerRadius(4)
     .overlay(
@@ -782,16 +809,16 @@ struct OnboardingPrototypeChooseProviderStep: View {
       action: { onSelect(title) },
       content: {
         Text("Select")
-          .font(.custom("Nunito", size: 14))
+          .font(.custom("Nunito", size: scaledText(14)))
           .fontWeight(.semibold)
           .frame(maxWidth: .infinity)
       },
       background: Color(red: 0.25, green: 0.17, blue: 0),
       foreground: .white,
       borderColor: .clear,
-      cornerRadius: 8,
-      horizontalPadding: 24,
-      verticalPadding: 12,
+      cornerRadius: scaled(8),
+      horizontalPadding: scaled(24),
+      verticalPadding: scaled(12),
       showOverlayStroke: true
     )
   }
