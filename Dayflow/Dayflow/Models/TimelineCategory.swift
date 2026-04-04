@@ -53,6 +53,9 @@ final class CategoryStore: ObservableObject {
   enum StoreKeys {
     static let categories = "colorCategories"
     static let hasUsedApp = "hasUsedApp"
+    static let onboardingSelectedRole = "onboardingSelectedRole"
+    static let onboardingAppliedCategoryPreset = "onboardingAppliedCategoryPreset"
+    static let onboardingCategoriesCustomized = "onboardingCategoriesCustomized"
   }
 
   @Published private(set) var categories: [TimelineCategory] = []
@@ -67,6 +70,37 @@ final class CategoryStore: ObservableObject {
 
   var idleCategory: TimelineCategory? {
     categories.first(where: { $0.isIdle })
+  }
+
+  func setOnboardingRole(_ role: String) {
+    UserDefaults.standard.set(role, forKey: StoreKeys.onboardingSelectedRole)
+  }
+
+  func applyOnboardingPresetIfNeeded() {
+    let defaults = UserDefaults.standard
+    guard let roleName = defaults.string(forKey: StoreKeys.onboardingSelectedRole) else {
+      return
+    }
+
+    if defaults.bool(forKey: StoreKeys.onboardingCategoriesCustomized) {
+      return
+    }
+
+    let preset = OnboardingCategoryPreset(roleName: roleName)
+    let appliedPreset = defaults.string(forKey: StoreKeys.onboardingAppliedCategoryPreset)
+
+    if appliedPreset == preset.rawValue && !categories.isEmpty {
+      return
+    }
+
+    categories = CategoryPersistence.ensureIdleCategoryPresent(in: preset.categories)
+    save()
+    defaults.set(preset.rawValue, forKey: StoreKeys.onboardingAppliedCategoryPreset)
+    defaults.set(false, forKey: StoreKeys.onboardingCategoriesCustomized)
+  }
+
+  func markOnboardingCategoriesCustomized() {
+    UserDefaults.standard.set(true, forKey: StoreKeys.onboardingCategoriesCustomized)
   }
 
   func addCategory(name: String, colorHex: String? = nil) {
@@ -192,6 +226,269 @@ extension CategoryStore {
     -> [TimelineCategory]
   {
     CategoryPersistence.ensureIdleCategoryPresent(in: categories)
+  }
+}
+
+private enum OnboardingCategoryPreset: String {
+  case softwareEngineer
+  case founderExecutive
+  case designer
+  case student
+  case productManager
+  case dataScientist
+  case other
+
+  init(roleName: String) {
+    switch roleName {
+    case "Software Engineer":
+      self = .softwareEngineer
+    case "Founder / Executive":
+      self = .founderExecutive
+    case "Designer":
+      self = .designer
+    case "Student":
+      self = .student
+    case "Product Manager":
+      self = .productManager
+    case "Data Scientist":
+      self = .dataScientist
+    default:
+      self = .other
+    }
+  }
+
+  var categories: [TimelineCategory] {
+    let now = Date()
+    return categoryDefinitions.enumerated().map { index, definition in
+      TimelineCategory(
+        name: definition.name,
+        colorHex: definition.colorHex,
+        details: definition.details,
+        order: index,
+        isSystem: false,
+        isIdle: false,
+        isNew: false,
+        createdAt: now,
+        updatedAt: now
+      )
+    }
+  }
+
+  private var categoryDefinitions: [(name: String, colorHex: String, details: String)] {
+    switch self {
+    case .softwareEngineer:
+      return [
+        (
+          "Coding / Debugging",
+          "#6A7EFF",
+          "Writing, refactoring, and fixing code in an IDE or terminal"
+        ),
+        (
+          "Code Review",
+          "#56CFEE",
+          "Reviewing PRs, reading diffs, and leaving comments"
+        ),
+        (
+          "Research",
+          "#C787F7",
+          "Reading docs, Stack Overflow, exploring tools and APIs, and writing design docs or technical specs"
+        ),
+        (
+          "Communication",
+          "#FFAE8C",
+          "Meetings, standups, Slack, email, video calls, messaging, and syncs"
+        ),
+        (
+          "Distraction",
+          "#FF4721",
+          "Unfocused browsing and passive content consumption: social media feeds, random videos, idle scrolling, entertainment with no clear intent, and gaming"
+        ),
+        (
+          "Personal",
+          "#ADE3E3",
+          "Intentional non-work activity with a purpose: messaging friends and family, managing finances, booking travel, errands, life admin, and hobbies"
+        ),
+      ]
+
+    case .founderExecutive:
+      return [
+        (
+          "Engineering / Product",
+          "#6A7EFF",
+          "Coding, design work, shipping features, and hands-on building"
+        ),
+        (
+          "Research & Strategy",
+          "#56CFEE",
+          "Competitive research, positioning, long-form thinking, and investor prep"
+        ),
+        (
+          "Data & Insights",
+          "#C787F7",
+          "Dashboards, retention data, funnels, and financials"
+        ),
+        (
+          "Communication",
+          "#FFAE8C",
+          "Team syncs, investor calls, user demos, and hiring"
+        ),
+        (
+          "Distraction",
+          "#FF4721",
+          "Unfocused browsing and passive content consumption: social media feeds, random videos, idle scrolling, entertainment with no clear intent, and gaming"
+        ),
+        (
+          "Personal",
+          "#ADE3E3",
+          "Intentional non-work activity with a purpose: messaging friends and family, managing finances, booking travel, errands, life admin, and hobbies"
+        ),
+      ]
+
+    case .designer:
+      return [
+        (
+          "Design",
+          "#6A7EFF",
+          "Prototyping, UI components, user flows, visual design, and handoff specs"
+        ),
+        (
+          "Research",
+          "#56CFEE",
+          "Browsing patterns, competitive audits, user studies, and reviewing metrics"
+        ),
+        (
+          "Communication",
+          "#FFAE8C",
+          "Design reviews, standups, critique sessions, and presenting concepts"
+        ),
+        (
+          "Distraction",
+          "#FF4721",
+          "Unfocused browsing and passive content consumption: social media feeds, random videos, idle scrolling, entertainment with no clear intent, and gaming"
+        ),
+        (
+          "Personal",
+          "#ADE3E3",
+          "Intentional non-work activity with a purpose: messaging friends and family, managing finances, booking travel, errands, life admin, and hobbies"
+        ),
+      ]
+
+    case .student:
+      return [
+        (
+          "Studying",
+          "#6A7EFF",
+          "Lectures, reading, reviewing slides, flashcards, and course material"
+        ),
+        (
+          "Assignments",
+          "#56CFEE",
+          "Papers, problem sets, coding projects, and lab reports"
+        ),
+        (
+          "Communication",
+          "#FFAE8C",
+          "Study groups, office hours, group chats, and emailing professors"
+        ),
+        (
+          "Distraction",
+          "#FF4721",
+          "Unfocused browsing and passive content consumption: social media feeds, random videos, idle scrolling, entertainment with no clear intent, and gaming"
+        ),
+        (
+          "Personal",
+          "#ADE3E3",
+          "Intentional non-work activity with a purpose: messaging friends and family, managing finances, booking travel, errands, life admin, and hobbies"
+        ),
+      ]
+
+    case .productManager:
+      return [
+        (
+          "Specs & Planning",
+          "#6A7EFF",
+          "PRDs, roadmaps, backlog grooming, sprint planning, and tickets"
+        ),
+        (
+          "Research & Analysis",
+          "#56CFEE",
+          "User research, metrics review, competitive analysis, and A/B tests"
+        ),
+        (
+          "Communication",
+          "#FFAE8C",
+          "Standups, stakeholder syncs, design reviews, and engineering check-ins"
+        ),
+        (
+          "Distraction",
+          "#FF4721",
+          "Unfocused browsing and passive content consumption: social media feeds, random videos, idle scrolling, entertainment with no clear intent, and gaming"
+        ),
+        (
+          "Personal",
+          "#ADE3E3",
+          "Intentional non-work activity with a purpose: messaging friends and family, managing finances, booking travel, errands, life admin, and hobbies"
+        ),
+      ]
+
+    case .dataScientist:
+      return [
+        (
+          "Analysis & Modeling",
+          "#6A7EFF",
+          "Notebooks, statistical analysis, ML training, and data exploration"
+        ),
+        (
+          "Data Engineering",
+          "#56CFEE",
+          "SQL queries, pipelines, data cleaning, and ETL scripts"
+        ),
+        (
+          "Research",
+          "#C787F7",
+          "Reading papers, docs, and exploring new methods and tools"
+        ),
+        (
+          "Communication",
+          "#FFAE8C",
+          "Presenting findings, stakeholder syncs, and team discussions"
+        ),
+        (
+          "Distraction",
+          "#FF4721",
+          "Unfocused browsing and passive content consumption: social media feeds, random videos, idle scrolling, entertainment with no clear intent, and gaming"
+        ),
+        (
+          "Personal",
+          "#ADE3E3",
+          "Intentional non-work activity with a purpose: messaging friends and family, managing finances, booking travel, errands, life admin, and hobbies"
+        ),
+      ]
+
+    case .other:
+      return [
+        (
+          "Work",
+          "#6A7EFF",
+          "Focused work tasks and professional responsibilities that do not fit a more specific category"
+        ),
+        (
+          "Communication",
+          "#FFAE8C",
+          "Meetings, standups, Slack, email, video calls, messaging, and syncs"
+        ),
+        (
+          "Distraction",
+          "#FF4721",
+          "Unfocused browsing and passive content consumption: social media feeds, random videos, idle scrolling, entertainment with no clear intent, and gaming"
+        ),
+        (
+          "Personal",
+          "#ADE3E3",
+          "Intentional non-work activity with a purpose: messaging friends and family, managing finances, booking travel, errands, life admin, and hobbies"
+        ),
+      ]
+    }
   }
 }
 
