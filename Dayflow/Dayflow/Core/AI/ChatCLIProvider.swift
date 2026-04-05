@@ -1588,9 +1588,6 @@ final class ChatCLIProvider {
   // MARK: - Text Generation (Non-Streaming)
 
   func generateText(prompt: String) async throws -> (text: String, log: LLMCall) {
-    let callStart = Date()
-    let ctx = makeCtx(batchId: nil, operation: "generateText", startedAt: callStart)
-
     let model: String
     switch tool {
     case .claude:
@@ -1599,12 +1596,32 @@ final class ChatCLIProvider {
       model = "gpt-5.2"
     }
 
+    return try await generateText(
+      prompt: prompt,
+      model: model,
+      reasoningEffort: "high",
+      disableTools: false
+    )
+  }
+
+  func generateText(
+    prompt: String,
+    model: String,
+    reasoningEffort: String? = nil,
+    disableTools: Bool = true
+  ) async throws -> (text: String, log: LLMCall) {
+    let callStart = Date()
+    let ctx = makeCtx(batchId: nil, operation: "generateText", startedAt: callStart)
+
     let run: ChatCLIRunResult
     do {
       run = try await Task.detached {
-        // Enable tools so LLM can query the database directly
         try self.runAndScrub(
-          prompt: prompt, model: model, reasoningEffort: "high", disableTools: false)
+          prompt: prompt,
+          model: model,
+          reasoningEffort: reasoningEffort,
+          disableTools: disableTools
+        )
       }.value
     } catch {
       let nsErr = error as NSError
