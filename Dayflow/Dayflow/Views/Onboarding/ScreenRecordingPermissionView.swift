@@ -40,20 +40,21 @@ struct ScreenRecordingPermissionView: View {
             .font(.custom("InstrumentSerif-Regular", size: 28))
             .foregroundColor(.black)
 
-          Text("Enable screen recording so Dayflow can help understand your activities.")
+          Text("Dayflow can help understand your day.")
             .font(.custom("Nunito-Medium", size: 14))
             .foregroundColor(Color(hex: "5B5B5B"))
             .fixedSize(horizontal: false, vertical: true)
 
           // Privacy info box
           VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
               Image(systemName: "shield.fill")
                 .font(.system(size: 14))
                 .foregroundColor(privacyTextColor)
-              Text("We care about your privacy")
+              Text("Dayflow is built to be private and secure.")
                 .font(.custom("Nunito-Bold", size: 14))
                 .foregroundColor(privacyTextColor)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             Text(
@@ -132,49 +133,55 @@ struct ScreenRecordingPermissionView: View {
               )
               .disabled(isCheckingPermission)
             case .needsAction:
-              HStack(spacing: 12) {
-                Button(action: openSystemSettings) {
-                  Text("Open System Settings")
-                    .font(.custom("Nunito-SemiBold", size: 12))
-                    .tracking(-0.48)
-                    .foregroundColor(brownAccent)
-                    .padding(12)
-                }
-                .buttonStyle(.plain)
-                .background(
-                  LinearGradient(
-                    stops: [
-                      .init(
-                        color: Color(red: 1, green: 0.773, blue: 0.341).opacity(0.7), location: 0.73
-                      ),
-                      .init(
-                        color: Color(red: 1, green: 0.98, blue: 0.945).opacity(0), location: 0.99),
-                    ],
-                    startPoint: UnitPoint(x: 0.7, y: 1),
-                    endPoint: UnitPoint(x: 0.3, y: 0)
-                  )
-                  .background(Color.white.opacity(0.69))
-                )
-                .cornerRadius(6)
-                .overlay(
-                  RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color(hex: "FFBC80"), lineWidth: 1)
-                )
+              HStack {
+                Spacer(minLength: 0)
 
-                Button(action: quitAndReopen) {
-                  Text("Quit & Reopen")
-                    .font(.custom("Nunito-SemiBold", size: 12))
-                    .tracking(-0.48)
-                    .foregroundColor(brownAccent)
-                    .padding(12)
+                HStack(spacing: 12) {
+                  Button(action: openSystemSettings) {
+                    Text("Open System Settings")
+                      .font(.custom("Nunito-SemiBold", size: 12))
+                      .tracking(-0.48)
+                      .foregroundColor(brownAccent)
+                      .padding(12)
+                  }
+                  .buttonStyle(.plain)
+                  .background(
+                    LinearGradient(
+                      stops: [
+                        .init(
+                          color: Color(red: 1, green: 0.773, blue: 0.341).opacity(0.7),
+                          location: 0.73
+                        ),
+                        .init(
+                          color: Color(red: 1, green: 0.98, blue: 0.945).opacity(0),
+                          location: 0.99),
+                      ],
+                      startPoint: UnitPoint(x: 0.7, y: 1),
+                      endPoint: UnitPoint(x: 0.3, y: 0)
+                    )
+                    .background(Color.white.opacity(0.69))
+                  )
+                  .cornerRadius(6)
+                  .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                      .stroke(Color(hex: "FFBC80"), lineWidth: 1)
+                  )
+
+                  Button(action: quitAndReopen) {
+                    Text("Quit & Reopen")
+                      .font(.custom("Nunito-SemiBold", size: 12))
+                      .tracking(-0.48)
+                      .foregroundColor(brownAccent)
+                      .padding(12)
+                  }
+                  .buttonStyle(.plain)
+                  .background(Color.white.opacity(0.69))
+                  .cornerRadius(6)
+                  .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                      .stroke(Color(hex: "FFBC80"), lineWidth: 1)
+                  )
                 }
-                .buttonStyle(.plain)
-                .background(Color.white.opacity(0.69))
-                .cornerRadius(6)
-                .overlay(
-                  RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color(hex: "FFBC80"), lineWidth: 1)
-                )
               }
             case .granted:
               EmptyView()
