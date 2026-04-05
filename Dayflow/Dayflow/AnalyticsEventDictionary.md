@@ -29,18 +29,21 @@ This document lists manual events, properties, and code locations. All events re
 
 ## Onboarding
 - onboarding_started
-  - file: Views/Onboarding/OnboardingFlow.swift (welcome appear)
+  - file: Views/Onboarding/OnboardingFlow.swift (intro video appear)
 - onboarding_step_completed
-  - props: `step: welcome|how_it_works|llm_selection|llm_setup|categories|screen_recording|completion`
+  - props: `step: intro_video|role_selection|referral|preferences|llm_selection|llm_setup|categories|category_colors|screen_recording|completion`
   - file: Views/Onboarding/OnboardingFlow.swift
 - llm_provider_selected
-  - props: `provider: gemini|ollama|dayflow`
+  - props: `provider: chatgpt_claude|gemini|ollama`, `local_engine?: ollama|lmstudio|custom`
   - file: Views/Onboarding/OnboardingFlow.swift
 - screen_permission_granted / screen_permission_denied
   - file: Views/Onboarding/ScreenRecordingPermissionView.swift
 - connection_test_started / connection_test_succeeded / connection_test_failed
   - props: `provider: gemini`, `error_code?: enum|string`
   - files: Views/Onboarding/TestConnectionView.swift
+- chat_cli_test_started / chat_cli_test_succeeded / chat_cli_test_failed
+  - props: `provider: chatgpt_claude`, `tool: codex|claude`, `setup_step: test`, `duration_ms?: int`, `exit_code?: int`, `failure_reason?: auth_error|nonzero_exit_no_stderr|nonzero_exit_with_stderr|empty_response|unexpected_output|cli_not_found|execution_error`, `error_code?: int`, `error_domain?: string`
+  - file: Views/Onboarding/LLMProviderSetupView.swift
 - onboarding_completed
   - file: Views/Onboarding/OnboardingFlow.swift
 - onboarding_abandoned
