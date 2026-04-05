@@ -549,6 +549,7 @@ private struct EditableCategoryCard: View {
 
 private struct ColorAssignmentCard: View {
   let category: TimelineCategory
+  var showDetails: Bool = true
   var onColorDrop: (String) -> Void
 
   @State private var isTargeted = false
@@ -578,7 +579,9 @@ private struct ColorAssignmentCard: View {
             .font(Font.custom("Nunito", size: 12).weight(.bold))
             .foregroundColor(.black)
 
-          if !category.details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          if showDetails
+            && !category.details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          {
             Text(category.details)
               .font(Font.custom("Nunito", size: 12).weight(.medium))
               .foregroundColor(Color(red: 0.35, green: 0.35, blue: 0.35))
@@ -629,18 +632,26 @@ struct ColorOrganizerRoot: View {
     case sheet
   }
 
+  enum FlowMode {
+    case detailsAndColors
+    case colorsOnly
+  }
+
   var presentationStyle: PresentationStyle = .embedded
+  var flowMode: FlowMode = .detailsAndColors
+  var onBack: (() -> Void)?
   var onDismiss: (() -> Void)?
   var completionButtonTitle: String?
   var showsTitles: Bool = true
+  var analyticsSurface: String? = nil
   @EnvironmentObject private var categoryStore: CategoryStore
 
-  private enum CategorySetupStage {
+  private enum CategorySetupStage: String, Hashable {
     case details
     case colors
   }
 
-  @State private var stage: CategorySetupStage = .details
+  @State private var stage: CategorySetupStage
   @State private var editingCategoryID: UUID?
   @State private var draftName: String = ""
   @State private var draftDetails: String = ""
@@ -652,9 +663,53 @@ struct ColorOrganizerRoot: View {
     forKey: CategoryStore.StoreKeys.hasUsedApp)
   @State private var pendingScrollTarget: UUID? = nil
   @State private var isAddButtonHovered: Bool = false
+  @State private var trackedStages: Set<CategorySetupStage> = []
+  @State private var addCount = 0
+  @State private var deleteCount = 0
+  @State private var renameCount = 0
+  @State private var detailsUpdateCount = 0
+  @State private var colorChangeCount = 0
+  @State private var didAdjustPalette = false
+
+  init(
+    presentationStyle: PresentationStyle = .embedded,
+    flowMode: FlowMode = .detailsAndColors,
+    onBack: (() -> Void)? = nil,
+    onDismiss: (() -> Void)? = nil,
+    completionButtonTitle: String? = nil,
+    showsTitles: Bool = true,
+    analyticsSurface: String? = nil
+  ) {
+    self.presentationStyle = presentationStyle
+    self.flowMode = flowMode
+    self.onBack = onBack
+    self.onDismiss = onDismiss
+    self.completionButtonTitle = completionButtonTitle
+    self.showsTitles = showsTitles
+    self.analyticsSurface = analyticsSurface
+    _stage = State(initialValue: flowMode == .colorsOnly ? .colors : .details)
+  }
 
   private var categories: [TimelineCategory] {
     categoryStore.editableCategories
+  }
+
+  private var isOnboardingAnalyticsEnabled: Bool {
+    analyticsSurface == "onboarding"
+  }
+
+  private var onboardingRole: String {
+    UserDefaults.standard.string(forKey: CategoryStore.StoreKeys.onboardingSelectedRole)
+      ?? "unknown"
+  }
+
+  private var onboardingPreset: String {
+    UserDefaults.standard.string(forKey: CategoryStore.StoreKeys.onboardingAppliedCategoryPreset)
+      ?? "unknown"
+  }
+
+  private var supportsDetailsStage: Bool {
+    flowMode == .detailsAndColors
   }
 
   private var spectrumColors: [String] {
@@ -671,6 +726,12 @@ struct ColorOrganizerRoot: View {
     ZStack {
       backgroundView
       contentCard
+    }
+    .onAppear {
+      trackStageViewIfNeeded(stage)
+    }
+    .onChange(of: stage) { _, newStage in
+      trackStageViewIfNeeded(newStage)
     }
     .onDisappear {
       commitPendingEditsIfNeeded()
@@ -822,8 +883,8 @@ struct ColorOrganizerRoot: View {
             showColorWheel: false,
             numPoints: numPoints,
             onColorChange: { _ in },
-            onRadiusChange: { normalizedRadius = $0 },
-            onAngleChange: { currentAngle = $0 }
+            onRadiusChange: { updatePaletteRadius($0) },
+            onAngleChange: { updatePaletteAngle($0) }
           )
         }
         .frame(width: 224, height: 224)
@@ -934,8 +995,9 @@ struct ColorOrganizerRoot: View {
             ForEach(categories) { category in
               ColorAssignmentCard(
                 category: category,
+                showDetails: supportsDetailsStage,
                 onColorDrop: { hex in
-                  categoryStore.assignColor(hex, to: category.id)
+                  assignColor(hex, to: category)
                   isDraggingColor = false
                 }
               )
@@ -957,14 +1019,19 @@ struct ColorOrganizerRoot: View {
 
       HStack(spacing: 16) {
         SetupSecondaryButton(title: "Back") {
-          withAnimation(.easeInOut(duration: 0.25)) {
-            isDraggingColor = false
-            stage = .details
+          if supportsDetailsStage {
+            withAnimation(.easeInOut(duration: 0.25)) {
+              isDraggingColor = false
+              stage = .details
+            }
+          } else {
+            onBack?()
           }
         }
 
         SetupContinueButton(title: completionButtonTitle ?? "Next", isEnabled: !categories.isEmpty)
         {
+          trackColorsCompletion()
           categoryStore.persist()
           onDismiss?()
         }
@@ -1025,11 +1092,19 @@ struct ColorOrganizerRoot: View {
           DispatchQueue.main.async { pendingScrollTarget = nil }
         }
 
-        HStack {
+        HStack(spacing: 16) {
+          if supportsDetailsStage == false, let onBack {
+            SetupSecondaryButton(title: "Back") {
+              commitPendingEditsIfNeeded()
+              onBack()
+            }
+          }
+
           addCategoryButton
           Spacer()
           SetupContinueButton(title: "Next", isEnabled: !categories.isEmpty) {
             commitPendingEditsIfNeeded()
+            trackDetailsCompletion()
             categoryStore.persist()
             withAnimation(.easeInOut(duration: 0.25)) {
               stage = .colors
@@ -1140,7 +1215,16 @@ struct ColorOrganizerRoot: View {
         suffix += 1
       }
 
+      categoryStore.markOnboardingCategoriesCustomized()
       categoryStore.addCategory(name: candidate)
+      addCount += 1
+      captureOnboardingEvent(
+        "onboarding_category_added",
+        [
+          "category_name": candidate,
+          "total_count": categoryStore.editableCategories.count,
+          "stage": CategorySetupStage.details.rawValue,
+        ])
       let editable = categoryStore.editableCategories
       if let newlyCreated = editable.last {
         editingCategoryID = newlyCreated.id
@@ -1167,10 +1251,38 @@ struct ColorOrganizerRoot: View {
 
   private func saveEdits(for category: TimelineCategory) {
     let trimmedName = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !trimmedName.isEmpty && trimmedName != category.name {
+    let didRename = !trimmedName.isEmpty && trimmedName != category.name
+    let didUpdateDetails = draftDetails != category.details
+    let previousName = category.name
+    let previousDetails = category.details
+
+    if didRename || didUpdateDetails {
+      categoryStore.markOnboardingCategoriesCustomized()
+    }
+
+    if didRename {
       categoryStore.renameCategory(id: category.id, to: trimmedName)
+      renameCount += 1
+      captureOnboardingEvent(
+        "onboarding_category_renamed",
+        [
+          "category_name": trimmedName,
+          "previous_name": previousName,
+          "stage": CategorySetupStage.details.rawValue,
+        ])
     }
     categoryStore.updateDetails(draftDetails, for: category.id)
+    if didUpdateDetails {
+      detailsUpdateCount += 1
+      captureOnboardingEvent(
+        "onboarding_category_details_updated",
+        [
+          "category_name": didRename ? trimmedName : previousName,
+          "details_length": draftDetails.count,
+          "had_previous_details": previousDetails.isEmpty == false,
+          "stage": CategorySetupStage.details.rawValue,
+        ])
+    }
     endEditing()
   }
 
@@ -1179,8 +1291,102 @@ struct ColorOrganizerRoot: View {
       if editingCategoryID == category.id {
         endEditing()
       }
+      categoryStore.markOnboardingCategoriesCustomized()
       categoryStore.removeCategory(id: category.id)
+      deleteCount += 1
+      captureOnboardingEvent(
+        "onboarding_category_deleted",
+        [
+          "category_name": category.name,
+          "remaining_count": categoryStore.editableCategories.count,
+          "stage": stage.rawValue,
+        ])
     }
+  }
+
+  private func assignColor(_ hex: String, to category: TimelineCategory) {
+    let previousHex = category.colorHex
+    categoryStore.markOnboardingCategoriesCustomized()
+    categoryStore.assignColor(hex, to: category.id)
+
+    guard hex != previousHex else { return }
+
+    colorChangeCount += 1
+    captureOnboardingEvent(
+      "onboarding_category_color_changed",
+      [
+        "category_name": category.name,
+        "color_hex": hex,
+        "previous_color_hex": previousHex,
+        "stage": CategorySetupStage.colors.rawValue,
+      ])
+  }
+
+  private func updatePaletteRadius(_ newRadius: Double) {
+    if abs(newRadius - normalizedRadius) > 0.0001 {
+      didAdjustPalette = true
+    }
+    normalizedRadius = newRadius
+  }
+
+  private func updatePaletteAngle(_ newAngle: Double) {
+    if abs(newAngle - currentAngle) > 0.0001 {
+      didAdjustPalette = true
+    }
+    currentAngle = newAngle
+  }
+
+  private func trackStageViewIfNeeded(_ stage: CategorySetupStage) {
+    guard isOnboardingAnalyticsEnabled else { return }
+    guard trackedStages.contains(stage) == false else { return }
+
+    trackedStages.insert(stage)
+    AnalyticsService.shared.screen("onboarding_categories_\(stage.rawValue)")
+  }
+
+  private func trackDetailsCompletion() {
+    captureOnboardingEvent(
+      "onboarding_categories_details_completed",
+      [
+        "stage": CategorySetupStage.details.rawValue,
+        "added_count": addCount,
+        "renamed_count": renameCount,
+        "details_updated_count": detailsUpdateCount,
+        "deleted_count": deleteCount,
+      ])
+  }
+
+  private func trackColorsCompletion() {
+    captureOnboardingEvent(
+      "onboarding_categories_colors_completed",
+      [
+        "stage": CategorySetupStage.colors.rawValue,
+        "added_count": addCount,
+        "renamed_count": renameCount,
+        "details_updated_count": detailsUpdateCount,
+        "deleted_count": deleteCount,
+        "color_changed_count": colorChangeCount,
+        "did_adjust_palette": didAdjustPalette,
+        "palette_radius": normalizedRadius,
+        "palette_angle": currentAngle,
+      ])
+  }
+
+  private func captureOnboardingEvent(_ name: String, _ extra: [String: Any]) {
+    guard isOnboardingAnalyticsEnabled else { return }
+
+    var payload: [String: Any] = [
+      "surface": analyticsSurface ?? "unknown",
+      "role": onboardingRole,
+      "preset": onboardingPreset,
+      "category_count": categories.count,
+    ]
+
+    extra.forEach { key, value in
+      payload[key] = value
+    }
+
+    AnalyticsService.shared.capture(name, payload)
   }
 
   private func commitPendingEditsIfNeeded() {
