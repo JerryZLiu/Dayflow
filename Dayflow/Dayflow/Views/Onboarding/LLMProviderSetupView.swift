@@ -1716,6 +1716,9 @@ struct ChatCLITestView: View {
     success = false
     resultMessage = nil
     debugOutput = nil
+    let testStartedAt = Date()
+
+    captureChatCLITestStarted(for: tool)
 
     Task.detached {
       let outcome: Result<CLIResult, Error> = {
@@ -1727,6 +1730,7 @@ struct ChatCLITestView: View {
       }()
 
       await MainActor.run {
+        let durationMs = Int(Date().timeIntervalSince(testStartedAt) * 1000)
         isTesting = false
         switch outcome {
         case .success(let cliResult):
@@ -1757,10 +1761,16 @@ struct ChatCLITestView: View {
           // Check exit code FIRST - non-zero means failure
           if cliResult.exitCode != 0 {
             success = false
+            let stderrTrimmed = cliResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             if let authError = detectAuthError(cliResult, for: tool) {
               resultMessage = authError
+              captureChatCLITestFailed(
+                for: tool,
+                durationMs: durationMs,
+                failureReason: "auth_error",
+                exitCode: Int(cliResult.exitCode)
+              )
             } else {
-              let stderrTrimmed = cliResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
               if stderrTrimmed.isEmpty {
                 if tool == .claude {
                   resultMessage =
@@ -1772,6 +1782,13 @@ struct ChatCLITestView: View {
               } else {
                 resultMessage = "CLI error: \(stderrTrimmed.prefix(150))"
               }
+              captureChatCLITestFailed(
+                for: tool,
+                durationMs: durationMs,
+                failureReason: stderrTrimmed.isEmpty
+                  ? "nonzero_exit_no_stderr" : "nonzero_exit_with_stderr",
+                exitCode: Int(cliResult.exitCode)
+              )
             }
             onTestComplete(false)
             return
@@ -1782,16 +1799,34 @@ struct ChatCLITestView: View {
           success = passed
           if passed {
             resultMessage = "CLI is working!"
+            captureChatCLITestSucceeded(
+              for: tool,
+              durationMs: durationMs,
+              exitCode: Int(cliResult.exitCode)
+            )
           } else if cliResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             resultMessage = "CLI returned empty response. Make sure you're signed in."
+            captureChatCLITestFailed(
+              for: tool,
+              durationMs: durationMs,
+              failureReason: "empty_response",
+              exitCode: Int(cliResult.exitCode)
+            )
           } else {
             let preview = cliResult.stdout.prefix(100)
             resultMessage = "Got: \"\(preview)\" — expected '4'"
+            captureChatCLITestFailed(
+              for: tool,
+              durationMs: durationMs,
+              failureReason: "unexpected_output",
+              exitCode: Int(cliResult.exitCode)
+            )
           }
           onTestComplete(passed)
         case .failure(let error):
           success = false
           resultMessage = error.localizedDescription
+          let nsError = error as NSError
 
           // Build debug output even for errors
           var debugParts: [String] = []
@@ -1811,10 +1846,73 @@ struct ChatCLITestView: View {
           }
 
           debugOutput = debugParts.joined(separator: "\n\n")
+          captureChatCLITestFailed(
+            for: tool,
+            durationMs: durationMs,
+            failureReason: analyticsFailureReason(for: nsError),
+            errorCode: nsError.code,
+            errorDomain: nsError.domain
+          )
           onTestComplete(false)
         }
       }
     }
+  }
+
+  private func captureChatCLITestStarted(for tool: CLITool) {
+    AnalyticsService.shared.capture(
+      "chat_cli_test_started",
+      chatCLITestAnalyticsProperties(for: tool)
+    )
+  }
+
+  private func captureChatCLITestSucceeded(
+    for tool: CLITool,
+    durationMs: Int,
+    exitCode: Int
+  ) {
+    var props = chatCLITestAnalyticsProperties(for: tool)
+    props["duration_ms"] = durationMs
+    props["exit_code"] = exitCode
+    AnalyticsService.shared.capture("chat_cli_test_succeeded", props)
+  }
+
+  private func captureChatCLITestFailed(
+    for tool: CLITool,
+    durationMs: Int,
+    failureReason: String,
+    exitCode: Int? = nil,
+    errorCode: Int? = nil,
+    errorDomain: String? = nil
+  ) {
+    var props = chatCLITestAnalyticsProperties(for: tool)
+    props["duration_ms"] = durationMs
+    props["failure_reason"] = failureReason
+    if let exitCode {
+      props["exit_code"] = exitCode
+    }
+    if let errorCode {
+      props["error_code"] = errorCode
+    }
+    if let errorDomain {
+      props["error_domain"] = errorDomain
+    }
+    AnalyticsService.shared.capture("chat_cli_test_failed", props)
+  }
+
+  private func chatCLITestAnalyticsProperties(for tool: CLITool) -> [String: Any] {
+    [
+      "provider": "chatgpt_claude",
+      "tool": tool.rawValue,
+      "setup_step": "test",
+    ]
+  }
+
+  private func analyticsFailureReason(for error: NSError) -> String {
+    if error.domain == "ChatCLITest" && error.code == 1 {
+      return "cli_not_found"
+    }
+    return "execution_error"
   }
 
   private func copyDebugLogs() {
