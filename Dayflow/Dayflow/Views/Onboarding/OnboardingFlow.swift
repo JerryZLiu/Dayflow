@@ -27,13 +27,14 @@ struct OnboardingFlow: View {
     case .llmSelection: return 3
     case .llmSetup: return 4
     case .categories: return 5
-    case .screen: return 6
-    case .completion: return 7
+    case .categoryColors: return 6
+    case .screen: return 7
+    case .completion: return 8
     }
   }
 
   private var showsProgressRing: Bool {
-    step != .introVideo && step != .llmSelection
+    step != .introVideo && step != .llmSelection && step != .categoryColors
   }
 
   @ViewBuilder
@@ -67,6 +68,7 @@ struct OnboardingFlow: View {
       case .roleSelection:
         OnboardingPrototypeRoleSelectionStep(
           onContinue: { selectedRole in
+            categoryStore.setOnboardingRole(selectedRole)
             AnalyticsService.shared.capture("onboarding_role_selected", ["role": selectedRole])
             advance()
           }
@@ -175,10 +177,22 @@ struct OnboardingFlow: View {
           AnalyticsService.shared.screen("onboarding_categories")
         }
 
+      case .categoryColors:
+        OnboardingCategoryColorStepView(
+          onBack: {
+            setStep(.categories)
+          },
+          onNext: {
+            advance()
+          }
+        )
+        .environmentObject(categoryStore)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
       case .screen:
         ScreenRecordingPermissionView(
           onBack: {
-            setStep(.categories)
+            setStep(.categoryColors)
           },
           onNext: { advance() }
         )
@@ -193,6 +207,7 @@ struct OnboardingFlow: View {
             // Create sample card BEFORE switching views (sync write)
             StorageManager.shared.createOnboardingCard()
 
+            markStepCompleted(.completion)
             didOnboard = true
             savedStepRawValue = 0
             savedHasPaidAISelection = ""
@@ -207,7 +222,7 @@ struct OnboardingFlow: View {
       }
 
       // Progress ring — bottom-left, always in tree (opacity toggle preserves @State)
-      ProgressRingView(totalSegments: 7, filledSegments: onboardingFilledSegments)
+      ProgressRingView(totalSegments: 8, filledSegments: onboardingFilledSegments)
         .opacity(showsProgressRing ? 1 : 0)
         .animation(.easeInOut(duration: 0.3), value: showsProgressRing)
         .padding(.leading, 0)
@@ -235,6 +250,9 @@ struct OnboardingFlow: View {
     }
     userHasPaidAI = persistedHasPaidAISelection
     if let savedStep = OnboardingStep(rawValue: migratedValue) {
+      if savedStep == .categories {
+        prepareCategoriesForOnboardingIfNeeded()
+      }
       step = savedStep
     }
   }
@@ -244,15 +262,23 @@ struct OnboardingFlow: View {
   }
 
   private func setStep(_ newStep: OnboardingStep) {
+    if newStep == .categories {
+      prepareCategoriesForOnboardingIfNeeded()
+    }
     step = newStep
     savedStepRawValue = newStep.rawValue
   }
 
-  private func advance() {
-    func markStepCompleted(_ s: OnboardingStep) {
-      AnalyticsService.shared.capture("onboarding_step_completed", ["step": s.analyticsName])
-    }
+  private func prepareCategoriesForOnboardingIfNeeded() {
+    categoryStore.applyOnboardingPresetIfNeeded()
+  }
 
+  private func markStepCompleted(_ completedStep: OnboardingStep) {
+    AnalyticsService.shared.capture(
+      "onboarding_step_completed", ["step": completedStep.analyticsName])
+  }
+
+  private func advance() {
     switch step {
     case .introVideo:
       markStepCompleted(step)
@@ -276,12 +302,13 @@ struct OnboardingFlow: View {
       setStep(nextStep)
     case .llmSetup:
       markStepCompleted(step)
-      step.next()
-      savedStepRawValue = step.rawValue
+      setStep(.categories)
     case .categories:
       markStepCompleted(step)
-      step.next()
-      savedStepRawValue = step.rawValue
+      setStep(.categoryColors)
+    case .categoryColors:
+      markStepCompleted(step)
+      setStep(.screen)
     case .screen:
       // Permission request is handled by ScreenRecordingPermissionView itself
       markStepCompleted(step)
@@ -331,8 +358,8 @@ struct OnboardingFlow: View {
 
 /// Wizard step order
 enum OnboardingStep: Int, CaseIterable {
-  case introVideo, roleSelection, referral, preferences, llmSelection, llmSetup, categories, screen,
-    completion
+  case introVideo, roleSelection, referral, preferences, llmSelection, llmSetup, categories,
+    categoryColors, screen, completion
 
   var analyticsName: String {
     switch self {
@@ -350,6 +377,8 @@ enum OnboardingStep: Int, CaseIterable {
       return "llm_setup"
     case .categories:
       return "categories"
+    case .categoryColors:
+      return "category_colors"
     case .screen:
       return "screen_recording"
     case .completion:
@@ -368,7 +397,7 @@ enum OnboardingStep: Int, CaseIterable {
 enum OnboardingStepMigration {
   static let schemaVersionKey = "onboardingStepSchemaVersion"
   private static let onboardingStepKey = "onboardingStep"
-  static let currentVersion = 3
+  static let currentVersion = 4
 
   @discardableResult
   static func migrateIfNeeded(defaults: UserDefaults = .standard) -> Int {
@@ -397,6 +426,13 @@ enum OnboardingStepMigration {
     // New v3: introVideo=0, roleSelection=1, referral=2, preferences=3, llmSelection=4, llmSetup=5, categories=6, screen=7, completion=8
     if storedVersion < 3 {
       migratedValue = migrateV2toV3(migratedValue)
+    }
+
+    // v3 → v4: insert categoryColors after categories
+    // Old v3: introVideo=0, roleSelection=1, referral=2, preferences=3, llmSelection=4, llmSetup=5, categories=6, screen=7, completion=8
+    // New v4: introVideo=0, roleSelection=1, referral=2, preferences=3, llmSelection=4, llmSetup=5, categories=6, categoryColors=7, screen=8, completion=9
+    if storedVersion < 4 {
+      migratedValue = migrateV3toV4(migratedValue)
     }
 
     defaults.set(migratedValue, forKey: onboardingStepKey)
@@ -448,9 +484,18 @@ enum OnboardingStepMigration {
     }
   }
 
+  static func migrateV3toV4(_ rawValue: Int) -> Int {
+    switch rawValue {
+    case 0...6: return rawValue  // unchanged through categories
+    case 7: return 8  // screen → screen
+    case 8: return 9  // completion → completion
+    default: return 0
+    }
+  }
+
   // Keep for testing compatibility
   static func migrateRawValue(_ rawValue: Int) -> Int {
-    migrateV2toV3(migrateV1toV2(migrateV0toV1(rawValue)))
+    migrateV3toV4(migrateV2toV3(migrateV1toV2(migrateV0toV1(rawValue))))
   }
 }
 
@@ -528,7 +573,8 @@ struct WelcomeView: View {
   }
 }
 
-struct OnboardingCategorySetupView: View {
+struct OnboardingCategoryColorStepView: View {
+  let onBack: () -> Void
   let onNext: () -> Void
   @EnvironmentObject private var categoryStore: CategoryStore
 
@@ -536,9 +582,12 @@ struct OnboardingCategorySetupView: View {
     VStack(spacing: 32) {
       ColorOrganizerRoot(
         presentationStyle: .embedded,
+        flowMode: .colorsOnly,
+        onBack: onBack,
         onDismiss: {
           onNext()
-        }
+        },
+        analyticsSurface: "onboarding"
       )
       .environmentObject(categoryStore)
       .frame(maxWidth: .infinity)
@@ -647,7 +696,7 @@ struct CompletionView: View {
           .foregroundColor(.black.opacity(0.9))
 
         Text(
-          "Dayflow is set up and recording is ready. Launch the app to start seeing your timeline fill in."
+          "To get useful insights, let Dayflow run in the background for an hour or two to gather enough context, then check back in."
         )
         .font(.custom("Nunito", size: 15))
         .foregroundColor(.black.opacity(0.6))
