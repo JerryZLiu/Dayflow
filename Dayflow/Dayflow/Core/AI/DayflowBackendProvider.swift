@@ -51,7 +51,7 @@ final class DayflowBackendProvider {
     self.endpoint = endpoint
     #if DEBUG
       print(
-        "[DayflowBackendProvider] init endpoint=\(endpoint) auth_id=\(token) auth_id_length=\(token.count)"
+        "[DayflowBackendProvider] init endpoint=\(endpoint) auth_id_length=\(token.count)"
       )
     #endif
   }
@@ -104,7 +104,7 @@ final class DayflowBackendProvider {
       urlRequest.httpBody = try JSONEncoder().encode(request)
       print(
         "[DayflowBackendProvider] daily request_id=\(requestId) day=\(request.day) "
-          + "url=\(url.absoluteString) endpoint_host=\(endpointHost) auth_id=\(token)"
+          + "url=\(url.absoluteString) endpoint_host=\(endpointHost) auth_id_length=\(token.count)"
       )
 
       let requestByteCount = urlRequest.httpBody?.count ?? 0
