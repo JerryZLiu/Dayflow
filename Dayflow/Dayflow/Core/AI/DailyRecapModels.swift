@@ -75,13 +75,13 @@ enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
   var pickerSubtitle: String {
     switch self {
     case .dayflow:
-      return "Use the current Dayflow daily backend"
+      return "Uses Dayflow's hosted service for best performance."
     case .gemini:
-      return "Pinned to Gemini 3.1 Flash-Lite"
+      return "Gemini 3.1 Flash-Lite"
     case .chatgpt:
-      return "Pinned to GPT-5.4 via Codex CLI"
+      return "GPT-5.4"
     case .claude:
-      return "Pinned to Claude Opus via Claude Code"
+      return "Claude Opus"
     }
   }
 
