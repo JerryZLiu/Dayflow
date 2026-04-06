@@ -528,7 +528,16 @@ extension MainView {
       return
     }
 
-    let shouldHide = dateFrame.intersects(pauseFrame)
+    let pausePillCollapsedRestoreWidth: CGFloat = 76
+    let isOverlapping = dateFrame.intersects(pauseFrame)
+    let isPausePillCollapsed = pauseFrame.width <= pausePillCollapsedRestoreWidth
+
+    // Once the date hides, keep it hidden until the pause pill is basically back
+    // to its idle width so the text doesn't pop back in mid-collapse.
+    let shouldKeepHiddenWhileClosing =
+      shouldHideTimelineDateSection && !isOverlapping && !isPausePillCollapsed
+
+    let shouldHide = isOverlapping || shouldKeepHiddenWhileClosing
     guard shouldHide != shouldHideTimelineDateSection else { return }
 
     withAnimation(.easeOut(duration: 0.18)) {
