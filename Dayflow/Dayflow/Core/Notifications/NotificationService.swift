@@ -55,6 +55,16 @@ final class NotificationService: NSObject, ObservableObject {
     }
   }
 
+  /// Read the current notification authorization status and refresh the cached flag.
+  func authorizationStatus() async -> UNAuthorizationStatus {
+    let settings = await center.notificationSettings()
+    let authorizationStatus = settings.authorizationStatus
+    await MainActor.run {
+      self.permissionGranted = Self.canScheduleNotifications(for: authorizationStatus)
+    }
+    return authorizationStatus
+  }
+
   /// Schedule all reminders based on current preferences
   func scheduleReminders() {
     // First, cancel all existing journal reminders
