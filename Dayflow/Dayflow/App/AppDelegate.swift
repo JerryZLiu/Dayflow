@@ -28,6 +28,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   private var analyticsSub: AnyCancellable?
   private var analyticsPreferenceObserver: NSObjectProtocol?
   private var powerObserver: NSObjectProtocol?
+  private let screenshotShortcutTracker = ScreenshotShortcutTracker.shared
   private var deepLinkRouter: AppDeepLinkRouter?
   private var pendingDeepLinkURLs: [URL] = []
   private var heartbeatTimer: Timer?
@@ -61,6 +62,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Start heartbeat for DAU tracking
     appLaunchDate = Date()
     startHeartbeat()
+    screenshotShortcutTracker.start()
     updateCPUMonitoring(analyticsEnabled: AnalyticsService.shared.isOptedIn)
 
     // App updated check
@@ -265,6 +267,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     heartbeatTimer?.invalidate()
     heartbeatTimer = nil
     ProcessCPUMonitor.shared.stop()
+    screenshotShortcutTracker.stop()
 
     if let observer = powerObserver {
       NSWorkspace.shared.notificationCenter.removeObserver(observer)
