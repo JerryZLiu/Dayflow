@@ -88,6 +88,12 @@ struct DailyView: View {
   @State private var standupRegenerateResetTask: Task<Void, Never>? = nil
   @State private var standupRegeneratingDotsPhase: Int = 1
   @State private var hasPersistedStandupEntry: Bool = false
+  @State private var dailyRecapProvider: DailyRecapProvider = DailyRecapProvider.load()
+  @State private var isShowingProviderPicker: Bool = false
+  @State private var isRefreshingProviderAvailability: Bool = false
+  @State private var providerAvailabilityTask: Task<Void, Never>? = nil
+  @State private var providerAvailability: [DailyRecapProvider: DailyRecapProviderAvailability] =
+    [:]
 
   private let requiredCodeHash = "6979ce2825cb3f440f987bbc487d62087c333abb99b56062c561ca557392d960"
   private let betaNoticeCopy =
@@ -95,9 +101,6 @@ struct DailyView: View {
   private let bookingNoticeCopy =
     "Daily is currently in beta and uses a Dayflow backend to generate your daily summary while we refine the workflow. If you’re interested, book some time and I’ll walk you through it."
   private let onboardingBookingURL = "https://cal.com/jerry-liu/15min"
-  private let dayflowBackendDefaultEndpoint = "https://web-production-f3361.up.railway.app"
-  private let dayflowBackendInfoPlistKey = "DayflowBackendURL"
-  private let dayflowBackendOverrideDefaultsKey = "dayflowBackendURLOverride"
   private let priorStandupHistoryLimit = 3
   private static let maxDateTitleWidth: CGFloat = {
     let referenceText = "Wednesday, September 30"
@@ -291,6 +294,8 @@ struct DailyView: View {
       }
     }
     .onAppear {
+      dailyRecapProvider = DailyRecapGenerator.shared.selectedProvider()
+      refreshProviderAvailability()
       refreshWorkflowData()
     }
     .onDisappear {
@@ -305,6 +310,8 @@ struct DailyView: View {
       standupRegenerateResetTask?.cancel()
       standupRegenerateResetTask = nil
       standupRegeneratingDotsPhase = 1
+      providerAvailabilityTask?.cancel()
+      providerAvailabilityTask = nil
     }
     .onChange(of: selectedDate) { _, _ in
       refreshWorkflowData()
@@ -514,7 +521,6 @@ struct DailyView: View {
           slotIndex < filteredRows[rowIndex].slotCardInfos.count,
           let cardInfo = filteredRows[rowIndex].slotCardInfos[slotIndex]
         {
-          let row = filteredRows[rowIndex]
           let tooltipCenterX =
             gridLeadingOffset + CGFloat(slotIndex) * (cellSize + columnSpacing) + cellSize / 2
           let anchorY =
@@ -611,10 +617,10 @@ struct DailyView: View {
         standupCopyButton(scale: scale)
       }
       standupRegenerateButton(scale: scale)
+      dailyProviderButton(scale: scale)
     }
 
     HStack {
-      // TODO: Bring back the Highlights/Details toggle when Details mode is ready.
       Spacer(minLength: 0)
       actionButtons
     }
@@ -764,6 +770,164 @@ struct DailyView: View {
     }
   }
 
+  private func dailyProviderButton(scale: CGFloat) -> some View {
+    Button {
+      if !isShowingProviderPicker {
+        refreshProviderAvailability()
+      }
+      isShowingProviderPicker.toggle()
+    } label: {
+      ZStack {
+        Circle()
+          .fill(Color(hex: "F7F3F1"))
+
+        Circle()
+          .stroke(Color(hex: "E4D7D0"), lineWidth: max(1.1, 1.3 * scale))
+
+        Image(systemName: "gearshape.fill")
+          .font(.system(size: 13 * scale, weight: .semibold))
+          .foregroundStyle(Color(hex: "B46531"))
+      }
+      .frame(width: 38 * scale, height: 38 * scale)
+      .shadow(color: Color.black.opacity(0.03), radius: 5, x: 0, y: 2)
+      .contentShape(Circle())
+    }
+    .buttonStyle(DailyCopyPressButtonStyle())
+    .disabled(standupRegenerateState == .regenerating)
+    .pointingHandCursorOnHover(
+      enabled: standupRegenerateState != .regenerating,
+      reassertOnPressEnd: true
+    )
+    .accessibilityLabel(Text("Choose daily recap provider"))
+    .help("Daily recap provider: \(dailyRecapProvider.selectionLabel)")
+    .popover(isPresented: $isShowingProviderPicker, arrowEdge: .bottom) {
+      dailyProviderPicker(scale: scale)
+        .padding(16)
+        .frame(width: 312)
+        .environment(\.colorScheme, .light)
+        .preferredColorScheme(.light)
+    }
+  }
+
+  private func dailyProviderPicker(scale: CGFloat) -> some View {
+    VStack(alignment: .leading, spacing: 12 * scale) {
+      HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 2 * scale) {
+          Text("Daily recap provider")
+            .font(.custom("InstrumentSerif-Regular", size: 22 * scale))
+            .foregroundStyle(Color(hex: "2E221B"))
+
+          Text("Pick which model regenerates this recap.")
+            .font(.custom("Nunito-Regular", size: 12 * scale))
+            .foregroundStyle(Color(hex: "8B6B59"))
+        }
+
+        Spacer(minLength: 0)
+
+        if isRefreshingProviderAvailability {
+          ProgressView()
+            .controlSize(.small)
+            .tint(Color(hex: "B46531"))
+        }
+      }
+
+      VStack(spacing: 8 * scale) {
+        ForEach(DailyRecapProvider.allCases, id: \.self) { provider in
+          let availability =
+            providerAvailability[provider]
+            ?? DailyRecapProviderAvailability(isAvailable: true, detail: provider.pickerSubtitle)
+          let isSelected = dailyRecapProvider == provider
+
+          Button {
+            selectDailyRecapProvider(provider)
+          } label: {
+            HStack(alignment: .top, spacing: 10 * scale) {
+              VStack(alignment: .leading, spacing: 2 * scale) {
+                Text(provider.displayName)
+                  .font(.custom("Nunito-SemiBold", size: 13 * scale))
+                  .foregroundStyle(Color(hex: isSelected ? "8F522C" : "2F241D"))
+
+                Text(availability.detail)
+                  .font(.custom("Nunito-Regular", size: 12 * scale))
+                  .foregroundStyle(Color(hex: availability.isAvailable ? "8B6B59" : "B07A74"))
+                  .multilineTextAlignment(.leading)
+              }
+
+              Spacer(minLength: 0)
+
+              Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 14 * scale, weight: .semibold))
+                .foregroundStyle(
+                  isSelected ? Color(hex: "C96F3A") : Color(hex: "D3C6BE")
+                )
+            }
+            .padding(.horizontal, 12 * scale)
+            .padding(.vertical, 10 * scale)
+            .background(
+              RoundedRectangle(cornerRadius: 14 * scale, style: .continuous)
+                .fill(
+                  isSelected
+                    ? Color(hex: "FFF4EC")
+                    : Color(hex: "FAF8F7")
+                )
+            )
+            .overlay(
+              RoundedRectangle(cornerRadius: 14 * scale, style: .continuous)
+                .stroke(
+                  isSelected ? Color(hex: "EBC4AB") : Color(hex: "E8E1DC"),
+                  lineWidth: max(1, 1.2 * scale)
+                )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 14 * scale, style: .continuous))
+          }
+          .buttonStyle(.plain)
+          .disabled(!availability.isAvailable)
+          .pointingHandCursorOnHover(enabled: availability.isAvailable, reassertOnPressEnd: true)
+        }
+      }
+    }
+  }
+
+  private func selectDailyRecapProvider(_ provider: DailyRecapProvider) {
+    let previousProvider = dailyRecapProvider
+    guard previousProvider != provider else {
+      isShowingProviderPicker = false
+      return
+    }
+
+    dailyRecapProvider = provider
+    DailyRecapGenerator.shared.persistSelectedProvider(provider)
+    isShowingProviderPicker = false
+
+    AnalyticsService.shared.capture(
+      "daily_provider_selected",
+      [
+        "previous_daily_provider": previousProvider.analyticsName,
+        "previous_daily_provider_label": previousProvider.displayName,
+        "daily_provider": provider.analyticsName,
+        "daily_provider_label": provider.displayName,
+        "daily_runtime": provider.runtimeLabel,
+        "daily_model_or_tool": provider.modelOrTool as Any,
+      ]
+    )
+  }
+
+  private func refreshProviderAvailability() {
+    providerAvailabilityTask?.cancel()
+    isRefreshingProviderAvailability = true
+
+    providerAvailabilityTask = Task.detached(priority: .utility) {
+      let snapshot = DailyRecapGenerator.shared.availabilitySnapshot()
+      guard !Task.isCancelled else { return }
+
+      await MainActor.run {
+        providerAvailability = snapshot
+        isRefreshingProviderAvailability = false
+        providerAvailabilityTask = nil
+      }
+    }
+  }
+
   @ViewBuilder
   private func highlightsAndTasksSection(
     useSingleColumn: Bool,
@@ -899,15 +1063,26 @@ struct DailyView: View {
 
     let targetDay = workflowDayInfo(for: selectedDate)
     let storageDayString = targetDay.dayString
+    let selectedProvider = dailyRecapProvider
+    let usesDayflowInputs = selectedProvider == .dayflow
+    let providerProps: [String: Any] = [
+      "daily_provider": selectedProvider.analyticsName,
+      "daily_provider_label": selectedProvider.displayName,
+      "daily_runtime": selectedProvider.runtimeLabel,
+      "daily_model_or_tool": selectedProvider.modelOrTool as Any,
+    ]
     guard let sourceDayInfo = standupSourceDay ?? resolveStandupSourceDay(for: targetDay) else {
       standupRegenerateState = .noData
       AnalyticsService.shared.capture(
         "daily_generation_failed",
-        [
-          "timeline_day": storageDayString,
-          "source": "regenerate_button",
-          "reason": "not_enough_recent_activity",
-        ])
+        providerProps.merging(
+          [
+            "timeline_day": storageDayString,
+            "source": "regenerate_button",
+            "reason": "not_enough_recent_activity",
+          ],
+          uniquingKeysWith: { _, new in new }
+        ))
       scheduleStandupRegenerateReset()
       return
     }
@@ -919,22 +1094,22 @@ struct DailyView: View {
     let currentHighlightsTitle = standupTitles.highlights
     let currentTasksTitle = standupTitles.tasks
     let currentBlockersTitle = standupTitles.blockers
-    let preferencesText = currentPreferencesText(titles: standupTitles)
-    let priorStandupLimit = priorStandupHistoryLimit
-    let defaultEndpoint = dayflowBackendDefaultEndpoint
-    let infoPlistKey = dayflowBackendInfoPlistKey
-    let overrideDefaultsKey = dayflowBackendOverrideDefaultsKey
 
     standupRegenerateTask?.cancel()
     standupRegenerateResetTask?.cancel()
 
     AnalyticsService.shared.capture(
       "daily_standup_regenerate_clicked",
-      [
-        "timeline_day": storageDayString,
-        "source": "regenerate_button",
-      ])
-    print("[Daily] Regenerate started run_id=\(regenerateRunId) day=\(dayString)")
+      providerProps.merging(
+        [
+          "timeline_day": storageDayString,
+          "source": "regenerate_button",
+        ],
+        uniquingKeysWith: { _, new in new }
+      ))
+    print(
+      "[Daily] Regenerate started run_id=\(regenerateRunId) day=\(dayString) provider=\(selectedProvider.analyticsName) model=\(selectedProvider.modelOrTool ?? "default")"
+    )
 
     standupRegenerateState = .regenerating
 
@@ -950,96 +1125,79 @@ struct DailyView: View {
           standupRegenerateTask = nil
           AnalyticsService.shared.capture(
             "daily_generation_failed",
-            [
-              "timeline_day": storageDayString,
-              "source": "regenerate_button",
-              "reason": "no_cards",
-            ])
+            providerProps.merging(
+              [
+                "timeline_day": storageDayString,
+                "source": "regenerate_button",
+                "reason": "no_cards",
+              ],
+              uniquingKeysWith: { _, new in new }
+            ))
           scheduleStandupRegenerateReset()
         }
         return
       }
 
-      let observations = StorageManager.shared.fetchObservations(
-        startTs: dayStartTs, endTs: dayEndTs)
-      let priorEntries = StorageManager.shared.fetchRecentDailyStandups(
-        limit: priorStandupLimit,
-        excludingDay: dayString
-      )
-      let cardsText = Self.makeCardsText(day: dayString, cards: cards)
-      let observationsText = Self.makeObservationsText(day: dayString, observations: observations)
-      let priorDailyText = Self.makePriorDailyText(entries: priorEntries)
+      let observations =
+        usesDayflowInputs
+        ? StorageManager.shared.fetchObservations(startTs: dayStartTs, endTs: dayEndTs) : []
+      let priorEntries =
+        usesDayflowInputs
+        ? StorageManager.shared.fetchRecentDailyStandups(
+          limit: priorStandupHistoryLimit,
+          excludingDay: dayString
+        ) : []
+      let cardsText = DailyRecapGenerator.makeCardsText(day: dayString, cards: cards)
+      let observationsText =
+        usesDayflowInputs
+        ? DailyRecapGenerator.makeObservationsText(day: dayString, observations: observations)
+        : ""
+      let priorDailyText =
+        usesDayflowInputs ? DailyRecapGenerator.makePriorDailyText(entries: priorEntries) : ""
+      let preferencesText =
+        usesDayflowInputs
+        ? DailyRecapGenerator.makePreferencesText(
+          highlightsTitle: currentHighlightsTitle,
+          tasksTitle: currentTasksTitle,
+          blockersTitle: currentBlockersTitle
+        ) : ""
 
       AnalyticsService.shared.capture(
         "daily_generation_payload_built",
-        [
-          "timeline_day": dayString,
-          "source": "regenerate_button",
-          "cards_count": cards.count,
-          "observations_count": observations.count,
-          "prior_daily_count": priorEntries.count,
-          "cards_text_chars": cardsText.count,
-          "observations_text_chars": observationsText.count,
-          "prior_daily_text_chars": priorDailyText.count,
-          "preferences_text_chars": preferencesText.count,
-        ])
+        providerProps.merging(
+          [
+            "timeline_day": dayString,
+            "source": "regenerate_button",
+            "input_mode": usesDayflowInputs ? "cards_observations_prior" : "cards_only",
+            "cards_count": cards.count,
+            "observations_count": observations.count,
+            "prior_daily_count": priorEntries.count,
+            "cards_text_chars": cardsText.count,
+            "observations_text_chars": observationsText.count,
+            "prior_daily_text_chars": priorDailyText.count,
+            "preferences_text_chars": preferencesText.count,
+          ],
+          uniquingKeysWith: { _, new in new }
+        ))
       print(
         "[Daily] Regenerate payload run_id=\(regenerateRunId) day=\(dayString) "
-          + "cards=\(cards.count) observations=\(observations.count) prior_daily=\(priorEntries.count)"
-      )
-
-      guard
-        let provider = Self.makeDayflowBackendProvider(
-          defaultEndpoint: defaultEndpoint,
-          infoPlistKey: infoPlistKey,
-          overrideDefaultsKey: overrideDefaultsKey,
-          debugRunId: regenerateRunId
-        )
-      else {
-        guard !Task.isCancelled else { return }
-        print(
-          "[Daily] Regenerate failed run_id=\(regenerateRunId) day=\(dayString) "
-            + "reason=missing_dayflow_token"
-        )
-        await MainActor.run {
-          standupRegenerateState = .idle
-          standupRegenerateTask = nil
-          AnalyticsService.shared.capture(
-            "daily_generation_failed",
-            [
-              "timeline_day": storageDayString,
-              "source": "regenerate_button",
-              "reason": "missing_dayflow_token",
-            ])
-        }
-        return
-      }
-
-      let request = DayflowDailyGenerationRequest(
-        day: dayString,
-        cardsText: cardsText,
-        observationsText: observationsText,
-        priorDailyText: priorDailyText,
-        preferencesText: preferencesText
+          + "cards=\(cards.count) observations=\(observations.count) prior_daily=\(priorEntries.count) input_mode=\(usesDayflowInputs ? "cards_observations_prior" : "cards_only")"
       )
 
       do {
-        let response = try await provider.generateDaily(request)
-        let highlights = Self.normalizedBullets(from: response.highlights)
-        let unfinished = Self.normalizedBullets(from: response.unfinished)
-        let blockers = Self.normalizedBlockersText(from: response.blockers)
-        let regeneratedDraft = DailyStandupDraft(
+        let context = DailyRecapGenerationContext(
+          targetDayString: storageDayString,
+          sourceDayString: dayString,
+          cards: cards,
+          observations: observations,
+          priorEntries: priorEntries,
           highlightsTitle: currentHighlightsTitle,
-          highlights: highlights,
           tasksTitle: currentTasksTitle,
-          tasks: unfinished,
-          blockersTitle: currentBlockersTitle,
-          blockersBody: blockers
+          blockersTitle: currentBlockersTitle
         )
+        let regeneratedDraft = try await DailyRecapGenerator.shared.generate(context: context)
 
-        guard let payloadData = try? JSONEncoder().encode(regeneratedDraft),
-          let payloadJSON = String(data: payloadData, encoding: .utf8)
-        else {
+        guard let payloadJSON = regeneratedDraft.encodedJSONString() else {
           guard !Task.isCancelled else { return }
           print(
             "[Daily] Regenerate failed run_id=\(regenerateRunId) day=\(dayString) "
@@ -1050,11 +1208,14 @@ struct DailyView: View {
             standupRegenerateTask = nil
             AnalyticsService.shared.capture(
               "daily_generation_failed",
-              [
-                "timeline_day": storageDayString,
-                "source": "regenerate_button",
-                "reason": "encode_failed",
-              ])
+              providerProps.merging(
+                [
+                  "timeline_day": storageDayString,
+                  "source": "regenerate_button",
+                  "reason": "encode_failed",
+                ],
+                uniquingKeysWith: { _, new in new }
+              ))
           }
           return
         }
@@ -1063,8 +1224,11 @@ struct DailyView: View {
 
         guard !Task.isCancelled else { return }
         let latencyMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+        let blockersCount = regeneratedDraft.blockersBody
+          .split(whereSeparator: \.isNewline)
+          .count
         print(
-          "[Daily] Regenerate succeeded run_id=\(regenerateRunId) day=\(dayString) cards=\(cards.count) observations=\(observations.count) highlights=\(highlights.count) tasks=\(unfinished.count) blockers=\(response.blockers.count) latency_ms=\(latencyMs)"
+          "[Daily] Regenerate succeeded run_id=\(regenerateRunId) day=\(dayString) cards=\(cards.count) observations=\(observations.count) highlights=\(regeneratedDraft.highlights.count) tasks=\(regeneratedDraft.tasks.count) blockers=\(blockersCount) latency_ms=\(latencyMs)"
         )
 
         await MainActor.run {
@@ -1078,22 +1242,28 @@ struct DailyView: View {
 
           AnalyticsService.shared.capture(
             "daily_standup_regenerated",
-            [
-              "timeline_day": storageDayString,
-              "highlights_count": highlights.count,
-              "tasks_count": unfinished.count,
-              "blockers_count": response.blockers.count,
-            ])
+            providerProps.merging(
+              [
+                "timeline_day": storageDayString,
+                "highlights_count": regeneratedDraft.highlights.count,
+                "tasks_count": regeneratedDraft.tasks.count,
+                "blockers_count": blockersCount,
+              ],
+              uniquingKeysWith: { _, new in new }
+            ))
           AnalyticsService.shared.capture(
             "daily_generation_succeeded",
-            [
-              "timeline_day": storageDayString,
-              "source": "regenerate_button",
-              "highlights_count": highlights.count,
-              "tasks_count": unfinished.count,
-              "blockers_count": response.blockers.count,
-              "latency_ms": latencyMs,
-            ])
+            providerProps.merging(
+              [
+                "timeline_day": storageDayString,
+                "source": "regenerate_button",
+                "highlights_count": regeneratedDraft.highlights.count,
+                "tasks_count": regeneratedDraft.tasks.count,
+                "blockers_count": blockersCount,
+                "latency_ms": latencyMs,
+              ],
+              uniquingKeysWith: { _, new in new }
+            ))
           print(
             "[Daily] Regenerate notification enqueue run_id=\(regenerateRunId) "
               + "day=\(storageDayString)"
@@ -1113,222 +1283,20 @@ struct DailyView: View {
           standupRegenerateTask = nil
           AnalyticsService.shared.capture(
             "daily_generation_failed",
-            [
-              "timeline_day": storageDayString,
-              "source": "regenerate_button",
-              "reason": "api_error",
-              "error_domain": nsError.domain,
-              "error_code": nsError.code,
-              "error_message": String(nsError.localizedDescription.prefix(500)),
-            ])
+            providerProps.merging(
+              [
+                "timeline_day": storageDayString,
+                "source": "regenerate_button",
+                "reason": "api_error",
+                "error_domain": nsError.domain,
+                "error_code": nsError.code,
+                "error_message": String(nsError.localizedDescription.prefix(500)),
+              ],
+              uniquingKeysWith: { _, new in new }
+            ))
         }
       }
     }
-  }
-
-  nonisolated private static func makeCardsText(day: String, cards: [TimelineCard]) -> String {
-    let ordered = cards.sorted { lhs, rhs in
-      if lhs.startTimestamp == rhs.startTimestamp {
-        return lhs.endTimestamp < rhs.endTimestamp
-      }
-      return lhs.startTimestamp < rhs.startTimestamp
-    }
-
-    guard !ordered.isEmpty else {
-      return "No timeline activities were recorded for \(day)."
-    }
-
-    var lines: [String] = ["Timeline activities for \(day):", ""]
-    for (index, card) in ordered.enumerated() {
-      let title = standupLine(from: card) ?? "Untitled activity"
-      let start = humanReadableClockTime(card.startTimestamp)
-      let end = humanReadableClockTime(card.endTimestamp)
-      lines.append("\(index + 1). \(start) - \(end): \(title)")
-
-      let summary = card.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-      if !summary.isEmpty, summary != title {
-        lines.append("   \(summary)")
-      }
-    }
-
-    return lines.joined(separator: "\n")
-  }
-
-  nonisolated private static func makeObservationsText(day: String, observations: [Observation])
-    -> String
-  {
-    guard !observations.isEmpty else {
-      return "No observations were recorded for \(day)."
-    }
-
-    let ordered = observations.sorted { $0.startTs < $1.startTs }
-    var lines: [String] = ["Observations for \(day):", ""]
-
-    for observation in ordered {
-      let body = observation.observation.trimmingCharacters(in: .whitespacesAndNewlines)
-      guard !body.isEmpty else { continue }
-      let start = humanReadableClockTime(unixTimestamp: observation.startTs)
-      let end = humanReadableClockTime(unixTimestamp: observation.endTs)
-      lines.append("\(start) - \(end): \(body)")
-    }
-
-    if lines.count <= 2 {
-      return "No observations were recorded for \(day)."
-    }
-    return lines.joined(separator: "\n")
-  }
-
-  nonisolated private static func makePriorDailyText(entries: [DailyStandupEntry]) -> String {
-    guard !entries.isEmpty else { return "" }
-
-    return entries.map { entry in
-      let payload = entry.payloadJSON.trimmingCharacters(in: .whitespacesAndNewlines)
-      return """
-        Day \(entry.standupDay):
-        \(payload)
-        """
-    }
-    .joined(separator: "\n\n")
-  }
-
-  private func currentPreferencesText(titles: DailyStandupSectionTitles) -> String {
-    let preferences: [String: String] = [
-      "highlights_title": titles.highlights,
-      "tasks_title": titles.tasks,
-      "blockers_title": titles.blockers,
-    ]
-
-    guard
-      let jsonData = try? JSONSerialization.data(
-        withJSONObject: preferences, options: [.sortedKeys]),
-      let jsonString = String(data: jsonData, encoding: .utf8)
-    else {
-      return ""
-    }
-    return jsonString
-  }
-
-  nonisolated private static func makeDayflowBackendProvider(
-    defaultEndpoint: String,
-    infoPlistKey: String,
-    overrideDefaultsKey: String,
-    debugRunId: String
-  ) -> DayflowBackendProvider? {
-    let token = AnalyticsService.shared.backendAuthToken()
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !token.isEmpty else {
-      print(
-        "[Daily] Provider resolve failed run_id=\(debugRunId) reason=empty_backend_auth_token"
-      )
-      return nil
-    }
-    print(
-      "[Daily] Provider auth token run_id=\(debugRunId) id=\(token) length=\(token.count)"
-    )
-
-    let endpoint = resolvedDayflowEndpoint(
-      defaultEndpoint: defaultEndpoint,
-      infoPlistKey: infoPlistKey,
-      overrideDefaultsKey: overrideDefaultsKey,
-      debugRunId: debugRunId
-    )
-    print("[Daily] Provider endpoint run_id=\(debugRunId) endpoint=\(endpoint)")
-    return DayflowBackendProvider(token: token, endpoint: endpoint)
-  }
-
-  nonisolated private static func resolvedDayflowEndpoint(
-    defaultEndpoint: String,
-    infoPlistKey: String,
-    overrideDefaultsKey: String,
-    debugRunId: String
-  ) -> String {
-    let defaults = UserDefaults.standard
-
-    if let override = defaults.string(forKey: overrideDefaultsKey)?
-      .trimmingCharacters(in: .whitespacesAndNewlines),
-      !override.isEmpty
-    {
-      print(
-        "[Daily] Endpoint resolved run_id=\(debugRunId) source=user_defaults_override value=\(override)"
-      )
-      return override
-    }
-
-    if let infoEndpoint = Bundle.main.infoDictionary?[infoPlistKey] as? String {
-      let trimmed = infoEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-      if !trimmed.isEmpty {
-        print(
-          "[Daily] Endpoint resolved run_id=\(debugRunId) source=info_plist value=\(trimmed)"
-        )
-        return trimmed
-      }
-    }
-
-    if case .dayflowBackend(let savedEndpoint) = LLMProviderType.load(from: defaults) {
-      let trimmed = savedEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-      if !trimmed.isEmpty {
-        print(
-          "[Daily] Endpoint resolved run_id=\(debugRunId) source=provider_settings value=\(trimmed)"
-        )
-        return trimmed
-      }
-    }
-
-    print(
-      "[Daily] Endpoint resolved run_id=\(debugRunId) source=default value=\(defaultEndpoint)"
-    )
-    return defaultEndpoint
-  }
-
-  nonisolated private static func normalizedBullets(from values: [String]) -> [DailyBulletItem] {
-    var seen: Set<String> = []
-    return values.compactMap { raw in
-      let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-      guard !trimmed.isEmpty else { return nil }
-      guard seen.insert(trimmed).inserted else { return nil }
-      return DailyBulletItem(text: trimmed)
-    }
-  }
-
-  nonisolated private static func normalizedBlockersText(from values: [String]) -> String {
-    let rows = values.compactMap { value -> String? in
-      let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-      return trimmed.isEmpty ? nil : trimmed
-    }
-    return rows.joined(separator: "\n")
-  }
-
-  nonisolated private static func humanReadableClockTime(_ input: String) -> String {
-    let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard let minuteOfDay = parseTimeHMMA(timeString: trimmed) else {
-      return trimmed.lowercased()
-    }
-
-    let hour24 = (minuteOfDay / 60) % 24
-    let minute = minuteOfDay % 60
-    let meridiem = hour24 >= 12 ? "pm" : "am"
-    let hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12
-    return String(format: "%d:%02d%@", hour12, minute, meridiem)
-  }
-
-  nonisolated private static func humanReadableClockTime(unixTimestamp: Int) -> String {
-    let date = Date(timeIntervalSince1970: TimeInterval(unixTimestamp))
-    let calendar = Calendar.current
-    let hour24 = calendar.component(.hour, from: date)
-    let minute = calendar.component(.minute, from: date)
-    let meridiem = hour24 >= 12 ? "pm" : "am"
-    let hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12
-    return String(format: "%d:%02d%@", hour12, minute, meridiem)
-  }
-
-  nonisolated private static func standupLine(from card: TimelineCard) -> String? {
-    let trimmedTitle = card.title.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !trimmedTitle.isEmpty {
-      return trimmedTitle
-    }
-
-    let trimmedSummary = card.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmedSummary.isEmpty ? nil : trimmedSummary
   }
 
   private func standupClipboardText(for date: Date) -> String {
@@ -1423,12 +1391,15 @@ struct DailyView: View {
 
     guard let entry,
       let data = entry.payloadJSON.data(using: .utf8),
-      let decoded = try? JSONDecoder().decode(DailyStandupDraft.self, from: data)
+      var decoded = try? JSONDecoder().decode(DailyStandupDraft.self, from: data)
     else {
       standupDraft = sourceDay == nil ? .insufficientHistory : defaultStandupDraft()
       return
     }
 
+    if decoded.generation == nil {
+      decoded.generation = .legacyDayflow
+    }
     standupDraft = decoded
   }
 
@@ -2485,11 +2456,6 @@ private struct DailyListDropToEndDelegate: DropDelegate {
   }
 }
 
-private struct DailyBulletItem: Identifiable, Codable, Equatable, Sendable {
-  var id: UUID = UUID()
-  var text: String
-}
-
 private struct DailyWorkflowSlotCardInfo: Sendable {
   let title: String
   let durationMinutes: Double
@@ -2981,7 +2947,7 @@ private func isDistractionCategoryKey(_ key: String) -> Bool {
 }
 
 private func normalizedMinuteRange(start: Double, end: Double) -> (start: Double, end: Double) {
-  var s = start < 240 ? start + 1440 : start
+  let s = start < 240 ? start + 1440 : start
   var e = end < 240 ? end + 1440 : end
   if e <= s { e += 1440 }
   return (s, e)
@@ -3030,50 +2996,6 @@ private func formatDurationValue(_ minutes: Double) -> String {
   if hours > 0 && mins > 0 { return "\(hours)h \(mins)m" }
   if hours > 0 { return "\(hours)h" }
   return "\(mins)m"
-}
-
-private enum DailyStandupPlaceholder {
-  static let notGeneratedMessage =
-    "Daily data has not been generated yet. If this is unexpected, please report a bug."
-  static let todayNotGeneratedMessage = "Today's daily recap will be generated tomorrow morning."
-  static let insufficientHistoryMessage =
-    "Not enough captured activity in the previous 3 days to generate a standup."
-}
-
-private struct DailyStandupDraft: Codable, Equatable, Sendable {
-  var highlightsTitle: String
-  var highlights: [DailyBulletItem]
-  var tasksTitle: String
-  var tasks: [DailyBulletItem]
-  var blockersTitle: String
-  var blockersBody: String
-
-  static let `default` = DailyStandupDraft(
-    highlightsTitle: "Yesterday's highlights",
-    highlights: [DailyBulletItem(text: DailyStandupPlaceholder.notGeneratedMessage)],
-    tasksTitle: "Today's tasks",
-    tasks: [DailyBulletItem(text: DailyStandupPlaceholder.notGeneratedMessage)],
-    blockersTitle: "Blockers",
-    blockersBody: DailyStandupPlaceholder.notGeneratedMessage
-  )
-
-  static let todayPlaceholder = DailyStandupDraft(
-    highlightsTitle: "Yesterday's highlights",
-    highlights: [DailyBulletItem(text: DailyStandupPlaceholder.todayNotGeneratedMessage)],
-    tasksTitle: "Today's tasks",
-    tasks: [DailyBulletItem(text: DailyStandupPlaceholder.todayNotGeneratedMessage)],
-    blockersTitle: "Blockers",
-    blockersBody: DailyStandupPlaceholder.todayNotGeneratedMessage
-  )
-
-  static let insufficientHistory = DailyStandupDraft(
-    highlightsTitle: "Recent highlights",
-    highlights: [DailyBulletItem(text: DailyStandupPlaceholder.insufficientHistoryMessage)],
-    tasksTitle: "Tasks",
-    tasks: [DailyBulletItem(text: DailyStandupPlaceholder.insufficientHistoryMessage)],
-    blockersTitle: "Blockers",
-    blockersBody: DailyStandupPlaceholder.insufficientHistoryMessage
-  )
 }
 
 struct DailyView_Previews: PreviewProvider {
