@@ -18,6 +18,7 @@ private enum SidebarMetrics {
 enum SidebarIcon: CaseIterable {
   case timeline
   case daily
+  case weekly
   case chat
   case journal
   case bug
@@ -27,6 +28,7 @@ enum SidebarIcon: CaseIterable {
     switch self {
     case .timeline: return "TimelineIcon"
     case .daily: return "DailyIcon"
+    case .weekly: return nil
     case .chat: return "ChatIcon"
     case .journal: return "JournalIcon"
     case .bug: return nil
@@ -36,6 +38,7 @@ enum SidebarIcon: CaseIterable {
 
   var systemNameFallback: String? {
     switch self {
+    case .weekly: return "chart.pie"
     case .bug: return "exclamationmark.bubble"
     case .settings: return "gearshape"
     default: return nil
@@ -46,6 +49,7 @@ enum SidebarIcon: CaseIterable {
     switch self {
     case .timeline: return "Timeline"
     case .daily: return "Daily"
+    case .weekly: return "Weekly"
     case .chat: return "Chat"
     case .journal: return "Journal"
     case .bug: return "Report"
@@ -58,9 +62,13 @@ struct SidebarView: View {
   @Binding var selectedIcon: SidebarIcon
   @ObservedObject private var badgeManager = NotificationBadgeManager.shared
 
+  private var visibleIcons: [SidebarIcon] {
+    SidebarIcon.allCases.filter { $0 != .weekly }
+  }
+
   var body: some View {
     VStack(alignment: .center, spacing: SidebarMetrics.itemSpacing) {
-      ForEach(SidebarIcon.allCases, id: \.self) { icon in
+      ForEach(visibleIcons, id: \.self) { icon in
         SidebarIconButton(
           icon: icon,
           isSelected: selectedIcon == icon,
