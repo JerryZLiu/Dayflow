@@ -1,7 +1,7 @@
 import AppKit
-import CryptoKit
 import Foundation
 import SwiftUI
+import UserNotifications
 
 private let dailyTodayDisplayFormatter: DateFormatter = {
   let formatter = DateFormatter()
@@ -59,14 +59,22 @@ private struct DailyStandupDayInfo: Equatable, Sendable {
   let endOfDay: Date
 }
 
+private enum DailyAccessFlowStep {
+  case intro
+  case notifications
+  case provider
+}
+
 struct DailyView: View {
   @AppStorage("isDailyUnlocked") private var isUnlocked: Bool = false
   @Binding var selectedDate: Date
   @EnvironmentObject private var categoryStore: CategoryStore
-  @Environment(\.openURL) private var openURL
 
-  @State private var accessCode: String = ""
-  @State private var attempts: Int = 0
+  @State private var accessFlowStep: DailyAccessFlowStep = .intro
+  @State private var lockScreenConfettiTrigger: Int = 0
+  @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
+  @State private var isCheckingNotificationAuthorization: Bool = false
+  @State private var isRequestingNotificationPermission: Bool = false
   @State private var workflowRows: [DailyWorkflowGridRow] = []
   @State private var workflowTotals: [DailyWorkflowTotalItem] = []
   @State private var workflowStats: [DailyWorkflowStatChip] = DailyWorkflowStatChip.placeholder
@@ -95,12 +103,8 @@ struct DailyView: View {
   @State private var providerAvailability: [DailyRecapProvider: DailyRecapProviderAvailability] =
     [:]
 
-  private let requiredCodeHash = "6979ce2825cb3f440f987bbc487d62087c333abb99b56062c561ca557392d960"
   private let betaNoticeCopy =
     "Daily is a new way to visualize your day and turn it into a standup update fast."
-  private let bookingNoticeCopy =
-    "Daily is currently in beta and uses a Dayflow backend to generate your daily summary while we refine the workflow. If you’re interested, book some time and I’ll walk you through it."
-  private let onboardingBookingURL = "https://cal.com/jerry-liu/15min"
   private let priorStandupHistoryLimit = 3
   private static let maxDateTitleWidth: CGFloat = {
     let referenceText = "Wednesday, September 30"
@@ -121,142 +125,98 @@ struct DailyView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     .environment(\.colorScheme, .light)
+    .onAppear {
+      dailyRecapProvider = DailyRecapGenerator.shared.selectedProvider()
+      refreshProviderAvailability()
+      checkNotificationAuthorizationForUnlock()
+    }
+    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification))
+    { _ in
+      checkNotificationAuthorizationForUnlock()
+    }
+    .onChange(of: isUnlocked) { _, newValue in
+      guard !newValue else { return }
+      accessFlowStep = .intro
+      checkNotificationAuthorizationForUnlock()
+    }
   }
 
   private var lockScreen: some View {
-    VStack(spacing: 16) {
-      HStack(alignment: .top, spacing: 4) {
-        Text("Dayflow Daily")
-          .font(.custom("InstrumentSerif-Italic", size: 38))
-          .foregroundColor(Color(red: 0.35, green: 0.22, blue: 0.12))
+    ZStack {
+      dailyLockScreenBackground
 
-        Text("BETA")
-          .font(.custom("Nunito-Bold", size: 11))
-          .foregroundColor(.white)
-          .padding(.horizontal, 8)
-          .padding(.vertical, 4)
-          .background(
-            RoundedRectangle(cornerRadius: 6)
-              .fill(Color(red: 0.98, green: 0.55, blue: 0.20))
+      Group {
+        if accessFlowStep == .intro {
+          DailyAccessIntroView(
+            betaNoticeCopy: betaNoticeCopy,
+            onRequestAccess: startDailyAccessFlow,
+            onConfettiStart: triggerLockScreenConfetti
           )
-          .rotationEffect(.degrees(-12))
-          .offset(x: -4, y: -4)
+          .transition(.opacity.combined(with: .move(edge: .leading)))
+        } else if accessFlowStep == .notifications {
+          DailyNotificationOnboardingView(
+            notificationPermissionMessage: notificationPermissionMessage,
+            notificationPermissionButtonTitle: notificationPermissionButtonTitle,
+            isNotificationPermissionButtonDisabled: isNotificationPermissionButtonDisabled,
+            isNotificationRecheckButtonDisabled: isNotificationRecheckButtonDisabled,
+            onNotificationPermissionAction: handleNotificationPermissionAction,
+            onRecheckPermissions: checkNotificationAuthorizationForUnlock
+          )
+          .transition(.opacity.combined(with: .move(edge: .trailing)))
+        } else {
+          DailyProviderOnboardingView(
+            selectedProvider: dailyRecapProvider,
+            providerAvailability: providerAvailability,
+            isRefreshingProviderAvailability: isRefreshingProviderAvailability,
+            canContinue: canFinishDailyProviderOnboarding,
+            onSelectProvider: selectDailyRecapProvider,
+            onContinue: finishDailyProviderOnboarding
+          )
+          .transition(.opacity.combined(with: .move(edge: .trailing)))
+        }
       }
+      .padding(.horizontal, 24)
+      .padding(.vertical, 28)
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
-      Text(betaNoticeCopy)
-        .font(.custom("Nunito-Regular", size: 15))
-        .foregroundColor(Color(red: 0.35, green: 0.22, blue: 0.12).opacity(0.8))
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: 480)
-        .padding(.horizontal, 24)
-
-      accessCodeCard
-        .modifier(Shake(animatableData: CGFloat(attempts)))
-        .padding(.top, 6)
-
-      VStack(spacing: 8) {
-        Text(bookingNoticeCopy)
-          .font(.custom("Nunito-Regular", size: 13))
-          .foregroundColor(Color(red: 0.35, green: 0.22, blue: 0.12).opacity(0.75))
-          .multilineTextAlignment(.center)
-          .frame(maxWidth: 520)
-          .padding(.horizontal, 24)
-
-        DayflowSurfaceButton(
-          action: openManualOnboardingBooking,
-          content: {
-            HStack(spacing: 8) {
-              Image(systemName: "calendar")
-                .font(.system(size: 12, weight: .semibold))
-              Text("Book a Time")
-                .font(.custom("Nunito", size: 14))
-                .fontWeight(.semibold)
-            }
-          },
-          background: Color(red: 0.25, green: 0.17, blue: 0),
-          foreground: .white,
-          borderColor: .clear,
-          cornerRadius: 8,
-          horizontalPadding: 16,
-          verticalPadding: 10,
-          showOverlayStroke: true
-        )
-        .pointingHandCursor()
-      }
+      ConfettiBurstView(trigger: lockScreenConfettiTrigger)
+        .zIndex(10)
     }
-    .padding(.horizontal, 24)
-    .padding(.vertical, 28)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-    .background(
-      GeometryReader { geo in
-        Image("JournalPreview")
-          .resizable()
-          .scaledToFill()
-          .frame(width: geo.size.width, height: geo.size.height)
-          .clipped()
-          .allowsHitTesting(false)
-      }
-    )
+    .animation(.spring(response: 0.42, dampingFraction: 0.88), value: accessFlowStep)
   }
 
-  private var accessCodeCard: some View {
-    ZStack(alignment: .bottom) {
-      Image("JournalLock")
+  private var dailyLockScreenBackground: some View {
+    GeometryReader { geo in
+      Image("JournalPreview")
         .resizable()
-        .aspectRatio(contentMode: .fit)
-
-      VStack(spacing: 16) {
-        Text("Enter access code")
-          .font(.custom("Nunito-SemiBold", size: 20))
-          .foregroundColor(Color(red: 0.85, green: 0.45, blue: 0.25))
-
-        TextField("", text: $accessCode)
-          .textFieldStyle(.plain)
-          .font(.custom("Nunito-Medium", size: 15))
-          .foregroundColor(Color(red: 0.25, green: 0.15, blue: 0.10))
-          .multilineTextAlignment(.center)
-          .padding(.horizontal, 14)
-          .padding(.vertical, 12)
-          .background(
-            RoundedRectangle(cornerRadius: 8)
-              .fill(Color.white)
-          )
-          .padding(.horizontal, 80)
-          .submitLabel(.go)
-          .onSubmit { validateCode() }
-
-        Button(action: validateCode) {
-          Text("Get early access")
-            .font(.custom("Nunito-SemiBold", size: 15))
-            .foregroundColor(Color(red: 0.35, green: 0.22, blue: 0.12))
-            .padding(.horizontal, 28)
-            .padding(.vertical, 10)
-            .background(
-              Capsule()
-                .fill(
-                  LinearGradient(
-                    colors: [
-                      Color(red: 1.0, green: 0.92, blue: 0.82),
-                      Color(red: 1.0, green: 0.85, blue: 0.70),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                  )
-                )
-                .overlay(
-                  Capsule()
-                    .stroke(Color(red: 0.90, green: 0.75, blue: 0.55), lineWidth: 1)
-                )
-            )
-        }
-        .buttonStyle(.plain)
-        .pointingHandCursor()
-      }
-      .padding(.bottom, 28)
+        .scaledToFill()
+        .frame(width: geo.size.width, height: geo.size.height)
+        .clipped()
+        .allowsHitTesting(false)
     }
-    .frame(width: 380)
-    .shadow(color: Color.black.opacity(0.08), radius: 16, x: 0, y: 6)
+  }
+
+  private var isNotificationPermissionButtonDisabled: Bool {
+    isCheckingNotificationAuthorization || isRequestingNotificationPermission
+  }
+
+  private var isNotificationRecheckButtonDisabled: Bool {
+    isCheckingNotificationAuthorization || isRequestingNotificationPermission
+  }
+
+  private var canFinishDailyProviderOnboarding: Bool {
+    guard !(isRefreshingProviderAvailability && providerAvailability.isEmpty) else {
+      return false
+    }
+
+    let availability =
+      providerAvailability[dailyRecapProvider]
+      ?? DailyRecapProviderAvailability(
+        isAvailable: true,
+        detail: dailyRecapProvider.pickerSubtitle
+      )
+    return availability.isAvailable
   }
 
   private var unlockedContent: some View {
@@ -329,34 +289,190 @@ struct DailyView: View {
     }
   }
 
-  private func validateCode() {
-    let inputLowercased = accessCode.lowercased()
-    let inputData = Data(inputLowercased.utf8)
-    let inputHash = SHA256.hash(data: inputData)
-    let inputHashString = inputHash.compactMap { String(format: "%02x", $0) }.joined()
+  private var notificationPermissionButtonTitle: String {
+    if isCheckingNotificationAuthorization || isRequestingNotificationPermission {
+      return "Checking..."
+    }
 
-    if inputHashString == requiredCodeHash {
-      AnalyticsService.shared.capture("daily_unlocked")
-      withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-        isUnlocked = true
-      }
-    } else {
-      withAnimation(.default) {
-        attempts += 1
-        accessCode = ""
+    if notificationAuthorizationStatus == .authorized {
+      return "Opening Daily..."
+    }
+
+    if notificationAuthorizationStatus == .denied {
+      return "Open System Settings"
+    }
+
+    return "Turn on notifications"
+  }
+
+  private var notificationPermissionMessage: String {
+    if notificationAuthorizationStatus == .denied {
+      return
+        "Notifications are currently off for Dayflow. Enable them in System Settings to finish unlocking Daily."
+    }
+
+    if notificationAuthorizationStatus == .authorized {
+      return "Notifications are already enabled. We'll open Daily automatically."
+    }
+
+    return
+      "Turn them on to continue. If you come back from System Settings, we'll check automatically."
+  }
+
+  private func checkNotificationAuthorizationForUnlock() {
+    guard !isCheckingNotificationAuthorization, !isRequestingNotificationPermission else {
+      return
+    }
+
+    isCheckingNotificationAuthorization = true
+
+    Task {
+      let status = await NotificationService.shared.authorizationStatus()
+
+      await MainActor.run {
+        isCheckingNotificationAuthorization = false
+        notificationAuthorizationStatus = status
+
+        guard !isUnlocked else {
+          return
+        }
+
+        if canUnlockDaily(for: status) {
+          handleAuthorizedDailyAccessStatus()
+        }
       }
     }
   }
 
-  private func openManualOnboardingBooking() {
-    guard let url = URL(string: onboardingBookingURL) else { return }
+  private func handleNotificationPermissionAction() {
+    if notificationAuthorizationStatus == .authorized {
+      advanceToDailyProviderStep()
+    } else if notificationAuthorizationStatus == .denied {
+      openNotificationSettings()
+    } else {
+      requestNotificationPermissionForUnlock()
+    }
+  }
+
+  private func requestNotificationPermissionForUnlock() {
+    guard !isRequestingNotificationPermission else { return }
+    isRequestingNotificationPermission = true
+
+    Task {
+      let granted = await NotificationService.shared.requestPermission()
+      let status = await NotificationService.shared.authorizationStatus()
+
+      await MainActor.run {
+        isRequestingNotificationPermission = false
+        notificationAuthorizationStatus = status
+
+        if granted || canUnlockDaily(for: status) {
+          advanceToDailyProviderStep()
+        } else {
+          openNotificationSettings()
+        }
+      }
+    }
+  }
+
+  private func openNotificationSettings() {
+    let bundleID = Bundle.main.bundleIdentifier ?? "ai.dayflow.Dayflow"
+    let settingsURLString =
+      "x-apple.systempreferences:com.apple.preference.notifications?id=\(bundleID)"
+
+    if let settingsURL = URL(string: settingsURLString) {
+      _ = NSWorkspace.shared.open(settingsURL)
+      return
+    }
+
+    if let fallbackURL = URL(string: "x-apple.systempreferences:com.apple.preference.notifications")
+    {
+      _ = NSWorkspace.shared.open(fallbackURL)
+    }
+  }
+
+  private func completeDailyUnlock() {
+    AnalyticsService.shared.capture("daily_unlocked")
+
+    withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+      isUnlocked = true
+    }
+  }
+
+  private func canUnlockDaily(for status: UNAuthorizationStatus) -> Bool {
+    switch status {
+    case .authorized:
+      return true
+    case .provisional, .notDetermined, .denied:
+      return false
+    @unknown default:
+      return false
+    }
+  }
+
+  private func handleAuthorizedDailyAccessStatus() {
+    guard accessFlowStep == .notifications else {
+      return
+    }
+
+    advanceToDailyProviderStep()
+  }
+
+  private func advanceToDailyProviderStep() {
+    dailyRecapProvider = DailyRecapGenerator.shared.selectedProvider()
+    refreshProviderAvailability()
+
+    withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
+      accessFlowStep = .provider
+    }
+  }
+
+  private func triggerLockScreenConfetti() {
+    lockScreenConfettiTrigger += 1
+  }
+
+  private func startDailyAccessFlow() {
     AnalyticsService.shared.capture(
-      "daily_manual_onboarding_booking_opened",
-      [
-        "source": "daily_lock_screen",
-        "url": onboardingBookingURL,
-      ])
-    openURL(url)
+      "daily_access_requested",
+      ["source": "daily_intro"]
+    )
+
+    refreshProviderAvailability()
+
+    withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
+      accessFlowStep =
+        canUnlockDaily(for: notificationAuthorizationStatus) ? .provider : .notifications
+    }
+  }
+
+  private func finishDailyProviderOnboarding() {
+    guard canFinishDailyProviderOnboarding else {
+      return
+    }
+
+    prepareTodayDailyGenerationAfterUnlock()
+    completeDailyUnlock()
+
+    Task { @MainActor in
+      regenerateStandupFromTimeline()
+    }
+  }
+
+  private func prepareTodayDailyGenerationAfterUnlock() {
+    let today = Date()
+    selectedDate = today
+
+    standupRegenerateTask?.cancel()
+    standupRegenerateTask = nil
+    standupRegenerateResetTask?.cancel()
+    standupRegenerateResetTask = nil
+    standupRegenerateState = .idle
+    standupRegeneratingDotsPhase = 1
+    loadedStandupDraftDay = nil
+    loadedStandupFallbackSourceDay = nil
+    standupSourceDay = nil
+
+    refreshWorkflowData()
   }
 
   private func topControls(scale: CGFloat) -> some View {
