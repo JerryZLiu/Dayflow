@@ -125,6 +125,7 @@ extension MainView {
         switch newIcon {
         case .timeline: tabName = "timeline"
         case .daily: tabName = "daily"
+        case .weekly: tabName = "weekly"
         case .chat: tabName = "dashboard"
         case .journal: tabName = "journal"
         case .bug: tabName = "bug_report"
@@ -319,6 +320,8 @@ extension MainView {
         ChatPanelView()
       case .daily:
         DailyView(selectedDate: $selectedDate)
+      case .weekly:
+        WeeklyView()
       case .journal:
         JournalView()
           .padding(15)
