@@ -2,11 +2,21 @@ import Foundation
 
 enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
   case dayflow
+  case local
   case gemini
   case chatgpt
   case claude
+  case none
 
   private static let storageKey = "dailyRecapProvider_v1"
+  static let allCases: [DailyRecapProvider] = [
+    .dayflow,
+    .claude,
+    .chatgpt,
+    .gemini,
+    .local,
+    .none,
+  ]
 
   static func load(from defaults: UserDefaults = .standard) -> DailyRecapProvider {
     if let rawValue = defaults.string(forKey: storageKey),
@@ -38,7 +48,7 @@ enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
       let preferredTool = defaults.string(forKey: "chatCLIPreferredTool") ?? "codex"
       return preferredTool == "claude" ? .claude : .chatgpt
     case .ollamaLocal:
-      return .dayflow
+      return .local
     }
   }
 
@@ -50,12 +60,16 @@ enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
     switch self {
     case .dayflow:
       return "Dayflow backend"
+    case .local:
+      return "Local"
     case .gemini:
       return "Gemini"
     case .chatgpt:
       return "ChatGPT"
     case .claude:
       return "Claude"
+    case .none:
+      return "No provider"
     }
   }
 
@@ -63,12 +77,16 @@ enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
     switch self {
     case .dayflow:
       return "Dayflow backend"
+    case .local:
+      return "Local"
     case .gemini:
       return "Gemini 3.1 Flash-Lite"
     case .chatgpt:
       return "GPT-5.4"
     case .claude:
       return "Claude Opus"
+    case .none:
+      return "No provider selected (Daily off)"
     }
   }
 
@@ -76,12 +94,16 @@ enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
     switch self {
     case .dayflow:
       return "Uses Dayflow's hosted service for best performance."
+    case .local:
+      return "Uses Ollama, LM Studio, or another local-compatible server on this Mac."
     case .gemini:
       return "Gemini 3.1 Flash-Lite"
     case .chatgpt:
       return "GPT-5.4"
     case .claude:
       return "Claude Opus"
+    case .none:
+      return "Turns off Daily recap generation until you pick another provider."
     }
   }
 
@@ -89,10 +111,14 @@ enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
     switch self {
     case .dayflow:
       return "dayflow_backend"
+    case .local:
+      return "local_llm"
     case .gemini:
       return "gemini_direct"
     case .chatgpt, .claude:
       return "chat_cli"
+    case .none:
+      return "disabled"
     }
   }
 
@@ -100,13 +126,37 @@ enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
     switch self {
     case .dayflow:
       return nil
+    case .local:
+      return Self.currentLocalModelID()
     case .gemini:
       return GeminiModel.flashLite31Preview.rawValue
     case .chatgpt:
       return "gpt-5.4"
     case .claude:
       return "opus"
+    case .none:
+      return nil
     }
+  }
+
+  var canGenerate: Bool {
+    self != .none
+  }
+
+  var usesDayflowInputs: Bool {
+    self == .dayflow
+  }
+
+  private static func currentLocalModelID(from defaults: UserDefaults = .standard) -> String? {
+    let trimmed = defaults.string(forKey: "llmLocalModelId")?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    if let trimmed, !trimmed.isEmpty {
+      return trimmed
+    }
+
+    let rawEngine = defaults.string(forKey: "llmLocalEngine") ?? LocalEngine.ollama.rawValue
+    let engine = LocalEngine(rawValue: rawEngine) ?? .ollama
+    return LocalModelPreferences.defaultModelId(for: engine)
   }
 }
 
@@ -116,6 +166,8 @@ enum DailyStandupPlaceholder {
   static let todayNotGeneratedMessage = "Today's daily recap will be generated tomorrow morning."
   static let insufficientHistoryMessage =
     "Not enough captured activity in the previous 3 days to generate a standup."
+  static let noProviderSelectedMessage =
+    "No Daily provider is selected. Click the gear button above, then choose a provider to turn recap generation back on."
 }
 
 struct DailyStandupGenerationMetadata: Codable, Equatable, Sendable {
@@ -145,12 +197,16 @@ struct DailyStandupGenerationMetadata: Codable, Equatable, Sendable {
     switch provider {
     case .dayflow:
       return "Dayflow backend"
+    case .local:
+      return modelOrTool ?? "Local"
     case .gemini:
       return "Gemini 3.1 Flash-Lite"
     case .chatgpt:
       return "GPT-5.4"
     case .claude:
       return "Claude Opus"
+    case .none:
+      return "No provider"
     }
   }
 }
@@ -196,6 +252,16 @@ struct DailyStandupDraft: Codable, Equatable, Sendable {
     tasks: [DailyBulletItem(text: DailyStandupPlaceholder.insufficientHistoryMessage)],
     blockersTitle: "Blockers",
     blockersBody: DailyStandupPlaceholder.insufficientHistoryMessage,
+    generation: nil
+  )
+
+  static let noProviderSelected = DailyStandupDraft(
+    highlightsTitle: "Yesterday's highlights",
+    highlights: [DailyBulletItem(text: DailyStandupPlaceholder.noProviderSelectedMessage)],
+    tasksTitle: "Today's tasks",
+    tasks: [DailyBulletItem(text: DailyStandupPlaceholder.noProviderSelectedMessage)],
+    blockersTitle: "Blockers",
+    blockersBody: DailyStandupPlaceholder.noProviderSelectedMessage,
     generation: nil
   )
 

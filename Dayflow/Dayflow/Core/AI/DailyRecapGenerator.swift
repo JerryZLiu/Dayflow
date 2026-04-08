@@ -18,7 +18,9 @@ struct DailyRecapProviderAvailability: Equatable, Sendable {
 
 enum DailyRecapGeneratorError: LocalizedError {
   case emptyCards(day: String)
+  case noProviderSelected
   case missingDayflowAuthToken
+  case missingLocalConfiguration
   case missingGeminiAPIKey
   case missingCodexCLI
   case missingClaudeCLI
@@ -29,8 +31,14 @@ enum DailyRecapGeneratorError: LocalizedError {
     switch self {
     case .emptyCards(let day):
       return "No timeline cards were found for \(day)."
+    case .noProviderSelected:
+      return
+        "No Daily provider is selected. Choose one from the gear button above to turn Daily generation back on."
     case .missingDayflowAuthToken:
       return "Dayflow backend auth token is unavailable."
+    case .missingLocalConfiguration:
+      return
+        "Local Daily generation is not configured. Set up Ollama or LM Studio, or pick a different provider."
     case .missingGeminiAPIKey:
       return "Gemini API key is missing."
     case .missingCodexCLI:
@@ -52,6 +60,7 @@ final class DailyRecapGenerator {
   private static let dayflowBackendDefaultEndpoint = "https://web-production-f3361.up.railway.app"
   private static let dayflowBackendInfoPlistKey = "DayflowBackendURL"
   private static let dayflowBackendOverrideDefaultsKey = "dayflowBackendURLOverride"
+  private static let localRecapMaxOutputTokens = 8192
 
   private static let localPrompt = """
     # Daily Recap Prompt
@@ -61,12 +70,11 @@ final class DailyRecapGenerator {
 
     Read the log, find the real accomplishments, and write them up the way you'd tell a friend: "here's what I actually got done today."
 
-    ## Thinking first
+    ## Selection rules
 
-    - Output your reasoning inside the "reasoning" field before writing bullets.
     - Put 0 to 5 items in "done" based on evidence quality.
     - Do NOT pad to reach 5. If only two things were genuinely meaningful, return two.
-    - If nothing high-confidence exists, return an empty "done" array and explain why in "reasoning".
+    - If nothing high-confidence exists, return an empty "done" array.
 
     ## What counts as an accomplishment
 
@@ -90,7 +98,7 @@ final class DailyRecapGenerator {
     - Use only evidence from the log. Do not invent or assume details.
     - Name concrete things: the pricing page, the midterm essay, the onboarding flow, the partner deal. Not vague categories.
     - Include a number when it adds real signal (a metric, count, %, dollar amount, word count). If the log has a useful number, use it. Don't force one in.
-    - If your reasoning mentions a specific number from the log, it should probably appear in the bullet.
+    - If a useful number from the log matters, include it in the bullet.
 
     ## What to skip
 
@@ -124,15 +132,6 @@ final class DailyRecapGenerator {
     - "Did some research on competitors." -> Too vague. What did you learn? What did you decide?
     - "Had a productive brainstorm with the team." -> What came out of it?
 
-    ## Output format
-
-    Return ONLY valid JSON, no markdown fences, no preamble. Use this exact schema:
-
-    {
-      "reasoning": ["first reasoning point", "second reasoning point", "..."],
-      "done": ["first bullet", "second bullet", "..."],
-      "next": "one sentence or null"
-    }
     """
 
   private init() {}
@@ -153,11 +152,19 @@ final class DailyRecapGenerator {
       .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let codexInstalled = LoginShellRunner.isInstalled("codex")
     let claudeInstalled = LoginShellRunner.isInstalled("claude")
+    let isLocalConfigured = localProviderIsConfigured()
+    let localModel = DailyRecapProvider.local.modelOrTool
 
     return [
       .dayflow: DailyRecapProviderAvailability(
         isAvailable: true,
         detail: DailyRecapProvider.dayflow.pickerSubtitle
+      ),
+      .local: DailyRecapProviderAvailability(
+        isAvailable: isLocalConfigured,
+        detail: isLocalConfigured
+          ? (localModel ?? DailyRecapProvider.local.pickerSubtitle)
+          : "Configure Ollama or LM Studio before using this provider"
       ),
       .gemini: DailyRecapProviderAvailability(
         isAvailable: !geminiKey.isEmpty,
@@ -177,6 +184,10 @@ final class DailyRecapGenerator {
           ? DailyRecapProvider.claude.pickerSubtitle
           : "Install Claude Code before using this provider"
       ),
+      .none: DailyRecapProviderAvailability(
+        isAvailable: true,
+        detail: DailyRecapProvider.none.pickerSubtitle
+      ),
     ]
   }
 
@@ -191,12 +202,16 @@ final class DailyRecapGenerator {
     switch provider {
     case .dayflow:
       return try await generateWithDayflow(context: context, metadata: metadata)
+    case .local:
+      return try await generateWithLocal(context: context, metadata: metadata)
     case .gemini:
       return try await generateWithGemini(context: context, metadata: metadata)
     case .chatgpt:
       return try await generateWithChatGPT(context: context, metadata: metadata)
     case .claude:
       return try await generateWithClaude(context: context, metadata: metadata)
+    case .none:
+      throw DailyRecapGeneratorError.noProviderSelected
     }
   }
 
@@ -307,7 +322,8 @@ final class DailyRecapGenerator {
         highlightsTitle: context.highlightsTitle,
         tasksTitle: context.tasksTitle,
         blockersTitle: context.blockersTitle
-      )
+      ),
+      preferredOutputLanguage: Self.preferredOutputLanguage()
     )
 
     let response = try await provider.generateDaily(request)
@@ -339,7 +355,27 @@ final class DailyRecapGenerator {
       preference: GeminiModelPreference(primary: .flashLite31Preview)
     )
     let prompt = Self.makeLocalPrompt(day: context.sourceDayString, cards: context.cards)
-    let (rawText, _) = try await provider.generateText(prompt: prompt)
+    let (rawText, _) = try await provider.generateText(
+      prompt: prompt,
+      maxOutputTokens: Self.localRecapMaxOutputTokens
+    )
+    let parsed = try Self.parseLocalResponse(rawText)
+    return makeDraft(from: parsed, context: context, metadata: metadata)
+  }
+
+  private func generateWithLocal(
+    context: DailyRecapGenerationContext,
+    metadata: DailyStandupGenerationMetadata
+  ) async throws -> DailyStandupDraft {
+    guard localProviderIsConfigured(), let provider = makeLocalProvider() else {
+      throw DailyRecapGeneratorError.missingLocalConfiguration
+    }
+
+    let prompt = Self.makeLocalPrompt(day: context.sourceDayString, cards: context.cards)
+    let (rawText, _) = try await provider.generateText(
+      prompt: prompt,
+      maxTokens: Self.localRecapMaxOutputTokens
+    )
     let parsed = try Self.parseLocalResponse(rawText)
     return makeDraft(from: parsed, context: context, metadata: metadata)
   }
@@ -357,7 +393,7 @@ final class DailyRecapGenerator {
     let (rawText, _) = try await provider.generateText(
       prompt: prompt,
       model: "gpt-5.4",
-      reasoningEffort: "medium",
+      reasoningEffort: nil,
       disableTools: true
     )
     let parsed = try Self.parseLocalResponse(rawText)
@@ -391,6 +427,37 @@ final class DailyRecapGenerator {
 
     let endpoint = resolvedDayflowEndpoint()
     return DayflowBackendProvider(token: token, endpoint: endpoint)
+  }
+
+  private func makeLocalProvider() -> OllamaProvider? {
+    let defaults = UserDefaults.standard
+    let rawEngine = defaults.string(forKey: "llmLocalEngine") ?? LocalEngine.ollama.rawValue
+    let engine = LocalEngine(rawValue: rawEngine) ?? .ollama
+    let endpoint = defaults.string(forKey: "llmLocalBaseURL")?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let resolvedEndpoint: String
+    if let endpoint, !endpoint.isEmpty {
+      resolvedEndpoint = endpoint
+    } else {
+      resolvedEndpoint = engine.defaultBaseURL
+    }
+
+    return OllamaProvider(endpoint: resolvedEndpoint)
+  }
+
+  private func localProviderIsConfigured() -> Bool {
+    let defaults = UserDefaults.standard
+    if defaults.bool(forKey: "ollamaSetupComplete") {
+      return true
+    }
+
+    let baseURL =
+      defaults.string(forKey: "llmLocalBaseURL")?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let modelId =
+      defaults.string(forKey: "llmLocalModelId")?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return !baseURL.isEmpty && !modelId.isEmpty
   }
 
   private func resolvedDayflowEndpoint() -> String {
@@ -438,18 +505,47 @@ final class DailyRecapGenerator {
     )
   }
 
-  private static func makeLocalPrompt(day: String, cards: [TimelineCard]) -> String {
+  static func makeLocalPrompt(day: String, cards: [TimelineCard]) -> String {
     let cardsText = makeCardsText(day: day, cards: cards)
+    let languageSection = makeLocalPromptLanguageSection()
 
     return """
       \(localPrompt)
 
       You only have timeline cards for this day. The log is incomplete by nature, so prefer omission over guessing.
-      Return exactly one JSON object and nothing before or after it.
 
       Activity log:
 
       \(cardsText)
+
+      \(languageSection)
+
+      ## Output format
+
+      Return ONLY valid JSON, no markdown fences, no preamble. Use this exact schema:
+
+      {
+        "done": ["first bullet", "second bullet", "..."],
+        "next": "one sentence or null"
+      }
+
+      Return exactly one JSON object and nothing before or after it.
+      """
+  }
+
+  private static func preferredOutputLanguage() -> String? {
+    LLMOutputLanguagePreferences.normalizedOverride
+  }
+
+  private static func makeLocalPromptLanguageSection() -> String {
+    guard let instruction = LLMOutputLanguagePreferences.languageInstruction(forJSON: true) else {
+      return ""
+    }
+
+    return """
+      ## Language
+
+      \(instruction)
       """
   }
 
@@ -467,19 +563,15 @@ final class DailyRecapGenerator {
       throw DailyRecapGeneratorError.invalidJSONResponse(rawResponse: rawResponse)
     }
 
-    let reasoning = normalizedStrings(from: json["reasoning"])
     let done = Array(normalizedStrings(from: json["done"]).prefix(5))
     let next = normalizedOptionalString(from: json["next"])
 
-    let hasExpectedShape =
-      json.keys.contains("reasoning") || json.keys.contains("done")
-      || json.keys.contains("next")
+    let hasExpectedShape = json.keys.contains("done") || json.keys.contains("next")
     guard hasExpectedShape else {
       throw DailyRecapGeneratorError.invalidResponseShape(rawResponse: rawResponse)
     }
 
     return ParsedDailyRecapResponse(
-      reasoning: reasoning,
       done: done,
       next: next
     )
@@ -648,7 +740,6 @@ final class DailyRecapGenerator {
 }
 
 private struct ParsedDailyRecapResponse {
-  let reasoning: [String]
   let done: [String]
   let next: String?
 }
