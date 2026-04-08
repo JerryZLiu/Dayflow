@@ -452,7 +452,7 @@ final class OllamaProvider {
   // Helper method for text-only requests
   private func callTextAPI(
     _ prompt: String, operation: String, expectJSON: Bool = false, batchId: Int64? = nil,
-    maxRetries: Int = 3
+    maxRetries: Int = 3, maxTokens: Int = 4000
   ) async throws -> String {
     let systemPrompt =
       expectJSON
@@ -467,7 +467,10 @@ final class OllamaProvider {
           content: [MessageContent(type: "text", text: systemPrompt, image_url: nil)]),
         ChatMessage(
           role: "user", content: [MessageContent(type: "text", text: prompt, image_url: nil)]),
-      ]
+      ],
+      temperature: 0.7,
+      max_tokens: maxTokens,
+      stream: false
     )
 
     let response = try await callChatAPI(
@@ -1444,11 +1447,19 @@ extension OllamaProvider {
 // MARK: - Text Generation
 
 extension OllamaProvider {
-  func generateText(prompt: String) async throws -> (text: String, log: LLMCall) {
+  func generateText(prompt: String, maxTokens: Int = 4000) async throws
+    -> (text: String, log: LLMCall)
+  {
     let callStart = Date()
 
     let response = try await callTextAPI(
-      prompt, operation: "generate_text", expectJSON: false, batchId: nil, maxRetries: 3)
+      prompt,
+      operation: "generate_text",
+      expectJSON: false,
+      batchId: nil,
+      maxRetries: 3,
+      maxTokens: maxTokens
+    )
 
     let log = LLMCall(
       timestamp: callStart,
