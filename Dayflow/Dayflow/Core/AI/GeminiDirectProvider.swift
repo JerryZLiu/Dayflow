@@ -2130,12 +2130,14 @@ final class GeminiDirectProvider {
 
   // MARK: - Text Generation
 
-  func generateText(prompt: String) async throws -> (text: String, log: LLMCall) {
+  func generateText(prompt: String, maxOutputTokens: Int = 8192) async throws
+    -> (text: String, log: LLMCall)
+  {
     let callStart = Date()
 
     let generationConfig: [String: Any] = [
       "temperature": 0.7,
-      "maxOutputTokens": 8192,
+      "maxOutputTokens": maxOutputTokens,
     ]
 
     let requestBody: [String: Any] = [
