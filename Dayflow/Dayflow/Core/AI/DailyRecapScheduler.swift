@@ -109,7 +109,49 @@ final class DailyRecapScheduler: @unchecked Sendable {
     let recapStart = recapTarget.startOfDay
     let recapEnd = recapTarget.endOfDay
     let selectedProvider = DailyRecapGenerator.shared.selectedProvider()
-    let usesDayflowInputs = selectedProvider == .dayflow
+    let providerAvailability =
+      DailyRecapGenerator.shared.availabilitySnapshot()[selectedProvider]
+      ?? DailyRecapProviderAvailability(
+        isAvailable: true,
+        detail: selectedProvider.pickerSubtitle
+      )
+    let providerProps: [String: Any] = [
+      "daily_provider": selectedProvider.analyticsName,
+      "daily_provider_label": selectedProvider.displayName,
+      "daily_runtime": selectedProvider.runtimeLabel,
+      "daily_model_or_tool": selectedProvider.modelOrTool as Any,
+    ]
+
+    guard selectedProvider.canGenerate else {
+      AnalyticsService.shared.capture(
+        "daily_auto_generation_check_skipped",
+        providerProps.merging(
+          [
+            "trigger": reason,
+            "target_day": recapDay,
+            "reason": "no_provider_selected",
+          ],
+          uniquingKeysWith: { _, new in new }
+        ))
+      return
+    }
+
+    guard providerAvailability.isAvailable else {
+      AnalyticsService.shared.capture(
+        "daily_auto_generation_check_skipped",
+        providerProps.merging(
+          [
+            "trigger": reason,
+            "target_day": recapDay,
+            "reason": "provider_unavailable",
+            "provider_detail": providerAvailability.detail,
+          ],
+          uniquingKeysWith: { _, new in new }
+        ))
+      return
+    }
+
+    let usesDayflowInputs = selectedProvider.usesDayflowInputs
 
     let cards = StorageManager.shared.fetchTimelineCards(forDay: recapDay)
     let observations =
@@ -138,13 +180,6 @@ final class DailyRecapScheduler: @unchecked Sendable {
         tasksTitle: "Today's tasks",
         blockersTitle: "Blockers"
       ) : ""
-    let providerProps: [String: Any] = [
-      "daily_provider": selectedProvider.analyticsName,
-      "daily_provider_label": selectedProvider.displayName,
-      "daily_runtime": selectedProvider.runtimeLabel,
-      "daily_model_or_tool": selectedProvider.modelOrTool as Any,
-    ]
-
     AnalyticsService.shared.capture(
       "daily_auto_generation_check_started",
       providerProps.merging(
