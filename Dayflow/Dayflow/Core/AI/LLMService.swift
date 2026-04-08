@@ -499,7 +499,9 @@ final class LLMService: LLMServicing {
     case .geminiDirect:
       guard let provider = makeGeminiProvider() else { throw noProviderError() }
       return TextProviderActions(
-        generateText: provider.generateText,
+        generateText: { prompt in
+          try await provider.generateText(prompt: prompt)
+        },
         generateTextStreaming: nil
       )
     case .dayflowBackend(let endpoint):
@@ -508,19 +510,25 @@ final class LLMService: LLMServicing {
         throw noProviderError()
       }
       return TextProviderActions(
-        generateText: provider.generateText,
+        generateText: { prompt in
+          try await provider.generateText(prompt: prompt)
+        },
         generateTextStreaming: nil
       )
     case .ollamaLocal(let endpoint):
       let provider = makeOllamaProvider(endpoint: endpoint)
       return TextProviderActions(
-        generateText: provider.generateText,
+        generateText: { prompt in
+          try await provider.generateText(prompt: prompt)
+        },
         generateTextStreaming: nil
       )
     case .chatGPTClaude:
       let provider = makeChatCLIProvider()
       return TextProviderActions(
-        generateText: provider.generateText,
+        generateText: { prompt in
+          try await provider.generateText(prompt: prompt)
+        },
         generateTextStreaming: provider.generateTextStreaming
       )
     }
