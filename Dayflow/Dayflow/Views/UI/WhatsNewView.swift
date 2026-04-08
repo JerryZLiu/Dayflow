@@ -5,6 +5,7 @@
 //  Displays release highlights after app updates
 //
 
+import AppKit
 import SwiftUI
 
 // MARK: - Release Notes Data Structure
@@ -37,22 +38,21 @@ enum WhatsNewConfiguration {
   private static let seenKey = "lastSeenWhatsNewVersion"
 
   /// Override with the specific release number you want to show.
-  private static let versionOverride: String? = "1.8.5"
+  private static let versionOverride: String? = "1.9.0"
 
   /// Update this content before shipping each release. Return nil to disable the modal entirely.
   static var configuredRelease: ReleaseNote? {
     ReleaseNote(
       version: targetVersion,
-      title: "Chat is now available to Gemini users",
+      title: "Daily is now available to everyone",
       highlights: [
-        "Chat is now available to all Gemini users. This was finally unlocked by the generous new rate limits for Gemini 3.1 Flash-Lite.",
-        "Gemini is quickly becoming my preferred way to use Chat because of how fast it responds, roughly 10x faster than ChatGPT or Claude. Answers appear almost instantly, which feels great.",
-        "There's also a prototype memory feature. It should intelligently remember your preferences for things like structure, length, and tone.",
-        "As always, LLMs can hallucinate, so please report anything that seems off. You can also use thumbs up/down on answers to help improve the experience.",
-        "Lastly, I made a small tweak to Gemini card generation to reduce oversplitting.",
+        "Thank you to everyone who gave feedback on Daily. It's now ready for everyone.",
+        "Daily now uses your selected provider by default, but the Dayflow-hosted provider is still available if you want the best quality.",
+        "An optional paid hosted option is coming soon for people who want the best quality without bumping into rate limits. Running locally and through your own providers will always remain an option.",
       ],
-      previewIntro: nil,
-      previewImageNames: [],
+      previewIntro:
+        "We're also working on new ways to visualize your Dayflow data on a weekly level. Some previews are below. Please reach out if you have feedback or ideas.",
+      previewImageNames: ["WeeklyCalendarPreview", "WeeklyPreview"],
       cta: nil
     )
   }
@@ -112,114 +112,102 @@ struct WhatsNewView: View {
   let onDismiss: () -> Void
 
   @Environment(\.openURL) private var openURL
-  @AppStorage("whatsNewValueSurveySubmittedVersion") private var submittedValueSurveyVersion:
+  @AppStorage("whatsNewOpenQuestionSubmittedVersion") private var submittedOpenQuestionVersion:
     String = ""
-  @State private var valueFrequencySelection: ValueFrequencyOption? = nil
-  @State private var selectedHelpfulOptions: Set<HelpfulFeatureOption> = []
-  @State private var includeHelpfulOtherOption = false
-  @State private var helpfulOtherText = ""
-  @State private var randomizedHelpfulOptions: [HelpfulFeatureOption] = []
+  @State private var openQuestionResponse = ""
   @State private var didHydrateSurveyState = false
-  @State private var scrollToBottomToken = 0
 
   private let bottomAnchorID = "whats_new_bottom_anchor"
 
   var body: some View {
-    ScrollViewReader { proxy in
-      ScrollView {
-        VStack(alignment: .leading, spacing: 18) {
-          HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 6) {
-              Text("What's New in \(releaseNote.version) 🎉")
-                .font(.custom("InstrumentSerif-Regular", size: 32))
-                .foregroundColor(.black.opacity(0.9))
-            }
-
-            Spacer()
-
-            Button(action: dismiss) {
-              Image(systemName: "xmark")
-                .font(.system(size: 13, weight: .semibold))
-                .padding(8)
-                .background(Color.black.opacity(0.05))
-                .clipShape(Circle())
-            }
-            .buttonStyle(PlainButtonStyle())
-            .pointingHandCursor()
-            .accessibilityLabel("Close")
-            .keyboardShortcut(.cancelAction)
+    ScrollView {
+      VStack(alignment: .leading, spacing: 18) {
+        HStack(alignment: .top) {
+          VStack(alignment: .leading, spacing: 6) {
+            Text("What's New in \(releaseNote.version) 🎉")
+              .font(.custom("InstrumentSerif-Regular", size: 32))
+              .foregroundColor(.black.opacity(0.9))
           }
 
-          VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(releaseNote.highlights.enumerated()), id: \.offset) { _, highlight in
-              HStack(alignment: .top, spacing: 12) {
-                Circle()
-                  .fill(Color(red: 0.25, green: 0.17, blue: 0).opacity(0.6))
-                  .frame(width: 6, height: 6)
-                  .padding(.top, 7)
+          Spacer()
 
-                Text(highlight)
-                  .font(.custom("Nunito", size: 15))
-                  .foregroundColor(.black.opacity(0.75))
-                  .fixedSize(horizontal: false, vertical: true)
-              }
+          Button(action: dismiss) {
+            Image(systemName: "xmark")
+              .font(.system(size: 13, weight: .semibold))
+              .padding(8)
+              .background(Color.black.opacity(0.05))
+              .clipShape(Circle())
+          }
+          .buttonStyle(PlainButtonStyle())
+          .pointingHandCursor()
+          .accessibilityLabel("Close")
+          .keyboardShortcut(.cancelAction)
+        }
+
+        VStack(alignment: .leading, spacing: 8) {
+          ForEach(Array(releaseNote.highlights.enumerated()), id: \.offset) { _, highlight in
+            HStack(alignment: .top, spacing: 12) {
+              Circle()
+                .fill(Color(red: 0.25, green: 0.17, blue: 0).opacity(0.6))
+                .frame(width: 6, height: 6)
+                .padding(.top, 7)
+
+              Text(highlight)
+                .font(.custom("Nunito", size: 15))
+                .foregroundColor(.black.opacity(0.75))
+                .fixedSize(horizontal: false, vertical: true)
             }
           }
+        }
 
-          if let previewIntro = releaseNote.previewIntro,
-            previewIntro.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-          {
-            Text(previewIntro)
-              .font(.custom("Nunito", size: 14))
-              .foregroundColor(.black.opacity(0.72))
-              .fixedSize(horizontal: false, vertical: true)
-              .padding(.top, 6)
-          }
+        surveySection
 
-          if !releaseNote.previewImageNames.isEmpty {
-            VStack(spacing: 16) {
-              ForEach(releaseNote.previewImageNames, id: \.self) { imageName in
-                Image(imageName)
-                  .resizable()
-                  .interpolation(.high)
-                  .scaledToFit()
-                  .frame(maxWidth: .infinity)
-                  .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                      .fill(Color(red: 0.985, green: 0.985, blue: 0.985))
-                  )
-                  .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                  .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                      .stroke(Color.black.opacity(0.06), lineWidth: 1)
-                  )
-              }
-            }
-            // Let previews use more horizontal space than text for better readability.
+        if let previewIntro = releaseNote.previewIntro,
+          previewIntro.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        {
+          Text(previewIntro)
+            .font(.custom("Nunito", size: 14))
+            .foregroundColor(.black.opacity(0.72))
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 6)
-            .padding(.horizontal, -20)
-          }
-
-          if let cta = releaseNote.cta {
-            ctaSection(cta)
-          }
-
-          Color.clear
-            .frame(height: 1)
-            .id(bottomAnchorID)
         }
-        .padding(.horizontal, 44)
-        .padding(.vertical, 36)
-      }
-      .frame(maxHeight: 760)
-      .onChange(of: scrollToBottomToken) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-          withAnimation(.easeInOut(duration: 0.3)) {
-            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+
+        if !releaseNote.previewImageNames.isEmpty {
+          VStack(spacing: 16) {
+            ForEach(releaseNote.previewImageNames, id: \.self) { imageName in
+              Image(imageName)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(maxWidth: .infinity)
+                .background(
+                  RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(red: 0.985, green: 0.985, blue: 0.985))
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                  RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                )
+            }
           }
+          // Let previews use more horizontal space than text for better readability.
+          .padding(.top, 6)
+          .padding(.horizontal, -36)
         }
+
+        if let cta = releaseNote.cta {
+          ctaSection(cta)
+        }
+
+        Color.clear
+          .frame(height: 1)
+          .id(bottomAnchorID)
       }
+      .padding(.horizontal, 44)
+      .padding(.vertical, 36)
     }
+    .frame(maxHeight: 760)
     .frame(width: 780)
     .background(
       RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -249,13 +237,72 @@ struct WhatsNewView: View {
   }
 
   private var surveySection: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      valueFrequencyQuestion
-      if valueFrequencySelection != nil {
-        helpfulFeaturesQuestion
+    VStack(alignment: .leading, spacing: 12) {
+      Text("What's missing in Dayflow that you'd like to see?")
+        .font(.custom("Nunito", size: 15))
+        .fontWeight(.semibold)
+        .foregroundColor(.black.opacity(0.85))
+        .fixedSize(horizontal: false, vertical: true)
+
+      Text(
+        "Many of Dayflow's best features have come directly from thoughtful feedback from users like you."
+      )
+      .font(.custom("Nunito", size: 13))
+      .foregroundColor(.black.opacity(0.62))
+      .fixedSize(horizontal: false, vertical: true)
+
+      ZStack {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .fill(Color.white)
+
+        WhatsNewSurveyTextEditor(
+          text: $openQuestionResponse,
+          placeholder: "Type your answer here"
+        )
+        .frame(height: 86)
+        .onChange(of: openQuestionResponse) {
+          persistOpenQuestionResponse()
+        }
+        .environment(\.colorScheme, .light)
+        .preferredColorScheme(.light)
+      }
+      .overlay(
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .stroke(Color.black.opacity(0.1), lineWidth: 1)
+      )
+
+      HStack {
+        Spacer()
+        DayflowSurfaceButton(
+          action: submitOpenQuestionSurvey,
+          content: {
+            Text("Submit")
+              .font(.custom("Nunito", size: 15))
+              .fontWeight(.semibold)
+          },
+          background: canSubmitOpenQuestionSurvey
+            ? Color(red: 0.25, green: 0.17, blue: 0) : Color.black.opacity(0.08),
+          foreground: .white.opacity(canSubmitOpenQuestionSurvey ? 1 : 0.7),
+          borderColor: .clear,
+          cornerRadius: 8,
+          horizontalPadding: 34,
+          verticalPadding: 12,
+          minWidth: 160,
+          showOverlayStroke: true
+        )
+        .disabled(!canSubmitOpenQuestionSurvey)
+        .opacity(canSubmitOpenQuestionSurvey ? 1 : 0.8)
+      }
+
+      if hasSubmittedOpenQuestionSurvey {
+        Label("Thanks for sharing!", systemImage: "checkmark.circle.fill")
+          .font(.custom("Nunito", size: 14))
+          .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
       }
     }
     .padding(.top, 10)
+    .environment(\.colorScheme, .light)
+    .preferredColorScheme(.light)
   }
 
   private func ctaSection(_ cta: ReleaseNoteCTA) -> some View {
@@ -307,324 +354,47 @@ struct WhatsNewView: View {
     openURL(url)
   }
 
-  private var valueFrequencyQuestion: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Text("How often does Dayflow feel valuable to you?")
-        .font(.custom("Nunito", size: 15))
-        .fontWeight(.semibold)
-        .foregroundColor(.black.opacity(0.85))
-        .fixedSize(horizontal: false, vertical: true)
-
-      VStack(alignment: .leading, spacing: 10) {
-        ForEach(ValueFrequencyOption.allCases, id: \.self) { option in
-          Button(action: { selectValueFrequency(option) }) {
-            HStack(spacing: 10) {
-              Image(
-                systemName: valueFrequencySelection == option ? "largecircle.fill.circle" : "circle"
-              )
-              .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
-
-              Text(option.title)
-                .font(.custom("Nunito", size: 14))
-                .foregroundColor(.black.opacity(0.8))
-                .fixedSize(horizontal: false, vertical: true)
-
-              Spacer(minLength: 0)
-            }
-            .padding(.vertical, 10)
-            .padding(.horizontal, 12)
-            .background(
-              RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(
-                  valueFrequencySelection == option
-                    ? Color(red: 1.0, green: 0.95, blue: 0.9) : Color.white)
-            )
-            .overlay(
-              RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(
-                  Color(red: 0.25, green: 0.17, blue: 0).opacity(
-                    valueFrequencySelection == option ? 0.22 : 0.1), lineWidth: 1)
-            )
-          }
-          .buttonStyle(PlainButtonStyle())
-          .pointingHandCursor()
-        }
-      }
-    }
+  private var hasSubmittedOpenQuestionSurvey: Bool {
+    submittedOpenQuestionVersion == releaseNote.version
   }
 
-  private var helpfulFeaturesQuestion: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Text("Which of these would make Dayflow more helpful to you?")
-        .font(.custom("Nunito", size: 15))
-        .fontWeight(.semibold)
-        .foregroundColor(.black.opacity(0.85))
-        .fixedSize(horizontal: false, vertical: true)
-
-      Text("(pick all that apply)")
-        .font(.custom("Nunito", size: 12))
-        .foregroundColor(.black.opacity(0.58))
-
-      VStack(alignment: .leading, spacing: 10) {
-        ForEach(randomizedHelpfulOptions, id: \.self) { option in
-          helpfulOptionRow(
-            title: option.title,
-            isSelected: selectedHelpfulOptions.contains(option),
-            action: { toggleHelpfulOption(option) }
-          )
-        }
-
-        helpfulOptionRow(
-          title: "Other",
-          isSelected: includeHelpfulOtherOption,
-          action: toggleHelpfulOtherOption
-        )
-
-        if includeHelpfulOtherOption {
-          TextField("Other: ___", text: $helpfulOtherText)
-            .textFieldStyle(RoundedBorderTextFieldStyle())
-            .font(.custom("Nunito", size: 13))
-            .padding(.horizontal, 4)
-            .onChange(of: helpfulOtherText) {
-              persistHelpfulOtherText()
-            }
-        }
-      }
-
-      HStack {
-        Spacer()
-        DayflowSurfaceButton(
-          action: submitValueSurvey,
-          content: {
-            Text("Submit")
-              .font(.custom("Nunito", size: 15))
-              .fontWeight(.semibold)
-          },
-          background: canSubmitValueSurvey
-            ? Color(red: 0.25, green: 0.17, blue: 0) : Color.black.opacity(0.08),
-          foreground: .white.opacity(canSubmitValueSurvey ? 1 : 0.7),
-          borderColor: .clear,
-          cornerRadius: 8,
-          horizontalPadding: 34,
-          verticalPadding: 12,
-          minWidth: 160,
-          showOverlayStroke: true
-        )
-        .disabled(!canSubmitValueSurvey)
-        .opacity(canSubmitValueSurvey ? 1 : 0.8)
-      }
-
-      if hasSubmittedValueSurvey {
-        Label("Thanks for sharing!", systemImage: "checkmark.circle.fill")
-          .font(.custom("Nunito", size: 14))
-          .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
-      }
-    }
+  private var openQuestionResponseTrimmed: String {
+    openQuestionResponse.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  private func helpfulOptionRow(title: String, isSelected: Bool, action: @escaping () -> Void)
-    -> some View
-  {
-    Button(action: action) {
-      HStack(spacing: 10) {
-        Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-          .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
-        Text(title)
-          .font(.custom("Nunito", size: 14))
-          .foregroundColor(.black.opacity(0.8))
-          .fixedSize(horizontal: false, vertical: true)
-        Spacer(minLength: 0)
-      }
-      .padding(.vertical, 10)
-      .padding(.horizontal, 12)
-      .background(
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .fill(isSelected ? Color(red: 1.0, green: 0.95, blue: 0.9) : Color.white)
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .stroke(
-            Color(red: 0.25, green: 0.17, blue: 0).opacity(isSelected ? 0.22 : 0.1), lineWidth: 1)
-      )
-    }
-    .buttonStyle(PlainButtonStyle())
-    .pointingHandCursor()
+  private var canSubmitOpenQuestionSurvey: Bool {
+    !hasSubmittedOpenQuestionSurvey && !openQuestionResponseTrimmed.isEmpty
   }
 
-  private var hasSubmittedValueSurvey: Bool {
-    submittedValueSurveyVersion == releaseNote.version
-  }
+  private func submitOpenQuestionSurvey() {
+    guard !hasSubmittedOpenQuestionSurvey else { return }
+    guard !openQuestionResponseTrimmed.isEmpty else { return }
 
-  private var helpfulOtherTextTrimmed: String {
-    helpfulOtherText.trimmingCharacters(in: .whitespacesAndNewlines)
-  }
-
-  private var hasAnyHelpfulSelection: Bool {
-    if selectedHelpfulOptions.isEmpty == false {
-      return true
-    }
-    if includeHelpfulOtherOption && helpfulOtherTextTrimmed.isEmpty == false {
-      return true
-    }
-    return false
-  }
-
-  private var canSubmitValueSurvey: Bool {
-    !hasSubmittedValueSurvey && valueFrequencySelection != nil && hasAnyHelpfulSelection
-  }
-
-  private func selectValueFrequency(_ option: ValueFrequencyOption) {
-    let previousSelection = storedValueFrequencySelection
-    valueFrequencySelection = option
-    UserDefaults.standard.set(option.rawValue, forKey: valueFrequencyStorageKey)
-    scrollToBottomToken &+= 1
-
-    if previousSelection != option {
-      AnalyticsService.shared.capture(
-        "whats_new_survey_value_frequency_selected",
-        [
-          "version": releaseNote.version,
-          "option": option.analyticsValue,
-          "provider_label": currentProviderLabel,
-        ])
-    }
-
-    captureValueSurveyProgress(
-      trigger: "value_frequency_selected",
-      targetOption: option.analyticsValue,
-      targetSelected: true
-    )
-  }
-
-  private func toggleHelpfulOption(_ option: HelpfulFeatureOption) {
-    let targetSelected: Bool
-    if selectedHelpfulOptions.contains(option) {
-      selectedHelpfulOptions.remove(option)
-      targetSelected = false
-    } else {
-      selectedHelpfulOptions.insert(option)
-      targetSelected = true
-    }
-    persistHelpfulSelections()
-    captureValueSurveyProgress(
-      trigger: "helpful_option_toggled",
-      targetOption: option.analyticsValue,
-      targetSelected: targetSelected
-    )
-  }
-
-  private func toggleHelpfulOtherOption() {
-    includeHelpfulOtherOption.toggle()
-    UserDefaults.standard.set(includeHelpfulOtherOption, forKey: helpfulOtherEnabledStorageKey)
-    persistHelpfulSelections()
-    captureValueSurveyProgress(
-      trigger: "helpful_other_toggled",
-      targetOption: "other",
-      targetSelected: includeHelpfulOtherOption
-    )
-  }
-
-  private func persistHelpfulSelections() {
-    UserDefaults.standard.set(
-      selectedHelpfulOptions.map(\.rawValue).sorted(), forKey: helpfulOptionsSelectionStorageKey)
-  }
-
-  private func persistHelpfulOtherText() {
-    UserDefaults.standard.set(helpfulOtherText, forKey: helpfulOtherTextStorageKey)
-  }
-
-  private func submitValueSurvey() {
-    guard let selection = valueFrequencySelection, !hasSubmittedValueSurvey else { return }
-    guard hasAnyHelpfulSelection else { return }
-
-    let selectedOptionTitles = selectedHelpfulOptions.map(\.title).sorted()
-    let selectedOptionValues = selectedHelpfulOptions.map(\.analyticsValue).sorted()
-    let otherResponse = includeHelpfulOtherOption ? helpfulOtherText : ""
-
+    let response = String(openQuestionResponseTrimmed.prefix(1000))
     AnalyticsService.shared.capture(
-      "whats_new_survey_submitted",
+      "whats_new_open_question_submitted",
       [
         "version": releaseNote.version,
-        "value_frequency": selection.analyticsValue,
-        "value_frequency_label": selection.title,
-        "helpful_options": selectedOptionValues,
-        "helpful_option_labels": selectedOptionTitles,
-        "helpful_options_count": selectedOptionValues.count + (includeHelpfulOtherOption ? 1 : 0),
-        "helpful_other_selected": includeHelpfulOtherOption,
-        "helpful_other_text": otherResponse,
+        "response": response,
         "provider_label": currentProviderLabel,
       ])
 
-    submittedValueSurveyVersion = releaseNote.version
+    submittedOpenQuestionVersion = releaseNote.version
+    openQuestionResponse = response
+    persistOpenQuestionResponse()
   }
 
-  private func captureValueSurveyProgress(
-    trigger: String,
-    targetOption: String? = nil,
-    targetSelected: Bool? = nil
-  ) {
-    let selectedOptionTitles = selectedHelpfulOptions.map(\.title).sorted()
-    let selectedOptionValues = selectedHelpfulOptions.map(\.analyticsValue).sorted()
-    let otherResponse = includeHelpfulOtherOption ? helpfulOtherText : ""
-
-    var properties: [String: Any] = [
-      "version": releaseNote.version,
-      "value_frequency": valueFrequencySelection?.analyticsValue as Any,
-      "value_frequency_label": valueFrequencySelection?.title as Any,
-      "helpful_options": selectedOptionValues,
-      "helpful_option_labels": selectedOptionTitles,
-      "helpful_options_count": selectedOptionValues.count + (includeHelpfulOtherOption ? 1 : 0),
-      "helpful_other_selected": includeHelpfulOtherOption,
-      "helpful_other_text": otherResponse,
-      "trigger": trigger,
-      "provider_label": currentProviderLabel,
-    ]
-
-    if let targetOption {
-      properties["target_option"] = targetOption
-    }
-    if let targetSelected {
-      properties["target_selected"] = targetSelected
-    }
-
-    AnalyticsService.shared.capture("whats_new_survey_progress", properties)
+  private func persistOpenQuestionResponse() {
+    UserDefaults.standard.set(openQuestionResponse, forKey: openQuestionResponseStorageKey)
   }
 
   private func hydrateSurveyStateIfNeeded() {
-    valueFrequencySelection = storedValueFrequencySelection
-    selectedHelpfulOptions = storedHelpfulOptionSelections
-    includeHelpfulOtherOption = UserDefaults.standard.bool(forKey: helpfulOtherEnabledStorageKey)
-    helpfulOtherText = UserDefaults.standard.string(forKey: helpfulOtherTextStorageKey) ?? ""
-    randomizedHelpfulOptions = HelpfulFeatureOption.allCases.shuffled()
+    openQuestionResponse =
+      UserDefaults.standard.string(forKey: openQuestionResponseStorageKey) ?? ""
   }
 
-  private var valueFrequencyStorageKey: String {
-    "whatsNewValueFrequencySelection_\(releaseNote.version)"
-  }
-
-  private var helpfulOptionsSelectionStorageKey: String {
-    "whatsNewHelpfulOptionsSelection_\(releaseNote.version)"
-  }
-
-  private var helpfulOtherEnabledStorageKey: String {
-    "whatsNewHelpfulOtherEnabled_\(releaseNote.version)"
-  }
-
-  private var helpfulOtherTextStorageKey: String {
-    "whatsNewHelpfulOtherText_\(releaseNote.version)"
-  }
-
-  private var storedValueFrequencySelection: ValueFrequencyOption? {
-    guard let storedValue = UserDefaults.standard.string(forKey: valueFrequencyStorageKey) else {
-      return nil
-    }
-    return ValueFrequencyOption(rawValue: storedValue)
-  }
-
-  private var storedHelpfulOptionSelections: Set<HelpfulFeatureOption> {
-    guard let stored = UserDefaults.standard.stringArray(forKey: helpfulOptionsSelectionStorageKey)
-    else { return [] }
-    return Set(stored.compactMap(HelpfulFeatureOption.init(rawValue:)))
+  private var openQuestionResponseStorageKey: String {
+    "whatsNewOpenQuestionResponse_\(releaseNote.version)"
   }
 
   private var currentProviderLabel: String {
@@ -643,48 +413,120 @@ struct WhatsNewView: View {
   }
 }
 
-private enum ValueFrequencyOption: String, CaseIterable {
-  case daily = "daily"
-  case sometimes = "sometimes"
-  case notSureYet = "not_sure_yet"
+private struct WhatsNewSurveyTextEditor: NSViewRepresentable {
+  @Binding var text: String
+  let placeholder: String
 
-  var title: String {
-    switch self {
-    case .daily: return "Daily - it's part of my routine"
-    case .sometimes: return "Sometimes - a few times a week"
-    case .notSureYet: return "Not sure yet - still figuring it out."
-    }
+  private let fontSize: CGFloat = 14
+  private let textInsets = NSSize(width: 14, height: 12)
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(text: $text)
   }
 
-  var analyticsValue: String { rawValue }
+  func makeNSView(context: Context) -> NSScrollView {
+    let scrollView = NSScrollView()
+    scrollView.borderType = .noBorder
+    scrollView.drawsBackground = false
+    scrollView.hasVerticalScroller = false
+    scrollView.hasHorizontalScroller = false
+    scrollView.autohidesScrollers = true
+    scrollView.focusRingType = .none
+    scrollView.appearance = NSAppearance(named: .aqua)
+
+    let textView = PlaceholderTextView()
+    textView.delegate = context.coordinator
+    textView.placeholder = placeholder
+    textView.font = NSFont(name: "Nunito", size: fontSize) ?? .systemFont(ofSize: fontSize)
+    textView.textColor = NSColor.black.withAlphaComponent(0.82)
+    textView.insertionPointColor = .systemBlue
+    textView.drawsBackground = false
+    textView.backgroundColor = .clear
+    textView.focusRingType = .none
+    textView.appearance = NSAppearance(named: .aqua)
+    textView.isRichText = false
+    textView.importsGraphics = false
+    textView.isAutomaticQuoteSubstitutionEnabled = false
+    textView.isAutomaticDashSubstitutionEnabled = false
+    textView.isAutomaticTextReplacementEnabled = false
+    textView.isHorizontallyResizable = false
+    textView.isVerticallyResizable = true
+    textView.autoresizingMask = [.width]
+    textView.textContainerInset = textInsets
+    textView.textContainer?.lineFragmentPadding = 0
+    textView.textContainer?.widthTracksTextView = true
+    textView.textContainer?.containerSize = NSSize(
+      width: 0,
+      height: CGFloat.greatestFiniteMagnitude
+    )
+    textView.string = text
+
+    scrollView.documentView = textView
+    return scrollView
+  }
+
+  func updateNSView(_ nsView: NSScrollView, context: Context) {
+    nsView.appearance = NSAppearance(named: .aqua)
+
+    guard let textView = nsView.documentView as? PlaceholderTextView else { return }
+
+    if textView.string != text {
+      textView.string = text
+    }
+
+    textView.placeholder = placeholder
+    textView.appearance = NSAppearance(named: .aqua)
+    textView.needsDisplay = true
+  }
+
+  final class Coordinator: NSObject, NSTextViewDelegate {
+    @Binding private var text: String
+
+    init(text: Binding<String>) {
+      _text = text
+    }
+
+    func textDidChange(_ notification: Notification) {
+      guard let textView = notification.object as? NSTextView else { return }
+      text = textView.string
+      textView.needsDisplay = true
+    }
+  }
 }
 
-private enum HelpfulFeatureOption: String, CaseIterable, Hashable {
-  case distractionNudges = "distraction_nudges"
-  case meetingSummaries = "meeting_summaries"
-  case weeklyTimeBreakdown = "weekly_time_breakdown"
-  case dayStartContext = "day_start_context"
-  case historySearch = "history_search"
-  case focusFragmentationTrends = "focus_fragmentation_trends"
-
-  var title: String {
-    switch self {
-    case .distractionNudges:
-      return "Nudge me when I've been distracted or switching contexts too much"
-    case .meetingSummaries:
-      return "Auto-generate summaries for my meetings (e.g. standups, 1:1s)"
-    case .weeklyTimeBreakdown:
-      return "Show me where my time went each week"
-    case .dayStartContext:
-      return "Remind me where I left off when I start my day"
-    case .historySearch:
-      return "Let me search my work history (e.g. \"what was I doing last Tuesday?\")"
-    case .focusFragmentationTrends:
-      return "Track my focus and fragmentation trends over weeks"
-    }
+private final class PlaceholderTextView: NSTextView {
+  var placeholder = "" {
+    didSet { needsDisplay = true }
   }
 
-  var analyticsValue: String { rawValue }
+  override func draw(_ dirtyRect: NSRect) {
+    super.draw(dirtyRect)
+
+    guard string.isEmpty, let font else { return }
+
+    let placeholderRect = NSRect(
+      x: textContainerInset.width,
+      y: textContainerInset.height,
+      width: bounds.width - (textContainerInset.width * 2),
+      height: (font.ascender - font.descender + font.leading) * 2
+    )
+
+    let attributes: [NSAttributedString.Key: Any] = [
+      .font: font,
+      .foregroundColor: NSColor.black.withAlphaComponent(0.35),
+    ]
+
+    (placeholder as NSString).draw(
+      with: placeholderRect,
+      options: [.usesLineFragmentOrigin, .usesFontLeading],
+      attributes: attributes
+    )
+  }
+
+  override func didChangeText() {
+    super.didChangeText()
+    needsDisplay = true
+  }
 }
 
 // MARK: - Preview
