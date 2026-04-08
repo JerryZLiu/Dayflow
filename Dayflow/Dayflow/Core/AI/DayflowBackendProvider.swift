@@ -11,19 +11,22 @@ struct DayflowDailyGenerationRequest: Codable, Sendable {
   let observationsText: String
   let priorDailyText: String
   let preferencesText: String
+  let preferredOutputLanguage: String?
 
   init(
     day: String,
     cardsText: String,
     observationsText: String = "",
     priorDailyText: String = "",
-    preferencesText: String = ""
+    preferencesText: String = "",
+    preferredOutputLanguage: String? = nil
   ) {
     self.day = day
     self.cardsText = cardsText
     self.observationsText = observationsText
     self.priorDailyText = priorDailyText
     self.preferencesText = preferencesText
+    self.preferredOutputLanguage = preferredOutputLanguage
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -32,6 +35,7 @@ struct DayflowDailyGenerationRequest: Codable, Sendable {
     case observationsText = "observations_text"
     case priorDailyText = "prior_daily_text"
     case preferencesText = "preferences_text"
+    case preferredOutputLanguage = "preferred_output_language"
   }
 }
 
