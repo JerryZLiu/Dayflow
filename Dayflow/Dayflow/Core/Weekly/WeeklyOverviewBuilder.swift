@@ -94,8 +94,9 @@ enum WeeklyOverviewBuilder {
       .sorted { $0.order < $1.order }
       .filter { normalizedCategoryKey($0.name) != systemCategoryKey }
 
-    let categoryLookup = Dictionary(
-      uniqueKeysWithValues: orderedCategories.map { (normalizedCategoryKey($0.name), $0) }
+    let categoryLookup = firstCategoryLookup(
+      from: orderedCategories,
+      normalizedKey: normalizedCategoryKey
     )
 
     let workdays = workdays(for: weekRange.weekStart)
