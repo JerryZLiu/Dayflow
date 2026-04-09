@@ -35,7 +35,9 @@ struct OnboardingLLMSelectionView: View {
 
       // Card width calc (no min width, cap at 480)
       let availableWidth = windowWidth - (edgePadding * 2)
-      let rawCardWidth = (availableWidth - (cardGap * 2)) / 3
+      let cardCount = max(1, providerCards.count)
+      let totalGaps = cardGap * CGFloat(max(0, cardCount - 1))
+      let rawCardWidth = (availableWidth - totalGaps) / CGFloat(cardCount)
       let cardWidth = max(1, min(480, floor(rawCardWidth)))
 
       // Card height calc
