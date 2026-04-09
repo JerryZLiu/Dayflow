@@ -55,8 +55,9 @@ enum WeeklyDonutBuilder {
       .sorted { $0.order < $1.order }
       .filter { !$0.isSystem }
 
-    let categoryLookup = Dictionary(
-      uniqueKeysWithValues: orderedCategories.map { (normalizedCategoryKey($0.name), $0) }
+    let categoryLookup = firstCategoryLookup(
+      from: orderedCategories,
+      normalizedKey: normalizedCategoryKey
     )
 
     let visibleWorkdays = Set(workdayStrings(for: weekRange.weekStart))
