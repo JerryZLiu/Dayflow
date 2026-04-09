@@ -145,6 +145,8 @@ struct TestConnectionView: View {
     switch provider {
     case .gemini:
       keychainKey = "gemini"
+    case .doubao:
+      keychainKey = "doubao"
     default:
       finishFailure(
         "This provider doesn't support connection tests yet.", errorCode: "unsupported_provider")
@@ -169,6 +171,42 @@ struct TestConnectionView: View {
           let _ = try await GeminiAPIHelper.shared.testConnection(apiKey: apiKey)
           await MainActor.run {
             finishSuccess("Connection successful! Your API key is working.")
+          }
+        case .doubao:
+          let endpoint: String = {
+            if let data = UserDefaults.standard.data(forKey: "llmProviderType"),
+              let providerType = try? JSONDecoder().decode(LLMProviderType.self, from: data),
+              case .doubaoArk(let savedEndpoint) = providerType
+            {
+              return savedEndpoint
+            }
+            let stored =
+              (UserDefaults.standard.string(forKey: DoubaoPreferences.baseURLDefaultsKey) ?? "")
+              .trimmingCharacters(in: .whitespacesAndNewlines)
+            return stored.isEmpty ? DoubaoPreferences.defaultBaseURL : stored
+          }()
+
+          let modelId =
+            (UserDefaults.standard.string(forKey: DoubaoPreferences.modelIdDefaultsKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+          let resolvedModelId = modelId.isEmpty ? DoubaoPreferences.defaultModelId : modelId
+
+          let doubaoProvider = DoubaoArkProvider(
+            apiKey: apiKey, endpoint: endpoint, modelId: resolvedModelId)
+          let (text, _) = try await doubaoProvider.generateText(
+            prompt: "Reply with the single word OK.")
+          let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+          if normalized.contains("OK") {
+            await MainActor.run {
+              finishSuccess("Connection successful! Your API key is working.")
+            }
+          } else {
+            await MainActor.run {
+              isTesting = false
+              finishFailure(
+                "Connected, but got an unexpected response: \(text)",
+                errorCode: "unexpected_response")
+            }
           }
         default:
           await MainActor.run {

@@ -271,23 +271,42 @@ enum LLMTranscriptUtilities {
     let invalidTimestampCount: Int
   }
 
-  static func decodeTranscriptChunks(from output: String) throws -> [VideoTranscriptChunk] {
-    guard let data = output.data(using: .utf8) else {
+  static func decodeTranscriptChunks(from output: String, allowBracketFallback: Bool = false) throws
+    -> [VideoTranscriptChunk]
+  {
+
+    if let data = output.data(using: .utf8),
+      let parsed = try? JSONDecoder().decode([VideoTranscriptChunk].self, from: data),
+      !parsed.isEmpty
+    {
+      return parsed
+    }
+
+    guard allowBracketFallback else {
       throw NSError(
         domain: "LLMTranscriptUtilities",
         code: 1,
-        userInfo: [NSLocalizedDescriptionKey: "Invalid response encoding"]
+        userInfo: [NSLocalizedDescriptionKey: "Failed to decode transcript JSON array"]
       )
     }
-    do {
-      return try JSONDecoder().decode([VideoTranscriptChunk].self, from: data)
-    } catch {
-      let snippet = String(output.prefix(400))
-      print(
-        "🔎 LLM DEBUG: decodeTranscriptChunks JSON decode failed: \(error.localizedDescription) snippet=\(snippet)"
-      )
-      throw error
+
+    // Bracket-balance extraction (outside string literals): find the last JSON array in the response.
+    if let slice = extractLastJSONArraySlice(from: output),
+      let data = slice.data(using: .utf8),
+      let parsed = try? JSONDecoder().decode([VideoTranscriptChunk].self, from: data),
+      !parsed.isEmpty
+    {
+      return parsed
     }
+
+    throw NSError(
+      domain: "LLMTranscriptUtilities",
+      code: 2,
+      userInfo: [
+        NSLocalizedDescriptionKey:
+          "Failed to decode transcript JSON array (fallback extraction did not help)"
+      ]
+    )
   }
 
   static func observations(
@@ -341,5 +360,64 @@ enum LLMTranscriptUtilities {
 
     return ObservationConversionResult(
       observations: observations, invalidTimestampCount: invalidCount)
+  }
+
+  private static func extractLastJSONArraySlice(from str: String) -> String? {
+    let brackets = bracketPositionsOutsideStrings(in: str)
+    guard let lastClose = brackets.last(where: { $0.char == "]" }) else { return nil }
+
+    var balance = 0
+    for entry in brackets.reversed() {
+      if entry.index > lastClose.index { continue }
+      if entry.char == "]" {
+        balance += 1
+      } else if entry.char == "[" {
+        balance -= 1
+        if balance == 0 {
+          let slice = String(str[entry.index...lastClose.index]).trimmingCharacters(
+            in: .whitespacesAndNewlines)
+          return slice
+        }
+      }
+    }
+
+    return nil
+  }
+
+  private struct BracketEntry {
+    let char: Character
+    let index: String.Index
+  }
+
+  private static func bracketPositionsOutsideStrings(in str: String) -> [BracketEntry] {
+    var result: [BracketEntry] = []
+    var inString = false
+    var escaped = false
+
+    for idx in str.indices {
+      let ch = str[idx]
+
+      if inString {
+        if escaped {
+          escaped = false
+        } else if ch == "\\" {
+          escaped = true
+        } else if ch == "\"" {
+          inString = false
+        }
+        continue
+      }
+
+      if ch == "\"" {
+        inString = true
+        continue
+      }
+
+      if ch == "[" || ch == "]" {
+        result.append(BracketEntry(char: ch, index: idx))
+      }
+    }
+
+    return result
   }
 }

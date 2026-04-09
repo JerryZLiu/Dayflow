@@ -44,6 +44,8 @@ enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
       return .gemini
     case .dayflowBackend:
       return .dayflow
+	case .doubaoArk:
+		return .dayflow
     case .chatGPTClaude:
       let preferredTool = defaults.string(forKey: "chatCLIPreferredTool") ?? "codex"
       return preferredTool == "claude" ? .claude : .chatgpt

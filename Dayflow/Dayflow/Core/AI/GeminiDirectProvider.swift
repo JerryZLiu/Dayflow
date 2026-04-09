@@ -295,7 +295,8 @@ final class GeminiDirectProvider {
           attempt: attempt + 1
         )
 
-        let videoTranscripts = try LLMTranscriptUtilities.decodeTranscriptChunks(from: response)
+        let videoTranscripts = try LLMTranscriptUtilities.decodeTranscriptChunks(
+          from: response, allowBracketFallback: false)
 
         // Convert video transcripts to observations with proper Unix timestamps.
         // Timestamps from Gemini are in compressed video time, so we expand them by `compressionFactor`.
