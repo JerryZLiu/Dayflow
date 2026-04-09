@@ -3,6 +3,7 @@ import SwiftUI
 
 struct WeeklyFocusHeatmapSection: View {
   let snapshot: WeeklyFocusHeatmapSnapshot
+  let cellGap: CGFloat
 
   private enum Design {
     static let cardWidth: CGFloat = 958
@@ -21,16 +22,33 @@ struct WeeklyFocusHeatmapSection: View {
     static let labelsWidth: CGFloat = 22
     static let labelsToGridSpacing: CGFloat = 6
     static let rowHeight: CGFloat = 12
-    static let rowSpacing: CGFloat = 0.4
-    static let cellWidth: CGFloat = 7.25
+    static let cellWidth: CGFloat = 7
     static let cellHeight: CGFloat = 12
-    static let cellSpacing: CGFloat = 0.4
-    static let gridWidth: CGFloat = 825.8
     static let axisWidth: CGFloat = 755
     static let axisTopSpacing: CGFloat = 8
     static let legendWidth: CGFloat = 282.156
     static let legendBarHeight: CGFloat = 8
     static let legendCornerRadius: CGFloat = 2
+  }
+
+  init(snapshot: WeeklyFocusHeatmapSnapshot, cellGap: CGFloat = 0.5) {
+    self.snapshot = snapshot
+    self.cellGap = cellGap
+  }
+
+  private var resolvedCellGap: CGFloat {
+    max(cellGap, 0)
+  }
+
+  private var columnCount: Int {
+    snapshot.rows.map { $0.values.count }.max() ?? 0
+  }
+
+  private var gridWidth: CGFloat {
+    guard columnCount > 0 else { return 0 }
+
+    return (CGFloat(columnCount) * Design.cellWidth)
+      + (CGFloat(columnCount - 1) * resolvedCellGap)
   }
 
   var body: some View {
@@ -102,7 +120,7 @@ struct WeeklyFocusHeatmapSection: View {
   }
 
   private var dayLabels: some View {
-    VStack(alignment: .leading, spacing: Design.rowSpacing) {
+    VStack(alignment: .leading, spacing: resolvedCellGap) {
       ForEach(snapshot.rows) { row in
         Text(row.label)
           .font(.custom("Nunito-Regular", size: 10))
@@ -114,9 +132,9 @@ struct WeeklyFocusHeatmapSection: View {
 
   private var gridAndAxis: some View {
     VStack(alignment: .leading, spacing: Design.axisTopSpacing) {
-      VStack(alignment: .leading, spacing: Design.rowSpacing) {
+      VStack(alignment: .leading, spacing: resolvedCellGap) {
         ForEach(snapshot.rows) { row in
-          HStack(spacing: Design.cellSpacing) {
+          HStack(spacing: resolvedCellGap) {
             ForEach(Array(row.values.enumerated()), id: \.offset) { entry in
               RoundedRectangle(cornerRadius: 0.5, style: .continuous)
                 .fill(color(for: entry.element))
@@ -125,7 +143,7 @@ struct WeeklyFocusHeatmapSection: View {
           }
         }
       }
-      .frame(width: Design.gridWidth, alignment: .leading)
+      .frame(width: gridWidth, alignment: .leading)
 
       HStack {
         ForEach(Array(snapshot.timeLabels.enumerated()), id: \.offset) { entry in
@@ -139,7 +157,7 @@ struct WeeklyFocusHeatmapSection: View {
         }
       }
       .frame(width: Design.axisWidth, alignment: .leading)
-      .frame(width: Design.gridWidth, alignment: .center)
+      .frame(width: gridWidth, alignment: .center)
     }
   }
 
@@ -373,7 +391,33 @@ private enum DesignColor {
   static let distractionDarkNS = NSColor(hex: "FC7645") ?? .systemOrange
 }
 
-#Preview("Weekly Focus Heatmap", traits: .fixedLayout(width: 958, height: 238)) {
-  WeeklyFocusHeatmapSection(snapshot: .figmaPreview)
+private struct WeeklyFocusHeatmapGapPreview: View {
+  @State private var cellGap: CGFloat = 0.5
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      HStack(spacing: 12) {
+        Text("Gap")
+          .font(.custom("Nunito-Regular", size: 12))
+
+        Slider(value: $cellGap, in: 0...1.5, step: 0.1)
+          .frame(width: 220)
+
+        Text("\(cellGap, format: .number.precision(.fractionLength(1))) pt")
+          .font(.custom("Nunito-Regular", size: 12))
+          .monospacedDigit()
+      }
+
+      WeeklyFocusHeatmapSection(
+        snapshot: .figmaPreview,
+        cellGap: cellGap
+      )
+    }
+    .padding(24)
     .background(Color(hex: "F7F3F0"))
+  }
+}
+
+#Preview("Weekly Focus Heatmap Tuning") {
+  WeeklyFocusHeatmapGapPreview()
 }
