@@ -112,11 +112,13 @@ struct DailyProviderOnboardingView: View {
             .foregroundColor(Color(red: 0.35, green: 0.22, blue: 0.12))
             .multilineTextAlignment(.center)
 
-          Text("Choose which model generates your daily recap. You can change this later.")
-            .font(.custom("Nunito-Regular", size: 13))
-            .foregroundColor(Color(red: 0.35, green: 0.22, blue: 0.12).opacity(0.8))
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: 420)
+          Text(
+            "Choose how Daily generates your recap, or turn generation off. You can change this later."
+          )
+          .font(.custom("Nunito-Regular", size: 13))
+          .foregroundColor(Color(red: 0.35, green: 0.22, blue: 0.12).opacity(0.8))
+          .multilineTextAlignment(.center)
+          .frame(maxWidth: 420)
         }
 
         if isRefreshingProviderAvailability {
@@ -322,152 +324,6 @@ private struct DailyAnimatedRequestAccessButton: View {
     .disabled(requestState == .granted)
     .pointingHandCursor(enabled: requestState == .idle)
   }
-}
-
-struct DailyPageConfettiOverlay: View {
-  let progress: CGFloat
-
-  let origin: CGPoint
-
-  private static let pieces: [DailyRequestConfettiPiece] = [
-    .init(
-      x: -320, y: -250, rotation: -180, size: CGSize(width: 12, height: 18),
-      color: Color(hex: "FF8A3D"), isCircle: false),
-    .init(
-      x: -286, y: -308, rotation: -144, size: CGSize(width: 10, height: 10),
-      color: Color(hex: "59C3FF"), isCircle: true),
-    .init(
-      x: -236, y: -272, rotation: -118, size: CGSize(width: 11, height: 17),
-      color: Color(hex: "FFD166"), isCircle: false),
-    .init(
-      x: -194, y: -330, rotation: -96, size: CGSize(width: 9, height: 9),
-      color: Color(hex: "FF5C8A"), isCircle: true),
-    .init(
-      x: -152, y: -288, rotation: -70, size: CGSize(width: 10, height: 15),
-      color: Color(hex: "6EE7B7"), isCircle: false),
-    .init(
-      x: -104, y: -346, rotation: -36, size: CGSize(width: 9, height: 9),
-      color: Color(hex: "FFF3B0"), isCircle: true),
-    .init(
-      x: -56, y: -300, rotation: -14, size: CGSize(width: 10, height: 15),
-      color: Color(hex: "FFB347"), isCircle: false),
-    .init(
-      x: -18, y: -356, rotation: 8, size: CGSize(width: 9, height: 9), color: Color(hex: "A78BFA"),
-      isCircle: true),
-    .init(
-      x: 34, y: -320, rotation: 28, size: CGSize(width: 10, height: 16),
-      color: Color(hex: "FF7A59"), isCircle: false),
-    .init(
-      x: 82, y: -350, rotation: 56, size: CGSize(width: 9, height: 9), color: Color(hex: "34D399"),
-      isCircle: true),
-    .init(
-      x: 136, y: -298, rotation: 84, size: CGSize(width: 11, height: 18),
-      color: Color(hex: "FFD166"), isCircle: false),
-    .init(
-      x: 186, y: -332, rotation: 112, size: CGSize(width: 9, height: 9),
-      color: Color(hex: "93C5FD"), isCircle: true),
-    .init(
-      x: 238, y: -278, rotation: 138, size: CGSize(width: 10, height: 16),
-      color: Color(hex: "F96E00"), isCircle: false),
-    .init(
-      x: 296, y: -232, rotation: 166, size: CGSize(width: 9, height: 9),
-      color: Color(hex: "FFC857"), isCircle: true),
-    .init(
-      x: -268, y: -148, rotation: -132, size: CGSize(width: 9, height: 14),
-      color: Color(hex: "FFFFFF"), isCircle: false),
-    .init(
-      x: -210, y: -114, rotation: -94, size: CGSize(width: 8, height: 8),
-      color: Color(hex: "FF9F68"), isCircle: true),
-    .init(
-      x: -130, y: -138, rotation: -58, size: CGSize(width: 8, height: 12),
-      color: Color(hex: "C4B5FD"), isCircle: false),
-    .init(
-      x: -70, y: -96, rotation: -26, size: CGSize(width: 8, height: 8), color: Color(hex: "FDE68A"),
-      isCircle: true),
-    .init(
-      x: 64, y: -102, rotation: 32, size: CGSize(width: 8, height: 12), color: Color(hex: "F9A8D4"),
-      isCircle: false),
-    .init(
-      x: 126, y: -144, rotation: 64, size: CGSize(width: 8, height: 8), color: Color(hex: "86EFAC"),
-      isCircle: true),
-    .init(
-      x: 198, y: -110, rotation: 98, size: CGSize(width: 8, height: 12),
-      color: Color(hex: "FDBA74"), isCircle: false),
-    .init(
-      x: 258, y: -158, rotation: 126, size: CGSize(width: 8, height: 8),
-      color: Color(hex: "67E8F9"), isCircle: true),
-  ]
-
-  private var easedProgress: CGFloat {
-    let clamped = min(max(progress, 0), 1)
-    return 1 - pow(1 - clamped, 3)
-  }
-
-  private var fadeProgress: CGFloat {
-    let clamped = min(max(progress, 0), 1)
-    if clamped < 0.08 {
-      return clamped / 0.08
-    }
-
-    let tail = max(0, clamped - 0.54) / 0.46
-    return max(0, 1 - tail)
-  }
-
-  var body: some View {
-    GeometryReader { geometry in
-      ZStack {
-        Circle()
-          .fill(
-            RadialGradient(
-              colors: [
-                Color.white.opacity(0.62),
-                Color(hex: "FFE3B8").opacity(0.28),
-                .clear,
-              ],
-              center: .center,
-              startRadius: 0,
-              endRadius: 54
-            )
-          )
-          .frame(width: 124, height: 124)
-          .position(x: origin.x, y: origin.y)
-          .scaleEffect(0.4 + (easedProgress * 1.15))
-          .opacity((1 - progress) * 0.82)
-
-        ForEach(Array(Self.pieces.enumerated()), id: \.offset) { _, piece in
-          Group {
-            if piece.isCircle {
-              Circle()
-                .fill(piece.color)
-            } else {
-              RoundedRectangle(cornerRadius: piece.size.width * 0.42, style: .continuous)
-                .fill(piece.color)
-            }
-          }
-          .frame(width: piece.size.width, height: piece.size.height)
-          .rotationEffect(.degrees(piece.rotation * Double(easedProgress)))
-          .position(
-            x: origin.x + (piece.x * easedProgress),
-            y: origin.y + (piece.y * easedProgress) + (26 * progress)
-          )
-          .scaleEffect(1.08 - (progress * 0.16))
-          .opacity(fadeProgress)
-          .shadow(color: piece.color.opacity(0.34), radius: 6, x: 0, y: 2)
-        }
-      }
-      .frame(width: geometry.size.width, height: geometry.size.height)
-    }
-    .allowsHitTesting(false)
-  }
-}
-
-struct DailyRequestConfettiPiece {
-  let x: CGFloat
-  let y: CGFloat
-  let rotation: Double
-  let size: CGSize
-  let color: Color
-  let isCircle: Bool
 }
 
 private struct DailyNotificationPermissionPanelView: View {
