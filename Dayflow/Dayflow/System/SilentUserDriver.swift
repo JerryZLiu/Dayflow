@@ -3,21 +3,25 @@ import Sparkle
 
 // A no-UI user driver that silently installs updates immediately
 final class SilentUserDriver: NSObject, SPUUserDriver {
+  var shouldAutoUpdateAndRestart: Bool = true
+
   func show(
     _ request: SPUUpdatePermissionRequest, reply: @escaping (SUUpdatePermissionResponse) -> Void
   ) {
-    print("[Sparkle] Permission request; responding with automatic checks + downloads")
+    print(
+      "[Sparkle] Permission request; responding with automatic checks + downloads (shouldAutoUpdateAndRestart=\(shouldAutoUpdateAndRestart))"
+    )
     // Enable automatic checks & downloads by default; do not send system profile
     let response = SUUpdatePermissionResponse(
-      automaticUpdateChecks: true,
-      automaticUpdateDownloading: NSNumber(value: true),
+      automaticUpdateChecks: shouldAutoUpdateAndRestart,
+      automaticUpdateDownloading: NSNumber(value: shouldAutoUpdateAndRestart),
       sendSystemProfile: false
     )
     AnalyticsService.shared.capture(
       "sparkle_permission_requested",
       [
-        "automatic_checks": true,
-        "automatic_downloads": true,
+        "automatic_checks": shouldAutoUpdateAndRestart,
+        "automatic_downloads": shouldAutoUpdateAndRestart,
       ])
     reply(response)
   }
@@ -31,8 +35,8 @@ final class SilentUserDriver: NSObject, SPUUserDriver {
     reply: @escaping (SPUUserUpdateChoice) -> Void
   ) {
     print("[Sparkle] Update found: \(appcastItem.displayVersionString)")
-    // Always proceed to install
-    reply(.install)
+    // Proceed to install only if auto-update is enabled
+    reply(shouldAutoUpdateAndRestart ? .install : .skip)
   }
 
   func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
@@ -79,11 +83,11 @@ final class SilentUserDriver: NSObject, SPUUserDriver {
   }
 
   func showReady(toInstallAndRelaunch reply: @escaping (SPUUserUpdateChoice) -> Void) {
-    print("[Sparkle] Ready to install; allowing termination")
+    print("[Sparkle] Ready to install (shouldAutoUpdateAndRestart=\(shouldAutoUpdateAndRestart))")
     Task { @MainActor in
-      AppDelegate.allowTermination = true
+      AppDelegate.allowTermination = shouldAutoUpdateAndRestart
       AnalyticsService.shared.capture("sparkle_install_ready")
-      reply(.install)
+      reply(shouldAutoUpdateAndRestart ? .install : .skip)
     }
   }
 

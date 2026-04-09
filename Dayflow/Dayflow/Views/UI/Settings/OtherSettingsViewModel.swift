@@ -30,6 +30,14 @@ final class OtherSettingsViewModel: ObservableObject {
       TimelapsePreferences.saveAllTimelapsesToDisk = saveAllTimelapsesToDisk
     }
   }
+  @Published var automaticUpdatesEnabled: Bool {
+    didSet {
+      guard automaticUpdatesEnabled != oldValue else { return }
+      UserDefaults.standard.set(automaticUpdatesEnabled, forKey: "automaticUpdatesEnabled")
+      // Update UpdaterManager's user driver
+      UpdaterManager.shared.userDriver.shouldAutoUpdateAndRestart = automaticUpdatesEnabled
+    }
+  }
   @Published var outputLanguageOverride: String
   @Published var isOutputLanguageOverrideSaved: Bool = true
 
@@ -50,6 +58,7 @@ final class OtherSettingsViewModel: ObservableObject {
     showTimelineAppIcons =
       UserDefaults.standard.object(forKey: "showTimelineAppIcons") as? Bool ?? true
     saveAllTimelapsesToDisk = TimelapsePreferences.saveAllTimelapsesToDisk
+    automaticUpdatesEnabled = UserDefaults.standard.object(forKey: "automaticUpdatesEnabled") as? Bool ?? true
     outputLanguageOverride = LLMOutputLanguagePreferences.override
     exportStartDate = timelineDisplayDate(from: Date())
     exportEndDate = timelineDisplayDate(from: Date())
