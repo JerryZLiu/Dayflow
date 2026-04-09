@@ -47,6 +47,23 @@ struct LLMCategoryDescriptor: Codable, Equatable, Hashable, Sendable {
   let isIdle: Bool
 }
 
+func firstCategoryLookup(
+  from categories: [TimelineCategory],
+  normalizedKey: (String) -> String
+) -> [String: TimelineCategory] {
+  var lookup: [String: TimelineCategory] = [:]
+  lookup.reserveCapacity(categories.count)
+
+  for category in categories {
+    let key = normalizedKey(category.name)
+    if lookup[key] == nil {
+      lookup[key] = category
+    }
+  }
+
+  return lookup
+}
+
 @MainActor
 final class CategoryStore: ObservableObject {
   static let shared = CategoryStore()
