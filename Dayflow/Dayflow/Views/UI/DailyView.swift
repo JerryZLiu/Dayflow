@@ -179,8 +179,10 @@ struct DailyView: View {
       .padding(.vertical, 28)
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
-      ConfettiBurstView(trigger: lockScreenConfettiTrigger)
-        .zIndex(10)
+      if lockScreenConfettiTrigger > 0 {
+        ConfettiBurstView(trigger: lockScreenConfettiTrigger)
+          .zIndex(10)
+      }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     .animation(.spring(response: 0.42, dampingFraction: 0.88), value: accessFlowStep)
@@ -210,13 +212,33 @@ struct DailyView: View {
       return false
     }
 
-    let availability =
-      providerAvailability[dailyRecapProvider]
+    return selectedProviderAvailability.isAvailable
+  }
+
+  private var selectedProviderAvailability: DailyRecapProviderAvailability {
+    providerAvailability[dailyRecapProvider]
       ?? DailyRecapProviderAvailability(
         isAvailable: true,
         detail: dailyRecapProvider.pickerSubtitle
       )
-    return availability.isAvailable
+  }
+
+  private var canRegenerateStandup: Bool {
+    dailyRecapProvider.canGenerate
+      && selectedProviderAvailability.isAvailable
+      && standupRegenerateState != .regenerating
+  }
+
+  private var regenerateButtonHelpText: String {
+    if !dailyRecapProvider.canGenerate {
+      return DailyStandupPlaceholder.noProviderSelectedMessage
+    }
+
+    if !selectedProviderAvailability.isAvailable {
+      return selectedProviderAvailability.detail
+    }
+
+    return "Regenerate standup highlights"
   }
 
   private var unlockedContent: some View {
@@ -453,8 +475,10 @@ struct DailyView: View {
     prepareTodayDailyGenerationAfterUnlock()
     completeDailyUnlock()
 
-    Task { @MainActor in
-      regenerateStandupFromTimeline()
+    if dailyRecapProvider.canGenerate {
+      Task { @MainActor in
+        regenerateStandupFromTimeline()
+      }
     }
   }
 
@@ -866,11 +890,12 @@ struct DailyView: View {
     }
     .buttonStyle(DailyCopyPressButtonStyle())
     .animation(.easeInOut(duration: 0.22), value: standupRegenerateState)
-    .disabled(standupRegenerateState == .regenerating)
+    .disabled(!canRegenerateStandup)
     .pointingHandCursorOnHover(
-      enabled: standupRegenerateState != .regenerating, reassertOnPressEnd: true
+      enabled: canRegenerateStandup, reassertOnPressEnd: true
     )
     .accessibilityLabel(Text("Regenerate standup highlights"))
+    .help(regenerateButtonHelpText)
     .background {
       if standupRegenerateState == .regenerating {
         Color.clear
@@ -933,7 +958,7 @@ struct DailyView: View {
             .font(.custom("InstrumentSerif-Regular", size: 22 * scale))
             .foregroundStyle(Color(hex: "2E221B"))
 
-          Text("Pick which model regenerates this recap.")
+          Text("Choose how Daily generates this recap, or turn generation off.")
             .font(.custom("Nunito-Regular", size: 12 * scale))
             .foregroundStyle(Color(hex: "8B6B59"))
         }
@@ -1014,6 +1039,11 @@ struct DailyView: View {
     dailyRecapProvider = provider
     DailyRecapGenerator.shared.persistSelectedProvider(provider)
     isShowingProviderPicker = false
+    standupRegenerateResetTask?.cancel()
+    standupRegenerateResetTask = nil
+    standupRegenerateState = .idle
+    loadedStandupDraftDay = nil
+    loadedStandupFallbackSourceDay = nil
 
     AnalyticsService.shared.capture(
       "daily_provider_selected",
@@ -1026,6 +1056,8 @@ struct DailyView: View {
         "daily_model_or_tool": provider.modelOrTool as Any,
       ]
     )
+
+    refreshWorkflowData()
   }
 
   private func refreshProviderAvailability() {
@@ -1180,7 +1212,13 @@ struct DailyView: View {
     let targetDay = workflowDayInfo(for: selectedDate)
     let storageDayString = targetDay.dayString
     let selectedProvider = dailyRecapProvider
-    let usesDayflowInputs = selectedProvider == .dayflow
+    let usesDayflowInputs = selectedProvider.usesDayflowInputs
+
+    guard selectedProvider.canGenerate else {
+      standupDraft = .noProviderSelected
+      standupRegenerateState = .idle
+      return
+    }
     let providerProps: [String: Any] = [
       "daily_provider": selectedProvider.analyticsName,
       "daily_provider_label": selectedProvider.displayName,
@@ -1482,6 +1520,12 @@ struct DailyView: View {
     else {
       return nil
     }
+    guard
+      trimmed.caseInsensitiveCompare(DailyStandupPlaceholder.noProviderSelectedMessage)
+        != .orderedSame
+    else {
+      return nil
+    }
     return trimmed
   }
 
@@ -1489,12 +1533,23 @@ struct DailyView: View {
     storageDayString: String,
     sourceDay: DailyStandupDayInfo?
   ) {
-    let entry = StorageManager.shared.fetchDailyStandup(forDay: storageDayString)
-    hasPersistedStandupEntry = entry != nil
-
     let fallbackSourceDayString = sourceDay?.dayString
     let isSameDraftDay = loadedStandupDraftDay == storageDayString
     let isSameFallbackSourceDay = loadedStandupFallbackSourceDay == fallbackSourceDayString
+    let entry = StorageManager.shared.fetchDailyStandup(forDay: storageDayString)
+    hasPersistedStandupEntry = entry != nil
+
+    if dailyRecapProvider == .none, entry == nil {
+      guard !isSameDraftDay || !isSameFallbackSourceDay || standupDraft != .noProviderSelected
+      else {
+        return
+      }
+
+      loadedStandupDraftDay = storageDayString
+      loadedStandupFallbackSourceDay = fallbackSourceDayString
+      standupDraft = .noProviderSelected
+      return
+    }
 
     if entry != nil {
       guard !isSameDraftDay else { return }
@@ -1509,7 +1564,7 @@ struct DailyView: View {
       let data = entry.payloadJSON.data(using: .utf8),
       var decoded = try? JSONDecoder().decode(DailyStandupDraft.self, from: data)
     else {
-      standupDraft = sourceDay == nil ? .insufficientHistory : defaultStandupDraft()
+      standupDraft = placeholderStandupDraft(sourceDay: sourceDay)
       return
     }
 
@@ -1533,6 +1588,9 @@ struct DailyView: View {
         .default,
         .insufficientHistory,
       ]
+      if draftToSave == .noProviderSelected {
+        return
+      }
       if existing == nil && placeholderDrafts.contains(draftToSave) {
         return
       }
@@ -1619,8 +1677,16 @@ struct DailyView: View {
     return nil
   }
 
-  private func defaultStandupDraft() -> DailyStandupDraft {
-    .default
+  private func placeholderStandupDraft(sourceDay: DailyStandupDayInfo?) -> DailyStandupDraft {
+    if dailyRecapProvider == .none {
+      return .noProviderSelected
+    }
+
+    if sourceDay == nil {
+      return .insufficientHistory
+    }
+
+    return .default
   }
 
   private var regenerateButtonLabel: String {
@@ -2688,15 +2754,14 @@ private func computeDailyWorkflow(cards: [TimelineCard], categories: [TimelineCa
     .sorted { $0.order < $1.order }
     .filter { normalizedCategoryKey($0.name) != systemCategoryKey }
 
-  let colorMap: [String: String] = Dictionary(
-    uniqueKeysWithValues: orderedCategories.map {
-      (normalizedCategoryKey($0.name), normalizedHex($0.colorHex))
-    })
-
-  let nameMap: [String: String] = Dictionary(
-    uniqueKeysWithValues: orderedCategories.map {
-      (normalizedCategoryKey($0.name), $0.name.trimmingCharacters(in: .whitespacesAndNewlines))
-    })
+  let categoryLookup = firstCategoryLookup(
+    from: orderedCategories,
+    normalizedKey: normalizedCategoryKey
+  )
+  let colorMap = categoryLookup.mapValues { normalizedHex($0.colorHex) }
+  let nameMap = categoryLookup.mapValues {
+    $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
 
   struct RawDailyWorkflowSegment {
     let categoryKey: String
