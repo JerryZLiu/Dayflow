@@ -1359,7 +1359,7 @@ final class ChatCLIProvider {
       model = "haiku"
       effort = nil
     case .codex:
-      model = "gpt-5.1-codex-mini"
+      model = "gpt-5.4-mini"
       effort = "low"
     }
 
