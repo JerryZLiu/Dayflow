@@ -28,6 +28,18 @@ struct SettingsOtherTabView: View {
           .font(.custom("Nunito", size: 11.5))
           .foregroundColor(.black.opacity(0.5))
 
+          Toggle(isOn: $viewModel.automaticUpdatesEnabled) {
+            Text("Automatic app updates")
+              .font(.custom("Nunito", size: 13))
+              .foregroundColor(.black.opacity(0.7))
+          }
+          .toggleStyle(.switch)
+          .pointingHandCursor()
+
+          Text("When on, Dayflow automatically checks for and installs updates in the background.")
+            .font(.custom("Nunito", size: 11.5))
+            .foregroundColor(.black.opacity(0.5))
+
           Toggle(isOn: $viewModel.analyticsEnabled) {
             Text("Share crash reports and anonymous usage data")
               .font(.custom("Nunito", size: 13))
