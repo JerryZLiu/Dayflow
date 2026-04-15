@@ -604,69 +604,26 @@ struct DailyView: View {
           .stroke(Color(hex: "E8E1DA"), lineWidth: max(0.7, 1 * scale))
           .allowsHitTesting(false)
       )
-      .overlay(alignment: .topLeading) {
-        workflowTooltipOverlay(scale: scale)
+      .overlayPreferenceValue(DailyWorkflowHoverBoundsPreferenceKey.self) { anchors in
+        workflowTooltipOverlay(scale: scale, anchors: anchors)
       }
     }
   }
 
   @ViewBuilder
-  private func workflowTooltipOverlay(scale: CGFloat) -> some View {
+  private func workflowTooltipOverlay(
+    scale: CGFloat,
+    anchors: [DailyWorkflowHoverTargetID: Anchor<CGRect>]
+  ) -> some View {
     let layoutScale = scale
-    let topInset: CGFloat = 25 * layoutScale
-    let cellSize: CGFloat = 18 * layoutScale
-    let columnSpacing: CGFloat = 2 * layoutScale
-    let rowSpacing: CGFloat = 2 * layoutScale
-    let leftInset: CGFloat = 36 * layoutScale
-    let filteredRows =
-      workflowHasDistractionCategory
-      ? workflowRows.filter {
-        !isDistractionCategoryKey($0.id)
-      }
-      : workflowRows
-    let categoryLabelWidth = gridLabelColumnWidth(for: filteredRows, layoutScale: layoutScale)
-    let showDistractions = workflowHasDistractionCategory && !workflowDistractionMarkers.isEmpty
-    let distractionLabelWidth =
-      showDistractions
-      ? gridLabelColumnWidth(
-        for: [
-          DailyWorkflowGridRow(
-            id: "d", name: "Distractions", colorHex: "FF5950",
-            slotOccupancies: [], slotCardInfos: [])
-        ], layoutScale: layoutScale) : 0
-    let effectiveLabelWidth =
-      showDistractions
-      ? max(categoryLabelWidth, distractionLabelWidth) : categoryLabelWidth
-    let labelToGridSpacing: CGFloat = 13 * layoutScale
-    let gridLeadingOffset = leftInset + effectiveLabelWidth + labelToGridSpacing
-    let slotCount = max(
-      1, filteredRows.map { $0.slotOccupancies.count }.max() ?? workflowWindow.slotCount)
-    let gridWidth =
-      (cellSize * CGFloat(slotCount)) + (columnSpacing * CGFloat(max(0, slotCount - 1)))
-    let distractionRowSpacing: CGFloat = 6 * layoutScale
-    let gridRowsHeight =
-      (cellSize * CGFloat(filteredRows.count))
-      + (rowSpacing * CGFloat(max(0, filteredRows.count - 1)))
-
-    ZStack(alignment: .topLeading) {
-      Color.clear
-
-      // Cell tooltip — bottom-anchored so variable-height cards sit above the cell
-      if let cellKey = workflowHoveredCellKey {
-        let parts = cellKey.split(separator: "-")
-        if parts.count == 2,
-          let rowIndex = Int(parts[0]),
-          let slotIndex = Int(parts[1]),
-          rowIndex < filteredRows.count,
-          slotIndex < filteredRows[rowIndex].slotCardInfos.count,
-          let cardInfo = filteredRows[rowIndex].slotCardInfos[slotIndex]
+    GeometryReader { proxy in
+      ZStack(alignment: .topLeading) {
+        if let cellKey = workflowHoveredCellKey,
+          let anchor = anchors[.cell(cellKey)],
+          let cardInfo = workflowCardInfo(for: cellKey)
         {
-          let tooltipCenterX =
-            gridLeadingOffset + CGFloat(slotIndex) * (cellSize + columnSpacing) + cellSize / 2
-          let anchorY =
-            topInset + CGFloat(rowIndex) * (cellSize + rowSpacing) - (4 * layoutScale)
+          let frame = proxy[anchor]
 
-          // Invisible anchor point at the cell's top edge
           Color.clear
             .frame(width: 1, height: 1)
             .overlay(alignment: .bottom) {
@@ -677,42 +634,54 @@ struct DailyView: View {
                 layoutScale: layoutScale
               )
             }
-            .offset(x: tooltipCenterX, y: anchorY)
+            .position(x: frame.midX, y: frame.minY - (4 * layoutScale))
+        }
+
+        if let hoveredId = workflowHoveredDistractionId,
+          let anchor = anchors[.distraction(hoveredId)],
+          let marker = workflowDistractionMarkers.first(where: { $0.id == hoveredId })
+        {
+          let frame = proxy[anchor]
+
+          Color.clear
+            .frame(width: 1, height: 1)
+            .overlay(alignment: .bottom) {
+              workflowTooltip(
+                durationMinutes: marker.endMinute - marker.startMinute,
+                title: marker.title,
+                accentColor: Color(hex: "FF5950"),
+                layoutScale: layoutScale
+              )
+            }
+            .position(x: frame.midX, y: frame.minY - (4 * layoutScale))
         }
       }
-
-      // Distraction tooltip — bottom-anchored above the distraction row
-      if showDistractions,
-        let hoveredId = workflowHoveredDistractionId,
-        let marker = workflowDistractionMarkers.first(where: { $0.id == hoveredId })
-      {
-        let totalMinutes = workflowWindow.endMinute - workflowWindow.startMinute
-        let startFraction =
-          (marker.startMinute - workflowWindow.startMinute) / totalMinutes
-        let endFraction = (marker.endMinute - workflowWindow.startMinute) / totalMinutes
-        let xPos = CGFloat(startFraction) * gridWidth
-        let markerWidth = max(
-          3 * layoutScale, CGFloat(endFraction - startFraction) * gridWidth)
-        let tooltipCenterX = gridLeadingOffset + xPos + markerWidth / 2
-        let anchorY =
-          topInset + gridRowsHeight + distractionRowSpacing - (4 * layoutScale)
-
-        Color.clear
-          .frame(width: 1, height: 1)
-          .overlay(alignment: .bottom) {
-            workflowTooltip(
-              durationMinutes: marker.endMinute - marker.startMinute,
-              title: marker.title,
-              accentColor: Color(hex: "FF5950"),
-              layoutScale: layoutScale
-            )
-          }
-          .offset(x: tooltipCenterX, y: anchorY)
-      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
     .animation(.easeOut(duration: 0.12), value: workflowHoveredCellKey)
     .animation(.easeOut(duration: 0.12), value: workflowHoveredDistractionId)
     .allowsHitTesting(false)
+  }
+
+  private var workflowTooltipRows: [DailyWorkflowGridRow] {
+    if workflowHasDistractionCategory {
+      return workflowRows.filter { !isDistractionCategoryKey($0.id) }
+    }
+    return workflowRows
+  }
+
+  private func workflowCardInfo(for cellKey: String) -> DailyWorkflowSlotCardInfo? {
+    let parts = cellKey.split(separator: "-")
+    guard parts.count == 2,
+      let rowIndex = Int(parts[0]),
+      let slotIndex = Int(parts[1]),
+      rowIndex < workflowTooltipRows.count,
+      slotIndex < workflowTooltipRows[rowIndex].slotCardInfos.count
+    else {
+      return nil
+    }
+
+    return workflowTooltipRows[rowIndex].slotCardInfos[slotIndex]
   }
 
   private func workflowTotalsView(scale: CGFloat, isViewingToday: Bool) -> some View {
@@ -1830,6 +1799,8 @@ private struct DailyWorkflowGrid: View {
 
   @Binding var hoveredDistractionId: String?
   @Binding var hoveredCellKey: String?
+  @State private var hoverClearTask: Task<Void, Never>? = nil
+  private let hoverExitDelayNanoseconds: UInt64 = 80_000_000
 
   private var renderRows: [DailyWorkflowGridRow] {
     if rows.isEmpty {
@@ -1912,76 +1883,78 @@ private struct DailyWorkflowGrid: View {
 
           ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-              // Grid rows
-              VStack(alignment: .leading, spacing: rowSpacing) {
-                ForEach(Array(renderRows.enumerated()), id: \.element.id) { rowIndex, row in
-                  HStack(spacing: columnSpacing) {
-                    ForEach(0..<slotCount, id: \.self) { slotIndex in
-                      let cellKey = "\(rowIndex)-\(slotIndex)"
-                      Rectangle()
-                        .foregroundStyle(.clear)
-                        .background(fillColor(for: row, slotIndex: slotIndex))
-                        .cornerRadius(cellCornerRadius)
-                        .frame(width: cellSize, height: cellSize)
-                        .onHover { hovering in
-                          if hovering {
-                            hoveredCellKey = cellKey
-                            hoveredDistractionId = nil
-                          } else if hoveredCellKey == cellKey {
-                            hoveredCellKey = nil
+              VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: rowSpacing) {
+                  ForEach(Array(renderRows.enumerated()), id: \.element.id) { rowIndex, row in
+                    HStack(spacing: columnSpacing) {
+                      ForEach(0..<slotCount, id: \.self) { slotIndex in
+                        let cellKey = "\(rowIndex)-\(slotIndex)"
+                        Rectangle()
+                          .foregroundStyle(.clear)
+                          .background(fillColor(for: row, slotIndex: slotIndex))
+                          .cornerRadius(cellCornerRadius)
+                          .frame(width: cellSize, height: cellSize)
+                          .onHover { hovering in
+                            handleCellHover(hovering, cellKey: cellKey)
                           }
-                        }
+                          .anchorPreference(
+                            key: DailyWorkflowHoverBoundsPreferenceKey.self,
+                            value: .bounds
+                          ) {
+                            [.cell(cellKey): $0]
+                          }
+                      }
+                    }
+                    .frame(width: gridWidth, alignment: .leading)
+                  }
+                }
+
+                if showDistractions {
+                  let totalMinutes = timelineWindow.endMinute - timelineWindow.startMinute
+
+                  ZStack(alignment: .topLeading) {
+                    Rectangle()
+                      .fill(Color(red: 0.95, green: 0.93, blue: 0.92))
+                      .cornerRadius(distractionCornerRadius)
+                      .frame(width: gridWidth, height: distractionRowHeight)
+
+                    ForEach(distractionMarkers) { marker in
+                      let startFraction =
+                        (marker.startMinute - timelineWindow.startMinute) / totalMinutes
+                      let endFraction =
+                        (marker.endMinute - timelineWindow.startMinute) / totalMinutes
+                      let leadingPad = CGFloat(startFraction) * gridWidth
+                      let markerWidth = max(
+                        3 * layoutScale, CGFloat(endFraction - startFraction) * gridWidth)
+
+                      HStack(spacing: 0) {
+                        Color.clear.frame(width: leadingPad, height: distractionRowHeight)
+                        Rectangle()
+                          .fill(Color(hex: "FF5950"))
+                          .opacity(hoveredDistractionId == marker.id ? 1.0 : 0.85)
+                          .cornerRadius(distractionCornerRadius)
+                          .frame(width: markerWidth, height: distractionRowHeight)
+                          .contentShape(Rectangle())
+                          .onHover { hovering in
+                            handleDistractionHover(hovering, markerID: marker.id)
+                          }
+                          .anchorPreference(
+                            key: DailyWorkflowHoverBoundsPreferenceKey.self,
+                            value: .bounds
+                          ) {
+                            [.distraction(marker.id): $0]
+                          }
+                        Spacer(minLength: 0)
+                      }
+                      .frame(width: gridWidth, height: distractionRowHeight)
                     }
                   }
-                  .frame(width: gridWidth, alignment: .leading)
+                  .frame(width: gridWidth, height: distractionRowHeight)
+                  .padding(.top, distractionRowSpacing)
                 }
               }
+              .frame(width: gridWidth, alignment: .leading)
               .padding(.top, topInset)
-
-              // Distractions row — continuous markers with proper hit areas
-              if showDistractions {
-                let totalMinutes = timelineWindow.endMinute - timelineWindow.startMinute
-
-                ZStack(alignment: .topLeading) {
-                  // Background track
-                  Rectangle()
-                    .fill(Color(red: 0.95, green: 0.93, blue: 0.92))
-                    .cornerRadius(distractionCornerRadius)
-                    .frame(width: gridWidth, height: distractionRowHeight)
-
-                  // Markers — each in its own HStack for correct hit-testing
-                  ForEach(distractionMarkers) { marker in
-                    let startFraction =
-                      (marker.startMinute - timelineWindow.startMinute) / totalMinutes
-                    let endFraction = (marker.endMinute - timelineWindow.startMinute) / totalMinutes
-                    let leadingPad = CGFloat(startFraction) * gridWidth
-                    let markerWidth = max(
-                      3 * layoutScale, CGFloat(endFraction - startFraction) * gridWidth)
-
-                    HStack(spacing: 0) {
-                      Color.clear.frame(width: leadingPad, height: distractionRowHeight)
-                      Rectangle()
-                        .fill(Color(hex: "FF5950"))
-                        .opacity(hoveredDistractionId == marker.id ? 1.0 : 0.85)
-                        .cornerRadius(distractionCornerRadius)
-                        .frame(width: markerWidth, height: distractionRowHeight)
-                        .contentShape(Rectangle())
-                        .onHover { hovering in
-                          if hovering {
-                            hoveredDistractionId = marker.id
-                            hoveredCellKey = nil
-                          } else if hoveredDistractionId == marker.id {
-                            hoveredDistractionId = nil
-                          }
-                        }
-                      Spacer(minLength: 0)
-                    }
-                    .frame(width: gridWidth, height: distractionRowHeight)
-                  }
-                }
-                .frame(width: gridWidth, height: distractionRowHeight)
-                .padding(.top, distractionRowSpacing)
-              }
 
               VStack(alignment: .leading, spacing: axisLabelSpacing) {
                 Rectangle()
@@ -2095,9 +2068,80 @@ private struct DailyWorkflowGrid: View {
     gridLabelColumnWidth(for: rows, layoutScale: layoutScale)
   }
 
+  private func handleCellHover(_ hovering: Bool, cellKey: String) {
+    if hovering {
+      cancelPendingHoverClear()
+      hoveredCellKey = cellKey
+      hoveredDistractionId = nil
+      return
+    }
+
+    scheduleHoverClear(cellKey: cellKey)
+  }
+
+  private func handleDistractionHover(_ hovering: Bool, markerID: String) {
+    if hovering {
+      cancelPendingHoverClear()
+      hoveredDistractionId = markerID
+      hoveredCellKey = nil
+      return
+    }
+
+    scheduleHoverClear(distractionID: markerID)
+  }
+
+  private func scheduleHoverClear(cellKey: String? = nil, distractionID: String? = nil) {
+    cancelPendingHoverClear()
+
+    if hoverExitDelayNanoseconds == 0 {
+      if let cellKey, hoveredCellKey == cellKey {
+        hoveredCellKey = nil
+      }
+      if let distractionID, hoveredDistractionId == distractionID {
+        hoveredDistractionId = nil
+      }
+      return
+    }
+
+    hoverClearTask = Task { @MainActor in
+      try? await Task.sleep(nanoseconds: hoverExitDelayNanoseconds)
+      guard !Task.isCancelled else { return }
+
+      if let cellKey, hoveredCellKey == cellKey {
+        hoveredCellKey = nil
+      }
+      if let distractionID, hoveredDistractionId == distractionID {
+        hoveredDistractionId = nil
+      }
+
+      hoverClearTask = nil
+    }
+  }
+
+  private func cancelPendingHoverClear() {
+    hoverClearTask?.cancel()
+    hoverClearTask = nil
+  }
+
 }
 
 // MARK: - Shared tooltip builders and grid helpers
+
+private enum DailyWorkflowHoverTargetID: Hashable {
+  case cell(String)
+  case distraction(String)
+}
+
+private struct DailyWorkflowHoverBoundsPreferenceKey: PreferenceKey {
+  static var defaultValue: [DailyWorkflowHoverTargetID: Anchor<CGRect>] = [:]
+
+  static func reduce(
+    value: inout [DailyWorkflowHoverTargetID: Anchor<CGRect>],
+    nextValue: () -> [DailyWorkflowHoverTargetID: Anchor<CGRect>]
+  ) {
+    value.merge(nextValue(), uniquingKeysWith: { $1 })
+  }
+}
 
 private func gridLabelColumnWidth(
   for rows: [DailyWorkflowGridRow], layoutScale: CGFloat
