@@ -89,14 +89,37 @@ struct MainView: View {
   var body: some View {
     mainLayout
       .onReceive(NotificationCenter.default.publisher(for: .navigateToDaily)) { notification in
+        let wasAlreadyOnDaily = selectedIcon == .daily
         if let dayString = notification.userInfo?["day"] as? String,
           let dayDate = DateFormatter.yyyyMMdd.date(from: dayString)
         {
           setSelectedDate(dayDate)
         }
+        if wasAlreadyOnDaily {
+          consumePendingDailyRecapOpenIfNeeded(source: "daily_notification_navigation")
+        }
         withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
           selectedIcon = .daily
         }
       }
+  }
+
+  @discardableResult
+  func consumePendingDailyRecapOpenIfNeeded(source: String) -> Bool {
+    guard let pendingContext = NotificationBadgeManager.shared.consumePendingDailyRecapContext()
+    else {
+      return false
+    }
+
+    AnalyticsService.shared.capture(
+      DailyBadgeExperiment.openedAfterReadyEvent,
+      [
+        "target_day": pendingContext.targetDay ?? "unknown",
+        "experiment": DailyBadgeExperiment.featureFlagKey,
+        "variant": pendingContext.experimentVariant,
+        "badge_enabled": pendingContext.experimentVariant == DailyBadgeExperiment.badgeVariant,
+        "source": source,
+      ])
+    return true
   }
 }
