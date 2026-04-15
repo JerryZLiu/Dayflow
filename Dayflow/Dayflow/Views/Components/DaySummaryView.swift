@@ -569,18 +569,13 @@ struct DaySummaryView: View {
 
         Spacer()
 
-        Button(action: {
-          isEditingFocusCategories = true
-          isEditingDistractionCategories = false
-        }) {
-          Image("CategoryEditButton")
-            .resizable()
-            .scaledToFit()
-            .frame(width: Design.focusEditButtonSize, height: Design.focusEditButtonSize)
-        }
-        .buttonStyle(.plain)
-        .hoverScaleEffect(scale: 1.02)
-        .pointingHandCursorOnHover(reassertOnPressEnd: true)
+        CategoryEditCircleButton(
+          action: {
+            isEditingFocusCategories = true
+            isEditingDistractionCategories = false
+          },
+          diameter: Design.focusEditButtonSize
+        )
       }
 
       if isFocusSelectionEmpty {
@@ -622,18 +617,13 @@ struct DaySummaryView: View {
 
         Spacer()
 
-        Button(action: {
-          isEditingDistractionCategories = true
-          isEditingFocusCategories = false
-        }) {
-          Image("CategoryEditButton")
-            .resizable()
-            .scaledToFit()
-            .frame(width: Design.focusEditButtonSize, height: Design.focusEditButtonSize)
-        }
-        .buttonStyle(.plain)
-        .hoverScaleEffect(scale: 1.02)
-        .pointingHandCursorOnHover(reassertOnPressEnd: true)
+        CategoryEditCircleButton(
+          action: {
+            isEditingDistractionCategories = true
+            isEditingFocusCategories = false
+          },
+          diameter: Design.focusEditButtonSize
+        )
       }
 
       if isDistractionSelectionEmpty {
@@ -1296,9 +1286,11 @@ struct ParticleModifier: ViewModifier {
 struct SquishButtonStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
-      .scaleEffect(configuration.isPressed ? 0.94 : 1.0)
-      .animation(
-        .interactiveSpring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
+      .dayflowPressScale(
+        configuration.isPressed,
+        pressedScale: 0.94,
+        animation: .interactiveSpring(response: 0.3, dampingFraction: 0.6)
+      )
   }
 }
 

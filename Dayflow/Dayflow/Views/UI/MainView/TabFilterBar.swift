@@ -7,7 +7,7 @@ struct TabFilterBar: View {
 
   @State private var chipRowWidth: CGFloat = 0
 
-  private let editButtonSize: CGFloat = 26
+  private let editButtonSize: CGFloat = 24
   private let chipButtonSpacing: CGFloat = 8
 
   var body: some View {
@@ -32,9 +32,9 @@ struct TabFilterBar: View {
           }
         }
       }
-      .frame(width: geometry.size.width, height: 26, alignment: .leading)
+      .frame(width: geometry.size.width, height: editButtonSize, alignment: .leading)
     }
-    .frame(height: 26)
+    .frame(height: editButtonSize)
     .onPreferenceChange(ChipRowWidthPreferenceKey.self) { chipRowWidth = $0 }
   }
 
@@ -105,15 +105,10 @@ struct TabFilterBar: View {
   }
 
   private var editButton: some View {
-    Button(action: onManageCategories) {
-      Image("CategoryEditButton")
-        .resizable()
-        .scaledToFit()
-        .frame(width: editButtonSize, height: editButtonSize)
-    }
-    .buttonStyle(PlainButtonStyle())
-    .hoverScaleEffect(scale: 1.02)
-    .pointingHandCursorOnHover(reassertOnPressEnd: true)
+    CategoryEditCircleButton(
+      action: onManageCategories,
+      diameter: editButtonSize
+    )
   }
 
   private var overflowGradient: some View {
