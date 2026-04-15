@@ -115,9 +115,13 @@ extension MainView {
         }
       }
       .onChange(of: selectedIcon) { _, newIcon in
-        // Clear journal notification badge when navigating to journal
+        // Clear tab-specific notification badges once the user visits the destination.
         if newIcon == .journal {
-          NotificationBadgeManager.shared.clearBadge()
+          NotificationBadgeManager.shared.clearJournalBadge()
+        } else if newIcon == .daily {
+          if !consumePendingDailyRecapOpenIfNeeded(source: "daily_tab_selected") {
+            NotificationBadgeManager.shared.clearDailyBadge()
+          }
         }
 
         // tab selected + screen viewed
