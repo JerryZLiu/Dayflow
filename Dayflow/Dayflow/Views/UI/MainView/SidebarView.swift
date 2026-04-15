@@ -72,11 +72,22 @@ struct SidebarView: View {
         SidebarIconButton(
           icon: icon,
           isSelected: selectedIcon == icon,
-          showBadge: icon == .journal && badgeManager.hasPendingReminder,
+          showBadge: shouldShowBadge(for: icon),
           action: { selectedIcon = icon }
         )
         .frame(width: SidebarMetrics.itemSize, height: SidebarMetrics.itemSize)
       }
+    }
+  }
+
+  private func shouldShowBadge(for icon: SidebarIcon) -> Bool {
+    switch icon {
+    case .journal:
+      return badgeManager.hasPendingJournalReminder
+    case .daily:
+      return badgeManager.hasPendingDailyRecap
+    default:
+      return false
     }
   }
 }
