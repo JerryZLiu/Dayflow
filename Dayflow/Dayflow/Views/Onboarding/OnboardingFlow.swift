@@ -70,7 +70,7 @@ struct OnboardingFlow: View {
           onContinue: { selectedRole in
             categoryStore.setOnboardingRole(selectedRole)
             AnalyticsService.shared.capture("onboarding_role_selected", ["role": selectedRole])
-            advance()
+            advance(selectedRole: selectedRole)
           }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -273,19 +273,26 @@ struct OnboardingFlow: View {
     categoryStore.applyOnboardingPresetIfNeeded()
   }
 
-  private func markStepCompleted(_ completedStep: OnboardingStep) {
-    AnalyticsService.shared.capture(
-      "onboarding_step_completed", ["step": completedStep.analyticsName])
+  private func markStepCompleted(
+    _ completedStep: OnboardingStep,
+    extraProps: [String: Any] = [:]
+  ) {
+    var props: [String: Any] = ["step": completedStep.analyticsName]
+    extraProps.forEach { key, value in
+      props[key] = value
+    }
+    AnalyticsService.shared.capture("onboarding_step_completed", props)
   }
 
-  private func advance() {
+  private func advance(selectedRole: String? = nil) {
     switch step {
     case .introVideo:
       markStepCompleted(step)
       step.next()
       savedStepRawValue = step.rawValue
     case .roleSelection:
-      markStepCompleted(step)
+      let extraProps = selectedRole.map { ["role": $0] } ?? [:]
+      markStepCompleted(step, extraProps: extraProps)
       step.next()
       savedStepRawValue = step.rawValue
     case .referral:
