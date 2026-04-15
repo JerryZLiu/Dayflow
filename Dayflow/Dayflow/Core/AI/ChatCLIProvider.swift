@@ -251,8 +251,8 @@ final class ChatCLIProvider {
       model = "sonnet"
       effort = nil
     case .codex:
-      model = "gpt-5.2"
-      effort = "medium"
+      model = "gpt-5.4"
+      effort = "low"
     }
 
     var lastError: Error?
@@ -1541,7 +1541,7 @@ final class ChatCLIProvider {
       model = "sonnet"
       effort = nil
     case .codex:
-      model = "gpt-5.2"
+      model = "gpt-5.4"
       effort = "low"
     }
 
