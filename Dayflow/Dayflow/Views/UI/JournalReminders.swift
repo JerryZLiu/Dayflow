@@ -228,7 +228,7 @@ struct JournalRemindersView: View {
         // Also set badge directly after delay (for testing - delegate should also set it)
         try await Task.sleep(nanoseconds: 3_500_000_000)  // 3.5 seconds
         await MainActor.run {
-          NotificationBadgeManager.shared.showBadge()
+          NotificationBadgeManager.shared.showJournalBadge()
           print("[JournalReminders] Badge set directly after test notification")
         }
       } catch {
