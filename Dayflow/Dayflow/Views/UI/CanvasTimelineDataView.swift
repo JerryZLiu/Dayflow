@@ -1293,7 +1293,7 @@ struct CanvasActivityCard: View {
 struct CanvasCardButtonStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
-      .scaleEffect(configuration.isPressed ? 0.97 : 1)
+      .scaleEffect(configuration.isPressed ? 0.98 : 1)
       .brightness(configuration.isPressed ? -0.02 : 0)
       .animation(
         .spring(response: 0.3, dampingFraction: 0.6),
