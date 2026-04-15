@@ -191,6 +191,11 @@ final class AnalyticsService {
     }
   }
 
+  func featureFlagVariant(_ key: String) -> String? {
+    guard isOptedIn else { return nil }
+    return PostHogSDK.shared.getFeatureFlag(key) as? String
+  }
+
   func screen(_ name: String, _ props: [String: Any] = [:]) {
     // Implement as a regular capture for consistency
     capture("screen_viewed", ["screen": name].merging(props, uniquingKeysWith: { _, new in new }))
