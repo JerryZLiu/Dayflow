@@ -75,6 +75,7 @@ protocol StorageManaging: Sendable {
   // Timeline Queries
   func fetchTimelineCards(forDay day: String) -> [TimelineCard]
   func fetchTimelineCardsByTimeRange(from: Date, to: Date) -> [TimelineCard]
+  func fetchTotalMinutesTracked(from: Date, to: Date) -> Double
   func fetchTotalMinutesTrackedForWeek(containing date: Date) -> Double
   func replaceTimelineCardsInRange(from: Date, to: Date, with: [TimelineCardShell], batchId: Int64)
     -> (insertedIds: [Int64], deletedVideoPaths: [String])
@@ -517,7 +518,9 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     func markExecutionStarted(id: Int64) {
       lock.lock()
       defer { lock.unlock() }
-      guard var operation = activeOperations[id], operation.executionStartedAt == nil else { return }
+      guard var operation = activeOperations[id], operation.executionStartedAt == nil else {
+        return
+      }
       operation.executionStartedAt = CFAbsoluteTimeGetCurrent()
       activeOperations[id] = operation
     }
@@ -559,10 +562,12 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         .sorted { $0.startedAt < $1.startedAt }
 
       let cutoff = now - recentWindowSeconds
-      let recentReads = recentOperations
+      let recentReads =
+        recentOperations
         .filter { $0.kind == .read && $0.completedAt >= cutoff }
         .sorted { $0.completedAt > $1.completedAt }
-      let recentWrites = recentOperations
+      let recentWrites =
+        recentOperations
         .filter { $0.kind == .write && $0.completedAt >= cutoff }
         .sorted { $0.completedAt > $1.completedAt }
 
@@ -2147,6 +2152,27 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     return result
   }
 
+  func fetchTotalMinutesTracked(from: Date, to: Date) -> Double {
+    let startTs = Int(from.timeIntervalSince1970)
+    let endTs = Int(to.timeIntervalSince1970)
+
+    let totalSeconds: Double? = try? timedRead("fetchTotalMinutesTracked") { db in
+      try Double.fetchOne(
+        db,
+        sql: """
+              SELECT COALESCE(SUM(end_ts - start_ts), 0)
+              FROM timeline_cards
+              WHERE start_ts >= ? AND start_ts < ?
+              AND is_deleted = 0
+              AND category != 'System'
+          """,
+        arguments: [startTs, endTs]
+      )
+    }
+
+    return (totalSeconds ?? 0) / 60.0
+  }
+
   /// Returns total minutes of tracked activities for the week containing the given date.
   /// Week starts on Monday at 4 AM and ends the following Monday at 4 AM.
   func fetchTotalMinutesTrackedForWeek(containing date: Date) -> Double {
@@ -2166,23 +2192,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     // Week ends at 4 AM the following Monday
     let weekEnd = calendar.date(byAdding: .weekOfYear, value: 1, to: weekStart) ?? weekStart
 
-    let startTs = Int(weekStart.timeIntervalSince1970)
-    let endTs = Int(weekEnd.timeIntervalSince1970)
-
-    // Query sum of (end_ts - start_ts) for all non-deleted cards in the week
-    let totalSeconds: Double? = try? timedRead("fetchTotalMinutesTrackedForWeek") { db in
-      try Double.fetchOne(
-        db,
-        sql: """
-              SELECT COALESCE(SUM(end_ts - start_ts), 0)
-              FROM timeline_cards
-              WHERE start_ts >= ? AND start_ts < ?
-              AND is_deleted = 0
-              AND category != 'System'
-          """, arguments: [startTs, endTs])
-    }
-
-    return (totalSeconds ?? 0) / 60.0
+    return fetchTotalMinutesTracked(from: weekStart, to: weekEnd)
   }
 
   func fetchRecentTimelineCardsForDebug(limit: Int) -> [TimelineCardDebugEntry] {
