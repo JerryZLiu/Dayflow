@@ -213,6 +213,10 @@ final class NotificationService: NSObject, ObservableObject {
     let authStatus = Self.authorizationStatusName(settings.authorizationStatus)
     let alertSetting = Self.notificationSettingName(settings.alertSetting)
     let soundSetting = Self.notificationSettingName(settings.soundSetting)
+    let experimentVariant =
+      AnalyticsService.shared.featureFlagVariant(DailyBadgeExperiment.featureFlagKey)
+      ?? DailyBadgeExperiment.controlVariant
+    let shouldShowBadge = experimentVariant == DailyBadgeExperiment.badgeVariant
     center.add(request) { error in
       if let error {
         print(
@@ -233,6 +237,24 @@ final class NotificationService: NSObject, ObservableObject {
           + "identifier=\(identifier) day=\(day)"
       )
 
+      Task { @MainActor in
+        NotificationBadgeManager.shared.registerDailyRecapReady(
+          forDay: day,
+          experimentVariant: experimentVariant,
+          showBadge: shouldShowBadge
+        )
+      }
+
+      let experimentProps: [String: Any] = [
+        "target_day": day,
+        "experiment": DailyBadgeExperiment.featureFlagKey,
+        "variant": experimentVariant,
+        "badge_enabled": shouldShowBadge,
+      ]
+      AnalyticsService.shared.capture(DailyBadgeExperiment.exposureEvent, experimentProps)
+      if shouldShowBadge {
+        AnalyticsService.shared.capture(DailyBadgeExperiment.shownEvent, experimentProps)
+      }
       AnalyticsService.shared.capture(
         "daily_auto_generation_notification_scheduled",
         [
@@ -240,6 +262,9 @@ final class NotificationService: NSObject, ObservableObject {
           "authorization_status": authStatus,
           "alert_setting": alertSetting,
           "sound_setting": soundSetting,
+          "experiment": DailyBadgeExperiment.featureFlagKey,
+          "variant": experimentVariant,
+          "badge_enabled": shouldShowBadge,
         ])
     }
   }
@@ -353,7 +378,7 @@ extension NotificationService: UNUserNotificationCenterDelegate {
 
     Task { @MainActor in
       if isJournalNotification {
-        NotificationBadgeManager.shared.showBadge()
+        NotificationBadgeManager.shared.showJournalBadge()
         AppDelegate.pendingNotificationNavigationDestination = .journal
         activateAppForNotificationTap()
         print(
@@ -397,7 +422,7 @@ extension NotificationService: UNUserNotificationCenterDelegate {
     if identifier.hasPrefix("journal.") {
       Task { @MainActor in
         print("[NotificationService] willPresent: showing badge")
-        NotificationBadgeManager.shared.showBadge()
+        NotificationBadgeManager.shared.showJournalBadge()
       }
 
       print("[NotificationService] willPresent options=banner,sound,badge identifier=\(identifier)")
