@@ -50,6 +50,87 @@ extension View {
 }
 
 extension MainView {
+  var weekInspectorWidth: CGFloat { 340 }
+
+  var timelineWeekRange: TimelineWeekRange {
+    cachedTimelineWeekRange
+  }
+
+  var isWeekTimelineInspectorVisible: Bool {
+    timelineMode == .week && selectedActivity != nil
+  }
+
+  var timelineInspectorWidth: CGFloat {
+    switch timelineMode {
+    case .day:
+      return 358
+    case .week:
+      return isWeekTimelineInspectorVisible ? weekInspectorWidth : 0
+    }
+  }
+
+  var timelineInspectorDividerWidth: CGFloat {
+    switch timelineMode {
+    case .day:
+      return 1
+    case .week:
+      return isWeekTimelineInspectorVisible ? 1 : 0
+    }
+  }
+
+  var shellAnimation: Animation {
+    return .spring(duration: 0.28, bounce: 0)
+  }
+
+  var timelineModeSwitchAnimation: Animation {
+    .spring(response: 0.26, dampingFraction: 0.84)
+  }
+
+  var timelineModeContentAnimation: Animation {
+    .easeInOut(duration: 0.22)
+  }
+
+  var inspectorContentAnimation: Animation {
+    return .easeOut(duration: 0.18)
+  }
+
+  var timelineTitleText: String {
+    switch timelineMode {
+    case .day:
+      return formatDateForDisplay(selectedDate)
+    case .week:
+      return timelineWeekRange.title
+    }
+  }
+
+  var canNavigateTimelineForward: Bool {
+    switch timelineMode {
+    case .day:
+      return canNavigateForward(from: selectedDate)
+    case .week:
+      return timelineWeekRange.canNavigateForward
+    }
+  }
+
+  var shouldShowTodayButton: Bool {
+    switch timelineMode {
+    case .day:
+      return !timelineIsToday(selectedDate)
+    case .week:
+      return !timelineWeekRange.containsToday
+    }
+  }
+
+  var timelineTrackedMinutesParts: (bold: String, rest: String) {
+    let totalHours = Int(weeklyTrackedMinutes / 60)
+    switch timelineMode {
+    case .day:
+      return ("\(totalHours) hours", " tracked this week")
+    case .week:
+      return ("\(totalHours) hours", " of activities tracked this week")
+    }
+  }
+
   func formatDateForDisplay(_ date: Date) -> String {
     let now = Date()
     let calendar = Calendar.current
@@ -68,8 +149,87 @@ extension MainView {
     selectedDate = normalizedTimelineDate(date)
   }
 
+  func previousTimelineDate() -> Date {
+    switch timelineMode {
+    case .day:
+      return Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
+    case .week:
+      return Calendar.current.date(byAdding: .day, value: -7, to: selectedDate) ?? selectedDate
+    }
+  }
+
+  func nextTimelineDate() -> Date {
+    switch timelineMode {
+    case .day:
+      return Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
+    case .week:
+      return Calendar.current.date(byAdding: .day, value: 7, to: selectedDate) ?? selectedDate
+    }
+  }
+
   func dayString(_ date: Date) -> String {
     return cachedDayStringFormatter.string(from: date)
+  }
+
+  func setTimelineMode(_ mode: TimelineMode) {
+    guard timelineMode != mode else { return }
+
+    withAnimation(timelineModeContentAnimation) {
+      timelineMode = mode
+      selectedActivity = nil
+    }
+
+    loadWeeklyTrackedMinutes()
+  }
+
+  func selectTimelineActivity(_ activity: TimelineActivity) {
+    switch timelineMode {
+    case .day:
+      selectedActivity = activity
+    case .week:
+      if isWeekTimelineInspectorVisible {
+        guard selectedActivity?.id != activity.id else { return }
+        withAnimation(inspectorContentAnimation) {
+          selectedActivity = activity
+        }
+      } else {
+        withAnimation(shellAnimation) {
+          selectedActivity = activity
+        }
+      }
+    }
+  }
+
+  func clearTimelineSelection(animated: Bool = true) {
+    guard selectedActivity != nil else { return }
+
+    guard animated else {
+      selectedActivity = nil
+      return
+    }
+
+    let animation = timelineMode == .week ? shellAnimation : inspectorContentAnimation
+    withAnimation(animation) {
+      selectedActivity = nil
+    }
+  }
+
+  func navigateTimeline(to date: Date, method: String) {
+    let from = selectedDate
+    previousDate = selectedDate
+    clearTimelineSelection(animated: false)
+    setSelectedDate(date)
+    lastDateNavMethod = method
+
+    AnalyticsService.shared.capture(
+      "date_navigation",
+      [
+        "method": method,
+        "timeline_mode": timelineMode.rawValue,
+        "from_day": dayString(from),
+        "to_day": dayString(date),
+      ]
+    )
   }
 }
 
