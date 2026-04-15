@@ -2,6 +2,32 @@ import SwiftUI
 
 #if os(macOS)
 
+  struct DayflowPressScaleButtonStyle: ButtonStyle {
+    let enabled: Bool
+    let pressedScale: CGFloat
+    let animation: Animation
+
+    init(
+      enabled: Bool = true,
+      pressedScale: CGFloat = 0.97,
+      animation: Animation = .spring(response: 0.24, dampingFraction: 0.82)
+    ) {
+      self.enabled = enabled
+      self.pressedScale = pressedScale
+      self.animation = animation
+    }
+
+    func makeBody(configuration: Configuration) -> some View {
+      configuration.label
+        .dayflowPressScale(
+          configuration.isPressed,
+          enabled: enabled,
+          pressedScale: pressedScale,
+          animation: animation
+        )
+    }
+  }
+
   private struct HoverScaleModifier: ViewModifier {
     let enabled: Bool
     let scale: CGFloat
@@ -53,6 +79,16 @@ import SwiftUI
       animation: Animation = .spring(response: 0.24, dampingFraction: 0.82)
     ) -> some View {
       modifier(HoverScaleModifier(enabled: enabled, scale: scale, animation: animation))
+    }
+
+    func dayflowPressScale(
+      _ isPressed: Bool,
+      enabled: Bool = true,
+      pressedScale: CGFloat = 0.97,
+      animation: Animation = .spring(response: 0.24, dampingFraction: 0.82)
+    ) -> some View {
+      scaleEffect(enabled && isPressed ? pressedScale : 1)
+        .animation(animation, value: isPressed)
     }
 
     func pointingHandCursorWithHoverScale(
