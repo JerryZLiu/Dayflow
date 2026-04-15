@@ -12,7 +12,7 @@ final class GemmaBackupProvider {
   private let screenshotInterval: TimeInterval = 10
   private let baseURL = "https://generativelanguage.googleapis.com/v1beta/models"
 
-  init(apiKey: String, model: String = "gemma-3-27b-it") {
+  init(apiKey: String, model: String = "gemma-4-31b-it") {
     self.apiKey = apiKey
     self.model = model
   }
