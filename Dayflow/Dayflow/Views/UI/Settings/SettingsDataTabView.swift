@@ -298,7 +298,7 @@ struct SettingsDataTabView: View {
         )
         .shadow(color: .black.opacity(disabled ? 0 : 0.05), radius: 6, x: 0, y: 2)
       }
-      .buttonStyle(.plain)
+      .buttonStyle(DayflowPressScaleButtonStyle(pressedScale: 0.97))
       .disabled(disabled)
       .accessibilityLabel(Text(accessibilityLabel))
     }

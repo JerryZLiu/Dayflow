@@ -230,7 +230,7 @@ struct SettingsView: View {
         }
       }
     }
-    .buttonStyle(PlainButtonStyle())
+    .buttonStyle(SettingsSidebarButtonStyle())
     .pointingHandCursor()
   }
 
@@ -270,5 +270,17 @@ struct SettingsView_Previews: PreviewProvider {
     SettingsView()
       .environmentObject(UpdaterManager.shared)
       .frame(width: 1400, height: 860)
+  }
+}
+
+private struct SettingsSidebarButtonStyle: ButtonStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .dayflowPressScale(
+        configuration.isPressed,
+        pressedScale: 0.98,
+        animation: .spring(response: 0.25, dampingFraction: 0.7)
+      )
   }
 }

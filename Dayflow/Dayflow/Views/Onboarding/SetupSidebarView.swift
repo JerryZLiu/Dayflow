@@ -128,7 +128,7 @@ struct SetupSidebarItem: View {
       .shadow(color: shadowColor(at: 3), radius: 8.94749, x: -16.66084, y: 40.72652)
       .shadow(color: shadowColor(at: 4), radius: 9.56456, x: -25.91687, y: 63.55804)
     }
-    .buttonStyle(.plain)
+    .buttonStyle(DayflowPressScaleButtonStyle(pressedScale: 0.97))
     .pointingHandCursor()
     .scaleEffect(isHovered && !isSelected ? 1.02 : 1.0)
     .animation(.spring(response: 0.3, dampingFraction: 0.9), value: isSelected)

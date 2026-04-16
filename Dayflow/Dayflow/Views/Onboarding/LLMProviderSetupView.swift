@@ -181,7 +181,7 @@ struct LLMProviderSetupView: View {
                 .foregroundColor(.black.opacity(0.7))
             }
           }
-          .buttonStyle(.plain)
+          .buttonStyle(DayflowPressScaleButtonStyle(pressedScale: 0.97))
           // Position where sidebar items start: 20 + 16 = 36px
           .padding(.leading, 36)  // Align with sidebar item structure
           .pointingHandCursor()
