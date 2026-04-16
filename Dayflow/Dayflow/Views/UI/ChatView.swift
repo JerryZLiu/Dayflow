@@ -2229,7 +2229,7 @@ private struct WorkStatusCard: View {
             .font(.custom("Nunito", size: 11).weight(.semibold))
             .foregroundColor(Color(hex: "8B5E3C"))
           }
-          .buttonStyle(.plain)
+          .buttonStyle(DayflowPressScaleButtonStyle(pressedScale: 0.97))
           .pointingHandCursor()
         }
 
@@ -2739,9 +2739,12 @@ private struct PressScaleButtonStyle: ButtonStyle {
 
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
-      .scaleEffect(configuration.isPressed && isEnabled ? 0.97 : 1.0)
-      .brightness(configuration.isPressed && isEnabled ? -0.02 : 0)
-      .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+      .dayflowPressScale(
+        configuration.isPressed,
+        enabled: isEnabled,
+        pressedScale: 0.97,
+        animation: .easeOut(duration: 0.15)
+      )
       .pointingHandCursor(enabled: isEnabled)
   }
 }
@@ -2751,8 +2754,12 @@ private struct BetaButtonStyle: ButtonStyle {
 
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
-      .scaleEffect(configuration.isPressed && isEnabled ? 0.97 : 1.0)
-      .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+      .dayflowPressScale(
+        configuration.isPressed,
+        enabled: isEnabled,
+        pressedScale: 0.97,
+        animation: .easeOut(duration: 0.15)
+      )
       .pointingHandCursor(enabled: isEnabled)
   }
 }
