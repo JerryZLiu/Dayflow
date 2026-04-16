@@ -400,9 +400,11 @@ struct VideoExpansionOverlay: View {
 struct ScaleButtonStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
-      .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-      // Spring animation for more natural button feel (Emil Kowalski principle)
-      .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
+      .dayflowPressScale(
+        configuration.isPressed,
+        pressedScale: 0.97,
+        animation: .spring(response: 0.2, dampingFraction: 0.6)
+      )
       .pointingHandCursor()
   }
 }

@@ -84,9 +84,12 @@ struct CardsToReviewButton: View {
 
   var body: some View {
     CardsToReviewBadge(count: count)
-      .scaleEffect(isPressed ? 0.97 : (isHovered ? 1.02 : 1.0))
-      .brightness(isPressed ? -0.03 : 0)
-      .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
+      .dayflowPressScale(
+        isPressed,
+        pressedScale: 0.97,
+        animation: .spring(response: 0.3, dampingFraction: 0.7)
+      )
+      .scaleEffect(isHovered ? 1.02 : 1.0)
       .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
       .onHover { hovering in
         isHovered = hovering

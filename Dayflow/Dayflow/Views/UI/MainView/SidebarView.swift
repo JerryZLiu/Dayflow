@@ -149,7 +149,7 @@ struct SidebarIconButton: View {
       .frame(width: SidebarMetrics.itemSize, height: SidebarMetrics.itemSize)
       .contentShape(Rectangle())
     }
-    .buttonStyle(PlainButtonStyle())
+    .buttonStyle(DayflowPressScaleButtonStyle())
     .contentShape(Rectangle())
     .hoverScaleEffect(scale: 1.02)
     .pointingHandCursor()

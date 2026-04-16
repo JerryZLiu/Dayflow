@@ -364,14 +364,17 @@ struct PausePillView: View {
     resumeScale = 0.8
     resumeBlur = 5
 
-    // Resume enters + status fades in (after snap is committed)
+    // Resume enters after the pill has mostly finished its 250→84 shrink (the
+    // bigger of our two shrinks). Pill spring settles around 650ms; waiting
+    // 280ms for Resume and 350ms for the status-text cascade keeps the new
+    // content from visibly intersecting the shrinking capsule.
     Task { @MainActor in
-      withAnimation(.spring(duration: 0.35, bounce: 0.25).delay(0.06)) {
+      withAnimation(.spring(duration: 0.35, bounce: 0.25).delay(0.28)) {
         resumeOpacity = 1
         resumeScale = 1
         resumeBlur = 0
       }
-      presentStatusText(autoHide: duration == .indefinite, animationDelay: 0.1)
+      presentStatusText(autoHide: duration == .indefinite, animationDelay: 0.35)
     }
   }
 
@@ -403,9 +406,12 @@ struct PausePillView: View {
     pauseScale = 0.85
     pauseBlur = 4
 
-    // Pause content enters (after snap is committed)
+    // Pause content enters after the pill has mostly finished its 84→73 shrink.
+    // The pill spring (duration: 0.4, bounce: 0.35) settles around 550ms; waiting
+    // 280ms lands re-entry near the shrink's visual trough so the old/new content
+    // don't visibly intersect while the capsule is still resizing.
     Task { @MainActor in
-      withAnimation(.spring(duration: 0.3, bounce: 0.3).delay(0.05)) {
+      withAnimation(.spring(duration: 0.3, bounce: 0.3).delay(0.28)) {
         pauseOpacity = 1
         pauseScale = 1
         pauseBlur = 0
@@ -463,15 +469,17 @@ struct PausePillView: View {
       statusBlurVal = 6
     }
 
+    // Same rationale as startPause — let the pill shrink mostly settle before
+    // Resume enters (280ms) and the status text cascades (350ms).
     Task { @MainActor in
-      withAnimation(.spring(duration: 0.35, bounce: 0.25).delay(0.06)) {
+      withAnimation(.spring(duration: 0.35, bounce: 0.25).delay(0.28)) {
         resumeOpacity = 1
         resumeScale = 1
         resumeBlur = 0
       }
 
       if showStatusText {
-        presentStatusText(autoHide: pauseManager.isPausedIndefinitely, animationDelay: 0.1)
+        presentStatusText(autoHide: pauseManager.isPausedIndefinitely, animationDelay: 0.35)
       }
     }
   }
@@ -621,8 +629,11 @@ private struct PillPlayIcon: View {
 private struct PillChipButtonStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
-      .scaleEffect(configuration.isPressed ? 0.95 : 1)
-      .animation(.spring(duration: 0.15, bounce: 0), value: configuration.isPressed)
+      .dayflowPressScale(
+        configuration.isPressed,
+        pressedScale: 0.95,
+        animation: .spring(duration: 0.15, bounce: 0)
+      )
   }
 }
 

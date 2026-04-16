@@ -7,9 +7,21 @@ struct DateNavigationControls: View {
   @Binding var lastDateNavMethod: String?
   @Binding var previousDate: Date
 
+  // Emil Kowalski-style "expand and contract" press: a deeper press-in (scale
+  // 0.88) with an underdamped spring so the release overshoots slightly past
+  // 1.0 before settling. Applied only to the two chevrons — other
+  // DayflowCircleButton callers keep the subtler 0.97/critically-damped feel.
+  private static let chevronPressedScale: CGFloat = 0.88
+  private static let chevronPressAnimation: Animation = .spring(
+    response: 0.32, dampingFraction: 0.58
+  )
+
   var body: some View {
     HStack(spacing: 12) {
-      DayflowCircleButton {
+      DayflowCircleButton(
+        pressedScale: Self.chevronPressedScale,
+        pressAnimation: Self.chevronPressAnimation
+      ) {
         let from = selectedDate
         let to = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
         previousDate = selectedDate
@@ -37,10 +49,13 @@ struct DateNavigationControls: View {
           fixedWidth: calculateOptimalPillWidth()
         )
       }
-      .buttonStyle(PlainButtonStyle())
+      .buttonStyle(DayflowPressScaleButtonStyle(pressedScale: 0.97))
       .pointingHandCursor()
 
-      DayflowCircleButton {
+      DayflowCircleButton(
+        pressedScale: Self.chevronPressedScale,
+        pressAnimation: Self.chevronPressAnimation
+      ) {
         guard canNavigateForward(from: selectedDate) else { return }
         let from = selectedDate
         let tomorrow =
