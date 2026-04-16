@@ -48,8 +48,11 @@ struct JournalWeeklyView: View {
     .padding(.vertical, 34)
     .padding(.horizontal, 38)
     .background(
-      RoundedRectangle(cornerRadius: 28, style: .continuous)
-        .fill(JournalWeeklyTokens.background)
+      ZStack {
+        Rectangle().fill(.thickMaterial)
+        Color.white.opacity(0.35)
+      }
+      .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
     )
     .overlay(
       RoundedRectangle(cornerRadius: 28, style: .continuous)
@@ -242,7 +245,7 @@ private struct JournalWeeklyCircleButton: View {
             .shadow(color: Color.black.opacity(0.08), radius: 8, y: 4)
         )
     }
-    .buttonStyle(.plain)
+    .buttonStyle(DayflowPressScaleButtonStyle(pressedScale: 0.97))
     .disabled(isDisabled)
     .opacity(isDisabled ? 0.4 : 1)
     .pointingHandCursor(enabled: !isDisabled)

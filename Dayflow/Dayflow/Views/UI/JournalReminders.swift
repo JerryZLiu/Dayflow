@@ -421,12 +421,17 @@ private struct JournalReminderPillButtonStyle: ButtonStyle {
       .font(.custom("Nunito-SemiBold", size: 14))
       .padding(.horizontal, 16)
       .padding(.vertical, 6)
-      .background(background.opacity(configuration.isPressed ? 0.85 : 1))
+      .background(background)
       .foregroundColor(foreground)
       .cornerRadius(8)
       .overlay(
         RoundedRectangle(cornerRadius: 8)
           .stroke(borderColor ?? .clear, lineWidth: borderColor == nil ? 0 : 1)
+      )
+      .dayflowPressScale(
+        configuration.isPressed,
+        pressedScale: 0.97,
+        animation: .spring(response: 0.25, dampingFraction: 0.7)
       )
   }
 }
