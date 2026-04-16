@@ -505,10 +505,12 @@ struct DailyView: View {
     return HStack {
       HStack(spacing: 8 * scale) {
         Button(action: { shiftDate(by: -1) }) {
-          Image("CalendarLeftButton")
+          Image("LeftArrow")
             .resizable()
             .scaledToFit()
-            .frame(width: 26 * scale, height: 26 * scale)
+            .frame(width: 18 * scale, height: 18 * scale)
+            .frame(width: 32 * scale, height: 32 * scale)
+            .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
         .hoverScaleEffect(scale: 1.02)
@@ -526,10 +528,13 @@ struct DailyView: View {
           guard canMoveToNextDay else { return }
           shiftDate(by: 1)
         }) {
-          Image("CalendarRightButton")
+          Image("RightArrow")
             .resizable()
             .scaledToFit()
-            .frame(width: 26 * scale, height: 26 * scale)
+            .frame(width: 18 * scale, height: 18 * scale)
+            .frame(width: 32 * scale, height: 32 * scale)
+            .contentShape(Rectangle())
+            .opacity(canMoveToNextDay ? 1 : 0.35)
         }
         .buttonStyle(PlainButtonStyle())
         .disabled(!canMoveToNextDay)
@@ -1785,8 +1790,11 @@ struct DailyView: View {
 private struct DailyCopyPressButtonStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
-      .scaleEffect(configuration.isPressed ? 0.97 : 1)
-      .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
+      .dayflowPressScale(
+        configuration.isPressed,
+        pressedScale: 0.97,
+        animation: .easeOut(duration: 0.14)
+      )
   }
 }
 
