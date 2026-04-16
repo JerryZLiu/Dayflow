@@ -79,8 +79,14 @@ struct DayflowSurfaceButton<Content: View>: View {
             color: .black.opacity(showShadow ? (isHovered ? 0.06 : 0.04) : 0),
             radius: isHovered ? 2 : 1, x: 0, y: 1)
       }
-      .brightness(isPressed ? -0.04 : (isHovered ? 0.02 : 0))
-      .scaleEffect(reduceMotion ? 1.0 : (isPressed ? 0.985 : (isHovered ? 1.02 : 1.0)))
+      .brightness(isHovered ? 0.02 : 0)
+      .dayflowPressScale(
+        isPressed,
+        enabled: !reduceMotion,
+        pressedScale: 0.985,
+        animation: pressAnim
+      )
+      .scaleEffect(reduceMotion ? 1.0 : (isHovered ? 1.02 : 1.0))
       .offset(y: reduceMotion ? 0 : (isHovered ? -1 : 0))
     }
     .buttonStyle(.plain)

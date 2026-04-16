@@ -29,15 +29,21 @@ extension View {
 struct DayflowCircleButton<Content: View>: View {
   let action: () -> Void
   let size: CGSize
+  let pressedScale: CGFloat
+  let pressAnimation: Animation
   @ViewBuilder let content: () -> Content
 
   init(
     width: CGFloat = 31.40301,
     height: CGFloat = 30.4514,
+    pressedScale: CGFloat = 0.97,
+    pressAnimation: Animation = .spring(response: 0.24, dampingFraction: 0.82),
     action: @escaping () -> Void,
     @ViewBuilder content: @escaping () -> Content
   ) {
     self.size = CGSize(width: width, height: height)
+    self.pressedScale = pressedScale
+    self.pressAnimation = pressAnimation
     self.action = action
     self.content = content
   }
@@ -48,7 +54,9 @@ struct DayflowCircleButton<Content: View>: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
     }
-    .buttonStyle(.plain)
+    .buttonStyle(
+      DayflowPressScaleButtonStyle(pressedScale: pressedScale, animation: pressAnimation)
+    )
     .frame(width: size.width, height: size.height)
     .dayflowCircleStyle()
     .contentShape(Circle())
