@@ -78,8 +78,12 @@ extension MainView {
   }
 
   func loadWeeklyTrackedMinutes() {
+    let weekRange = timelineWeekRange
     Task.detached(priority: .userInitiated) {
-      let minutes = StorageManager.shared.fetchTotalMinutesTrackedForWeek(containing: Date())
+      let minutes = StorageManager.shared.fetchTotalMinutesTracked(
+        from: weekRange.weekStart,
+        to: weekRange.weekEnd
+      )
       await MainActor.run {
         weeklyTrackedMinutes = minutes
       }
@@ -103,9 +107,6 @@ extension MainView {
   func copyTimelineToClipboard() {
     guard copyTimelineState != .copying else { return }
 
-    let timelineDate = timelineDisplayDate(from: selectedDate, now: Date())
-    let day = dayString(timelineDate)
-
     copyTimelineTask?.cancel()
 
     withAnimation(.snappy(duration: 0.3)) {
@@ -124,9 +125,41 @@ extension MainView {
         }
       }
 
-      let cards = StorageManager.shared.fetchTimelineCards(forDay: day)
-      let clipboardText = TimelineClipboardFormatter.makeClipboardText(
-        for: timelineDate, cards: cards)
+      let clipboardText: String
+      let analyticsProps: [String: Any]
+
+      switch timelineMode {
+      case .day:
+        let timelineDate = timelineDisplayDate(from: selectedDate, now: Date())
+        let day = dayString(timelineDate)
+        let cards = StorageManager.shared.fetchTimelineCards(forDay: day)
+        clipboardText = TimelineClipboardFormatter.makeClipboardText(
+          for: timelineDate,
+          cards: cards
+        )
+        analyticsProps = [
+          "timeline_mode": timelineMode.rawValue,
+          "timeline_day": day,
+          "activity_count": cards.count,
+        ]
+
+      case .week:
+        let weekRange = timelineWeekRange
+        let cards = StorageManager.shared.fetchTimelineCardsByTimeRange(
+          from: weekRange.weekStart,
+          to: weekRange.weekEnd
+        )
+        clipboardText = TimelineClipboardFormatter.makeClipboardText(
+          for: weekRange,
+          cards: cards
+        )
+        analyticsProps = [
+          "timeline_mode": timelineMode.rawValue,
+          "week_start": dayString(weekRange.weekStart),
+          "week_end": dayString(weekRange.weekEnd),
+          "activity_count": cards.count,
+        ]
+      }
 
       guard !Task.isCancelled else { return }
 
@@ -140,12 +173,7 @@ extension MainView {
         }
       }
 
-      AnalyticsService.shared.capture(
-        "timeline_copied",
-        [
-          "timeline_day": day,
-          "activity_count": cards.count,
-        ])
+      AnalyticsService.shared.capture("timeline_copied", analyticsProps)
 
       try? await Task.sleep(nanoseconds: 2_000_000_000)
       guard !Task.isCancelled else { return }
@@ -198,7 +226,7 @@ extension MainView {
 
       await MainActor.run {
         if selectedActivity?.id == selectedActivityId {
-          selectedActivity = nil
+          clearTimelineSelection()
         }
         refreshActivitiesTrigger &+= 1
       }
