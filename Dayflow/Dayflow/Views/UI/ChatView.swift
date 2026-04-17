@@ -1312,7 +1312,7 @@ private struct MessageBubble: View {
         ForEach(blocks) { block in
           switch block {
           case .text(_, let content):
-            renderMarkdownLines(content)
+            ChatMarkdownContentView(content: content)
           case .chart(let spec):
             ChatChartBlockView(spec: spec)
           }
@@ -1326,6 +1326,11 @@ private struct MessageBubble: View {
         RoundedRectangle(cornerRadius: 16, style: .continuous)
           .stroke(Color(hex: "E8E8E8"), lineWidth: 1)
       )
+      .contextMenu {
+        Button("Copy") {
+          copyAssistantMessageToPasteboard()
+        }
+      }
       .environment(
         \.openURL,
         OpenURLAction { url in
@@ -1333,33 +1338,6 @@ private struct MessageBubble: View {
         })
       Spacer(minLength: 60)
     }
-  }
-
-  private func renderMarkdownLines(_ content: String) -> some View {
-    let normalized = normalizeMarkdownForDisplay(content)
-    let options = AttributedString.MarkdownParsingOptions(
-      interpretedSyntax: .inlineOnlyPreservingWhitespace
-    )
-
-    let displayText: Text
-    if let parsed = try? AttributedString(markdown: normalized, options: options) {
-      displayText = Text(parsed)
-    } else {
-      displayText = Text(normalized)
-    }
-
-    return
-      displayText
-      .font(.custom("Nunito", size: 13).weight(.medium))
-      .foregroundColor(Color(hex: "333333"))
-      .textSelection(.enabled)
-      .fixedSize(horizontal: false, vertical: true)
-  }
-
-  private func normalizeMarkdownForDisplay(_ content: String) -> String {
-    content
-      .replacingOccurrences(of: "\r\n", with: "\n")
-      .replacingOccurrences(of: "\r", with: "\n")
   }
 
   private func handleAssistantLinkTap(_ url: URL) -> OpenURLAction.Result {
@@ -1407,6 +1385,12 @@ private struct MessageBubble: View {
     }
 
     return normalized
+  }
+
+  private func copyAssistantMessageToPasteboard() {
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    pasteboard.setString(message.content, forType: .string)
   }
 }
 
