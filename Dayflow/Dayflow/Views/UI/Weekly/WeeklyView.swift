@@ -25,6 +25,9 @@ struct WeeklyView: View {
         WeeklyFocusHeatmapSection(snapshot: .figmaPreview)
           .frame(maxWidth: .infinity, alignment: .leading)
 
+        WeeklyContextShiftComparisonSection(snapshot: .figmaPreview)
+          .frame(maxWidth: .infinity, alignment: .leading)
+
         WeeklyDonutSection(
           snapshot: donutSnapshot,
           isLoading: isLoadingDonut
