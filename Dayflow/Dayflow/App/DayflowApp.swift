@@ -49,6 +49,8 @@ struct AppRootView: View {
             closeWhatsNew()
           }
         }
+        .environment(\.colorScheme, .light)
+        .preferredColorScheme(.light)
       }
   }
 
