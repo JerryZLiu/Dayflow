@@ -374,3 +374,106 @@ private struct WeeklyOverviewSummaryMetric: Identifiable {
   let label: String
   let value: String
 }
+
+extension WeeklyOverviewSnapshot {
+  fileprivate static let preview = WeeklyOverviewSnapshot(
+    rows: [
+      WeeklyOverviewRow(
+        id: "mon",
+        label: "Mon",
+        weekdayName: "Monday",
+        segments: [
+          segment("mon-research", "research", "93BCFF", 564, 590),
+          segment("mon-design-1", "design", "DE9DFC", 592, 836),
+          segment("mon-general", "general", "BFB6AE", 838, 904),
+          segment("mon-testing", "testing", "FFA189", 906, 1058),
+        ]
+      ),
+      WeeklyOverviewRow(
+        id: "tue",
+        label: "Tue",
+        weekdayName: "Tuesday",
+        segments: [
+          segment("tue-design", "design", "DE9DFC", 553, 844),
+          segment("tue-general", "general", "BFB6AE", 846, 888),
+          segment("tue-testing", "testing", "FFA189", 890, 1072),
+        ]
+      ),
+      WeeklyOverviewRow(
+        id: "wed",
+        label: "Wed",
+        weekdayName: "Wednesday",
+        segments: [
+          segment("wed-research", "research", "93BCFF", 564, 590),
+          segment("wed-design", "design", "DE9DFC", 592, 872),
+          segment("wed-alignment-1", "alignment", "6CDACD", 874, 902),
+          segment("wed-general", "general", "BFB6AE", 904, 966),
+          segment("wed-alignment-2", "alignment", "6CDACD", 968, 1028),
+          segment("wed-testing", "testing", "FFA189", 1030, 1072),
+        ]
+      ),
+      WeeklyOverviewRow(
+        id: "thu",
+        label: "Thu",
+        weekdayName: "Thursday",
+        segments: [
+          segment("thu-general", "general", "BFB6AE", 544, 636),
+          segment("thu-research", "research", "93BCFF", 638, 842),
+          segment("thu-design", "design", "DE9DFC", 844, 913),
+          segment("thu-testing", "testing", "FFA189", 915, 981),
+          segment("thu-alignment", "alignment", "6CDACD", 983, 1056),
+          segment("thu-general-2", "general", "BFB6AE", 1058, 1079),
+        ]
+      ),
+      WeeklyOverviewRow(
+        id: "fri",
+        label: "Fri",
+        weekdayName: "Friday",
+        segments: [
+          segment("fri-general", "general", "BFB6AE", 550, 581),
+          segment("fri-alignment", "alignment", "6CDACD", 583, 890),
+          segment("fri-design", "design", "DE9DFC", 892, 1035),
+          segment("fri-research", "research", "93BCFF", 1037, 1072),
+        ]
+      ),
+    ],
+    legendItems: [
+      WeeklyOverviewLegendItem(id: "research", name: "Research", colorHex: "93BCFF"),
+      WeeklyOverviewLegendItem(id: "design", name: "Design", colorHex: "DE9DFC"),
+      WeeklyOverviewLegendItem(id: "alignment", name: "Alignment", colorHex: "6CDACD"),
+      WeeklyOverviewLegendItem(id: "testing", name: "Testing", colorHex: "FFA189"),
+      WeeklyOverviewLegendItem(id: "general", name: "General", colorHex: "BFB6AE"),
+    ],
+    contextSwitchTotal: 52,
+    contextSwitchAverage: 7,
+    totalFocusMinutes: 1478,
+    longestFocus: WeeklyOverviewFocusSummary(weekdayName: "Wednesday", minutes: 245),
+    primaryFocus: WeeklyOverviewCategorySummary(
+      name: "Design",
+      minutes: 734,
+      colorHex: "DE9DFC"
+    )
+  )
+
+  fileprivate static func segment(
+    _ id: String,
+    _ categoryKey: String,
+    _ colorHex: String,
+    _ startMinute: Double,
+    _ endMinute: Double
+  ) -> WeeklyOverviewSegment {
+    WeeklyOverviewSegment(
+      id: id,
+      categoryKey: categoryKey,
+      colorHex: colorHex,
+      startMinute: startMinute,
+      endMinute: endMinute
+    )
+  }
+}
+
+#Preview("Weekly Overview Section", traits: .fixedLayout(width: 958, height: 339)) {
+  WeeklyOverviewSection(snapshot: .preview)
+    .padding(24)
+    .background(Color(hex: "F7F3F0"))
+}
