@@ -77,29 +77,50 @@ extension MainView {
     }
   }
 
-  func loadWeeklyTrackedMinutes() {
+  func loadWeeklyTrackedMinutes(trigger: String = "unspecified") {
     let weekRange = timelineWeekRange
+    let weekStartDay = dayString(weekRange.weekStart)
+    timelinePerfLog("weeklyTrackedMinutes.schedule trigger=\(trigger) week=\(weekStartDay)")
+
     Task.detached(priority: .userInitiated) {
+      let fetchStart = CFAbsoluteTimeGetCurrent()
       let minutes = StorageManager.shared.fetchTotalMinutesTracked(
         from: weekRange.weekStart,
         to: weekRange.weekEnd
       )
+      let fetchMs = Int((CFAbsoluteTimeGetCurrent() - fetchStart) * 1000)
+
       await MainActor.run {
+        let commitStart = CFAbsoluteTimeGetCurrent()
         weeklyTrackedMinutes = minutes
+        let commitMs = Int((CFAbsoluteTimeGetCurrent() - commitStart) * 1000)
+        timelinePerfLog(
+          "weeklyTrackedMinutes.complete trigger=\(trigger) week=\(weekStartDay) minutes=\(Int(minutes.rounded())) fetch_ms=\(fetchMs) commit_ms=\(commitMs)"
+        )
       }
     }
   }
 
-  func updateCardsToReviewCount() {
+  func updateCardsToReviewCount(trigger: String = "unspecified") {
     reviewCountTask?.cancel()
     let timelineDate = timelineDisplayDate(from: selectedDate, now: Date())
     let dayString = DateFormatter.yyyyMMdd.string(from: timelineDate)
 
+    timelinePerfLog("reviewCount.schedule trigger=\(trigger) day=\(dayString)")
+
     reviewCountTask = Task.detached(priority: .userInitiated) {
+      let fetchStart = CFAbsoluteTimeGetCurrent()
       let count = StorageManager.shared.fetchUnreviewedTimelineCardCount(
         forDay: dayString, coverageThreshold: 0.8)
+      let fetchMs = Int((CFAbsoluteTimeGetCurrent() - fetchStart) * 1000)
+
       await MainActor.run {
+        let commitStart = CFAbsoluteTimeGetCurrent()
         cardsToReviewCount = count
+        let commitMs = Int((CFAbsoluteTimeGetCurrent() - commitStart) * 1000)
+        timelinePerfLog(
+          "reviewCount.complete trigger=\(trigger) day=\(dayString) count=\(count) fetch_ms=\(fetchMs) commit_ms=\(commitMs)"
+        )
       }
     }
   }
