@@ -10,17 +10,11 @@ private struct TimelineHeaderTrailingWidthPreferenceKey: PreferenceKey {
   }
 }
 
-// Anchor for the calendar button's bounds, published up the view tree so a
-// sibling overlay can position the custom calendar popover precisely below
-// the button. Replaces the native `.popover(...)` modifier — NSPopover's
-// arrow can't be suppressed through any public API, so we draw the card
-// ourselves as a SwiftUI overlay for full control over edge, shadow, and
-// entrance animation.
-private struct TimelineCalendarAnchorKey: PreferenceKey {
-  static var defaultValue: Anchor<CGRect>? = nil
+private struct TimelineCalendarButtonFramePreferenceKey: PreferenceKey {
+  static var defaultValue: CGRect = .zero
 
-  static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
-    value = nextValue() ?? value
+  static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+    value = nextValue()
   }
 }
 
@@ -31,6 +25,17 @@ extension View {
         Color.clear.preference(
           key: TimelineHeaderTrailingWidthPreferenceKey.self,
           value: proxy.size.width
+        )
+      }
+    )
+  }
+
+  fileprivate func trackTimelineCalendarButtonFrame() -> some View {
+    background(
+      GeometryReader { proxy in
+        Color.clear.preference(
+          key: TimelineCalendarButtonFramePreferenceKey.self,
+          value: proxy.frame(in: .named("TimelinePanel"))
         )
       }
     )
@@ -48,7 +53,21 @@ private struct TimelineHeaderVisibility {
 }
 
 extension MainView {
+  // `mainLayout` is split into two chained computed properties because the
+  // full modifier stack (20+ modifiers, several large inline closures) was
+  // exceeding Swift's per-expression type-check budget. Each `some View`
+  // boundary gives the solver a fresh, opaque anchor so the inner chain is
+  // type-checked in isolation. Closure bodies that ran long (onAppear, the
+  // tab-selection onChange, selectedDate onChange, toast overlay) are also
+  // extracted to named methods / computed properties below for the same
+  // reason.
   var mainLayout: some View {
+    mainLayoutCore
+      .environmentObject(retryCoordinator)
+  }
+
+  // Layer 1: layout + visual overlays.
+  private var mainLayoutWithOverlays: some View {
     contentStack
       .padding([.top, .trailing, .bottom], 15)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -57,18 +76,13 @@ extension MainView {
       .ignoresSafeArea()
       // Hero animation overlay for video expansion (Emil Kowalski: shared element transitions)
       .overlay { overlayContent }
-      .overlay(alignment: .bottomTrailing) {
-        if let payload = timelineFailureToastPayload {
-          TimelineFailureToastView(
-            message: payload.message,
-            onOpenSettings: { handleTimelineFailureToastOpenSettings(payload) },
-            onDismiss: { handleTimelineFailureToastDismiss(payload) }
-          )
-          .padding(.trailing, 24)
-          .padding(.bottom, 24)
-          .transition(.move(edge: .trailing).combined(with: .opacity))
-        }
-      }
+      .overlay(alignment: .bottomTrailing) { timelineFailureToastOverlayContent }
+      .overlay { categoryEditorOverlay }
+  }
+
+  // Layer 2: sheet + lifecycle + notifications + state-change reactions.
+  private var mainLayoutCore: some View {
+    mainLayoutWithOverlays
       .sheet(isPresented: $showDatePicker) {
         DatePickerSheet(
           selectedDate: Binding(
@@ -81,52 +95,8 @@ extension MainView {
           isPresented: $showDatePicker
         )
       }
-      .onAppear {
-        // screen viewed and initial timeline view
-        AnalyticsService.shared.screen("timeline")
-        AnalyticsService.shared.withSampling(probability: 0.01) {
-          AnalyticsService.shared.capture(
-            "timeline_viewed", ["date_bucket": dayString(selectedDate)])
-        }
-        // Orchestrated entrance animations following Emil Kowalski principles
-        // Fast, under 300ms, natural spring motion
-
-        // Logo appears first with scale and fade
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0)) {
-          logoScale = 1.0
-          logoOpacity = 1
-        }
-
-        // Timeline text slides in from left
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0).delay(0.1)) {
-          timelineOffset = 0
-          timelineOpacity = 1
-        }
-
-        // Sidebar slides up
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0).delay(0.15)) {
-          sidebarOffset = 0
-          sidebarOpacity = 1
-        }
-
-        // Main content fades in last
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0).delay(0.2)) {
-          contentOpacity = 1
-        }
-
-        // Perform initial scroll to current time on cold start
-        if !didInitialScroll {
-          performInitialScrollIfNeeded()
-        }
-
-        // Start minute-level tick to detect timeline-day rollover (4am boundary)
-        startDayChangeTimer()
-
-        // Load weekly activity hours
-        loadWeeklyTrackedMinutes()
-        updateCardsToReviewCount()
-      }
-      // Trigger reset when idle fired and timeline is visible
+      .onAppear(perform: performMainLayoutOnAppear)
+      .onDisappear(perform: performMainLayoutOnDisappear)
       .onChange(of: inactivity.pendingReset) { _, fired in
         if fired, selectedIcon != .settings {
           performIdleResetAndScroll()
@@ -134,155 +104,242 @@ extension MainView {
         }
       }
       .onChange(of: selectedIcon) { _, newIcon in
-        // Clear tab-specific notification badges once the user visits the destination.
-        if newIcon == .journal {
-          NotificationBadgeManager.shared.clearJournalBadge()
-        } else if newIcon == .daily {
-          if !consumePendingDailyRecapOpenIfNeeded(source: "daily_tab_selected") {
-            NotificationBadgeManager.shared.clearDailyBadge()
-          }
-        }
-
-        // tab selected + screen viewed
-        let tabName: String
-        switch newIcon {
-        case .timeline: tabName = "timeline"
-        case .daily: tabName = "daily"
-        case .weekly: tabName = "weekly"
-        case .chat: tabName = "dashboard"
-        case .journal: tabName = "journal"
-        case .bug: tabName = "bug_report"
-        case .settings: tabName = "settings"
-        }
-
-        // Add Sentry context for app state tracking
-        SentryHelper.configureScope { scope in
-          scope.setContext(
-            value: [
-              "active_view": tabName,
-              "selected_date": dayString(selectedDate),
-              "is_recording": appState.isRecording,
-            ], key: "app_state")
-        }
-
-        // Add breadcrumb for view navigation
-        let navBreadcrumb = Breadcrumb(level: .info, category: "navigation")
-        navBreadcrumb.message = "Navigated to \(tabName)"
-        navBreadcrumb.data = ["view": tabName]
-        SentryHelper.addBreadcrumb(navBreadcrumb)
-
-        AnalyticsService.shared.capture("tab_selected", ["tab": tabName])
-        AnalyticsService.shared.screen(tabName)
-        if newIcon == .timeline {
-          AnalyticsService.shared.withSampling(probability: 0.01) {
-            AnalyticsService.shared.capture(
-              "timeline_viewed", ["date_bucket": dayString(selectedDate)])
-          }
-          updateCardsToReviewCount()
-          loadWeeklyTrackedMinutes()
-        } else {
-          showTimelineReview = false
-        }
-      }
-      // Handle navigation from journal reminder notification tap
-      .onReceive(NotificationCenter.default.publisher(for: .navigateToJournal)) { _ in
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
-          selectedIcon = .journal
-        }
-      }
-      .onReceive(NotificationCenter.default.publisher(for: .showTimelineFailureToast)) {
-        notification in
-        guard let userInfo = notification.userInfo,
-          let payload = TimelineFailureToastPayload(userInfo: userInfo)
-        else {
-          return
-        }
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
-          timelineFailureToastPayload = payload
-        }
-      }
-      .onReceive(NotificationCenter.default.publisher(for: .timelineDataUpdated)) { notification in
-        guard selectedIcon == .timeline else { return }
-
-        if let refreshedDay = notification.userInfo?["dayString"] as? String {
-          let selectedTimelineDay = DateFormatter.yyyyMMdd.string(
-            from: timelineDisplayDate(from: selectedDate, now: Date())
-          )
-          guard refreshedDay == selectedTimelineDay else { return }
-        }
-
-        updateCardsToReviewCount()
-        loadWeeklyTrackedMinutes()
+        handleTabSelectionChange(newIcon)
       }
       .onChange(of: selectedDate) { _, newDate in
-        // If changed via picker, emit navigation now
-        if let method = lastDateNavMethod, method == "picker" {
-          AnalyticsService.shared.capture(
-            "date_navigation",
-            [
-              "method": method,
-              "timeline_mode": timelineMode.rawValue,
-              "from_day": dayString(previousDate),
-              "to_day": dayString(newDate),
-            ])
-        }
-        previousDate = newDate
-        AnalyticsService.shared.withSampling(probability: 0.01) {
-          AnalyticsService.shared.capture("timeline_viewed", ["date_bucket": dayString(newDate)])
-        }
-        // Refresh the weekly-hours query only when the week boundary actually
-        // changes; day-by-day shifts within the same week produce identical SQL.
-        let newWeekRange = TimelineWeekRange.containing(newDate)
-        let weekRangeChanged = newWeekRange != cachedTimelineWeekRange
-        cachedTimelineWeekRange = newWeekRange
-        updateCardsToReviewCount()
-        if weekRangeChanged {
-          loadWeeklyTrackedMinutes()
-        }
+        handleSelectedDateChange(newDate)
       }
       .onChange(of: refreshActivitiesTrigger) {
         updateCardsToReviewCount()
         loadWeeklyTrackedMinutes()
       }
       .onChange(of: selectedActivity?.id) {
-        dismissFeedbackModal(animated: false)
-        guard let a = selectedActivity else { return }
-        let dur = a.endTime.timeIntervalSince(a.startTime)
-        AnalyticsService.shared.capture(
-          "activity_card_opened",
-          [
-            "activity_type": a.category,
-            "duration_bucket": AnalyticsService.shared.secondsBucket(dur),
-            "has_video": a.videoSummaryURL != nil,
-          ])
+        handleSelectedActivityIdChange()
       }
-      // If user returns from Settings and a reset was pending, perform it once
+      // Second observer on selectedIcon: if user returns from Settings and a
+      // reset was pending, perform it once. SwiftUI allows multiple onChange
+      // handlers for the same value — they fire in declaration order.
       .onChange(of: selectedIcon) { _, newIcon in
         if newIcon != .settings, inactivity.pendingReset {
           performIdleResetAndScroll()
           InactivityMonitor.shared.markHandledIfPending()
         }
       }
-      .onDisappear {
-        // Safety: stop timer if view disappears
-        stopDayChangeTimer()
-        copyTimelineTask?.cancel()
-        deleteTimelineTask?.cancel()
+      .onReceive(NotificationCenter.default.publisher(for: .navigateToJournal)) { _ in
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+          selectedIcon = .journal
+        }
+      }
+      .onReceive(NotificationCenter.default.publisher(for: .showTimelineFailureToast)) {
+        handleShowTimelineFailureToastNotification($0)
+      }
+      .onReceive(NotificationCenter.default.publisher(for: .timelineDataUpdated)) {
+        handleTimelineDataUpdatedNotification($0)
       }
       .onReceive(
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
       ) { _ in
-        // Check if day changed while app was backgrounded
-        handleMinuteTickForDayChange()
-        // Ensure timer is running
-        if dayChangeTimer == nil {
-          startDayChangeTimer()
-        }
-        // Refresh weekly hours in case activities were added
-        loadWeeklyTrackedMinutes()
+        handleAppDidBecomeActive()
       }
-      .overlay { categoryEditorOverlay }
-      .environmentObject(retryCoordinator)
+  }
+
+  // MARK: - Extracted overlays and event handlers
+  //
+  // Each of these corresponds to a closure or inline view that used to live
+  // inline in the `mainLayout` modifier chain. Extraction is load-bearing:
+  // without it, the combined type-check of `mainLayout`'s modifier chain +
+  // each closure's body exceeded Swift's per-expression solver budget.
+
+  @ViewBuilder
+  private var timelineFailureToastOverlayContent: some View {
+    if let payload = timelineFailureToastPayload {
+      TimelineFailureToastView(
+        message: payload.message,
+        onOpenSettings: { handleTimelineFailureToastOpenSettings(payload) },
+        onDismiss: { handleTimelineFailureToastDismiss(payload) }
+      )
+      .padding(.trailing, 24)
+      .padding(.bottom, 24)
+      .transition(.move(edge: .trailing).combined(with: .opacity))
+    }
+  }
+
+  private func performMainLayoutOnAppear() {
+    // screen viewed and initial timeline view
+    AnalyticsService.shared.screen("timeline")
+    AnalyticsService.shared.withSampling(probability: 0.01) {
+      AnalyticsService.shared.capture(
+        "timeline_viewed", ["date_bucket": dayString(selectedDate)])
+    }
+    // Orchestrated entrance animations following Emil Kowalski principles —
+    // fast, under 300ms, natural spring motion, staggered by 50ms.
+    withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0)) {
+      logoScale = 1.0
+      logoOpacity = 1
+    }
+    withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0).delay(0.1)) {
+      timelineOffset = 0
+      timelineOpacity = 1
+    }
+    withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0).delay(0.15)) {
+      sidebarOffset = 0
+      sidebarOpacity = 1
+    }
+    withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0).delay(0.2)) {
+      contentOpacity = 1
+    }
+
+    if !didInitialScroll {
+      performInitialScrollIfNeeded()
+    }
+    startDayChangeTimer()
+    loadWeeklyTrackedMinutes()
+    updateCardsToReviewCount()
+  }
+
+  private func performMainLayoutOnDisappear() {
+    // Safety: stop timer if view disappears
+    stopDayChangeTimer()
+    copyTimelineTask?.cancel()
+    deleteTimelineTask?.cancel()
+  }
+
+  private func handleTabSelectionChange(_ newIcon: SidebarIcon) {
+    // Clear tab-specific notification badges once the user visits the destination.
+    if newIcon == .journal {
+      NotificationBadgeManager.shared.clearJournalBadge()
+    } else if newIcon == .daily {
+      if !consumePendingDailyRecapOpenIfNeeded(source: "daily_tab_selected") {
+        NotificationBadgeManager.shared.clearDailyBadge()
+      }
+    }
+
+    let tabName: String
+    switch newIcon {
+    case .timeline: tabName = "timeline"
+    case .daily: tabName = "daily"
+    case .weekly: tabName = "weekly"
+    case .chat: tabName = "dashboard"
+    case .journal: tabName = "journal"
+    case .bug: tabName = "bug_report"
+    case .settings: tabName = "settings"
+    }
+
+    SentryHelper.configureScope { scope in
+      scope.setContext(
+        value: [
+          "active_view": tabName,
+          "selected_date": dayString(selectedDate),
+          "is_recording": appState.isRecording,
+        ], key: "app_state")
+    }
+
+    let navBreadcrumb = Breadcrumb(level: .info, category: "navigation")
+    navBreadcrumb.message = "Navigated to \(tabName)"
+    navBreadcrumb.data = ["view": tabName]
+    SentryHelper.addBreadcrumb(navBreadcrumb)
+
+    AnalyticsService.shared.capture("tab_selected", ["tab": tabName])
+    AnalyticsService.shared.screen(tabName)
+    if newIcon == .timeline {
+      AnalyticsService.shared.withSampling(probability: 0.01) {
+        AnalyticsService.shared.capture(
+          "timeline_viewed", ["date_bucket": dayString(selectedDate)])
+      }
+      updateCardsToReviewCount()
+      loadWeeklyTrackedMinutes()
+    } else {
+      showTimelineReview = false
+    }
+  }
+
+  private func handleSelectedDateChange(_ newDate: Date) {
+    let changeStart = CFAbsoluteTimeGetCurrent()
+    let oldDate = previousDate
+    let oldDay = dayString(oldDate)
+    let newDay = dayString(newDate)
+    let oldWeekRange = cachedTimelineWeekRange
+
+    if let method = lastDateNavMethod, method == "picker" {
+      AnalyticsService.shared.capture(
+        "date_navigation",
+        [
+          "method": method,
+          "timeline_mode": timelineMode.rawValue,
+          "from_day": oldDay,
+          "to_day": newDay,
+        ])
+    }
+
+    previousDate = newDate
+    AnalyticsService.shared.withSampling(probability: 0.01) {
+      AnalyticsService.shared.capture("timeline_viewed", ["date_bucket": newDay])
+    }
+
+    let newWeekRange = TimelineWeekRange.containing(newDate)
+    let weekRangeChanged = newWeekRange != oldWeekRange
+
+    timelinePerfLog(
+      "selectedDateChange.begin mode=\(timelineMode.rawValue) old=\(oldDay) new=\(newDay) weekChanged=\(weekRangeChanged) navMethod=\(lastDateNavMethod ?? "nil")"
+    )
+
+    cachedTimelineWeekRange = newWeekRange
+    updateCardsToReviewCount(trigger: "selectedDateChange")
+    if weekRangeChanged {
+      loadWeeklyTrackedMinutes(trigger: "selectedDateChange")
+    }
+
+    let durationMs = Int((CFAbsoluteTimeGetCurrent() - changeStart) * 1000)
+    timelinePerfLog(
+      "selectedDateChange.end mode=\(timelineMode.rawValue) old=\(oldDay) new=\(newDay) weekChanged=\(weekRangeChanged) duration_ms=\(durationMs)"
+    )
+  }
+
+  private func handleSelectedActivityIdChange() {
+    dismissFeedbackModal(animated: false)
+    guard let a = selectedActivity else { return }
+    let dur = a.endTime.timeIntervalSince(a.startTime)
+    AnalyticsService.shared.capture(
+      "activity_card_opened",
+      [
+        "activity_type": a.category,
+        "duration_bucket": AnalyticsService.shared.secondsBucket(dur),
+        "has_video": a.videoSummaryURL != nil,
+      ])
+  }
+
+  private func handleTimelineDataUpdatedNotification(_ notification: Notification) {
+    guard selectedIcon == .timeline else { return }
+    if let refreshedDay = notification.userInfo?["dayString"] as? String {
+      let selectedTimelineDay = DateFormatter.yyyyMMdd.string(
+        from: timelineDisplayDate(from: selectedDate, now: Date())
+      )
+      guard refreshedDay == selectedTimelineDay else { return }
+    }
+    updateCardsToReviewCount()
+    loadWeeklyTrackedMinutes()
+  }
+
+  private func handleShowTimelineFailureToastNotification(_ notification: Notification) {
+    guard let userInfo = notification.userInfo,
+      let payload = TimelineFailureToastPayload(userInfo: userInfo)
+    else {
+      return
+    }
+    withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+      timelineFailureToastPayload = payload
+    }
+  }
+
+  private func handleAppDidBecomeActive() {
+    // Check if day changed while app was backgrounded
+    handleMinuteTickForDayChange()
+    // Ensure timer is running
+    if dayChangeTimer == nil {
+      startDayChangeTimer()
+    }
+    // Refresh weekly hours in case activities were added
+    loadWeeklyTrackedMinutes()
   }
 
   private func handleTimelineFailureToastOpenSettings(_ payload: TimelineFailureToastPayload) {
@@ -401,6 +458,13 @@ extension MainView {
       timelineRightColumn(geo: geo)
     }
     .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+    .coordinateSpace(name: "TimelinePanel")
+    .overlay(alignment: .topLeading) {
+      timelineCalendarPopoverOverlay(panelWidth: geo.size.width)
+    }
+    .onPreferenceChange(TimelineCalendarButtonFramePreferenceKey.self) { frame in
+      timelineCalendarButtonFrame = frame
+    }
   }
 
   private var timelineLeftColumn: some View {
@@ -415,51 +479,6 @@ extension MainView {
     .padding(.trailing, 5)
     .overlay(alignment: .bottom) {
       timelineFooter
-    }
-    // Custom calendar popover. Positioned from the calendar button's
-    // bounds via `TimelineCalendarAnchorKey`. A full-pane invisible
-    // tap-catcher sits behind the card so clicking anywhere else in the
-    // pane dismisses it. Entrance animates with opacity + scale-from-top
-    // + slight y-offset for a polished dropdown feel.
-    .overlayPreferenceValue(TimelineCalendarAnchorKey.self) { anchor in
-      GeometryReader { proxy in
-        if showTimelineCalendarPopover, let anchor {
-          let rect = proxy[anchor]
-          ZStack(alignment: .topLeading) {
-            Color.black.opacity(0.0001)
-              .contentShape(Rectangle())
-              .onTapGesture {
-                showTimelineCalendarPopover = false
-              }
-
-            TimelineCalendarPopover(
-              isPresented: $showTimelineCalendarPopover,
-              selectedDate: selectedDate,
-              canSelectFutureDates: false,
-              timelineMode: timelineMode,
-              onSelect: { date in
-                navigateTimeline(to: date, method: "picker")
-                showTimelineCalendarPopover = false
-              }
-            )
-            .fixedSize()
-            .offset(
-              x: rect.midX - 203 / 2,
-              y: rect.maxY + 8
-            )
-            .transition(
-              .asymmetric(
-                insertion: .opacity
-                  .combined(with: .scale(scale: 0.96, anchor: .top))
-                  .combined(with: .offset(y: -4)),
-                removal: .opacity
-                  .combined(with: .scale(scale: 0.98, anchor: .top))
-              )
-            )
-          }
-        }
-      }
-      .animation(.spring(duration: 0.22, bounce: 0.08), value: showTimelineCalendarPopover)
     }
     .coordinateSpace(name: "TimelinePane")
     .onPreferenceChange(TimelineTimeLabelFramesPreferenceKey.self) { frames in
@@ -653,12 +672,16 @@ extension MainView {
   }
 
   // Calendar pill — Figma 1:1 visuals (fill #FFA777, icon 16×16, h=30, border
-  // #F2D2BD), but using a known-stable ZStack + fixed-width frame so the
-  // pill's width is unambiguous inside the timeline-header HStack. Width 36
-  // (10 + 16 + 10) matches the Figma's `px=10` + 16pt icon.
+  // #F2D2BD). The arrowless card itself is rendered at the panel level so it
+  // can own outside-click dismissal without taps leaking through to the
+  // timeline below.
   private var timelineCalendarButton: some View {
     Button(action: {
-      showTimelineCalendarPopover.toggle()
+      if showTimelineCalendarPopover {
+        closeTimelineCalendarPopover()
+      } else {
+        openTimelineCalendarPopover()
+      }
     }) {
       ZStack {
         Capsule(style: .continuous)
@@ -679,10 +702,94 @@ extension MainView {
     .buttonStyle(DayflowPressScaleButtonStyle())
     .hoverScaleEffect(scale: 1.01)
     .pointingHandCursorOnHover(reassertOnPressEnd: true)
-    // Publish the button's bounds so `timelineLeftColumn`'s overlay can
-    // position the custom calendar card below it. The overlay conditions on
-    // `showTimelineCalendarPopover`, so always publishing the anchor is fine.
-    .anchorPreference(key: TimelineCalendarAnchorKey.self, value: .bounds) { $0 }
+    .trackTimelineCalendarButtonFrame()
+  }
+
+  private var timelineCalendarPopoverOpenAnimation: Animation {
+    reduceMotion ? .linear(duration: 0.01) : .easeOut(duration: 0.16)
+  }
+
+  private var timelineCalendarPopoverCloseAnimation: Animation {
+    reduceMotion ? .linear(duration: 0.01) : .easeOut(duration: 0.12)
+  }
+
+  private var timelineCalendarPopoverTransition: AnyTransition {
+    guard !reduceMotion else { return .opacity }
+
+    return .asymmetric(
+      insertion: .opacity
+        .combined(with: .scale(scale: 0.985, anchor: .top))
+        .animation(timelineCalendarPopoverOpenAnimation),
+      removal: .opacity
+        .combined(with: .scale(scale: 0.99, anchor: .top))
+        .animation(timelineCalendarPopoverCloseAnimation)
+    )
+  }
+
+  private func openTimelineCalendarPopover() {
+    withAnimation(timelineCalendarPopoverOpenAnimation) {
+      showTimelineCalendarPopover = true
+    }
+  }
+
+  private func closeTimelineCalendarPopover() {
+    withAnimation(timelineCalendarPopoverCloseAnimation) {
+      showTimelineCalendarPopover = false
+    }
+  }
+
+  private func timelineCalendarPopoverOverlay(panelWidth: CGFloat) -> some View {
+    let cardWidth = TimelineCalendarPopover.preferredWidth
+    let horizontalPadding: CGFloat = 12
+    let maxX = max(
+      horizontalPadding,
+      panelWidth - cardWidth - horizontalPadding
+    )
+    let cardX = min(
+      max(horizontalPadding, timelineCalendarButtonFrame.midX - (cardWidth / 2)),
+      maxX
+    )
+
+    return ZStack(alignment: .topLeading) {
+      if showTimelineCalendarPopover {
+        Rectangle()
+          .fill(Color.black.opacity(0.001))
+          .contentShape(Rectangle())
+          .onTapGesture {
+            closeTimelineCalendarPopover()
+          }
+
+        TimelineCalendarPopover(
+          isPresented: $showTimelineCalendarPopover,
+          selectedDate: selectedDate,
+          canSelectFutureDates: false,
+          highlightsSelectedWeek: timelineMode == .week,
+          onSelect: { date in
+            let tappedDay = dayString(date)
+            let currentDay = dayString(selectedDate)
+            let tappedWeek = TimelineWeekRange.containing(date)
+            let currentWeek = timelineWeekRange
+            let weekChanged = tappedWeek != currentWeek
+
+            timelinePerfLog(
+              "calendarPopover.select tapped=\(tappedDay) current=\(currentDay) mode=\(timelineMode.rawValue) weekChanged=\(weekChanged)"
+            )
+
+            timelinePerfLog(
+              "calendarPopover.navigateDispatch tapped=\(tappedDay) mode=\(timelineMode.rawValue) weekChanged=\(weekChanged)"
+            )
+            navigateTimeline(to: date, method: "picker")
+            DispatchQueue.main.async {
+              closeTimelineCalendarPopover()
+            }
+          }
+        )
+        .offset(x: cardX, y: timelineCalendarButtonFrame.maxY + 55)
+        .transition(timelineCalendarPopoverTransition)
+        .zIndex(1)
+      }
+    }
+    .allowsHitTesting(showTimelineCalendarPopover)
   }
 
   private var timelineModeSwitch: some View {
@@ -809,7 +916,11 @@ extension MainView {
             weeklyHoursFrame: weeklyHoursFrame,
             weeklyHoursIntersectsCard: $weeklyHoursIntersectsCard
           )
-          .transition(.opacity.combined(with: .offset(x: -16)))
+          // Day is the zoomed-IN view (1/7 of a week). Entering Day feels
+          // like diving into a single column: grow from 0.95 → 1 + fade in.
+          // Exiting Day (to Week) shrinks 1 → 0.95 + fade out, matching the
+          // "pull back to see more" feel when Week slides in behind it.
+          .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
           .zIndex(timelineMode == .day ? 1 : 0)
 
         case .week:
@@ -824,7 +935,11 @@ extension MainView {
             weeklyHoursFrame: weeklyHoursFrame,
             weeklyHoursIntersectsCard: $weeklyHoursIntersectsCard
           )
-          .transition(.opacity.combined(with: .offset(x: 16)))
+          // Week is the zoomed-OUT view (7 days). Entering Week from Day
+          // feels like pulling back: start at 1.05 (slightly too large) and
+          // settle to 1 + fade in. Exiting Week grows to 1.05 + fade out,
+          // matching the "dive in" feel when Day settles to 1 behind it.
+          .transition(.opacity.combined(with: .scale(scale: 1.05, anchor: .center)))
           .zIndex(timelineMode == .week ? 1 : 0)
         }
       }
@@ -1196,23 +1311,37 @@ private struct TimelineFailureToastView: View {
   }
 }
 
-// Compact month calendar shown as a native popover from the timeline header's
-// calendar pill. Self-contained — tracks its own displayed month, reports the
-// user's pick via `onSelect`, and relies on the parent to animate-close via
-// `isPresented` when appropriate.
+// Compact month calendar popover (Figma 4291:4828).
+// Single-variant rendering: every day is a cell in a flat grid, with the
+// selected date shown as an 18pt orange circle. No week-pill; week-mode
+// indication is conveyed elsewhere in the UI (the Day/Week toggle + the
+// header title). Self-contained: tracks its own displayed month, reports
+// picks via `onSelect`.
 private struct TimelineCalendarPopover: View {
+  static let horizontalPadding: CGFloat = 28
+  static let topPadding: CGFloat = 20
+  static let bottomPadding: CGFloat = 20
+  static let contentSpacing: CGFloat = 16
+  static let columnWidth: CGFloat = 30
+  static let columnSpacing: CGFloat = 12
+  static let weekdayHeight: CGFloat = 20
+  static let dayCellHeight: CGFloat = 24
+  static let rowSpacing: CGFloat = 12
+  static let selectedCircleSize: CGFloat = 24
+  static let selectedWeekHighlightHeight: CGFloat = 30
+  static let contentWidth: CGFloat = (columnWidth * 7) + (columnSpacing * 6)
+  static let preferredWidth: CGFloat = contentWidth + (horizontalPadding * 2)
+
   @Binding var isPresented: Bool
   let selectedDate: Date
   let canSelectFutureDates: Bool
-  let timelineMode: TimelineMode
+  let highlightsSelectedWeek: Bool
   let onSelect: (Date) -> Void
 
   @State private var displayMonth: Date
 
-  // Locally-pinned Monday-first calendar so weekday order and week grouping
-  // are stable regardless of the user's locale (en_US defaults to Sunday).
-  // Must match TimelineWeekRange's firstWeekday so "which week is this" is
-  // the same answer everywhere.
+  // Monday-first ordering matches the timeline's week model, so each row in the
+  // popover corresponds to a real Monday-Sunday week.
   private static let mondayCalendar: Calendar = {
     var c = Calendar(identifier: .gregorian)
     c.timeZone = .autoupdatingCurrent
@@ -1230,13 +1359,13 @@ private struct TimelineCalendarPopover: View {
     isPresented: Binding<Bool>,
     selectedDate: Date,
     canSelectFutureDates: Bool,
-    timelineMode: TimelineMode,
+    highlightsSelectedWeek: Bool,
     onSelect: @escaping (Date) -> Void
   ) {
     self._isPresented = isPresented
     self.selectedDate = selectedDate
     self.canSelectFutureDates = canSelectFutureDates
-    self.timelineMode = timelineMode
+    self.highlightsSelectedWeek = highlightsSelectedWeek
     self.onSelect = onSelect
 
     // Seed display month to the month containing the current selection.
@@ -1247,18 +1376,19 @@ private struct TimelineCalendarPopover: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    let weeks = weeksToDisplay()
+
+    VStack(alignment: .leading, spacing: Self.contentSpacing) {
       monthHeader
       weekdayRow
-      dateGrid
+      dateGrid(weeks: weeks)
     }
-    .padding(.horizontal, 21)
-    .padding(.vertical, 18)
-    .frame(width: 203)
+    .frame(width: Self.contentWidth, alignment: .leading)
+    .padding(.horizontal, Self.horizontalPadding)
+    .padding(.top, Self.topPadding)
+    .padding(.bottom, Self.bottomPadding)
+    .frame(width: Self.preferredWidth, alignment: .topLeading)
     // Figma node 4291:4828: backdrop-blur 10pt + rgba(255,255,255,0.5) tint.
-    // `.ultraThinMaterial` gives us the live backdrop blur; the white 50%
-    // overlay lands on top so sidebar content reads through at the
-    // Figma-spec opacity.
     .background {
       ZStack {
         RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -1273,130 +1403,147 @@ private struct TimelineCalendarPopover: View {
     }
     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     .shadow(color: .black.opacity(0.16), radius: 4, x: 0, y: 1)
+    // Force the light variant of `.ultraThinMaterial` regardless of the
+    // system appearance. Without this, macOS dark mode causes the material
+    // to render as a dark blur — the popover looks like a gray slab even
+    // though the rest of the app is light. Dayflow's palette is tuned for
+    // light mode; the Figma explicitly specifies a light translucent card.
+    .environment(\.colorScheme, .light)
   }
 
   private var monthHeader: some View {
-    HStack(spacing: 4) {
+    HStack(spacing: 0) {
       Text(Self.monthYearFormatter.string(from: displayMonth))
-        .font(.custom("Nunito", size: 12))
+        .font(.custom("Nunito", size: 14))
         .foregroundColor(.black)
+        .lineLimit(1)
 
       Spacer(minLength: 0)
 
-      monthNavButton(assetName: "LeftArrow") { shiftMonth(by: -1) }
-      monthNavButton(assetName: "RightArrow") { shiftMonth(by: 1) }
+      HStack(spacing: 2) {
+        monthNavButton(systemName: "chevron.left") { shiftMonth(by: -1) }
+        monthNavButton(systemName: "chevron.right") { shiftMonth(by: 1) }
+      }
     }
+    .frame(height: 20)
   }
 
-  // Month-nav chevrons: visual sized to match the Figma (12×12pt arrow,
-  // tight spacing), with the hit box sized to the natural slot the Figma
-  // layout allows (22×22pt). `.contentShape(Rectangle())` makes every pixel
-  // of that slot — including transparent space around the arrow glyph —
-  // clickable. Effective hit area is ~3.4× the raw image size without
-  // changing the visual layout versus Figma.
+  // Figma nav chevrons are plain gray glyphs, not the app's orange header
+  // arrows. Using SF Symbols here keeps the size and tint exact while
+  // avoiding extra asset work for a tiny 16pt icon.
   private func monthNavButton(
-    assetName: String, action: @escaping () -> Void
+    systemName: String,
+    action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
-      Image(assetName)
-        .resizable()
-        .scaledToFit()
-        .frame(width: 12, height: 12)
-        .frame(width: 22, height: 22)
+      Image(systemName: systemName)
+        .font(.system(size: 16, weight: .medium))
+        .foregroundColor(Color(hex: "A8A09A"))
+        .frame(width: 20, height: 20)
         .contentShape(Rectangle())
     }
-    .buttonStyle(DayflowPressScaleButtonStyle())
+    .buttonStyle(.plain)
     .pointingHandCursor()
   }
 
+  // Weekday header uses Instrument Serif 12pt per Figma (not Nunito).
   private var weekdayRow: some View {
-    HStack(spacing: 0) {
-      ForEach(weekdayLabels(), id: \.self) { label in
-        Text(label)
+    // `id: \.self` on ["S","M","T","W","T","F","S"] duplicates the "T" and
+    // "S" IDs — SwiftUI logs "the ID T occurs multiple times" and the diff
+    // becomes undefined. Keying by index is correct here: labels are
+    // position-bound, not identity-bound.
+    let labels = weekdayLabels()
+    return HStack(spacing: Self.columnSpacing) {
+      ForEach(labels.indices, id: \.self) { i in
+        Text(labels[i])
           .font(.custom("InstrumentSerif-Regular", size: 12))
           .foregroundColor(.black)
-          .frame(maxWidth: .infinity)
+          .frame(width: Self.columnWidth, height: Self.weekdayHeight)
       }
     }
   }
 
-  // Grid is a VStack of 6 weekly HStacks so the week-mode highlight can render
-  // as a single rounded-rect behind an entire row rather than 7 touching
-  // circles (which show hairline seams from subpixel rounding). Zero row
-  // spacing + 18pt cell height reproduces Figma's 18pt row pitch exactly.
-  private var dateGrid: some View {
-    let weeks = weeklyRows()
-    return VStack(spacing: 0) {
-      ForEach(weeks.indices, id: \.self) { index in
-        weekRow(days: weeks[index])
-      }
-    }
-  }
+  // Fixed column widths keep weekday labels and dates perfectly aligned.
+  private func dateGrid(weeks: [[CalendarDay]]) -> some View {
+    return VStack(alignment: .leading, spacing: Self.rowSpacing) {
+      ForEach(weeks.indices, id: \.self) { rowIndex in
+        let week = weeks[rowIndex]
+        let isSelectedWeek = highlightsSelectedWeek && isWeekSelected(week)
 
-  private func weekRow(days: [CalendarDay]) -> some View {
-    let isWholeWeekSelected = timelineMode == .week && weekContainsAnchor(days)
-    return HStack(spacing: 0) {
-      ForEach(days) { day in
-        dateCell(day: day, inSelectedWeek: isWholeWeekSelected)
-      }
-    }
-    .background(
-      Group {
-        if isWholeWeekSelected {
-          RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(Color(hex: "FC7103"))
+        ZStack {
+          if isSelectedWeek {
+            Capsule(style: .continuous)
+              .fill(Color(hex: "FC7103"))
+              .frame(
+                width: Self.contentWidth,
+                height: Self.selectedWeekHighlightHeight
+              )
+          }
+
+          HStack(spacing: Self.columnSpacing) {
+            ForEach(week) { day in
+              dateCell(day: day, isInSelectedWeek: isSelectedWeek)
+            }
+          }
         }
+        .frame(
+          width: Self.contentWidth,
+          height: Self.selectedWeekHighlightHeight
+        )
       }
-    )
+    }
   }
 
-  private func dateCell(day: CalendarDay, inSelectedWeek: Bool) -> some View {
+  private func dateCell(day: CalendarDay, isInSelectedWeek: Bool) -> some View {
     let calendar = Self.mondayCalendar
-    let isSingleDaySelected =
-      timelineMode == .day && calendar.isDate(day.date, inSameDayAs: selectedDate)
+    let isSelected = calendar.isDate(day.date, inSameDayAs: selectedDate)
+    let showsSelectedDayCircle = isSelected && !highlightsSelectedWeek
     let isDisabled: Bool = {
       guard !canSelectFutureDates else { return false }
       let todayStart = calendar.startOfDay(for: Date())
       let cellStart = calendar.startOfDay(for: day.date)
       return cellStart > todayStart
     }()
-    let isMuted = !day.isCurrentMonth
-    let usesSelectedStyling = isSingleDaySelected || inSelectedWeek
+    let foregroundColor: Color = {
+      if isInSelectedWeek {
+        return (!day.isCurrentMonth || isDisabled) ? .white.opacity(0.55) : .white
+      }
+      if !day.isCurrentMonth || isDisabled {
+        return Color(hex: "C1B5AC")
+      }
+      return showsSelectedDayCircle ? .white : .black
+    }()
 
     return Button {
       guard !isDisabled else { return }
       onSelect(day.date)
     } label: {
       ZStack {
-        if isSingleDaySelected {
+        if showsSelectedDayCircle {
           Circle()
             .fill(Color(hex: "FC7103"))
-            .frame(width: 18, height: 18)
+            .frame(width: Self.selectedCircleSize, height: Self.selectedCircleSize)
         }
-        Text("\(calendar.component(.day, from: day.date))")
-          .font(.custom("Nunito", size: 10))
-          .tracking(-0.1)
-          .foregroundColor(
-            usesSelectedStyling
-              ? .white
-              : (isMuted ? Color(hex: "9F8E82") : .black)
-          )
+        Text(day.label)
+          .font(.custom("Nunito", size: 12))
+          .foregroundColor(foregroundColor)
       }
-      .frame(maxWidth: .infinity, minHeight: 18)
+      .frame(width: Self.columnWidth, height: Self.dayCellHeight)
       .contentShape(Rectangle())
     }
-    .buttonStyle(DayflowPressScaleButtonStyle())
+    .buttonStyle(.plain)
     .disabled(isDisabled)
-    .opacity(isDisabled ? 0.35 : 1)
     .pointingHandCursor(enabled: !isDisabled)
   }
 
   // MARK: - Data & navigation
 
   private struct CalendarDay: Identifiable {
-    let id = UUID()
     let date: Date
+    let label: String
     let isCurrentMonth: Bool
+
+    var id: Date { date }
   }
 
   private func shiftMonth(by months: Int) {
@@ -1406,8 +1553,7 @@ private struct TimelineCalendarPopover: View {
     }
   }
 
-  // Week-letter labels starting at Monday — pinned via the Monday-first
-  // calendar so we always read "M T W T F S S" regardless of locale.
+  // Locale weekday symbols, rotated so Monday appears first.
   private func weekdayLabels() -> [String] {
     let calendar = Self.mondayCalendar
     let symbols = calendar.veryShortWeekdaySymbols
@@ -1416,26 +1562,8 @@ private struct TimelineCalendarPopover: View {
     return Array(symbols[offset...]) + Array(symbols[..<offset])
   }
 
-  // Returns true if any day in the row belongs to the selected date's week
-  // (using the Monday-pinned calendar). Callers render the row-wide week
-  // highlight when this is true and the timeline mode is .week.
-  private func weekContainsAnchor(_ days: [CalendarDay]) -> Bool {
-    let calendar = Self.mondayCalendar
-    return days.contains { day in
-      calendar.isDate(day.date, equalTo: selectedDate, toGranularity: .weekOfYear)
-    }
-  }
-
-  private func weeklyRows() -> [[CalendarDay]] {
-    let flat = daysToDisplay()
-    return stride(from: 0, to: flat.count, by: 7).map { start in
-      Array(flat[start..<min(start + 7, flat.count)])
-    }
-  }
-
-  // Build 42 cells (6 rows × 7 cols) — leading days from the previous month,
-  // the current month, trailing days from the next month. Using `byAdding:`
-  // day-offsets keeps DST and month-length edge cases correct.
+  // Build the visible month grid with leading/trailing days as needed to fill
+  // complete Monday-Sunday weeks.
   private func daysToDisplay() -> [CalendarDay] {
     let calendar = Self.mondayCalendar
     let monthStart = displayMonth
@@ -1459,7 +1587,13 @@ private struct TimelineCalendarPopover: View {
         if let date = calendar.date(
           byAdding: .day, value: startDay - 1 + offset, to: prevMonthStart)
         {
-          days.append(CalendarDay(date: date, isCurrentMonth: false))
+          days.append(
+            CalendarDay(
+              date: date,
+              label: "\(calendar.component(.day, from: date))",
+              isCurrentMonth: false
+            )
+          )
         }
       }
     }
@@ -1467,22 +1601,51 @@ private struct TimelineCalendarPopover: View {
     // Current month.
     for offset in 0..<monthRange.count {
       if let date = calendar.date(byAdding: .day, value: offset, to: monthStart) {
-        days.append(CalendarDay(date: date, isCurrentMonth: true))
+        days.append(
+          CalendarDay(
+            date: date,
+            label: "\(calendar.component(.day, from: date))",
+            isCurrentMonth: true
+          )
+        )
       }
     }
 
-    // Trailing days from next month to fill 42 cells.
-    let trailingNeeded = 42 - days.count
+    // Trailing days from next month to complete the last visible week.
+    let trailingNeeded = (7 - (days.count % 7)) % 7
     if trailingNeeded > 0,
       let nextMonthStart = calendar.date(byAdding: .month, value: 1, to: monthStart)
     {
       for offset in 0..<trailingNeeded {
         if let date = calendar.date(byAdding: .day, value: offset, to: nextMonthStart) {
-          days.append(CalendarDay(date: date, isCurrentMonth: false))
+          days.append(
+            CalendarDay(
+              date: date,
+              label: "\(calendar.component(.day, from: date))",
+              isCurrentMonth: false
+            )
+          )
         }
       }
     }
 
     return days
+  }
+
+  private func weeksToDisplay() -> [[CalendarDay]] {
+    let days = daysToDisplay()
+    return stride(from: 0, to: days.count, by: 7).map { start in
+      Array(days[start..<min(start + 7, days.count)])
+    }
+  }
+
+  private func isWeekSelected(_ week: [CalendarDay]) -> Bool {
+    guard let firstDay = week.first else { return false }
+    return isDateInSelectedWeek(firstDay.date)
+  }
+
+  private func isDateInSelectedWeek(_ date: Date) -> Bool {
+    let calendar = Self.mondayCalendar
+    return calendar.isDate(date, equalTo: selectedDate, toGranularity: .weekOfYear)
   }
 }
