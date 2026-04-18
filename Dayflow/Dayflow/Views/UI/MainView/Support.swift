@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 
 // MARK: - Cached DateFormatters (creating DateFormatters is expensive due to ICU initialization)
@@ -20,6 +21,55 @@ let cachedDayStringFormatter: DateFormatter = {
   formatter.dateFormat = "yyyy-MM-dd"
   return formatter
 }()
+
+let timelinePerfLogger = Logger(
+  subsystem: Bundle.main.bundleIdentifier ?? "teleportlabs.com.Dayflow",
+  category: "TimelinePerf"
+)
+
+#if DEBUG
+  private let timelinePerfLogFileURL = URL(fileURLWithPath: "/tmp/dayflow-timeline-perf.log")
+  private let timelinePerfLogQueue = DispatchQueue(
+    label: "teleportlabs.com.Dayflow.timelinePerfLog"
+  )
+  private let timelinePerfTimestampFormatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+  }()
+#endif
+
+func timelinePerfLog(_ message: String) {
+  timelinePerfLogger.notice("\(message, privacy: .public)")
+  #if DEBUG
+    let line =
+      "[\(timelinePerfTimestampFormatter.string(from: Date())) pid=\(ProcessInfo.processInfo.processIdentifier)] \(message)\n"
+
+    timelinePerfLogQueue.async {
+      let fileManager = FileManager.default
+      if !fileManager.fileExists(atPath: timelinePerfLogFileURL.path) {
+        fileManager.createFile(atPath: timelinePerfLogFileURL.path, contents: nil)
+      }
+
+      guard let data = line.data(using: .utf8),
+        let handle = try? FileHandle(forWritingTo: timelinePerfLogFileURL)
+      else {
+        return
+      }
+
+      defer {
+        try? handle.close()
+      }
+
+      do {
+        try handle.seekToEnd()
+        try handle.write(contentsOf: data)
+      } catch {
+        return
+      }
+    }
+  #endif
+}
 
 struct WeeklyHoursFramePreferenceKey: PreferenceKey {
   static var defaultValue: CGRect = .zero
@@ -87,7 +137,14 @@ extension MainView {
   }
 
   var timelineModeContentAnimation: Animation {
-    .easeInOut(duration: 0.22)
+    if reduceMotion {
+      return .linear(duration: 0.08)
+    }
+    // ease-out-quart (cubic-bezier(0.165, 0.84, 0.44, 1)): fast start, slow
+    // settle. Per Emil Kowalski's framework, enter/exit transitions should
+    // use ease-out so the new view "jumps toward its destination and lands"
+    // rather than starting sluggish (which ease-in-out does).
+    return .timingCurve(0.165, 0.84, 0.44, 1, duration: 0.24)
   }
 
   var inspectorContentAnimation: Animation {
@@ -215,7 +272,23 @@ extension MainView {
   }
 
   func navigateTimeline(to date: Date, method: String) {
+    let navStart = CFAbsoluteTimeGetCurrent()
     let from = selectedDate
+    let fromDay = dayString(from)
+    let toDay = dayString(date)
+    let sameWeek = TimelineWeekRange.containing(from) == TimelineWeekRange.containing(date)
+
+    timelinePerfLog(
+      "navigateTimeline.begin method=\(method) mode=\(timelineMode.rawValue) from=\(fromDay) to=\(toDay) sameWeek=\(sameWeek)"
+    )
+
+    defer {
+      let durationMs = Int((CFAbsoluteTimeGetCurrent() - navStart) * 1000)
+      timelinePerfLog(
+        "navigateTimeline.end method=\(method) mode=\(timelineMode.rawValue) from=\(fromDay) to=\(toDay) duration_ms=\(durationMs)"
+      )
+    }
+
     previousDate = selectedDate
     clearTimelineSelection(animated: false)
     setSelectedDate(date)
