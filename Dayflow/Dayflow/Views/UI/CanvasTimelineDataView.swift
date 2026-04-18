@@ -82,6 +82,11 @@ struct CanvasTimelineDataView: View {
   @State private var cardsLayerFrame: CGRect = .zero
   @State private var refreshTimer: Timer?
   @State private var didInitialScrollInView: Bool = false
+  // Gate the ScrollView's visibility on whether the initial auto-scroll has
+  // fired. Mirrors the Week view's fix for the "starts at 8 AM then flashes
+  // to 10 AM" flicker. Only flips true once per mount; never flips back, so
+  // date navigation within a mounted view doesn't re-hide content.
+  @State private var hasPerformedInitialScroll: Bool = false
   @State private var loadTask: Task<Void, Never>?
   // Staggered entrance animation state (Emil Kowalski principle: sequential reveal)
   @State private var cardEntranceProgress: [String: Bool] = [:]
@@ -96,107 +101,137 @@ struct CanvasTimelineDataView: View {
     RecordingControl.currentMode(appState: appState, pauseManager: pauseManager)
   }
 
+  // Which hour-marker id the Day view should scroll to land "now" ~25% down
+  // from the viewport top — i.e. 2 hours before the current clock hour. Used
+  // by every scroll-to-now trigger (idle reset, initial load, onAppear,
+  // date-change-back-to-today). Having one source of truth avoids drift
+  // between triggers and keeps the body's inline closures tiny (fixes a
+  // Swift type-checker timeout that appeared when each closure inlined its
+  // own copy of this calculation).
+  private func nowCenteredTargetHourIndex() -> Int {
+    let currentHour = Calendar.current.component(.hour, from: Date())
+    let hoursSince4AM = currentHour >= 4 ? currentHour - 4 : (24 - 4) + currentHour
+    return max(0, hoursSince4AM - 2)
+  }
+
+  private func scrollToNowCenteredHour(with proxy: ScrollViewProxy, animated: Bool = false) {
+    let targetIndex = nowCenteredTargetHourIndex()
+    let action = {
+      proxy.scrollTo("hour-\(targetIndex)", anchor: UnitPoint(x: 0, y: 0.25))
+    }
+    if animated {
+      withAnimation(.easeInOut(duration: 0.35)) { action() }
+    } else {
+      action()
+    }
+  }
+
+  // `body` is split into two chained computed properties for the same reason
+  // `MainView.mainLayout` is: the combined modifier chain + inline closures
+  // was exceeding Swift's per-expression type-check budget. Closures with
+  // meaningful bodies (onReceive, onDisappear, the outer onAppear) are
+  // extracted to named methods below — each `some View` boundary + each
+  // function boundary gives the solver a fresh anchor point.
   var body: some View {
+    dayTimelineScrollContainer
+      .background(Color.clear)
+      .onAppear(perform: performDayTimelineOnAppear)
+      .onDisappear(perform: performDayTimelineOnDisappear)
+      .onChange(of: selectedDate) { loadActivities() }
+      .onChange(of: refreshTrigger) { loadActivities() }
+      .onChange(of: appState.isRecording) { loadActivities(animate: false) }
+      .onReceive(
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+      ) { _ in
+        handleDayTimelineDidBecomeActive()
+      }
+      .onPreferenceChange(TimelineCardsLayerFramePreferenceKey.self) { frame in
+        cardsLayerFrame = frame
+        updateWeeklyHoursIntersection()
+      }
+      .onChange(of: weeklyHoursFrame) {
+        updateWeeklyHoursIntersection()
+      }
+  }
+
+  // Inner ScrollViewReader + scroll-trigger handlers. Held in its own `some
+  // View` property so the outer chain above sees a single opaque type.
+  // Visibility is gated on `hasPerformedInitialScroll` so the "starts at 8 AM
+  // then flashes to 10 AM" flicker can't happen — the ScrollView stays
+  // invisible until the first auto-scroll lands, then fades in.
+  private var dayTimelineScrollContainer: some View {
     ScrollViewReader { proxy in
       ScrollView(.vertical, showsIndicators: false) {
         timelineScrollContent()
       }
       .background(Color.clear)
-      // Respond to external scroll nudges (initial or idle-triggered)
+      .opacity(hasPerformedInitialScroll ? 1 : 0)
       .onChange(of: scrollToNowTick) {
-        // Calculate which hour to scroll to for 80% positioning
-        let currentHour = Calendar.current.component(.hour, from: Date())
-        let hoursSince4AM = currentHour >= 4 ? currentHour - 4 : (24 - 4) + currentHour
-        let targetHourIndex = max(0, min(hoursSince4AM, 24) - 2)  // 2 hours before current
-
-        // Scroll to the hour marker with 30-minute offset for better positioning
-        proxy.scrollTo("hour-\(targetHourIndex)", anchor: UnitPoint(x: 0, y: 0.25))
+        scrollToNowCenteredHour(with: proxy)
       }
-      // Scroll once right after activities are first loaded and laid out
       .onChange(of: positionedActivities.count) {
         guard !didInitialScrollInView, timelineIsToday(selectedDate) else { return }
         didInitialScrollInView = true
-
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-          // Calculate which hour to scroll to for 80% positioning
-          let currentHour = Calendar.current.component(.hour, from: Date())
-          let hoursSince4AM = currentHour >= 4 ? currentHour - 4 : (24 - 4) + currentHour
-          let targetHourIndex = max(0, hoursSince4AM - 2)  // 2 hours before current for 80% positioning
-          // 30-minute offset: y: 0.25 positions hour 25% down from top
-          proxy.scrollTo("hour-\(targetHourIndex)", anchor: UnitPoint(x: 0, y: 0.25))
+          scrollToNowCenteredHour(with: proxy)
+          revealInitialScroll()
         }
       }
-      // Ensure we scroll on first appearance when viewing Today
       .onAppear {
         if timelineIsToday(selectedDate) {
           DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            // Calculate which hour to scroll to for 80% positioning
-            let currentHour = Calendar.current.component(.hour, from: Date())
-            let hoursSince4AM = currentHour >= 4 ? currentHour - 4 : (24 - 4) + currentHour
-            let targetHourIndex = max(0, hoursSince4AM - 2)  // 2 hours before current for 80% positioning
-            // 30-minute offset: y: 0.25 positions hour 25% down from top
-            proxy.scrollTo("hour-\(targetHourIndex)", anchor: UnitPoint(x: 0, y: 0.25))
+            scrollToNowCenteredHour(with: proxy)
+            revealInitialScroll()
           }
+        } else {
+          // Past day: nothing to auto-scroll to. Reveal immediately so the
+          // user sees the day's content as soon as it loads rather than
+          // staring at a blank ScrollView.
+          revealInitialScroll()
         }
       }
-      // When the selected date changes back to Today (e.g., after idle), also scroll
       .onChange(of: selectedDate) { _, newDate in
-        if timelineIsToday(newDate) {
-          didInitialScrollInView = false  // allow the data-ready scroll to fire again
-          // Give the layout a moment to update before scrolling
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            withAnimation(.easeInOut(duration: 0.35)) {
-              // Calculate which hour to scroll to for 80% positioning
-              let currentHour = Calendar.current.component(.hour, from: Date())
-              let hoursSince4AM = currentHour >= 4 ? currentHour - 4 : (24 - 4) + currentHour
-              let targetHourIndex = max(0, hoursSince4AM - 2)  // 2 hours before current for 80% positioning
-              // 30-minute offset: y: 0.25 positions hour 25% down from top
-              proxy.scrollTo("hour-\(targetHourIndex)", anchor: UnitPoint(x: 0, y: 0.25))
-            }
-          }
+        guard timelineIsToday(newDate) else { return }
+        didInitialScrollInView = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+          scrollToNowCenteredHour(with: proxy, animated: true)
         }
       }
     }
-    .background(Color.clear)
-    .onAppear {
-      loadActivities()
+  }
+
+  private func revealInitialScroll() {
+    guard !hasPerformedInitialScroll else { return }
+    withAnimation(.easeOut(duration: 0.18)) {
+      hasPerformedInitialScroll = true
+    }
+  }
+
+  // MARK: - Extracted body event handlers (type-checker load reduction)
+
+  private func performDayTimelineOnAppear() {
+    loadActivities()
+    startRefreshTimer()
+  }
+
+  private func performDayTimelineOnDisappear() {
+    stopRefreshTimer()
+    loadTask?.cancel()
+    loadTask = nil
+    weeklyHoursIntersectsCard = false
+  }
+
+  private func handleDayTimelineDidBecomeActive() {
+    loadActivities(animate: false)
+    if refreshTimer == nil {
       startRefreshTimer()
     }
-    .onDisappear {
-      stopRefreshTimer()
-      loadTask?.cancel()
-      loadTask = nil
-      weeklyHoursIntersectsCard = false
-    }
-    .onChange(of: selectedDate) {
-      loadActivities()
-    }
-    .onChange(of: refreshTrigger) {
-      loadActivities()
-    }
-    .onChange(of: appState.isRecording) {
-      loadActivities(animate: false)
-    }
-    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification))
-    { _ in
-      loadActivities(animate: false)
-      if refreshTimer == nil {
-        startRefreshTimer()
-      }
-      AnalyticsService.shared.capture(
-        "app_became_active",
-        [
-          "screen": "timeline",
-          "selected_date_is_today": timelineIsToday(selectedDate),
-        ])
-    }
-    .onPreferenceChange(TimelineCardsLayerFramePreferenceKey.self) { frame in
-      cardsLayerFrame = frame
-      updateWeeklyHoursIntersection()
-    }
-    .onChange(of: weeklyHoursFrame) {
-      updateWeeklyHoursIntersection()
-    }
+    AnalyticsService.shared.capture(
+      "app_became_active",
+      [
+        "screen": "timeline",
+        "selected_date_is_today": timelineIsToday(selectedDate),
+      ])
   }
 
   @ViewBuilder
@@ -320,7 +355,13 @@ struct CanvasTimelineDataView: View {
         }
       }
     }
-    .clipped()  // Prevent shadows/animations from affecting scroll geometry
+    // `.clipped()` was here previously with the comment "Prevent shadows/
+    // animations from affecting scroll geometry." Removing it because the
+    // hovered card's `.hoverScaleEffect(scale: 1.01)` rendered ~0.5% past
+    // the cards-layer bounds on each side, and the clip was chopping the
+    // scaled card's edges. Watch for any regression in vertical scroll
+    // behavior or the weekly-hours-footer overlap logic — those are the
+    // paths most likely to have depended on the old clipping.
     .frame(minWidth: 0, maxWidth: .infinity)
     .background(
       GeometryReader { proxy in
