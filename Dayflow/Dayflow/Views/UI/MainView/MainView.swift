@@ -15,16 +15,18 @@ import SwiftUI
 struct MainView: View {
   @EnvironmentObject var appState: AppState
   @EnvironmentObject var categoryStore: CategoryStore
+  @Environment(\.accessibilityReduceMotion) var reduceMotion
   @State var selectedIcon: SidebarIcon = .timeline
   @State var selectedDate = timelineDisplayDate(from: Date())
   @State var cachedTimelineWeekRange: TimelineWeekRange = TimelineWeekRange.containing(
     timelineDisplayDate(from: Date()))
   @State var timelineMode: TimelineMode = .day
   @State var showDatePicker = false
-  // Popover-style calendar anchored to the new calendar pill in the timeline
-  // header (distinct from `showDatePicker` above, which drives a modal sheet
-  // used only by the daily-view date pill).
+  // Arrowless calendar card anchored to the timeline header's calendar pill
+  // (distinct from `showDatePicker`, which drives a modal sheet used only by
+  // the daily-view date pill).
   @State var showTimelineCalendarPopover = false
+  @State var timelineCalendarButtonFrame: CGRect = .zero
   @State var selectedActivity: TimelineActivity? = nil
   @State var scrollToNowTick: Int = 0
   @State var hasAnyActivities: Bool = true
