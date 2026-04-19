@@ -97,6 +97,13 @@ struct WeekTimelineGridView: View {
   @State private var refreshTimer: Timer?
   @State private var loadTask: Task<Void, Never>?
   @State private var autoScrollWeekKey: String?
+  // Gate the ScrollView's visibility on whether the initial auto-scroll has
+  // fired. Prevents the flash-then-jump flicker where the ScrollView
+  // momentarily renders at its default top position (~4 AM) and is then
+  // yanked to the data-driven target hour (~10 AM). Flip-to-true is
+  // sequenced one runloop after scrollToRelevantHour so the scroll offset
+  // has committed before content becomes visible.
+  @State private var hasPerformedInitialScroll: Bool = false
 
   // Hover-expand state. Parent owns it so the whole grid animates coherently.
   @State private var hoveredCardID: String?
@@ -165,6 +172,11 @@ struct WeekTimelineGridView: View {
           }
           .background(Color.clear)
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+          // Hidden until the first auto-scroll lands. The ScrollView is still
+          // laid out and scrollable under the hood — opacity 0 just keeps
+          // the pre-positioned default frame off-screen so the user never
+          // sees the 4 AM → target hour flash.
+          .opacity(hasPerformedInitialScroll ? 1 : 0)
           // Only auto-scroll the very first time the Week view mounts (oldValue
           // nil → first loadActivities sets the key). Subsequent week changes
           // preserve whatever scroll offset the user had, so navigating
@@ -172,13 +184,24 @@ struct WeekTimelineGridView: View {
           .onChange(of: autoScrollWeekKey) { oldValue, newValue in
             guard oldValue == nil, newValue != nil else { return }
             scrollToRelevantHour(with: proxy, animated: false)
+            // Reveal content after the scroll has been applied. 50ms buffer
+            // gives the ScrollView time to commit its offset (scrollToRelevantHour
+            // already dispatches to the next runloop; we wait one more so
+            // the scroll lands first, then the fade-in reveals the positioned
+            // content). The 0.18s easeOut softens the reveal so the Week
+            // view doesn't pop in hard.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+              withAnimation(.easeOut(duration: 0.18)) {
+                hasPerformedInitialScroll = true
+              }
+            }
           }
         }
       }
       .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
     }
     .onAppear {
-      loadActivities()
+      loadActivities(trigger: "appear")
       startRefreshTimer()
     }
     .onDisappear {
@@ -191,18 +214,37 @@ struct WeekTimelineGridView: View {
         weeklyHoursIntersectsCard.wrappedValue = false
       }
     }
-    .onChange(of: selectedDate) {
-      loadActivities()
+    .onChange(of: selectedDate) { oldDate, newDate in
+      let oldWeek = TimelineWeekRange.containing(oldDate)
+      let newWeek = TimelineWeekRange.containing(newDate)
+      let weekChanged = oldWeek != newWeek
+      let oldDay = DateFormatter.yyyyMMdd.string(from: timelineDisplayDate(from: oldDate))
+      let newDay = DateFormatter.yyyyMMdd.string(from: timelineDisplayDate(from: newDate))
+      let visibleWeek = DateFormatter.yyyyMMdd.string(from: weekRange.weekStart)
+
+      timelinePerfLog(
+        "weekGrid.selectedDateChanged old=\(oldDay) new=\(newDay) visibleWeek=\(visibleWeek) weekChanged=\(weekChanged)"
+      )
+    }
+    .onChange(of: weekRange) { oldWeek, newWeek in
+      let oldWeekDay = DateFormatter.yyyyMMdd.string(from: oldWeek.weekStart)
+      let newWeekDay = DateFormatter.yyyyMMdd.string(from: newWeek.weekStart)
+
+      timelinePerfLog(
+        "weekGrid.visibleWeekChanged old=\(oldWeekDay) new=\(newWeekDay)"
+      )
+
+      loadActivities(trigger: "weekRangeChanged")
     }
     .onChange(of: refreshTrigger) {
-      loadActivities()
+      loadActivities(trigger: "refreshTrigger")
     }
     .onChange(of: appState.isRecording) {
-      loadActivities()
+      loadActivities(trigger: "recordingStateChanged")
     }
     .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification))
     { _ in
-      loadActivities()
+      loadActivities(trigger: "appBecameActive")
       if refreshTimer == nil {
         startRefreshTimer()
       }
@@ -549,7 +591,10 @@ struct WeekTimelineGridView: View {
     return config
   }
 
-  private func loadActivities() {
+  private func loadActivities(trigger: String = "unspecified") {
+    let weekID = DateFormatter.yyyyMMdd.string(from: weekRange.weekStart)
+    let selectedDay = DateFormatter.yyyyMMdd.string(from: timelineDisplayDate(from: selectedDate))
+
     // Preview short-circuit: skip DB entirely when fake data is injected.
     if let preview = previewPositionedActivities {
       loadTask?.cancel()
@@ -560,18 +605,32 @@ struct WeekTimelineGridView: View {
       if autoScrollWeekKey != weekAutoScrollKey {
         autoScrollWeekKey = weekAutoScrollKey
       }
+      timelinePerfLog(
+        "weekGrid.load.preview trigger=\(trigger) week=\(weekID) selected=\(selectedDay) cards=\(preview.count)"
+      )
       return
     }
 
+    if loadTask != nil {
+      timelinePerfLog("weekGrid.load.cancelPrevious trigger=\(trigger) week=\(weekID)")
+    }
     loadTask?.cancel()
+
+    timelinePerfLog(
+      "weekGrid.load.begin trigger=\(trigger) week=\(weekID) selected=\(selectedDay)"
+    )
 
     let weekRange = weekRange
     loadTask = Task.detached(priority: .userInitiated) {
+      let overallStart = CFAbsoluteTimeGetCurrent()
+      let fetchStart = CFAbsoluteTimeGetCurrent()
       let activities = TimelineActivityLoader.activities(in: weekRange)
+      let fetchMs = Int((CFAbsoluteTimeGetCurrent() - fetchStart) * 1000)
       let weekDays = weekRange.days
       let dayLookup = Dictionary(
         uniqueKeysWithValues: weekDays.enumerated().map { ($1.dayString, $0) })
 
+      let positioningStart = CFAbsoluteTimeGetCurrent()
       var positioned: [WeekPositionedActivity] = []
       positioned.reserveCapacity(activities.count)
 
@@ -607,7 +666,9 @@ struct WeekTimelineGridView: View {
           )
         }
       }
+      let positioningMs = Int((CFAbsoluteTimeGetCurrent() - positioningStart) * 1000)
 
+      let projectionStart = CFAbsoluteTimeGetCurrent()
       let currentTimelineDay = timelineDisplayDate(from: Date())
       let currentDayString = DateFormatter.yyyyMMdd.string(from: currentTimelineDay)
       let currentDayActivities = activities.filter {
@@ -620,10 +681,17 @@ struct WeekTimelineGridView: View {
         ? TimelineActivityLoader.recordingProjectionWindow(
           for: currentTimelineDay, displaySegments: currentDaySegments)
         : nil
+      let projectionMs = Int((CFAbsoluteTimeGetCurrent() - projectionStart) * 1000)
 
-      guard !Task.isCancelled else { return }
+      guard !Task.isCancelled else {
+        timelinePerfLog(
+          "weekGrid.load.cancelled trigger=\(trigger) week=\(weekID) selected=\(selectedDay)"
+        )
+        return
+      }
 
       await MainActor.run {
+        let commitStart = CFAbsoluteTimeGetCurrent()
         positionedActivities = positioned
         recordingProjection = projection
         hasAnyActivities = !positioned.isEmpty
@@ -633,6 +701,12 @@ struct WeekTimelineGridView: View {
         }
 
         updateWeeklyHoursIntersection()
+
+        let commitMs = Int((CFAbsoluteTimeGetCurrent() - commitStart) * 1000)
+        let totalMs = Int((CFAbsoluteTimeGetCurrent() - overallStart) * 1000)
+        timelinePerfLog(
+          "weekGrid.load.end trigger=\(trigger) week=\(weekID) selected=\(selectedDay) activities=\(activities.count) cards=\(positioned.count) fetch_ms=\(fetchMs) position_ms=\(positioningMs) projection_ms=\(projectionMs) commit_ms=\(commitMs) total_ms=\(totalMs)"
+        )
       }
     }
   }
@@ -690,7 +764,7 @@ struct WeekTimelineGridView: View {
   private func startRefreshTimer() {
     stopRefreshTimer()
     refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
-      loadActivities()
+      loadActivities(trigger: "refreshTimer")
     }
   }
 
@@ -908,6 +982,15 @@ private struct WeekTimelineActivityCard: View {
     durationMinutes < 24 || height < 40
   }
 
+  // Mirrors the Day view's detection (`title == "Processing failed"`) so
+  // both views flip to the failed-card styling together. Intentionally
+  // title-based rather than category-based to stay in lockstep with the
+  // Day view — if the failed-card format ever changes, both stay synced
+  // as long as the title string stays canonical.
+  private var isFailedCard: Bool {
+    title == "Processing failed"
+  }
+
   // Title font size is a single constant across every card in the grid — no
   // compact/long split, no hover switch — so text never changes size for any
   // reason. The hover interaction handles "too small to read" by revealing
@@ -919,6 +1002,20 @@ private struct WeekTimelineActivityCard: View {
   // position doesn't shift when the card expands.
   private var verticalPadding: CGFloat {
     isCompact ? 2 : 4
+  }
+
+  // Max lines the title can wrap to *at rest* (not hovered) — bounded by
+  // how much vertical space the card actually has. Previously we binary-
+  // gated on `isCompact` and forced 1 line for any "short-duration" card,
+  // which truncated titles even when 2+ lines would clearly fit. Here we
+  // derive the line count from the real text-area height: card height
+  // minus both vertical paddings, divided by Nunito 10's line-height
+  // (~12pt). `max(1, …)` guarantees at least one line for the smallest
+  // cards.
+  private var maxUnhoveredTitleLines: Int {
+    let available = height - 2 * verticalPadding
+    let perLine: CGFloat = 12
+    return max(1, Int(available / perLine))
   }
 
   private var hasFavicon: Bool {
@@ -973,7 +1070,7 @@ private struct WeekTimelineActivityCard: View {
           .font(.custom("Nunito", size: titleFontSize).weight(.semibold))
           .foregroundColor(palette.title)
           .multilineTextAlignment(.leading)
-          .lineLimit(renderingExpanded ? nil : (isCompact ? 1 : nil))
+          .lineLimit(renderingExpanded ? nil : maxUnhoveredTitleLines)
           .truncationMode(.tail)
 
         Spacer(minLength: 0)
@@ -985,36 +1082,52 @@ private struct WeekTimelineActivityCard: View {
     .padding(.leading, 9)
     .padding(.trailing, 6)
     .padding(.vertical, verticalPadding)
-    .background(palette.fill)
+    // Failed-card styling (matches Day view): peach background, red dashed
+    // stroke, and no left accent bar. Kept as three inline branches rather
+    // than a dedicated Modifier so it's obvious at read-time what's
+    // special-cased.
+    .background(isFailedCard ? Color(hex: "FFECE4") : palette.fill)
     .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: 2, style: .continuous)
-        .stroke(isSelected ? palette.accent : palette.border, lineWidth: isSelected ? 1 : 0.5)
+        .stroke(
+          isFailedCard
+            ? Color(red: 1, green: 0.16, blue: 0.11)
+            : (isSelected ? palette.accent : palette.border),
+          style: isFailedCard
+            ? StrokeStyle(lineWidth: 0.5, dash: [2.5, 2.5])
+            : StrokeStyle(lineWidth: isSelected ? 1 : 0.5)
+        )
     )
     .overlay(alignment: .leading) {
-      UnevenRoundedRectangle(
-        topLeadingRadius: 2,
-        bottomLeadingRadius: 2,
-        bottomTrailingRadius: 0,
-        topTrailingRadius: 0,
-        style: .continuous
-      )
-      .fill(palette.accent)
-      .frame(width: 5)
+      if !isFailedCard {
+        UnevenRoundedRectangle(
+          topLeadingRadius: 2,
+          bottomLeadingRadius: 2,
+          bottomTrailingRadius: 0,
+          topTrailingRadius: 0,
+          style: .continuous
+        )
+        .fill(palette.accent)
+        .frame(width: 5)
+      }
     }
     .overlay(
       RoundedRectangle(cornerRadius: 2, style: .continuous)
         .stroke(Color.black.opacity(isHovered ? 0.10 : 0), lineWidth: 1)
     )
-    // Shadow deepens when hovered — the "card lifts toward you" cue.
+    // Shadow deepens when hovered — the "card lifts toward you" cue. Opacity
+    // halved (0.12→0.06, 0.10→0.05) so the lift reads as a subtle cue rather
+    // than a prominent drop-shadow. Radius and offsets kept so the shadow's
+    // spread/direction is unchanged; only intensity drops.
     .shadow(
-      color: .black.opacity(isHovered ? 0.12 : 0),
+      color: .black.opacity(isHovered ? 0.06 : 0),
       radius: isHovered ? 4 : 1,
       x: 0,
       y: isHovered ? 2 : 1
     )
     .shadow(
-      color: .black.opacity(isHovered ? 0.10 : 0),
+      color: .black.opacity(isHovered ? 0.05 : 0),
       radius: isHovered ? 8 : 2,
       x: 0,
       y: isHovered ? 4 : 2
