@@ -2100,6 +2100,11 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
     let toTs = Int(to.timeIntervalSince1970)
 
     let cards: [TimelineCard]? = try? timedRead("fetchTimelineCardsByTimeRange") { db in
+      // Intentionally NO `category != 'System'` filter — System/"Processing
+      // failed" cards surface in Day view via `fetchTimelineCards(forDay:)`
+      // and should be visible in Week view too for parity. Rendering in
+      // Week's card layer handles System cards via the generic category
+      // palette (falls back to a neutral accent).
       try Row.fetchAll(
         db,
         sql: """
@@ -2107,7 +2112,6 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
               WHERE ((start_ts < ? AND end_ts > ?)
                  OR (start_ts >= ? AND start_ts < ?))
                 AND is_deleted = 0
-                AND category != 'System'
               ORDER BY start_ts ASC
           """, arguments: [toTs, fromTs, fromTs, toTs]
       )
