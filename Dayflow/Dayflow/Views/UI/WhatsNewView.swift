@@ -32,26 +32,35 @@ struct ReleaseNote: Identifiable {
   }
 }
 
+enum WhatsNewDesignSurveyOption: String, CaseIterable, Identifiable {
+  case bestDesigned = "Best-designed app I use"
+  case oneOfTheBest = "One of the best"
+  case goodNeedsPolish = "Good, but still needs polish"
+  case roughOrBuggy = "Too rough or buggy today"
+
+  var id: String { rawValue }
+}
+
 // MARK: - What's New Configuration
 
 enum WhatsNewConfiguration {
   private static let seenKey = "lastSeenWhatsNewVersion"
 
   /// Override with the specific release number you want to show.
-  private static let versionOverride: String? = "1.9.0"
+  private static let versionOverride: String? = "1.10.0"
 
   /// Update this content before shipping each release. Return nil to disable the modal entirely.
   static var configuredRelease: ReleaseNote? {
     ReleaseNote(
       version: targetVersion,
-      title: "Daily is now available to everyone",
+      title: "A new Week view for your timeline",
       highlights: [
-        "Thank you to everyone who gave feedback on Daily. It's now ready for everyone.",
-        "Daily now uses your selected provider by default, but the Dayflow-hosted provider is still available if you want the best quality.",
-        "An optional paid hosted option is coming soon for people who want the best quality without bumping into rate limits. Running locally and through your own providers will always remain an option.",
+        "We've started rolling out a new Week view for your main timeline.",
+        "You can now step back and scan your week at a glance. We're still refining the Week view, so if you notice bugs or rough edges, please reach out. We'd love your feedback.",
+        "Codex-powered flows in Dayflow now use newer GPT-5.4 models.",
       ],
       previewIntro:
-        "We're also working on new ways to visualize your Dayflow data on a weekly level. Some previews are below. Please reach out if you have feedback or ideas.",
+        "A few previews from the new Week view are below.",
       previewImageNames: ["WeeklyCalendarPreview", "WeeklyPreview"],
       cta: nil
     )
@@ -112,9 +121,10 @@ struct WhatsNewView: View {
   let onDismiss: () -> Void
 
   @Environment(\.openURL) private var openURL
-  @AppStorage("whatsNewOpenQuestionSubmittedVersion") private var submittedOpenQuestionVersion:
+  @AppStorage("whatsNewDesignSurveySubmittedVersion") private var submittedDesignSurveyVersion:
     String = ""
-  @State private var openQuestionResponse = ""
+  @State private var selectedDesignSurveyOptionID = ""
+  @State private var referenceAppsResponse = ""
   @State private var didHydrateSurveyState = false
 
   private let bottomAnchorID = "whats_new_bottom_anchor"
@@ -238,51 +248,73 @@ struct WhatsNewView: View {
 
   private var surveySection: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("What's missing in Dayflow that you'd like to see?")
-        .font(.custom("Nunito", size: 15))
-        .fontWeight(.semibold)
-        .foregroundColor(.black.opacity(0.85))
-        .fixedSize(horizontal: false, vertical: true)
+      Text(
+        "We want Dayflow to become one of the best-designed apps in the world. Where do you think it stands today?"
+      )
+      .font(.custom("Nunito", size: 15))
+      .fontWeight(.semibold)
+      .foregroundColor(.black.opacity(0.85))
+      .fixedSize(horizontal: false, vertical: true)
 
       Text(
-        "Many of Dayflow's best features have come directly from thoughtful feedback from users like you."
+        "Choose the option that feels closest, then tell us which apps feel exceptionally well designed to you."
       )
       .font(.custom("Nunito", size: 13))
       .foregroundColor(.black.opacity(0.62))
       .fixedSize(horizontal: false, vertical: true)
 
-      ZStack {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-          .fill(Color.white)
-
-        WhatsNewSurveyTextEditor(
-          text: $openQuestionResponse,
-          placeholder: "Type your answer here"
-        )
-        .frame(height: 86)
-        .onChange(of: openQuestionResponse) {
-          persistOpenQuestionResponse()
+      VStack(spacing: 10) {
+        ForEach(WhatsNewDesignSurveyOption.allCases) { option in
+          designSurveyOptionRow(option)
         }
-        .environment(\.colorScheme, .light)
-        .preferredColorScheme(.light)
       }
-      .overlay(
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-          .stroke(Color.black.opacity(0.1), lineWidth: 1)
-      )
+
+      VStack(alignment: .leading, spacing: 8) {
+        Text("Which apps feel exceptionally well designed to you?")
+          .font(.custom("Nunito", size: 14))
+          .fontWeight(.semibold)
+          .foregroundColor(.black.opacity(0.82))
+
+        Text("Optional. This helps us understand the bar you're comparing Dayflow against.")
+          .font(.custom("Nunito", size: 13))
+          .foregroundColor(.black.opacity(0.58))
+          .fixedSize(horizontal: false, vertical: true)
+
+        ZStack {
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(Color.white)
+
+          WhatsNewSurveyTextEditor(
+            text: $referenceAppsResponse,
+            placeholder: "Examples: Linear, Raycast, Apple Notes, Arc...",
+            isEditable: !hasSubmittedDesignSurvey
+          )
+          .frame(height: 86)
+          .onChange(of: referenceAppsResponse) {
+            persistReferenceAppsResponse()
+          }
+          .environment(\.colorScheme, .light)
+          .preferredColorScheme(.light)
+        }
+        .overlay(
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .stroke(Color.black.opacity(0.1), lineWidth: 1)
+        )
+        .opacity(hasSubmittedDesignSurvey ? 0.72 : 1)
+      }
 
       HStack {
         Spacer()
         DayflowSurfaceButton(
-          action: submitOpenQuestionSurvey,
+          action: submitDesignSurvey,
           content: {
             Text("Submit")
               .font(.custom("Nunito", size: 15))
               .fontWeight(.semibold)
           },
-          background: canSubmitOpenQuestionSurvey
+          background: canSubmitDesignSurvey
             ? Color(red: 0.25, green: 0.17, blue: 0) : Color.black.opacity(0.08),
-          foreground: .white.opacity(canSubmitOpenQuestionSurvey ? 1 : 0.7),
+          foreground: .white.opacity(canSubmitDesignSurvey ? 1 : 0.7),
           borderColor: .clear,
           cornerRadius: 8,
           horizontalPadding: 34,
@@ -290,11 +322,11 @@ struct WhatsNewView: View {
           minWidth: 160,
           showOverlayStroke: true
         )
-        .disabled(!canSubmitOpenQuestionSurvey)
-        .opacity(canSubmitOpenQuestionSurvey ? 1 : 0.8)
+        .disabled(!canSubmitDesignSurvey)
+        .opacity(canSubmitDesignSurvey ? 1 : 0.8)
       }
 
-      if hasSubmittedOpenQuestionSurvey {
+      if hasSubmittedDesignSurvey {
         Label("Thanks for sharing!", systemImage: "checkmark.circle.fill")
           .font(.custom("Nunito", size: 14))
           .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
@@ -303,6 +335,61 @@ struct WhatsNewView: View {
     .padding(.top, 10)
     .environment(\.colorScheme, .light)
     .preferredColorScheme(.light)
+  }
+
+  private func designSurveyOptionRow(_ option: WhatsNewDesignSurveyOption) -> some View {
+    let isSelected = selectedDesignSurveyOption == option
+
+    return Button(action: {
+      selectDesignSurveyOption(option)
+    }) {
+      HStack(spacing: 12) {
+        ZStack {
+          Circle()
+            .stroke(
+              isSelected ? Color(red: 0.25, green: 0.17, blue: 0) : Color.black.opacity(0.16),
+              lineWidth: 1.5
+            )
+            .frame(width: 18, height: 18)
+
+          if isSelected {
+            Circle()
+              .fill(Color(red: 0.25, green: 0.17, blue: 0))
+              .frame(width: 8, height: 8)
+          }
+        }
+
+        Text(option.rawValue)
+          .font(.custom("Nunito", size: 14))
+          .foregroundColor(.black.opacity(0.82))
+          .fixedSize(horizontal: false, vertical: true)
+
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, 14)
+      .padding(.vertical, 12)
+      .background(
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .fill(
+            isSelected
+              ? Color(red: 0.25, green: 0.17, blue: 0).opacity(0.06)
+              : Color.white
+          )
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .stroke(
+            isSelected
+              ? Color(red: 0.25, green: 0.17, blue: 0).opacity(0.28)
+              : Color.black.opacity(0.1),
+            lineWidth: 1
+          )
+      )
+    }
+    .buttonStyle(.plain)
+    .pointingHandCursor()
+    .disabled(hasSubmittedDesignSurvey)
+    .opacity(hasSubmittedDesignSurvey ? 0.75 : 1)
   }
 
   private func ctaSection(_ cta: ReleaseNoteCTA) -> some View {
@@ -354,47 +441,77 @@ struct WhatsNewView: View {
     openURL(url)
   }
 
-  private var hasSubmittedOpenQuestionSurvey: Bool {
-    submittedOpenQuestionVersion == releaseNote.version
+  private var hasSubmittedDesignSurvey: Bool {
+    submittedDesignSurveyVersion == releaseNote.version
   }
 
-  private var openQuestionResponseTrimmed: String {
-    openQuestionResponse.trimmingCharacters(in: .whitespacesAndNewlines)
+  private var selectedDesignSurveyOption: WhatsNewDesignSurveyOption? {
+    WhatsNewDesignSurveyOption(rawValue: selectedDesignSurveyOptionID)
   }
 
-  private var canSubmitOpenQuestionSurvey: Bool {
-    !hasSubmittedOpenQuestionSurvey && !openQuestionResponseTrimmed.isEmpty
+  private var referenceAppsResponseTrimmed: String {
+    referenceAppsResponse.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  private func submitOpenQuestionSurvey() {
-    guard !hasSubmittedOpenQuestionSurvey else { return }
-    guard !openQuestionResponseTrimmed.isEmpty else { return }
+  private var canSubmitDesignSurvey: Bool {
+    !hasSubmittedDesignSurvey && selectedDesignSurveyOption != nil
+  }
 
-    let response = String(openQuestionResponseTrimmed.prefix(1000))
+  private func selectDesignSurveyOption(_ option: WhatsNewDesignSurveyOption) {
+    guard !hasSubmittedDesignSurvey else { return }
+    selectedDesignSurveyOptionID = option.rawValue
+    persistSelectedDesignSurveyOption()
+  }
+
+  private func submitDesignSurvey() {
+    guard !hasSubmittedDesignSurvey else { return }
+    guard let selectedOption = selectedDesignSurveyOption else { return }
+
+    let referenceApps = String(referenceAppsResponseTrimmed.prefix(1000))
+    var props: [String: Any] = [
+      "version": releaseNote.version,
+      "design_rating": selectedOption.rawValue,
+      "provider_label": currentProviderLabel,
+    ]
+    if !referenceApps.isEmpty {
+      props["reference_apps"] = referenceApps
+    }
+
     AnalyticsService.shared.capture(
-      "whats_new_open_question_submitted",
-      [
-        "version": releaseNote.version,
-        "response": response,
-        "provider_label": currentProviderLabel,
-      ])
+      "whats_new_design_survey_submitted",
+      props
+    )
 
-    submittedOpenQuestionVersion = releaseNote.version
-    openQuestionResponse = response
-    persistOpenQuestionResponse()
+    submittedDesignSurveyVersion = releaseNote.version
+    referenceAppsResponse = referenceApps
+    persistSelectedDesignSurveyOption()
+    persistReferenceAppsResponse()
   }
 
-  private func persistOpenQuestionResponse() {
-    UserDefaults.standard.set(openQuestionResponse, forKey: openQuestionResponseStorageKey)
+  private func persistSelectedDesignSurveyOption() {
+    UserDefaults.standard.set(
+      selectedDesignSurveyOptionID,
+      forKey: selectedDesignSurveyOptionStorageKey
+    )
+  }
+
+  private func persistReferenceAppsResponse() {
+    UserDefaults.standard.set(referenceAppsResponse, forKey: referenceAppsResponseStorageKey)
   }
 
   private func hydrateSurveyStateIfNeeded() {
-    openQuestionResponse =
-      UserDefaults.standard.string(forKey: openQuestionResponseStorageKey) ?? ""
+    selectedDesignSurveyOptionID =
+      UserDefaults.standard.string(forKey: selectedDesignSurveyOptionStorageKey) ?? ""
+    referenceAppsResponse =
+      UserDefaults.standard.string(forKey: referenceAppsResponseStorageKey) ?? ""
   }
 
-  private var openQuestionResponseStorageKey: String {
-    "whatsNewOpenQuestionResponse_\(releaseNote.version)"
+  private var selectedDesignSurveyOptionStorageKey: String {
+    "whatsNewDesignSurveyOption_\(releaseNote.version)"
+  }
+
+  private var referenceAppsResponseStorageKey: String {
+    "whatsNewReferenceAppsResponse_\(releaseNote.version)"
   }
 
   private var currentProviderLabel: String {
@@ -416,6 +533,7 @@ struct WhatsNewView: View {
 private struct WhatsNewSurveyTextEditor: NSViewRepresentable {
   @Binding var text: String
   let placeholder: String
+  var isEditable: Bool = true
 
   private let fontSize: CGFloat = 14
   private let textInsets = NSSize(width: 14, height: 12)
@@ -451,6 +569,8 @@ private struct WhatsNewSurveyTextEditor: NSViewRepresentable {
     textView.isAutomaticTextReplacementEnabled = false
     textView.isHorizontallyResizable = false
     textView.isVerticallyResizable = true
+    textView.isEditable = isEditable
+    textView.isSelectable = true
     textView.autoresizingMask = [.width]
     textView.textContainerInset = textInsets
     textView.textContainer?.lineFragmentPadding = 0
@@ -475,6 +595,8 @@ private struct WhatsNewSurveyTextEditor: NSViewRepresentable {
     }
 
     textView.placeholder = placeholder
+    textView.isEditable = isEditable
+    textView.isSelectable = true
     textView.appearance = NSAppearance(named: .aqua)
     textView.needsDisplay = true
   }
