@@ -176,6 +176,14 @@ flowchart LR
 2. Run the `Dayflow` scheme on macOS 13+.
 3. In your Run **scheme**, add your `GEMINI_API_KEY` under _Arguments > Environment Variables_ (if using Gemini).
 
+**Windows (community port in this repo)**
+1. Install **Python 3.10+**.
+2. Install dependencies: `python -m pip install -r requirements-windows.txt`
+3. Run: `python -m dayflow_windows`
+4. Build installer: `pwsh -File .\scripts\build_windows_installer.ps1`
+5. Installer output: `dist-installer\DayflowWindowsSetup.exe`
+6. Windows app docs: `README_WINDOWS.md`
+
 ---
 
 ## Installation
