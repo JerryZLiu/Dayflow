@@ -13,7 +13,7 @@ import Sparkle
 final class UpdaterManager: NSObject, ObservableObject {
   static let shared = UpdaterManager()
 
-  private let userDriver = SilentUserDriver()
+  let userDriver = SilentUserDriver()
   private lazy var updater: SPUUpdater = {
     SPUUpdater(
       hostBundle: .main,
@@ -40,6 +40,10 @@ final class UpdaterManager: NSObject, ObservableObject {
 
   private override init() {
     super.init()
+
+    // Initialize user driver from UserDefaults
+    let automaticUpdatesEnabled = UserDefaults.standard.object(forKey: "automaticUpdatesEnabled") as? Bool ?? true
+    userDriver.shouldAutoUpdateAndRestart = automaticUpdatesEnabled
 
     // Print what Sparkle thinks the settings are *before* starting:
     print("[Sparkle] bundleId=\(Bundle.main.bundleIdentifier ?? "nil")")
@@ -124,7 +128,7 @@ extension UpdaterManager: SPUUpdaterDelegate {
   nonisolated func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
     Task { @MainActor in
       print("[Sparkle] Updater will relaunch application")
-      AppDelegate.allowTermination = true
+      AppDelegate.allowTermination = false
       self.track("sparkle_app_relaunching")
     }
   }
