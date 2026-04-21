@@ -1,6 +1,6 @@
 import Foundation
 
-struct GeminiPromptOverrides: Codable, Equatable {
+struct VideoPromptOverrides: Codable, Equatable {
   var titleBlock: String?
   var summaryBlock: String?
   var detailedBlock: String?
@@ -14,21 +14,21 @@ struct GeminiPromptOverrides: Codable, Equatable {
   }
 }
 
-enum GeminiPromptPreferences {
+enum VideoPromptPreferences {
   private static let overridesKey = "geminiPromptOverrides"
   private static let store = UserDefaults.standard
 
-  static func load() -> GeminiPromptOverrides {
+  static func load() -> VideoPromptOverrides {
     guard let data = store.data(forKey: overridesKey) else {
-      return GeminiPromptOverrides()
+      return VideoPromptOverrides()
     }
-    guard let overrides = try? JSONDecoder().decode(GeminiPromptOverrides.self, from: data) else {
-      return GeminiPromptOverrides()
+    guard let overrides = try? JSONDecoder().decode(VideoPromptOverrides.self, from: data) else {
+      return VideoPromptOverrides()
     }
     return overrides
   }
 
-  static func save(_ overrides: GeminiPromptOverrides) {
+  static func save(_ overrides: VideoPromptOverrides) {
     guard let data = try? JSONEncoder().encode(overrides) else { return }
     store.set(data, forKey: overridesKey)
   }
@@ -145,22 +145,172 @@ enum GeminiPromptDefaults {
     """
 }
 
-struct GeminiPromptSections {
+struct VideoPromptSections {
   let title: String
   let summary: String
   let detailedSummary: String
 
-  init(overrides: GeminiPromptOverrides) {
-    self.title = GeminiPromptSections.compose(
+  init(overrides: VideoPromptOverrides) {
+    self.title = VideoPromptSections.compose(
       defaultBlock: GeminiPromptDefaults.titleBlock, custom: overrides.titleBlock)
-    self.summary = GeminiPromptSections.compose(
+    self.summary = VideoPromptSections.compose(
       defaultBlock: GeminiPromptDefaults.summaryBlock, custom: overrides.summaryBlock)
-    self.detailedSummary = GeminiPromptSections.compose(
+    self.detailedSummary = VideoPromptSections.compose(
       defaultBlock: GeminiPromptDefaults.detailedSummaryBlock, custom: overrides.detailedBlock)
   }
 
   private static func compose(defaultBlock: String, custom: String?) -> String {
     let trimmed = custom?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return trimmed.isEmpty ? defaultBlock : trimmed
+  }
+}
+
+/// Shared prompt templates used by multiple LLM providers.
+///
+/// When prompts must remain *exactly* identical between providers, keep them here and call these helpers.
+enum LLMPromptTemplates {
+  static func screenRecordingTranscriptionPrompt(durationString: String, schema: String) -> String {
+    """
+    Screen Recording Transcription (Reconstruct Mode)
+    Watch this screen recording and create an activity log detailed enough that someone could reconstruct the session.
+    CRITICAL: This video is exactly \(durationString) long. ALL timestamps must be within 00:00 to \(durationString). No gaps.
+    Identifying the active app: On macOS, the app name is always shown in the top-left corner of the screen, right next to the Apple () menu. Check this FIRST to identify which app is being used. Do NOT guess — read the actual name from the menu bar. If you can't read it clearly, describe it generically (e.g., "code editor," "browser," "messaging app") rather than guessing a specific product name. Common code editors like Cursor, VS Code, Xcode, and Zed all look similar but have different names in the menu bar.
+    For each segment, ask yourself:
+    "What EXACTLY did they do? What SPECIFIC things can I see?"
+    Capture:
+    - Exact app/site names visible (check menu bar for app name)
+    - Exact file names, URLs, page titles
+    - Exact usernames, search queries, messages
+    - Exact numbers, stats, prices shown
+    Bad: "Checked email"
+    Good: "Gmail: Read email from boss@company.com 'RE: Budget approval' - replied 'Looks good'"
+    Bad: "Browsing Twitter"
+    Good: "Twitter/X: Scrolled feed - viewed posts by @pmarca about AI, @sama thread on GPT-5 (12 tweets)"
+    Bad: "Working on code"
+    Good: "Editing StorageManager.swift in [exact app name from menu bar] - fixed type error on line 47, changed String to String?"
+    Segments:
+    - 3-8 segments total
+    - You may use 1 segment only if the user appears idle for most of the recording
+    - Group by GOAL not app (IDE + Terminal + Browser for the same task = 1 segment)
+    - Do not create gaps; cover the full timeline
+
+    Return a JSON array that follows the schema: \(schema)
+    """
+  }
+
+  static func activityCardsPrompt(
+    existingCardsString: String,
+    transcriptText: String,
+    categoriesSection: String,
+    promptSections: VideoPromptSections,
+    languageBlock: String,
+    schema: String,
+  ) -> String {
+    """
+    # Timeline Card Generation
+
+    You're writing someone's personal work journal. You'll get raw activity logs — screenshots, app switches, URLs — and your job is to turn them into timeline cards that help this person remember what they actually did.
+
+    The test: when they scan their timeline tomorrow morning, each card should make them go "oh right, that."
+
+    Write as if you ARE the person jotting down notes about their day. Not an analyst writing a report. Not a manager filing a status update.
+
+    ---
+
+    ## Card Structure
+
+    Each card covers one cohesive chunk of activity, roughly 15–60 minutes.
+
+    - Minimum 10 minutes per card. If something would be shorter, fold it into the neighboring card that makes the most sense.
+    - Maximum 60 minutes. If a card runs longer, split it where the focus naturally shifts.
+    - No gaps or overlaps between cards. If there's a real gap in the source data, preserve it. Otherwise, cards should meet cleanly.
+
+    **When to start a new card:**
+    1. What's the main thing happening right now?
+    2. Does the next chunk of activity continue that same thing? → Keep extending.
+    3. Is there a brief unrelated detour (<5 min)? → Log it as a distraction, keep the card going.
+    4. Has the focus genuinely shifted for 10+ minutes? → New card.
+
+    **When to merge with a previous card:**
+      1. Is the previous card's main activity the same as what's happening now? (same PR, same feature, same codebase, same article) → Merge.
+      2. Did the person just take a 2–5 minute break (X, messages, YouTube) and come back to the same thing? → That's a distraction, not a new card. Merge.
+      3. Are two adjacent cards both "scrolling X with occasional work check-ins"? → Merge. The vibe didn't change.
+      4. Only start a new card if the CORE INTENT changed for 10+ minutes.
+
+      DEFAULT TO MERGING. Two 15-minute cards about the same work stream should almost never exist. If you're unsure whether to merge or split, merge.
+
+
+    ---
+
+    \(promptSections.title)
+
+    ---
+
+    \(promptSections.summary)
+
+    ---
+
+    \(promptSections.detailedSummary)
+
+    \(languageBlock)
+
+    ---
+
+    ## Category
+
+    \(categoriesSection)
+
+    ---
+
+    ## Distractions
+
+    A distraction is a brief (<5 min) unrelated interruption inside a card. Checking X for 2 minutes while debugging is a distraction. Spending 15 minutes on X is not a distraction — it's either part of the card's theme or it's a new card.
+
+    Don't label related sub-tasks as distractions. Googling an error message while debugging isn't a distraction, it's part of debugging.
+
+    ---
+
+    ## App Sites
+
+    Identify the main app or website for each card.
+
+    - primary: the main app used in the card (canonical domain, lowercase, no protocol).
+    - secondary: another meaningful app used, or the enclosing app (e.g., browser). Omit if there isn't a clear one.
+
+    Be specific: docs.google.com not google.com, mail.google.com not google.com.
+
+    Common mappings:
+    - Figma → figma.com
+    - Notion → notion.so
+    - Google Docs → docs.google.com
+    - Gmail → mail.google.com
+    - VS Code → code.visualstudio.com
+    - Xcode → developer.apple.com/xcode
+    - Twitter/X → x.com
+    - Zoom → zoom.us
+    - ChatGPT → chatgpt.com
+
+    ---
+
+    ## Continuity Rules
+
+    Your output cards must cover the same total time range as the previous cards plus any new observations. Think of previous cards as a draft you're revising and extending, not locked history.
+
+    - Don't drop time segments that were previously covered.
+    - If new observations extend beyond the previous range, add cards to cover the new time.
+    - Preserve genuine gaps in the source data.
+
+
+    Before generating output, review the previous cards and ask:
+    - Could any two adjacent previous cards be the same activity session?
+    - Does your first new card continue the last previous card's work?
+    If yes to either, merge them in your output.
+
+    INPUTS:
+    Previous cards: \(existingCardsString)
+    New observations: \(transcriptText)
+
+    Return a JSON array of activity cards that follows the schema: \(schema)
+    """
   }
 }
