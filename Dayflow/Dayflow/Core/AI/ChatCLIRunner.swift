@@ -297,7 +297,11 @@ struct ChatCLIProcessRunner {
   private func makePseudoTerminal() throws -> PseudoTerminal {
     var master: Int32 = 0
     var slave: Int32 = 0
-    let result = openpty(&master, &slave, nil, nil, nil)
+    // Claude Code 2.x's native TUI (alacritty_terminal) panics with
+    // "index out of bounds: len is 0" when the PTY has a 0x0 grid.
+    // Initialize with a standard 80x24 winsize so the child sees a sized terminal.
+    var winSize = winsize(ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0)
+    let result = openpty(&master, &slave, nil, nil, &winSize)
     guard result == 0 else {
       throw NSError(
         domain: "ChatCLI", code: -50,
