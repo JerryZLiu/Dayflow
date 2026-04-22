@@ -96,6 +96,9 @@ enum LLMProviderType: Codable {
   case dayflowBackend(endpoint: String = "https://web-production-f3361.up.railway.app")
   case ollamaLocal(endpoint: String = "http://localhost:11434")
   case chatGPTClaude
+  /// Fully on-device: Apple Vision OCR for transcription + Apple Intelligence
+  /// (FoundationModels) for card generation. Requires macOS 26+.
+  case apfel
 
   private static let providerDefaultsKey = "llmProviderType"
   private static let selectedProviderDefaultsKey = "selectedLLMProvider"
@@ -134,6 +137,8 @@ enum LLMProviderType: Codable {
       return "ollama"
     case .chatGPTClaude:
       return "chatgpt_claude"
+    case .apfel:
+      return "apfel"
     }
   }
 
@@ -171,6 +176,8 @@ enum LLMProviderType: Codable {
       return .chatGPTClaude
     case "chatgpt_claude":
       return .chatGPTClaude
+    case "apfel":
+      return .apfel
     default:
       return nil
     }
@@ -182,6 +189,7 @@ enum LLMProviderID: String, Codable, CaseIterable {
   case dayflow
   case ollama
   case chatGPTClaude = "chatgpt_claude"
+  case apfel
 
   var analyticsName: String {
     switch self {
@@ -193,6 +201,8 @@ enum LLMProviderID: String, Codable, CaseIterable {
       return "ollama"
     case .chatGPTClaude:
       return "chat_cli"
+    case .apfel:
+      return "apfel"
     }
   }
 
@@ -206,6 +216,8 @@ enum LLMProviderID: String, Codable, CaseIterable {
       return .ollama
     case .chatGPTClaude:
       return .chatGPTClaude
+    case .apfel:
+      return .apfel
     }
   }
 
@@ -219,6 +231,8 @@ enum LLMProviderID: String, Codable, CaseIterable {
       return "local"
     case .chatGPTClaude:
       return chatTool == .claude ? "claude" : "chatgpt"
+    case .apfel:
+      return "apple"
     }
   }
 }

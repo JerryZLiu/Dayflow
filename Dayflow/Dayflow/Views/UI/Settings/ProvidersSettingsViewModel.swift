@@ -260,6 +260,8 @@ final class ProvidersSettingsViewModel: ObservableObject {
       currentProvider = "ollama"
     case .chatGPTClaude:
       currentProvider = "chatgpt_claude"
+    case .apfel:
+      currentProvider = "apfel"
     }
     hasLoadedProvider = true
   }
