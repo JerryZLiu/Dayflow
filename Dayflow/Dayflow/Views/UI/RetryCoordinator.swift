@@ -30,7 +30,7 @@ final class RetryCoordinator: ObservableObject {
     case .stopped:
       return "Status: Stopped - earlier batch failed"
     case .done:
-      return "Status: Reprocessed"
+      return nil
     }
   }
 
@@ -64,7 +64,10 @@ final class RetryCoordinator: ObservableObject {
     var ordered: [Int64] = []
 
     for card in cards {
-      guard card.title == "Processing failed", let batchId = card.batchId else { continue }
+      guard
+        TimelineActivityLoader.isRetryableFailedCard(card, storageManager: StorageManager.shared),
+        let batchId = card.batchId
+      else { continue }
       guard !seen.contains(batchId) else { continue }
       seen.insert(batchId)
       ordered.append(batchId)
