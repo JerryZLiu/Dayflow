@@ -95,6 +95,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       // Try to start recording, but handle permission failures gracefully
       Task { [weak self] in
         guard let self else { return }
+        guard ScreenRecordingPermissionNotice.isGranted else {
+          await MainActor.run {
+            AppState.shared.setRecording(
+              false,
+              analyticsReason: "auto",
+              persistPreference: false
+            )
+          }
+          if didOnboard {
+            ScreenRecordingPermissionNotice.post(reason: "launch_preflight_missing")
+          }
+          self.flushPendingDeepLinks()
+          return
+        }
+
         do {
           // Check if we have permission by trying to access content
           _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
@@ -115,6 +130,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
               analyticsReason: "auto",
               persistPreference: false
             )
+          }
+          if didOnboard {
+            ScreenRecordingPermissionNotice.post(reason: "launch_shareable_content_failed")
           }
           print("Screen recording permission not granted, skipping auto-start")
         }
