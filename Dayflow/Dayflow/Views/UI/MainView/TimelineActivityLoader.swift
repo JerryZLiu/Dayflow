@@ -27,7 +27,8 @@ enum TimelineActivityLoader {
     let timelineDate = timelineDisplayDate(from: selectedDate, now: now)
     let dayString = DateFormatter.yyyyMMdd.string(from: timelineDate)
     let cards = storageManager.fetchTimelineCards(forDay: dayString)
-    return (dayString, timelineDate, buildActivities(from: cards))
+    let visibleCards = displayableCards(cards, storageManager: storageManager)
+    return (dayString, timelineDate, buildActivities(from: visibleCards))
   }
 
   static func activities(
@@ -36,7 +37,33 @@ enum TimelineActivityLoader {
   ) -> [TimelineActivity] {
     let cards = storageManager.fetchTimelineCardsByTimeRange(
       from: weekRange.weekStart, to: weekRange.weekEnd)
-    return buildActivities(from: cards)
+    return buildActivities(from: displayableCards(cards, storageManager: storageManager))
+  }
+
+  static func shouldDisplay(_ card: TimelineCard, storageManager: StorageManaging) -> Bool {
+    guard card.title == "Processing failed" else { return true }
+    return isRetryableFailedCard(card, storageManager: storageManager)
+  }
+
+  static func isRetryableFailedCard(_ card: TimelineCard, storageManager: StorageManaging) -> Bool {
+    guard card.title == "Processing failed", let batchId = card.batchId else { return false }
+    return hasRetrySourceScreenshots(for: batchId, storageManager: storageManager)
+  }
+
+  private static func displayableCards(
+    _ cards: [TimelineCard],
+    storageManager: StorageManaging
+  ) -> [TimelineCard] {
+    cards.filter { shouldDisplay($0, storageManager: storageManager) }
+  }
+
+  private static func hasRetrySourceScreenshots(
+    for batchId: Int64,
+    storageManager: StorageManaging
+  ) -> Bool {
+    storageManager.screenshotsForBatch(batchId).contains { screenshot in
+      FileManager.default.fileExists(atPath: screenshot.filePath)
+    }
   }
 
   static func buildActivities(from cards: [TimelineCard]) -> [TimelineActivity] {
