@@ -610,7 +610,8 @@ struct CanvasTimelineDataView: View {
       let calendar = Calendar.current
 
       // Normalize to noon so time components do not leak into day jumps
-      var logicalDate = await self.selectedDate
+      let requestedSelectedDate = await MainActor.run { self.selectedDate }
+      var logicalDate = requestedSelectedDate
       logicalDate =
         calendar.date(bySettingHour: 12, minute: 0, second: 0, of: logicalDate) ?? logicalDate
 
@@ -669,6 +670,17 @@ struct CanvasTimelineDataView: View {
       // Final cancellation check before updating UI
       guard !Task.isCancelled else { return }
 
+      let currentDayString = await MainActor.run {
+        cachedDayFormatter.string(from: timelineDisplayDate(from: self.selectedDate, now: Date()))
+      }
+
+      guard currentDayString == dayString else {
+        timelinePerfLog(
+          "dayTimeline.load.discardStale requestedDay=\(dayString) currentDay=\(currentDayString)"
+        )
+        return
+      }
+
       await MainActor.run {
         if animate {
           // Clear entrance progress for new activities (triggers stagger animation)
@@ -677,6 +689,11 @@ struct CanvasTimelineDataView: View {
         self.positionedActivities = positioned
         self.recordingProjection = recordingProjection
         self.hasAnyActivities = !positioned.isEmpty
+        if let selectedActivity,
+          !positioned.contains(where: { $0.activity.id == selectedActivity.id })
+        {
+          clearSelection()
+        }
         self.updateWeeklyHoursIntersection()
 
         if animate {
@@ -773,6 +790,10 @@ struct CanvasTimelineDataView: View {
     results.reserveCapacity(cards.count)
 
     for card in cards {
+      guard TimelineActivityLoader.shouldDisplay(card, storageManager: storageManager) else {
+        continue
+      }
+
       guard let startDate = cachedTimeFormatter.date(from: card.startTimestamp),
         let endDate = cachedTimeFormatter.date(from: card.endTimestamp)
       else {
