@@ -21,6 +21,7 @@ struct MainView: View {
   @State var cachedTimelineWeekRange: TimelineWeekRange = TimelineWeekRange.containing(
     timelineDisplayDate(from: Date()))
   @State var timelineMode: TimelineMode = .day
+  @State var hideWeekCardsDuringModeSwitch = false
   @State var showDatePicker = false
   // Arrowless calendar card anchored to the timeline header's calendar pill
   // (distinct from `showDatePicker`, which drives a modal sheet used only by
@@ -76,6 +77,8 @@ struct MainView: View {
   @State var timelineTimeLabelFrames: [CGRect] = []
   @State var weeklyHoursIntersectsCard: Bool = false
   @State var timelineFailureToastPayload: TimelineFailureToastPayload?
+  @State var showScreenRecordingPermissionNotice = false
+  @State var didDismissScreenRecordingPermissionNoticeThisSession = false
 
   let rateSummaryFooterHeight: CGFloat = 28
   let weeklyHoursFadeDistance: CGFloat = 12
