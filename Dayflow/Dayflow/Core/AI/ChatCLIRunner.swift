@@ -239,6 +239,14 @@ struct ChatCLIProcessRunner {
   private enum Constants {
     static let readChunkSize = 64 * 1024
     static let timeoutSeconds: TimeInterval = 300
+    static let codexFallbackDirectoryPrefix = "Dayflow-codex-home-"
+  }
+
+  private struct CodexFallbackContext {
+    let environment: [String: String]
+    let brokenConfigURL: URL
+    let didCopyAuth: Bool
+    let cleanup: () -> Void
   }
 
   private final class BufferedPipeReader {
@@ -313,6 +321,124 @@ struct ChatCLIProcessRunner {
     return PseudoTerminal(master: masterHandle, slaveFd: slave)
   }
 
+  private func makeShellProcess(shellCommand: String, environment: [String: String] = [:])
+    -> Process
+  {
+    let process = Process()
+    process.executableURL = LoginShellRunner.userLoginShell
+    process.arguments = ["-l", "-i", "-c", shellCommand]
+    if !environment.isEmpty {
+      var mergedEnvironment = ProcessInfo.processInfo.environment
+      for (key, value) in environment {
+        mergedEnvironment[key] = value
+      }
+      process.environment = mergedEnvironment
+    }
+    return process
+  }
+
+  private func invalidTransportConfigURL(from stderr: String) -> URL? {
+    let pattern = #"Error:\s+(.+?):\d+:\d+:\s+invalid transport"#
+    guard
+      let regex = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]),
+      let match = regex.firstMatch(
+        in: stderr, options: [], range: NSRange(stderr.startIndex..., in: stderr)),
+      match.numberOfRanges >= 2,
+      let range = Range(match.range(at: 1), in: stderr)
+    else {
+      return nil
+    }
+
+    return URL(fileURLWithPath: String(stderr[range])).standardizedFileURL
+  }
+
+  private func isProjectScopedCodexConfig(_ configURL: URL, workingDirectory: URL) -> Bool {
+    let targetPath = configURL.standardizedFileURL.path
+    var currentDirectory = workingDirectory.standardizedFileURL
+
+    while true {
+      let candidatePath =
+        currentDirectory
+        .appendingPathComponent(".codex", isDirectory: true)
+        .appendingPathComponent("config.toml")
+        .standardizedFileURL
+        .path
+      if candidatePath == targetPath {
+        return true
+      }
+
+      let parent = currentDirectory.deletingLastPathComponent().standardizedFileURL
+      if parent.path == currentDirectory.path {
+        break
+      }
+      currentDirectory = parent
+    }
+
+    return false
+  }
+
+  private func makeCodexFallbackContext(
+    fromInvalidTransportStderr stderr: String,
+    workingDirectory: URL
+  ) -> CodexFallbackContext? {
+    guard let brokenConfigURL = invalidTransportConfigURL(from: stderr) else {
+      return nil
+    }
+    guard !isProjectScopedCodexConfig(brokenConfigURL, workingDirectory: workingDirectory) else {
+      return nil
+    }
+
+    let fileManager = FileManager.default
+    let tempCodexHome = fileManager.temporaryDirectory
+      .appendingPathComponent(
+        Constants.codexFallbackDirectoryPrefix + UUID().uuidString, isDirectory: true)
+
+    do {
+      try fileManager.createDirectory(at: tempCodexHome, withIntermediateDirectories: true)
+    } catch {
+      print("[ChatCLI] Failed to create temporary CODEX_HOME: \(error.localizedDescription)")
+      return nil
+    }
+
+    var didCopyAuth = false
+    let sourceAuthURL = brokenConfigURL.deletingLastPathComponent().appendingPathComponent(
+      "auth.json")
+    let destinationAuthURL = tempCodexHome.appendingPathComponent("auth.json")
+    if fileManager.fileExists(atPath: sourceAuthURL.path) {
+      do {
+        try fileManager.copyItem(at: sourceAuthURL, to: destinationAuthURL)
+        didCopyAuth = true
+      } catch {
+        print(
+          "[ChatCLI] Failed to copy Codex auth cache for fallback: \(error.localizedDescription)")
+      }
+    }
+
+    return CodexFallbackContext(
+      environment: ["CODEX_HOME": tempCodexHome.path],
+      brokenConfigURL: brokenConfigURL,
+      didCopyAuth: didCopyAuth,
+      cleanup: {
+        try? fileManager.removeItem(at: tempCodexHome)
+      }
+    )
+  }
+
+  private func codexFallbackContextIfNeeded(
+    tool: ChatCLITool,
+    stderr: String,
+    workingDirectory: URL,
+    hasRetriedInvalidTransport: Bool
+  ) -> CodexFallbackContext? {
+    guard tool == .codex, !hasRetriedInvalidTransport, stderr.contains("invalid transport") else {
+      return nil
+    }
+    return makeCodexFallbackContext(
+      fromInvalidTransportStderr: stderr,
+      workingDirectory: workingDirectory
+    )
+  }
+
   /// Run a streaming command, yielding events as JSONL lines arrive
   func runStreaming(
     tool: ChatCLITool,
@@ -349,7 +475,9 @@ struct ChatCLIProcessRunner {
     model: String?,
     reasoningEffort: String?,
     sessionId: String?,
-    continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation
+    continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation,
+    processEnvironment: [String: String] = [:],
+    hasRetriedInvalidTransport: Bool = false
   ) async throws {
     let toolName = tool.rawValue
     let _ = sessionId != nil  // isResume - unused but kept for clarity
@@ -393,11 +521,8 @@ struct ChatCLIProcessRunner {
 
     let shellCommand =
       "cd \(LoginShellRunner.shellEscape(workingDirectory.path)) && exec \(cmdParts.joined(separator: " "))"
-    let shell = LoginShellRunner.userLoginShell
 
-    let process = Process()
-    process.executableURL = shell
-    process.arguments = ["-l", "-i", "-c", shellCommand]
+    let process = makeShellProcess(shellCommand: shellCommand, environment: processEnvironment)
     var cleanupPty: (() -> Void)?
     let stdoutHandle: FileHandle
     if tool == .claude {
@@ -426,6 +551,7 @@ struct ChatCLIProcessRunner {
     var stderrBuffer = Data()
     var sawTextDelta = false
     var didYieldComplete = false
+    var didYieldEvent = false
 
     func cleanupStreamingResources() {
       stdoutHandle.readabilityHandler = nil
@@ -482,6 +608,9 @@ struct ChatCLIProcessRunner {
       }
 
       for event in parsedEvents {
+        stateQueue.sync {
+          didYieldEvent = true
+        }
         continuation.yield(event)
       }
     }
@@ -572,16 +701,48 @@ struct ChatCLIProcessRunner {
       return parsedEvents
     }
 
-    for event in finalEvents {
-      continuation.yield(event)
-    }
-
     let finalState = stateQueue.sync {
       (
         accumulatedText,
         didYieldComplete,
         String(data: stderrBuffer, encoding: .utf8) ?? ""
       )
+    }
+
+    let hadYieldedEvent = stateQueue.sync { didYieldEvent }
+
+    if process.terminationStatus != 0,
+      !hadYieldedEvent,
+      let fallback = codexFallbackContextIfNeeded(
+        tool: tool,
+        stderr: finalState.2,
+        workingDirectory: workingDirectory,
+        hasRetriedInvalidTransport: hasRetriedInvalidTransport)
+    {
+      print(
+        "[ChatCLI] Retrying Codex with temporary CODEX_HOME after invalid transport in \(fallback.brokenConfigURL.path)"
+          + (fallback.didCopyAuth ? " (copied auth.json)" : "")
+      )
+      defer { fallback.cleanup() }
+      try await executeStreaming(
+        tool: tool,
+        prompt: prompt,
+        workingDirectory: workingDirectory,
+        model: model,
+        reasoningEffort: reasoningEffort,
+        sessionId: sessionId,
+        continuation: continuation,
+        processEnvironment: fallback.environment,
+        hasRetriedInvalidTransport: true
+      )
+      return
+    }
+
+    for event in finalEvents {
+      stateQueue.sync {
+        didYieldEvent = true
+      }
+      continuation.yield(event)
     }
 
     if process.terminationStatus != 0 {
@@ -786,6 +947,30 @@ struct ChatCLIProcessRunner {
     tool: ChatCLITool, prompt: String, workingDirectory: URL, imagePaths: [String] = [],
     model: String? = nil, reasoningEffort: String? = nil, disableTools: Bool = false
   ) throws -> ChatCLIRunResult {
+    try run(
+      tool: tool,
+      prompt: prompt,
+      workingDirectory: workingDirectory,
+      imagePaths: imagePaths,
+      model: model,
+      reasoningEffort: reasoningEffort,
+      disableTools: disableTools,
+      processEnvironment: [:],
+      hasRetriedInvalidTransport: false
+    )
+  }
+
+  private func run(
+    tool: ChatCLITool,
+    prompt: String,
+    workingDirectory: URL,
+    imagePaths: [String],
+    model: String?,
+    reasoningEffort: String?,
+    disableTools: Bool,
+    processEnvironment: [String: String],
+    hasRetriedInvalidTransport: Bool
+  ) throws -> ChatCLIRunResult {
     let toolName = tool.rawValue
 
     var cmdParts: [String] = [toolName]
@@ -817,12 +1002,9 @@ struct ChatCLIProcessRunner {
 
     let shellCommand =
       "cd \(LoginShellRunner.shellEscape(workingDirectory.path)) && exec \(cmdParts.joined(separator: " "))"
-    let shell = LoginShellRunner.userLoginShell
 
     let started = Date()
-    let process = Process()
-    process.executableURL = shell
-    process.arguments = ["-l", "-i", "-c", shellCommand]
+    let process = makeShellProcess(shellCommand: shellCommand, environment: processEnvironment)
     let stdoutPipe = Pipe()
     process.standardOutput = stdoutPipe
     process.standardInput = FileHandle.nullDevice
@@ -875,6 +1057,31 @@ struct ChatCLIProcessRunner {
       rawOut = stripANSIEscapes(rawOut)
     }
     let stderr = String(data: stderrBuffer, encoding: .utf8) ?? ""
+
+    if process.terminationStatus != 0,
+      let fallback = codexFallbackContextIfNeeded(
+        tool: tool,
+        stderr: stderr,
+        workingDirectory: workingDirectory,
+        hasRetriedInvalidTransport: hasRetriedInvalidTransport)
+    {
+      print(
+        "[ChatCLI] Retrying Codex with temporary CODEX_HOME after invalid transport in \(fallback.brokenConfigURL.path)"
+          + (fallback.didCopyAuth ? " (copied auth.json)" : "")
+      )
+      defer { fallback.cleanup() }
+      return try run(
+        tool: tool,
+        prompt: prompt,
+        workingDirectory: workingDirectory,
+        imagePaths: imagePaths,
+        model: model,
+        reasoningEffort: reasoningEffort,
+        disableTools: disableTools,
+        processEnvironment: fallback.environment,
+        hasRetriedInvalidTransport: true
+      )
+    }
 
     if process.terminationStatus == 127
       || (process.terminationStatus != 0 && stderr.contains("command not found"))
