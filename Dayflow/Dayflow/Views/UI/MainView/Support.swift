@@ -246,9 +246,28 @@ extension MainView {
 
     let previousMode = timelineMode
 
-    withAnimation(timelineModeContentAnimation) {
-      timelineMode = mode
-      selectedActivity = nil
+    if previousMode == .week && mode == .day {
+      var transaction = Transaction(animation: nil)
+      transaction.disablesAnimations = true
+      withTransaction(transaction) {
+        hideWeekCardsDuringModeSwitch = true
+        weeklyHoursIntersectsCard = false
+      }
+
+      timelinePerfLog("timelineModeSwitch.prehideWeekCards from=week to=day")
+
+      DispatchQueue.main.async {
+        withAnimation(timelineModeContentAnimation) {
+          timelineMode = mode
+          selectedActivity = nil
+        }
+      }
+    } else {
+      hideWeekCardsDuringModeSwitch = false
+      withAnimation(timelineModeContentAnimation) {
+        timelineMode = mode
+        selectedActivity = nil
+      }
     }
 
     syncCurrentUIContext(timelineModeOverride: mode)
