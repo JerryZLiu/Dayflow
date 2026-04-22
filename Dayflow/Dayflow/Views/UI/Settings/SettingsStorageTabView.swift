@@ -37,7 +37,11 @@ struct SettingsStorageTabView: View {
 
   private var recordingStatusSection: some View {
     let permissionGranted = viewModel.storagePermissionGranted == true
-    let isRecording = AppState.shared.isRecording
+    let recordingEnabled = AppState.shared.isRecording
+    let isRecording = permissionGranted && recordingEnabled
+    let recorderStatus: SettingsStatusDot.State =
+      isRecording ? .good : (permissionGranted ? .idle : .bad)
+    let recorderLabel = isRecording ? "Active" : (permissionGranted ? "Idle" : "Blocked")
 
     return SettingsSection(
       title: "Recording status",
@@ -53,8 +57,8 @@ struct SettingsStorageTabView: View {
 
         SettingsRow(label: "Recorder", showsDivider: false) {
           SettingsStatusDot(
-            state: isRecording ? .good : .idle,
-            label: isRecording ? "Active" : "Idle"
+            state: recorderStatus,
+            label: recorderLabel
           )
         }
 
