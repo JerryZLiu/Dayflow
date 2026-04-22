@@ -121,7 +121,9 @@ struct WhatsNewView: View {
   let onDismiss: () -> Void
 
   @Environment(\.openURL) private var openURL
-  @AppStorage("whatsNewDesignSurveySubmittedVersion") private var submittedDesignSurveyVersion:
+  @AppStorage("whatsNewDesignRatingSubmittedVersion") private var submittedDesignRatingVersion:
+    String = ""
+  @AppStorage("whatsNewReferenceAppsSubmittedVersion") private var submittedReferenceAppsVersion:
     String = ""
   @State private var selectedDesignSurveyOptionID = ""
   @State private var referenceAppsResponse = ""
@@ -275,10 +277,14 @@ struct WhatsNewView: View {
           .fontWeight(.semibold)
           .foregroundColor(.black.opacity(0.82))
 
-        Text("Optional. This helps us understand the bar you're comparing Dayflow against.")
-          .font(.custom("Nunito", size: 13))
-          .foregroundColor(.black.opacity(0.58))
-          .fixedSize(horizontal: false, vertical: true)
+        Text(
+          hasSubmittedDesignRating
+            ? "Optional. This helps us understand the bar you're comparing Dayflow against."
+            : "Optional. Pick a rating first, then share the apps you're comparing Dayflow against."
+        )
+        .font(.custom("Nunito", size: 13))
+        .foregroundColor(.black.opacity(0.58))
+        .fixedSize(horizontal: false, vertical: true)
 
         ZStack {
           RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -287,7 +293,7 @@ struct WhatsNewView: View {
           WhatsNewSurveyTextEditor(
             text: $referenceAppsResponse,
             placeholder: "Examples: Linear, Raycast, Apple Notes, Arc...",
-            isEditable: !hasSubmittedDesignSurvey
+            isEditable: !hasSubmittedReferenceApps
           )
           .frame(height: 86)
           .onChange(of: referenceAppsResponse) {
@@ -300,21 +306,21 @@ struct WhatsNewView: View {
           RoundedRectangle(cornerRadius: 10, style: .continuous)
             .stroke(Color.black.opacity(0.1), lineWidth: 1)
         )
-        .opacity(hasSubmittedDesignSurvey ? 0.72 : 1)
+        .opacity(hasSubmittedReferenceApps ? 0.72 : 1)
       }
 
       HStack {
         Spacer()
         DayflowSurfaceButton(
-          action: submitDesignSurvey,
+          action: submitReferenceApps,
           content: {
-            Text("Submit")
+            Text("Send apps")
               .font(.custom("Nunito", size: 15))
               .fontWeight(.semibold)
           },
-          background: canSubmitDesignSurvey
+          background: canSubmitReferenceApps
             ? Color(red: 0.25, green: 0.17, blue: 0) : Color.black.opacity(0.08),
-          foreground: .white.opacity(canSubmitDesignSurvey ? 1 : 0.7),
+          foreground: .white.opacity(canSubmitReferenceApps ? 1 : 0.7),
           borderColor: .clear,
           cornerRadius: 8,
           horizontalPadding: 34,
@@ -322,11 +328,17 @@ struct WhatsNewView: View {
           minWidth: 160,
           showOverlayStroke: true
         )
-        .disabled(!canSubmitDesignSurvey)
-        .opacity(canSubmitDesignSurvey ? 1 : 0.8)
+        .disabled(!canSubmitReferenceApps)
+        .opacity(canSubmitReferenceApps ? 1 : 0.8)
       }
 
-      if hasSubmittedDesignSurvey {
+      if hasSubmittedDesignRating {
+        Label("Thanks for rating Dayflow.", systemImage: "checkmark.circle.fill")
+          .font(.custom("Nunito", size: 14))
+          .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
+      }
+
+      if hasSubmittedReferenceApps {
         Label("Thanks for sharing!", systemImage: "checkmark.circle.fill")
           .font(.custom("Nunito", size: 14))
           .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
@@ -388,8 +400,8 @@ struct WhatsNewView: View {
     }
     .buttonStyle(.plain)
     .pointingHandCursor()
-    .disabled(hasSubmittedDesignSurvey)
-    .opacity(hasSubmittedDesignSurvey ? 0.75 : 1)
+    .disabled(hasSubmittedDesignRating)
+    .opacity(hasSubmittedDesignRating ? 0.75 : 1)
   }
 
   private func ctaSection(_ cta: ReleaseNoteCTA) -> some View {
@@ -441,8 +453,12 @@ struct WhatsNewView: View {
     openURL(url)
   }
 
-  private var hasSubmittedDesignSurvey: Bool {
-    submittedDesignSurveyVersion == releaseNote.version
+  private var hasSubmittedDesignRating: Bool {
+    submittedDesignRatingVersion == releaseNote.version
+  }
+
+  private var hasSubmittedReferenceApps: Bool {
+    submittedReferenceAppsVersion == releaseNote.version
   }
 
   private var selectedDesignSurveyOption: WhatsNewDesignSurveyOption? {
@@ -453,38 +469,49 @@ struct WhatsNewView: View {
     referenceAppsResponse.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  private var canSubmitDesignSurvey: Bool {
-    !hasSubmittedDesignSurvey && selectedDesignSurveyOption != nil
+  private var canSubmitReferenceApps: Bool {
+    hasSubmittedDesignRating && !hasSubmittedReferenceApps && !referenceAppsResponseTrimmed.isEmpty
   }
 
   private func selectDesignSurveyOption(_ option: WhatsNewDesignSurveyOption) {
-    guard !hasSubmittedDesignSurvey else { return }
+    guard !hasSubmittedDesignRating else { return }
     selectedDesignSurveyOptionID = option.rawValue
     persistSelectedDesignSurveyOption()
+    AnalyticsService.shared.capture(
+      "whats_new_design_rating_submitted",
+      [
+        "version": releaseNote.version,
+        "design_rating": option.rawValue,
+        "provider_label": currentProviderLabel,
+      ]
+    )
+
+    submittedDesignRatingVersion = releaseNote.version
   }
 
-  private func submitDesignSurvey() {
-    guard !hasSubmittedDesignSurvey else { return }
-    guard let selectedOption = selectedDesignSurveyOption else { return }
+  private func submitReferenceApps() {
+    guard hasSubmittedDesignRating else { return }
+    guard !hasSubmittedReferenceApps else { return }
 
     let referenceApps = String(referenceAppsResponseTrimmed.prefix(1000))
+    guard !referenceApps.isEmpty else { return }
+
     var props: [String: Any] = [
       "version": releaseNote.version,
-      "design_rating": selectedOption.rawValue,
+      "reference_apps": referenceApps,
       "provider_label": currentProviderLabel,
     ]
-    if !referenceApps.isEmpty {
-      props["reference_apps"] = referenceApps
+    if let selectedOption = selectedDesignSurveyOption {
+      props["design_rating"] = selectedOption.rawValue
     }
 
     AnalyticsService.shared.capture(
-      "whats_new_design_survey_submitted",
+      "whats_new_design_reference_apps_submitted",
       props
     )
 
-    submittedDesignSurveyVersion = releaseNote.version
+    submittedReferenceAppsVersion = releaseNote.version
     referenceAppsResponse = referenceApps
-    persistSelectedDesignSurveyOption()
     persistReferenceAppsResponse()
   }
 
