@@ -5,9 +5,20 @@ struct WeeklyView: View {
   @EnvironmentObject private var categoryStore: CategoryStore
 
   @State private var weekRange = WeeklyDateRange.containing(Date())
+  @State private var weeklyCards: [TimelineCard] = []
   @State private var donutSnapshot = WeeklyDonutSnapshot.empty
-  @State private var isLoadingDonut = false
-  @State private var donutLoadTask: Task<Void, Never>?
+  @State private var isLoadingWeekData = false
+  @State private var weekLoadTask: Task<Void, Never>?
+  @State private var sankeyMinAppSharePercent: Double = 4
+  @State private var capsSankeyApps = false
+  @State private var sankeyMaxVisibleApps = 6
+
+  private var sankeyAppFilterPolicy: WeeklySankeyAppFilterPolicy {
+    WeeklySankeyAppFilterPolicy(
+      minAppSharePercent: Int(sankeyMinAppSharePercent.rounded()),
+      maxVisibleApps: capsSankeyApps ? sankeyMaxVisibleApps : nil
+    )
+  }
 
   var body: some View {
     ScrollView(.vertical, showsIndicators: false) {
@@ -30,11 +41,26 @@ struct WeeklyView: View {
 
         WeeklyDonutSection(
           snapshot: donutSnapshot,
-          isLoading: isLoadingDonut
+          isLoading: isLoadingWeekData
         )
         .frame(maxWidth: .infinity, alignment: .leading)
 
-        WeeklySankeyDistributionSection()
+        VStack(alignment: .leading, spacing: 16) {
+          WeeklySankeyControlsCard(
+            minAppSharePercent: $sankeyMinAppSharePercent,
+            capsVisibleApps: $capsSankeyApps,
+            maxVisibleApps: $sankeyMaxVisibleApps
+          )
+
+          WeeklySankeyDistributionSection(
+            cards: weeklyCards,
+            categories: categoryStore.categories,
+            weekRange: weekRange,
+            appFilterPolicy: sankeyAppFilterPolicy
+          )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+
         WeeklyTreemapSection(snapshot: .figmaPreview)
         WeeklySuggestionsSection(snapshot: .figmaPreview)
       }
@@ -47,32 +73,32 @@ struct WeeklyView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .environment(\.colorScheme, .light)
     .onAppear {
-      loadDonutSnapshot()
+      loadWeekData()
     }
     .onDisappear {
-      donutLoadTask?.cancel()
-      donutLoadTask = nil
+      weekLoadTask?.cancel()
+      weekLoadTask = nil
     }
     .onChange(of: weekRange) {
-      loadDonutSnapshot()
+      loadWeekData()
     }
     .onChange(of: categoryStore.categories) {
-      loadDonutSnapshot()
+      loadWeekData()
     }
     .onChange(of: scenePhase) { _, newPhase in
       guard newPhase == .active else { return }
-      loadDonutSnapshot()
+      loadWeekData()
     }
   }
 
-  private func loadDonutSnapshot() {
-    donutLoadTask?.cancel()
-    isLoadingDonut = true
+  private func loadWeekData() {
+    weekLoadTask?.cancel()
+    isLoadingWeekData = true
 
     let categories = categoryStore.categories
     let weekRange = weekRange
 
-    donutLoadTask = Task.detached(priority: .userInitiated) {
+    weekLoadTask = Task.detached(priority: .userInitiated) {
       let cards = StorageManager.shared.fetchTimelineCardsByTimeRange(
         from: weekRange.weekStart,
         to: weekRange.weekEnd
@@ -85,10 +111,72 @@ struct WeeklyView: View {
       guard !Task.isCancelled else { return }
 
       await MainActor.run {
+        self.weeklyCards = cards
         self.donutSnapshot = snapshot
-        self.isLoadingDonut = false
+        self.isLoadingWeekData = false
       }
     }
+  }
+}
+
+private struct WeeklySankeyControlsCard: View {
+  @Binding var minAppSharePercent: Double
+  @Binding var capsVisibleApps: Bool
+  @Binding var maxVisibleApps: Int
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      VStack(alignment: .leading, spacing: 4) {
+        Text("Sankey tuning")
+          .font(.custom("Nunito-Bold", size: 14))
+          .foregroundStyle(Color(hex: "3B2418"))
+
+        Text(
+          "These controls only affect the rightmost app rail so you can cut the tiny buckets without changing the category story."
+        )
+        .font(.custom("Nunito-Regular", size: 12))
+        .foregroundStyle(Color(hex: "6E584B"))
+      }
+
+      HStack(spacing: 12) {
+        Text("Min app share")
+          .font(.custom("Nunito-Regular", size: 12))
+          .foregroundStyle(Color(hex: "3B2418"))
+
+        Slider(value: $minAppSharePercent, in: 1...10, step: 1)
+          .frame(width: 220)
+
+        Text("\(Int(minAppSharePercent.rounded()))%")
+          .font(.custom("Nunito-Regular", size: 12))
+          .foregroundStyle(Color(hex: "6E584B"))
+          .monospacedDigit()
+      }
+
+      HStack(spacing: 12) {
+        Toggle("Top X right-rail cap", isOn: $capsVisibleApps)
+          .toggleStyle(.checkbox)
+          .font(.custom("Nunito-Regular", size: 12))
+          .foregroundStyle(Color(hex: "3B2418"))
+
+        Stepper(value: $maxVisibleApps, in: 3...10) {
+          Text("Show top \(maxVisibleApps)")
+            .font(.custom("Nunito-Regular", size: 12))
+            .foregroundStyle(Color(hex: "6E584B"))
+            .monospacedDigit()
+        }
+        .disabled(!capsVisibleApps)
+        .opacity(capsVisibleApps ? 1 : 0.5)
+      }
+    }
+    .padding(18)
+    .background(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .fill(Color.white)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(Color(hex: "EBE6E3"), lineWidth: 1)
+    )
   }
 }
 
