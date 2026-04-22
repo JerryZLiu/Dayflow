@@ -25,23 +25,9 @@ struct SettingsView: View {
       case .other: return "Other"
       }
     }
-
-    var subtitle: String {
-      switch self {
-      case .storage: return "Recording status and disk usage"
-      case .providers: return "Manage LLM providers and customize prompts"
-      case .data: return "Export timeline data"
-      case .other: return "General preferences & support"
-      }
-    }
-  }
-
-  private enum TabTransitionDirection {
-    case none, leading, trailing
   }
 
   @State private var selectedTab: SettingsTab = .storage
-  @State private var tabTransitionDirection: TabTransitionDirection = .none
 
   @Namespace private var sidebarSelectionNamespace
 
@@ -111,8 +97,7 @@ struct SettingsView: View {
     }
     .onReceive(NotificationCenter.default.publisher(for: .openProvidersSettings)) { _ in
       guard selectedTab != .providers else { return }
-      tabTransitionDirection = .trailing
-      withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+      withAnimation(.easeOut(duration: 0.18)) {
         selectedTab = .providers
       }
     }
@@ -142,93 +127,74 @@ struct SettingsView: View {
   }
 
   private var sidebar: some View {
-    VStack(alignment: .leading, spacing: 18) {
+    VStack(alignment: .leading, spacing: 0) {
       Text("Settings")
-        .font(.custom("InstrumentSerif-Regular", size: 42))
+        .font(.custom("InstrumentSerif-Regular", size: 22))
         .foregroundColor(.black.opacity(0.9))
         .padding(.leading, 10)
+        .padding(.bottom, 18)
 
-      ForEach(SettingsTab.allCases) { tab in
-        sidebarButton(for: tab)
+      VStack(alignment: .leading, spacing: 2) {
+        ForEach(SettingsTab.allCases) { tab in
+          sidebarButton(for: tab)
+        }
       }
 
       Spacer()
 
-      VStack(alignment: .leading, spacing: 12) {
-        Text(
-          "Dayflow v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")"
-        )
-        .font(.custom("Nunito", size: 12))
-        .foregroundColor(.black.opacity(0.45))
+      sidebarFooter
         .padding(.leading, 10)
-        Button {
-          NotificationCenter.default.post(name: .showWhatsNew, object: nil)
-        } label: {
-          HStack(spacing: 6) {
-            Text("View release notes")
-            Image(systemName: "arrow.up.right")
-              .font(.system(size: 11, weight: .medium))
-          }
-          .font(.custom("Nunito", size: 12))
-        }
-        .buttonStyle(PlainButtonStyle())
-        .foregroundColor(Color(red: 0.45, green: 0.26, blue: 0.04))
-        .padding(.leading, 10)
-        .pointingHandCursor()
-      }
     }
     .padding(.top, 0)
     .padding(.bottom, 16)
     .padding(.horizontal, 4)
-    .frame(width: 198, alignment: .topLeading)
+    .frame(width: 160, alignment: .topLeading)
+  }
+
+  private var sidebarFooter: some View {
+    let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+    return VStack(alignment: .leading, spacing: 8) {
+      Text("Dayflow v\(version)")
+        .font(.custom("Nunito", size: 11))
+        .foregroundColor(.black.opacity(0.4))
+
+      Button {
+        NotificationCenter.default.post(name: .showWhatsNew, object: nil)
+      } label: {
+        HStack(spacing: 4) {
+          Text("Release notes")
+            .font(.custom("Nunito", size: 11))
+            .fontWeight(.semibold)
+          Image(systemName: "arrow.up.right")
+            .font(.system(size: 9, weight: .semibold))
+        }
+        .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
+      }
+      .buttonStyle(.plain)
+      .pointingHandCursor()
+    }
   }
 
   private func sidebarButton(for tab: SettingsTab) -> some View {
     Button {
-      let tabs = SettingsTab.allCases
-      let currentIndex = tabs.firstIndex(of: selectedTab) ?? 0
-      let newIndex = tabs.firstIndex(of: tab) ?? 0
-      let direction: TabTransitionDirection =
-        newIndex > currentIndex ? .trailing : (newIndex < currentIndex ? .leading : .none)
-
-      tabTransitionDirection = direction
-      withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+      withAnimation(.easeOut(duration: 0.18)) {
         selectedTab = tab
       }
     } label: {
-      VStack(alignment: .leading, spacing: 4) {
-        Text(tab.title)
-          .font(.custom("Nunito", size: 15))
-          .fontWeight(.semibold)
-          .foregroundColor(.black.opacity(selectedTab == tab ? 0.9 : 0.6))
-        Text(tab.subtitle)
-          .font(.custom("Nunito", size: 12))
-          .foregroundColor(.black.opacity(selectedTab == tab ? 0.55 : 0.35))
-          .multilineTextAlignment(.leading)
-          .fixedSize(horizontal: false, vertical: true)
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(.vertical, 14)
-      .padding(.horizontal, 16)
-      .background {
-        if selectedTab == tab {
-          RoundedRectangle(cornerRadius: 12)
-            .fill(Color.white.opacity(0.85))
-            .overlay(
-              RoundedRectangle(cornerRadius: 12)
-                .stroke(Color(hex: "FFE0A5"), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 6)
-            .matchedGeometryEffect(id: "sidebarSelection", in: sidebarSelectionNamespace)
-        } else {
-          RoundedRectangle(cornerRadius: 12)
-            .fill(Color.white.opacity(0.45))
-            .overlay(
-              RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.white.opacity(0.3), lineWidth: 1)
-            )
+      Text(tab.title)
+        .font(.custom("Nunito", size: 13))
+        .fontWeight(.semibold)
+        .foregroundColor(.black.opacity(selectedTab == tab ? 0.9 : 0.55))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .background {
+          if selectedTab == tab {
+            RoundedRectangle(cornerRadius: 7)
+              .fill(Color.black.opacity(0.06))
+              .matchedGeometryEffect(id: "sidebarSelection", in: sidebarSelectionNamespace)
+          }
         }
-      }
     }
     .buttonStyle(SettingsSidebarButtonStyle())
     .pointingHandCursor()
@@ -236,9 +202,10 @@ struct SettingsView: View {
 
   @ViewBuilder
   private var tabContent: some View {
-    let slideOffset: CGFloat =
-      tabTransitionDirection == .trailing ? 20 : (tabTransitionDirection == .leading ? -20 : 0)
-
+    // Content swap is a pure fade. The sidebar pill's matchedGeometryEffect
+    // carries the "where you went" signal — the content doesn't need to
+    // redundantly slide horizontally, which implied a carousel that doesn't
+    // actually exist (the sidebar is vertical, not left/right tabs).
     Group {
       switch selectedTab {
       case .storage:
@@ -252,12 +219,7 @@ struct SettingsView: View {
       }
     }
     .id(selectedTab)
-    .transition(
-      .asymmetric(
-        insertion: .opacity.combined(with: .offset(x: slideOffset)),
-        removal: .opacity.combined(with: .offset(x: -slideOffset))
-      )
-    )
+    .transition(.opacity)
   }
 }
 
@@ -276,7 +238,7 @@ struct SettingsView_Previews: PreviewProvider {
 private struct SettingsSidebarButtonStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
-      .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
       .dayflowPressScale(
         configuration.isPressed,
         pressedScale: 0.98,
