@@ -11,30 +11,32 @@ struct SettingsDataTabView: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 28) {
-      exportDataCard
-      reprocessDayCard
+    VStack(alignment: .leading, spacing: SettingsStyle.sectionSpacing) {
+      exportSection
+      reprocessSection
     }
   }
 
-  private var exportDataCard: some View {
-    SettingsCard(
-      title: "Export your data",
-      subtitle: "Move your timeline into tools you already use"
-    ) {
-      let rangeInvalid =
-        timelineDisplayDate(from: viewModel.exportStartDate)
-        > timelineDisplayDate(from: viewModel.exportEndDate)
+  // MARK: - Export
 
+  private var exportSection: some View {
+    let rangeInvalid =
+      timelineDisplayDate(from: viewModel.exportStartDate)
+      > timelineDisplayDate(from: viewModel.exportEndDate)
+
+    return SettingsSection(
+      title: "Export your data",
+      subtitle: "Move your timeline into tools you already use."
+    ) {
       VStack(alignment: .leading, spacing: 14) {
-        HStack(alignment: .bottom, spacing: 12) {
-          datePillField(
+        HStack(alignment: .center, spacing: 10) {
+          datePill(
             label: "From",
             date: viewModel.exportStartDate,
             isExpanded: activeExportDatePicker == .start,
             accessibilityLabel: "Export start date",
             onTap: {
-              withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+              withAnimation(.easeOut(duration: 0.2)) {
                 activeExportDatePicker = activeExportDatePicker == .start ? nil : .start
                 isReprocessDatePickerExpanded = false
               }
@@ -42,17 +44,16 @@ struct SettingsDataTabView: View {
           )
 
           Image(systemName: "arrow.right")
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundColor(.black.opacity(0.35))
-            .padding(.bottom, 12)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundColor(SettingsStyle.meta)
 
-          datePillField(
+          datePill(
             label: "To",
             date: viewModel.exportEndDate,
             isExpanded: activeExportDatePicker == .end,
             accessibilityLabel: "Export end date",
             onTap: {
-              withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+              withAnimation(.easeOut(duration: 0.2)) {
                 activeExportDatePicker = activeExportDatePicker == .end ? nil : .end
                 isReprocessDatePickerExpanded = false
               }
@@ -61,11 +62,10 @@ struct SettingsDataTabView: View {
         }
 
         if let activeExportDatePicker {
-          inlineCalendarField(
-            label: activeExportDatePicker == .start ? "Start date" : "End date",
+          inlineCalendar(
             date: exportDateBinding(for: activeExportDatePicker),
             onDateSelected: {
-              withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+              withAnimation(.easeOut(duration: 0.2)) {
                 self.activeExportDatePicker = nil
               }
             }
@@ -74,154 +74,118 @@ struct SettingsDataTabView: View {
         }
 
         Text(
-          "Use Markdown exports to archive in Notion, share with teammates, or paste into ChatGPT/Claude/Gemini for deeper analysis and planning."
+          "Use Markdown exports to archive in Notion, share with teammates, or paste into ChatGPT / Claude / Gemini for deeper analysis."
         )
-        .font(.custom("Nunito", size: 11.5))
-        .foregroundColor(.black.opacity(0.55))
+        .font(.custom("Nunito", size: 12))
+        .foregroundColor(SettingsStyle.secondary)
         .fixedSize(horizontal: false, vertical: true)
 
-        HStack(spacing: 10) {
-          DayflowSurfaceButton(
-            action: viewModel.exportTimelineRange,
-            content: {
-              HStack(spacing: 8) {
-                if viewModel.isExportingTimelineRange {
-                  ProgressView().scaleEffect(0.75)
-                } else {
-                  Image(systemName: "square.and.arrow.down")
-                    .font(.system(size: 13, weight: .semibold))
-                }
-                Text(viewModel.isExportingTimelineRange ? "Exporting…" : "Export as Markdown")
-                  .font(.custom("Nunito", size: 13))
-                  .fontWeight(.semibold)
-              }
-              .frame(minWidth: 150)
-            },
-            background: Color(red: 0.25, green: 0.17, blue: 0),
-            foreground: .white,
-            borderColor: .clear,
-            cornerRadius: 8,
-            horizontalPadding: 20,
-            verticalPadding: 10,
-            showOverlayStroke: true
+        HStack(spacing: 12) {
+          SettingsPrimaryButton(
+            title: viewModel.isExportingTimelineRange ? "Exporting…" : "Export as Markdown",
+            systemImage: viewModel.isExportingTimelineRange ? nil : "square.and.arrow.down",
+            isLoading: viewModel.isExportingTimelineRange,
+            isDisabled: rangeInvalid,
+            action: viewModel.exportTimelineRange
           )
-          .disabled(viewModel.isExportingTimelineRange || rangeInvalid)
 
           if rangeInvalid {
-            Text("Start date must be on or before end date.")
+            Text("Start must be on or before end.")
               .font(.custom("Nunito", size: 12))
-              .foregroundColor(Color(hex: "E91515"))
+              .foregroundColor(SettingsStyle.destructive)
           }
         }
 
         if let message = viewModel.exportStatusMessage {
           Text(message)
             .font(.custom("Nunito", size: 12))
-            .foregroundColor(Color(red: 0.1, green: 0.5, blue: 0.22))
+            .foregroundColor(SettingsStyle.statusGood)
         }
 
         if let error = viewModel.exportErrorMessage {
           Text(error)
             .font(.custom("Nunito", size: 12))
-            .foregroundColor(Color(hex: "E91515"))
+            .foregroundColor(SettingsStyle.destructive)
         }
       }
-      .padding(.top, 4)
     }
   }
 
-  private var reprocessDayCard: some View {
-    SettingsCard(
-      title: "Reprocess day",
-      subtitle: "Re-run analysis for every batch on one timeline day"
-    ) {
-      let normalizedDate = timelineDisplayDate(from: viewModel.reprocessDayDate)
-      let dayString = DateFormatter.yyyyMMdd.string(from: normalizedDate)
+  // MARK: - Reprocess day
 
+  private var reprocessSection: some View {
+    let normalizedDate = timelineDisplayDate(from: viewModel.reprocessDayDate)
+    let dayString = DateFormatter.yyyyMMdd.string(from: normalizedDate)
+
+    return SettingsSection(
+      title: "Reprocess day",
+      subtitle: "Re-run analysis for every batch on one timeline day."
+    ) {
       VStack(alignment: .leading, spacing: 14) {
-        VStack(alignment: .leading, spacing: 8) {
-          datePillField(
-            label: "Day",
-            date: viewModel.reprocessDayDate,
-            isExpanded: isReprocessDatePickerExpanded,
-            accessibilityLabel: "Reprocess day",
+        datePill(
+          label: "Day",
+          date: viewModel.reprocessDayDate,
+          isExpanded: isReprocessDatePickerExpanded,
+          accessibilityLabel: "Reprocess day",
+          disabled: viewModel.isReprocessingDay,
+          onTap: {
+            withAnimation(.easeOut(duration: 0.2)) {
+              isReprocessDatePickerExpanded.toggle()
+              activeExportDatePicker = nil
+            }
+          }
+        )
+
+        if isReprocessDatePickerExpanded {
+          inlineCalendar(
+            date: $viewModel.reprocessDayDate,
             disabled: viewModel.isReprocessingDay,
-            onTap: {
-              withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-                isReprocessDatePickerExpanded.toggle()
-                activeExportDatePicker = nil
+            onDateSelected: {
+              withAnimation(.easeOut(duration: 0.2)) {
+                isReprocessDatePickerExpanded = false
               }
             }
           )
-
-          if isReprocessDatePickerExpanded {
-            inlineCalendarField(
-              label: "Day",
-              date: $viewModel.reprocessDayDate,
-              disabled: viewModel.isReprocessingDay,
-              onDateSelected: {
-                withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-                  isReprocessDatePickerExpanded = false
-                }
-              }
-            )
-            .transition(.move(edge: .top).combined(with: .opacity))
-          }
-
-          Text(dayString)
-            .font(.custom("Nunito", size: 12))
-            .foregroundColor(.black.opacity(0.5))
+          .transition(.move(edge: .top).combined(with: .opacity))
         }
 
-        Text(
-          "This clears existing cards and observations for that day, then runs analysis again from the original recordings."
-        )
-        .font(.custom("Nunito", size: 11.5))
-        .foregroundColor(.black.opacity(0.55))
-        .fixedSize(horizontal: false, vertical: true)
+        Text(dayString)
+          .font(.custom("Nunito", size: 12))
+          .foregroundColor(SettingsStyle.meta)
 
-        Text("Heads up: this can consume a large number of API calls.")
-          .font(.custom("Nunito", size: 11.5))
-          .foregroundColor(.black.opacity(0.7))
-
-        HStack(spacing: 10) {
-          DayflowSurfaceButton(
-            action: { viewModel.showReprocessDayConfirm = true },
-            content: {
-              HStack(spacing: 8) {
-                if viewModel.isReprocessingDay {
-                  ProgressView().scaleEffect(0.75)
-                } else {
-                  Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 13, weight: .semibold))
-                }
-                Text(viewModel.isReprocessingDay ? "Reprocessing…" : "Reprocess day")
-                  .font(.custom("Nunito", size: 13))
-                  .fontWeight(.semibold)
-              }
-              .frame(minWidth: 150)
-            },
-            background: Color(red: 0.25, green: 0.17, blue: 0),
-            foreground: .white,
-            borderColor: .clear,
-            cornerRadius: 8,
-            horizontalPadding: 20,
-            verticalPadding: 10,
-            showOverlayStroke: true
+        VStack(alignment: .leading, spacing: 4) {
+          Text(
+            "Clears existing cards and observations for that day, then runs analysis again from the original recordings."
           )
-          .disabled(viewModel.isReprocessingDay)
+          .font(.custom("Nunito", size: 12))
+          .foregroundColor(SettingsStyle.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+
+          Text("Heads up: this can consume a large number of API calls.")
+            .font(.custom("Nunito", size: 12))
+            .fontWeight(.semibold)
+            .foregroundColor(SettingsStyle.text)
+        }
+
+        HStack(spacing: 12) {
+          SettingsPrimaryButton(
+            title: viewModel.isReprocessingDay ? "Reprocessing…" : "Reprocess day",
+            systemImage: viewModel.isReprocessingDay ? nil : "arrow.clockwise",
+            isLoading: viewModel.isReprocessingDay,
+            action: { viewModel.showReprocessDayConfirm = true }
+          )
 
           if let status = viewModel.reprocessStatusMessage {
             Text(status)
               .font(.custom("Nunito", size: 12))
-              .foregroundColor(.black.opacity(0.6))
+              .foregroundColor(SettingsStyle.secondary)
           }
         }
 
         if let error = viewModel.reprocessErrorMessage {
           Text(error)
             .font(.custom("Nunito", size: 12))
-            .foregroundColor(Color(hex: "E91515"))
+            .foregroundColor(SettingsStyle.destructive)
         }
       }
       .alert("Reprocess day?", isPresented: $viewModel.showReprocessDayConfirm) {
@@ -235,20 +199,13 @@ struct SettingsDataTabView: View {
     }
   }
 
-  private func formattedTimelineDate(_ date: Date) -> String {
-    Self.dateLabelFormatter.string(from: timelineDisplayDate(from: date))
-  }
+  // MARK: - Date pill
+  //
+  // A small label+date button that opens the inline calendar. Visually
+  // aligned with SettingsSecondaryButton but with a top-label for form
+  // clarity. One style, used for all date inputs.
 
-  private func exportDateBinding(for picker: ExportDatePicker) -> Binding<Date> {
-    switch picker {
-    case .start:
-      return $viewModel.exportStartDate
-    case .end:
-      return $viewModel.exportEndDate
-    }
-  }
-
-  private func datePillField(
+  private func datePill(
     label: String,
     date: Date,
     isExpanded: Bool,
@@ -256,69 +213,69 @@ struct SettingsDataTabView: View {
     disabled: Bool = false,
     onTap: @escaping () -> Void
   ) -> some View {
-    VStack(alignment: .leading, spacing: 7) {
+    VStack(alignment: .leading, spacing: 6) {
       Text(label)
-        .font(.custom("Nunito", size: 11.5))
-        .foregroundColor(.black.opacity(0.52))
+        .font(.custom("Nunito", size: 11))
+        .fontWeight(.semibold)
+        .textCase(.uppercase)
+        .foregroundColor(SettingsStyle.meta)
 
       Button {
         guard !disabled else { return }
         onTap()
       } label: {
-        HStack(spacing: 10) {
-          Image(systemName: "calendar")
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0).opacity(disabled ? 0.4 : 0.75))
-
+        HStack(spacing: 8) {
           Text(formattedTimelineDate(date))
-            .font(.custom("Nunito", size: 14))
-            .foregroundColor(.black.opacity(disabled ? 0.35 : 0.82))
-
-          Spacer(minLength: 4)
+            .font(.custom("Nunito", size: 13))
+            .fontWeight(.semibold)
+            .foregroundColor(SettingsStyle.ink.opacity(disabled ? 0.4 : 1))
 
           Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundColor(.black.opacity(disabled ? 0.2 : 0.35))
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundColor(SettingsStyle.ink.opacity(disabled ? 0.4 : 0.65))
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .frame(minWidth: 176)
+        .padding(.vertical, 8)
+        .frame(minWidth: 170, alignment: .leading)
         .background(
-          RoundedRectangle(cornerRadius: 10)
-            .fill(Color.white.opacity(disabled ? 0.45 : 0.88))
-            .overlay(
-              RoundedRectangle(cornerRadius: 10)
-                .stroke(
-                  isExpanded
-                    ? Color(hex: "F9C36B")
-                    : Color(hex: "FFE0A5"),
-                  lineWidth: 1.2
-                )
-            )
+          RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(Color.black.opacity(disabled ? 0.02 : 0.05))
         )
-        .shadow(color: .black.opacity(disabled ? 0 : 0.05), radius: 6, x: 0, y: 2)
       }
-      .buttonStyle(DayflowPressScaleButtonStyle(pressedScale: 0.97))
+      .buttonStyle(.plain)
       .disabled(disabled)
+      .pointingHandCursor()
       .accessibilityLabel(Text(accessibilityLabel))
     }
   }
 
-  private func inlineCalendarField(
-    label: String,
+  // MARK: - Inline calendar
+  //
+  // Shown as an expanded panel underneath a date pill. Keeps its own
+  // surface (white fill + hairline black stroke) because it's an input
+  // widget, not a section container — like any dropdown menu.
+
+  private func inlineCalendar(
     date: Binding<Date>,
     disabled: Bool = false,
     onDateSelected: @escaping () -> Void
   ) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text(label)
-        .font(.custom("Nunito", size: 11.5))
-        .foregroundColor(.black.opacity(0.5))
+    DayflowCalendarGrid(selectedDate: date, onDateSelected: onDateSelected)
+      .disabled(disabled)
+      .opacity(disabled ? 0.7 : 1)
+  }
 
-      DayflowCalendarGrid(selectedDate: date, onDateSelected: onDateSelected)
-        .disabled(disabled)
+  // MARK: - Helpers
+
+  private func formattedTimelineDate(_ date: Date) -> String {
+    Self.dateLabelFormatter.string(from: timelineDisplayDate(from: date))
+  }
+
+  private func exportDateBinding(for picker: ExportDatePicker) -> Binding<Date> {
+    switch picker {
+    case .start: return $viewModel.exportStartDate
+    case .end: return $viewModel.exportEndDate
     }
-    .opacity(disabled ? 0.7 : 1)
   }
 
   private static let dateLabelFormatter: DateFormatter = {
@@ -328,7 +285,11 @@ struct SettingsDataTabView: View {
   }()
 }
 
-// MARK: - Custom Calendar Grid
+// MARK: - Custom calendar grid
+//
+// Renamed and restyled — no amber accents, ink-brown selection circle,
+// hairline black stroke on the panel. Everything else (layout, keyboard
+// handling, month nav) preserved from the previous implementation.
 
 private struct DayflowCalendarGrid: View {
   @Binding var selectedDate: Date
@@ -340,9 +301,6 @@ private struct DayflowCalendarGrid: View {
   private let calendar = Calendar.current
   private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 7)
 
-  private let accentColor = Color(hex: "E8854A")
-  private let strokeColor = Color(hex: "FFE0A5")
-
   var body: some View {
     VStack(spacing: 12) {
       monthHeader
@@ -352,14 +310,13 @@ private struct DayflowCalendarGrid: View {
     .padding(14)
     .frame(maxWidth: 290, alignment: .leading)
     .background(
-      RoundedRectangle(cornerRadius: 12)
-        .fill(Color.white.opacity(isEnabled ? 0.82 : 0.45))
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .fill(Color.white.opacity(isEnabled ? 0.85 : 0.45))
         .overlay(
-          RoundedRectangle(cornerRadius: 12)
-            .stroke(strokeColor, lineWidth: 1.2)
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .stroke(Color.black.opacity(0.1), lineWidth: 1)
         )
     )
-    .shadow(color: .black.opacity(isEnabled ? 0.04 : 0), radius: 7, x: 0, y: 2)
     .onAppear {
       displayedMonth =
         calendar.date(
@@ -368,25 +325,27 @@ private struct DayflowCalendarGrid: View {
     }
   }
 
-  // MARK: Month header with navigation arrows
-
   private var monthHeader: some View {
     HStack {
       Text(monthYearString)
         .font(.custom("Nunito", size: 14))
         .fontWeight(.semibold)
-        .foregroundColor(.black.opacity(0.82))
+        .foregroundColor(SettingsStyle.text)
 
       Spacer()
 
-      HStack(spacing: 4) {
+      HStack(spacing: 2) {
         Button {
           changeMonth(by: -1)
         } label: {
-          Image("CalendarLeftButton")
-            .resizable()
-            .scaledToFit()
-            .frame(width: 22, height: 22)
+          Image(systemName: "chevron.left")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundColor(SettingsStyle.ink)
+            .frame(width: 24, height: 24)
+            .background(
+              RoundedRectangle(cornerRadius: 6)
+                .fill(Color.black.opacity(0.04))
+            )
         }
         .buttonStyle(.plain)
         .pointingHandCursor()
@@ -394,18 +353,20 @@ private struct DayflowCalendarGrid: View {
         Button {
           changeMonth(by: 1)
         } label: {
-          Image("CalendarRightButton")
-            .resizable()
-            .scaledToFit()
-            .frame(width: 22, height: 22)
+          Image(systemName: "chevron.right")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundColor(SettingsStyle.ink)
+            .frame(width: 24, height: 24)
+            .background(
+              RoundedRectangle(cornerRadius: 6)
+                .fill(Color.black.opacity(0.04))
+            )
         }
         .buttonStyle(.plain)
         .pointingHandCursor()
       }
     }
   }
-
-  // MARK: Weekday labels row
 
   private var weekdayLabels: some View {
     let symbols = calendar.veryShortWeekdaySymbols
@@ -417,14 +378,12 @@ private struct DayflowCalendarGrid: View {
         Text(symbol)
           .font(.custom("Nunito", size: 11))
           .fontWeight(.medium)
-          .foregroundColor(.black.opacity(0.35))
+          .foregroundColor(SettingsStyle.meta)
           .frame(maxWidth: .infinity)
-          .frame(height: 24)
+          .frame(height: 22)
       }
     }
   }
-
-  // MARK: Day number grid
 
   private var dayGrid: some View {
     let firstOfMonth = calendar.date(
@@ -435,12 +394,10 @@ private struct DayflowCalendarGrid: View {
     let offset = (weekday - calendar.firstWeekday + 7) % 7
 
     return LazyVGrid(columns: columns, spacing: 2) {
-      // Leading blank cells
       ForEach(0..<offset, id: \.self) { _ in
-        Color.clear.frame(height: 32)
+        Color.clear.frame(height: 30)
       }
 
-      // Day cells
       ForEach(1...daysInMonth, id: \.self) { day in
         let date = makeDate(
           year: calendar.component(.year, from: firstOfMonth),
@@ -458,18 +415,18 @@ private struct DayflowCalendarGrid: View {
           Text("\(day)")
             .font(.custom("Nunito", size: 13))
             .fontWeight(isSelected ? .bold : (isToday ? .semibold : .regular))
-            .foregroundColor(isSelected ? .white : (isToday ? accentColor : .black.opacity(0.75)))
+            .foregroundColor(
+              isSelected ? .white : (isToday ? SettingsStyle.ink : SettingsStyle.text)
+            )
             .frame(maxWidth: .infinity)
-            .frame(height: 32)
+            .frame(height: 30)
             .background {
               if isSelected {
-                Circle()
-                  .fill(accentColor)
-                  .frame(width: 30, height: 30)
+                Circle().fill(SettingsStyle.ink).frame(width: 28, height: 28)
               } else if isToday {
                 Circle()
-                  .stroke(accentColor.opacity(0.4), lineWidth: 1.2)
-                  .frame(width: 30, height: 30)
+                  .stroke(SettingsStyle.ink.opacity(0.35), lineWidth: 1.2)
+                  .frame(width: 28, height: 28)
               }
             }
         }
@@ -478,8 +435,6 @@ private struct DayflowCalendarGrid: View {
       }
     }
   }
-
-  // MARK: Helpers
 
   private var monthYearString: String {
     let formatter = DateFormatter()
