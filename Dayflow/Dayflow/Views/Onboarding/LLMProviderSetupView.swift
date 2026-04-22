@@ -1419,20 +1419,22 @@ struct LocalLLMTestView: View {
   @State private var success: Bool = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: 14) {
       if showInputs {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
           Text("Base URL")
-            .font(.custom("Nunito", size: 13))
-            .foregroundColor(.black.opacity(0.6))
+            .font(.custom("Nunito", size: 12))
+            .fontWeight(.semibold)
+            .foregroundColor(SettingsStyle.secondary)
           TextField(basePlaceholder ?? engine.defaultBaseURL, text: $baseURL)
             .textFieldStyle(.roundedBorder)
         }
 
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
           Text("Model ID")
-            .font(.custom("Nunito", size: 13))
-            .foregroundColor(.black.opacity(0.6))
+            .font(.custom("Nunito", size: 12))
+            .fontWeight(.semibold)
+            .foregroundColor(SettingsStyle.secondary)
           TextField(
             modelPlaceholder ?? LocalModelPreferences.defaultModelId(for: engine), text: $modelId
           )
@@ -1442,8 +1444,9 @@ struct LocalLLMTestView: View {
         if engine == .custom {
           VStack(alignment: .leading, spacing: 6) {
             Text("API key (optional)")
-              .font(.custom("Nunito", size: 13))
-              .foregroundColor(.black.opacity(0.6))
+              .font(.custom("Nunito", size: 12))
+              .fontWeight(.semibold)
+              .foregroundColor(SettingsStyle.secondary)
             SecureField("sk-live-...", text: $apiKey)
               .textFieldStyle(.roundedBorder)
               .disableAutocorrection(true)
@@ -1451,49 +1454,29 @@ struct LocalLLMTestView: View {
               "Stored locally in UserDefaults and sent as a Bearer token for custom endpoints (LiteLLM, OpenRouter, etc.)"
             )
             .font(.custom("Nunito", size: 11))
-            .foregroundColor(.black.opacity(0.5))
+            .foregroundColor(SettingsStyle.meta)
           }
         }
       }
 
-      DayflowSurfaceButton(
-        action: runTest,
-        content: {
-          HStack(spacing: 8) {
-            if isTesting {
-              ProgressView().scaleEffect(0.8)
-            } else {
-              Image(systemName: success ? "checkmark.circle.fill" : "bolt.fill").font(
-                .system(size: 14))
-            }
-            let idleLabel = success ? "Test Successful!" : buttonLabel
-            Text(isTesting ? "Testing..." : idleLabel)
-              .font(.custom("Nunito", size: 14))
-              .fontWeight(.semibold)
-          }
-        },
-        background: success ? successAccentColor.opacity(0.2) : accentColor,
-        foreground: success ? .black : .white,
-        borderColor: success ? successAccentColor.opacity(0.3) : .clear,
-        cornerRadius: 8,
-        horizontalPadding: 24,
-        verticalPadding: 12,
-        showOverlayStroke: !success
+      SettingsPrimaryButton(
+        title: isTesting ? "Testing…" : buttonLabel,
+        systemImage: "bolt.fill",
+        isLoading: isTesting,
+        action: runTest
       )
-      .disabled(isTesting)
 
-      if let msg = resultMessage {
-        Text(msg)
-          .font(.custom("Nunito", size: 13))
-          .foregroundColor(success ? .black.opacity(0.7) : Color(hex: "E91515"))
-          .padding(.vertical, 6)
-        if !success {
+      if success {
+        SettingsStatusDot(state: .good, label: "Test successful.")
+      } else if let msg = resultMessage {
+        VStack(alignment: .leading, spacing: 6) {
+          SettingsStatusDot(state: .bad, label: msg)
           Text(
             "If you get stuck here, you can go back and choose the ‘Bring your own key’ option — it only takes a minute to set up."
           )
           .font(.custom("Nunito", size: 12))
-          .foregroundColor(.black.opacity(0.55))
-          .padding(.top, 2)
+          .foregroundColor(SettingsStyle.secondary)
+          .fixedSize(horizontal: false, vertical: true)
         }
       }
     }
@@ -1622,85 +1605,57 @@ struct ChatCLITestView: View {
   @State private var debugOutput: String?
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: 14) {
       Text("We'll ask your CLI a simple question to verify it's working and signed in.")
-        .font(.custom("Nunito", size: 13))
-        .foregroundColor(.black.opacity(0.6))
+        .font(.custom("Nunito", size: 12))
+        .foregroundColor(SettingsStyle.secondary)
         .fixedSize(horizontal: false, vertical: true)
 
-      DayflowSurfaceButton(
-        action: runTest,
-        content: {
-          HStack(spacing: 8) {
-            if isTesting {
-              ProgressView().scaleEffect(0.8)
-            } else {
-              Image(systemName: success ? "checkmark.circle.fill" : "bolt.fill").font(
-                .system(size: 14))
-            }
-            let idleLabel = success ? "Test Successful!" : "Test CLI"
-            Text(isTesting ? "Testing..." : idleLabel)
-              .font(.custom("Nunito", size: 14))
-              .fontWeight(.semibold)
-          }
-        },
-        background: success ? successAccentColor.opacity(0.2) : accentColor,
-        foreground: success ? .black : .white,
-        borderColor: success ? successAccentColor.opacity(0.3) : .clear,
-        cornerRadius: 8,
-        horizontalPadding: 24,
-        verticalPadding: 12,
-        showOverlayStroke: !success
+      SettingsPrimaryButton(
+        title: isTesting ? "Testing…" : "Test CLI",
+        systemImage: "bolt.fill",
+        isLoading: isTesting,
+        isDisabled: selectedTool == nil,
+        action: runTest
       )
-      .disabled(isTesting || selectedTool == nil)
-      .opacity(selectedTool == nil ? 0.5 : 1.0)
 
       if selectedTool == nil {
         Text("Select ChatGPT or Claude above before running the test.")
           .font(.custom("Nunito", size: 12))
-          .foregroundColor(.black.opacity(0.6))
+          .foregroundColor(SettingsStyle.secondary)
       }
 
-      if let msg = resultMessage {
-        HStack(alignment: .center, spacing: 8) {
-          Text(msg)
-            .font(.custom("Nunito", size: 13))
-            .foregroundColor(success ? .black.opacity(0.7) : Color(hex: "E91515"))
-
-          if debugOutput != nil {
-            Button(action: copyDebugLogs) {
-              Text("Copy logs")
-                .font(.custom("Nunito", size: 11))
-                .foregroundColor(.black.opacity(0.4))
-                .underline()
+      if success {
+        SettingsStatusDot(state: .good, label: "Test successful.")
+      } else if let msg = resultMessage {
+        VStack(alignment: .leading, spacing: 8) {
+          HStack(alignment: .center, spacing: 10) {
+            SettingsStatusDot(state: .bad, label: msg)
+            if debugOutput != nil {
+              SettingsLinkButton(
+                title: "Copy logs",
+                systemImage: nil,
+                action: copyDebugLogs
+              )
             }
-            .buttonStyle(.plain)
-            .pointingHandCursor()
           }
-        }
-        .padding(.vertical, 6)
-      }
 
-      // Debug output - shows raw CLI response for troubleshooting (only on failure)
-      if let debug = debugOutput, !success {
-        VStack(alignment: .leading, spacing: 6) {
-          Text("Debug output:")
-            .font(.custom("Nunito", size: 11))
-            .fontWeight(.semibold)
-            .foregroundColor(.black.opacity(0.5))
-          ScrollView {
-            Text(debug)
-              .font(.system(size: 11, design: .monospaced))
-              .foregroundColor(.black.opacity(0.6))
-              .textSelection(.enabled)
-              .frame(maxWidth: .infinity, alignment: .leading)
+          if let debug = debugOutput {
+            ScrollView {
+              Text(debug)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(SettingsStyle.secondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 120)
+            .padding(10)
+            .background(
+              RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.black.opacity(0.03))
+            )
           }
-          .frame(maxHeight: 120)
-          .padding(8)
-          .background(Color.black.opacity(0.03))
-          .cornerRadius(6)
         }
-        .padding(.top, 4)
       }
     }
   }
