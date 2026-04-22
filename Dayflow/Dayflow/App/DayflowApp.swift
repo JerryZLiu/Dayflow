@@ -287,6 +287,8 @@ extension Notification.Name {
   static let navigateToDaily = Notification.Name("navigateToDaily")
   static let timelineDataUpdated = Notification.Name("timelineDataUpdated")
   static let showTimelineFailureToast = Notification.Name("showTimelineFailureToast")
+  static let showScreenRecordingPermissionNotice = Notification.Name(
+    "showScreenRecordingPermissionNotice")
   static let openProvidersSettings = Notification.Name("openProvidersSettings")
 }
 
