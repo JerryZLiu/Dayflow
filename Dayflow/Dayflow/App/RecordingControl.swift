@@ -38,6 +38,7 @@ enum RecordingControl {
     Task { @MainActor in
       guard await hasScreenRecordingPermission() else {
         print("[RecordingControl] Screen recording permission not granted; start ignored")
+        ScreenRecordingPermissionNotice.post(reason: "recording_control_start")
         return
       }
 
