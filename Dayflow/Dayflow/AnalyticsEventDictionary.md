@@ -16,7 +16,7 @@ This document lists manual events, properties, and code locations. All events re
   - props: `from_version: string`, `to_version: string`
   - file: App/AppDelegate.swift
 - app_heartbeat
-  - props: `session_hours: number`, `cpu_current_pct_bucket?: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_avg_pct_bucket?: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_peak_pct_bucket?: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_sample_count?: int`, `cpu_sampler_interval_s?: int`
+  - props: `session_hours: number`, `cpu_current_pct_bucket?: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_avg_pct_bucket?: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_peak_pct_bucket?: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_sample_count?: int`, `cpu_sampler_interval_s?: int`, `current_tab?: timeline|daily|weekly|dashboard|journal|bug_report|settings`, `timeline_mode?: day|week`
   - file: App/AppDelegate.swift
 - app_cpu_spike
   - props: `cpu_current_pct_bucket: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_hour_peak_pct_bucket: 0-5%|5-20%|20-50%|50-100%|100-150%|150-200%|>200%`, `cpu_threshold_pct: number`, `cpu_sampler_interval_s: int`
@@ -68,19 +68,22 @@ This document lists manual events, properties, and code locations. All events re
 
 ## Navigation & Timeline
 - tab_selected
-  - props: `tab: timeline|dashboard|journal|settings`
+  - props: `tab: timeline|daily|weekly|dashboard|journal|bug_report|settings`
   - file: Views/UI/MainView.swift
 - timeline_viewed
   - props: `date_bucket: yyyy-MM-dd`
   - file: Views/UI/MainView.swift
+- timeline_mode_changed
+  - props: `from_mode: day|week`, `to_mode: day|week`, `selected_day: yyyy-MM-dd`
+  - file: Views/UI/MainView/Support.swift
 - date_navigation
-  - props: `method: prev|next|picker`, `from_day: yyyy-MM-dd`, `to_day: yyyy-MM-dd`
+  - props: `method: prev|next|picker`, `timeline_mode: day|week`, `from_day: yyyy-MM-dd`, `to_day: yyyy-MM-dd`
   - file: Views/UI/MainView.swift
 - activity_card_opened
   - props: `activity_type: string`, `duration_bucket: string`, `has_video: bool`
   - file: Views/UI/MainView.swift
 - timeline_copied
-  - props: `timeline_day: yyyy-MM-dd`, `activity_count: int`
+  - props: `timeline_mode: day|week`, `timeline_day?: yyyy-MM-dd`, `week_start?: yyyy-MM-dd`, `week_end?: yyyy-MM-dd`, `activity_count: int`
   - file: Views/UI/MainView.swift
 
 ## Dashboard Chat
