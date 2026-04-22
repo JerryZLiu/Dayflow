@@ -228,13 +228,39 @@ extension MainView {
     return cachedDayStringFormatter.string(from: date)
   }
 
+  func syncCurrentUIContext(
+    selectedTab: SidebarIcon? = nil,
+    timelineModeOverride: TimelineMode? = nil
+  ) {
+    let tab = selectedTab ?? selectedIcon
+    let mode = timelineModeOverride ?? timelineMode
+    let timelineModeName = tab == .timeline ? mode.rawValue : nil
+    appState.updateCurrentUIContext(
+      tabName: tab.analyticsTabName,
+      timelineMode: timelineModeName
+    )
+  }
+
   func setTimelineMode(_ mode: TimelineMode) {
     guard timelineMode != mode else { return }
+
+    let previousMode = timelineMode
 
     withAnimation(timelineModeContentAnimation) {
       timelineMode = mode
       selectedActivity = nil
     }
+
+    syncCurrentUIContext(timelineModeOverride: mode)
+
+    AnalyticsService.shared.capture(
+      "timeline_mode_changed",
+      [
+        "from_mode": previousMode.rawValue,
+        "to_mode": mode.rawValue,
+        "selected_day": dayString(selectedDate),
+      ]
+    )
 
     loadWeeklyTrackedMinutes()
   }

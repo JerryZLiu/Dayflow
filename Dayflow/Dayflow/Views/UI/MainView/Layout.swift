@@ -127,7 +127,7 @@ extension MainView {
       }
       .onReceive(NotificationCenter.default.publisher(for: .navigateToJournal)) { _ in
         withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
-          selectedIcon = .journal
+          selectedIcon = .weekly
         }
       }
       .onReceive(NotificationCenter.default.publisher(for: .showTimelineFailureToast)) {
@@ -165,6 +165,8 @@ extension MainView {
   }
 
   private func performMainLayoutOnAppear() {
+    syncCurrentUIContext()
+
     // screen viewed and initial timeline view
     AnalyticsService.shared.screen("timeline")
     AnalyticsService.shared.withSampling(probability: 0.01) {
@@ -214,16 +216,8 @@ extension MainView {
       }
     }
 
-    let tabName: String
-    switch newIcon {
-    case .timeline: tabName = "timeline"
-    case .daily: tabName = "daily"
-    case .weekly: tabName = "weekly"
-    case .chat: tabName = "dashboard"
-    case .journal: tabName = "journal"
-    case .bug: tabName = "bug_report"
-    case .settings: tabName = "settings"
-    }
+    let tabName = newIcon.analyticsTabName
+    syncCurrentUIContext(selectedTab: newIcon)
 
     SentryHelper.configureScope { scope in
       scope.setContext(
@@ -685,10 +679,16 @@ extension MainView {
     }) {
       ZStack {
         Capsule(style: .continuous)
-          .fill(Color(hex: "FFA777"))
+          .fill(timelineCalendarButtonFillColor)
           .overlay(
             Capsule(style: .continuous)
-              .stroke(Color(hex: "F2D2BD"), lineWidth: 1)
+              .stroke(timelineCalendarButtonBorderColor, lineWidth: 1)
+          )
+          .shadow(
+            color: timelineCalendarButtonShadowColor,
+            radius: showTimelineCalendarPopover ? 8 : 0,
+            x: 0,
+            y: showTimelineCalendarPopover ? 2 : 0
           )
 
         Image("CalendarIcon")
@@ -699,14 +699,35 @@ extension MainView {
       .frame(width: 36, height: 30)
       .contentShape(Capsule(style: .continuous))
     }
-    .buttonStyle(DayflowPressScaleButtonStyle())
-    .hoverScaleEffect(scale: 1.01)
+    .buttonStyle(
+      DayflowPressScaleButtonStyle(
+        pressedScale: 0.985,
+        animation: .spring(response: 0.18, dampingFraction: 0.88)
+      )
+    )
     .pointingHandCursorOnHover(reassertOnPressEnd: true)
+    .animation(timelineCalendarButtonStateAnimation, value: showTimelineCalendarPopover)
     .trackTimelineCalendarButtonFrame()
   }
 
+  private var timelineCalendarButtonFillColor: Color {
+    showTimelineCalendarPopover ? Color(hex: "FFB38E") : Color(hex: "FFA777")
+  }
+
+  private var timelineCalendarButtonBorderColor: Color {
+    showTimelineCalendarPopover ? Color(hex: "E8BDA1") : Color(hex: "F2D2BD")
+  }
+
+  private var timelineCalendarButtonShadowColor: Color {
+    showTimelineCalendarPopover ? .black.opacity(0.10) : .clear
+  }
+
+  private var timelineCalendarButtonStateAnimation: Animation {
+    reduceMotion ? .linear(duration: 0.01) : .easeOut(duration: 0.14)
+  }
+
   private var timelineCalendarPopoverOpenAnimation: Animation {
-    reduceMotion ? .linear(duration: 0.01) : .easeOut(duration: 0.16)
+    reduceMotion ? .linear(duration: 0.01) : .easeOut(duration: 0.18)
   }
 
   private var timelineCalendarPopoverCloseAnimation: Animation {
@@ -718,10 +739,10 @@ extension MainView {
 
     return .asymmetric(
       insertion: .opacity
-        .combined(with: .scale(scale: 0.985, anchor: .top))
+        .combined(with: .offset(y: -6))
         .animation(timelineCalendarPopoverOpenAnimation),
       removal: .opacity
-        .combined(with: .scale(scale: 0.99, anchor: .top))
+        .combined(with: .offset(y: -4))
         .animation(timelineCalendarPopoverCloseAnimation)
     )
   }
