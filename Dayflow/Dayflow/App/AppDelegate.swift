@@ -328,6 +328,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       props["cpu_sample_count"] = cpuSnapshot.sampleCount
       props["cpu_sampler_interval_s"] = Int(cpuSnapshot.samplerInterval)
     }
+    if let currentTab = AppState.shared.currentTabName {
+      props["current_tab"] = currentTab
+      if currentTab == "timeline", let timelineMode = AppState.shared.currentTimelineMode {
+        props["timeline_mode"] = timelineMode
+      }
+    }
     AnalyticsService.shared.capture("app_heartbeat", props)
   }
 
