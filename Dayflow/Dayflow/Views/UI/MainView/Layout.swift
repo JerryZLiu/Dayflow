@@ -77,6 +77,7 @@ extension MainView {
       // Hero animation overlay for video expansion (Emil Kowalski: shared element transitions)
       .overlay { overlayContent }
       .overlay(alignment: .bottomTrailing) { timelineFailureToastOverlayContent }
+      .overlay(alignment: .bottomTrailing) { screenRecordingPermissionNoticeOverlayContent }
       .overlay { categoryEditorOverlay }
   }
 
@@ -133,6 +134,9 @@ extension MainView {
       .onReceive(NotificationCenter.default.publisher(for: .showTimelineFailureToast)) {
         handleShowTimelineFailureToastNotification($0)
       }
+      .onReceive(NotificationCenter.default.publisher(for: .showScreenRecordingPermissionNotice)) {
+        handleShowScreenRecordingPermissionNoticeNotification($0)
+      }
       .onReceive(NotificationCenter.default.publisher(for: .timelineDataUpdated)) {
         handleTimelineDataUpdatedNotification($0)
       }
@@ -157,6 +161,19 @@ extension MainView {
         message: payload.message,
         onOpenSettings: { handleTimelineFailureToastOpenSettings(payload) },
         onDismiss: { handleTimelineFailureToastDismiss(payload) }
+      )
+      .padding(.trailing, 24)
+      .padding(.bottom, 24)
+      .transition(.move(edge: .trailing).combined(with: .opacity))
+    }
+  }
+
+  @ViewBuilder
+  private var screenRecordingPermissionNoticeOverlayContent: some View {
+    if showScreenRecordingPermissionNotice {
+      ScreenRecordingPermissionNoticeView(
+        onOpenSettings: handleScreenRecordingPermissionNoticeOpenSettings,
+        onDismiss: handleScreenRecordingPermissionNoticeDismiss
       )
       .padding(.trailing, 24)
       .padding(.bottom, 24)
@@ -194,6 +211,7 @@ extension MainView {
     if !didInitialScroll {
       performInitialScrollIfNeeded()
     }
+    showScreenRecordingNoticeIfNeeded()
     startDayChangeTimer()
     loadWeeklyTrackedMinutes()
     updateCardsToReviewCount()
@@ -202,6 +220,8 @@ extension MainView {
   private func performMainLayoutOnDisappear() {
     // Safety: stop timer if view disappears
     stopDayChangeTimer()
+    reviewCountTask?.cancel()
+    reviewCountTask = nil
     copyTimelineTask?.cancel()
     deleteTimelineTask?.cancel()
   }
@@ -325,7 +345,29 @@ extension MainView {
     }
   }
 
+  private func handleShowScreenRecordingPermissionNoticeNotification(_ notification: Notification) {
+    showScreenRecordingNoticeIfNeeded()
+  }
+
+  private func showScreenRecordingNoticeIfNeeded() {
+    guard !didDismissScreenRecordingPermissionNoticeThisSession else { return }
+    guard !ScreenRecordingPermissionNotice.isGranted else {
+      showScreenRecordingPermissionNotice = false
+      return
+    }
+    guard AppState.shared.getSavedPreference() == true || appState.isRecording else { return }
+
+    withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+      showScreenRecordingPermissionNotice = true
+    }
+  }
+
   private func handleAppDidBecomeActive() {
+    if ScreenRecordingPermissionNotice.isGranted {
+      showScreenRecordingPermissionNotice = false
+      didDismissScreenRecordingPermissionNoticeThisSession = false
+    }
+
     // Check if day changed while app was backgrounded
     handleMinuteTickForDayChange()
     // Ensure timer is running
@@ -352,6 +394,23 @@ extension MainView {
     AnalyticsService.shared.capture("llm_timeline_failure_toast_dismissed", payload.analyticsProps)
     withAnimation(.spring(response: 0.25, dampingFraction: 0.92)) {
       timelineFailureToastPayload = nil
+    }
+  }
+
+  private func handleScreenRecordingPermissionNoticeOpenSettings() {
+    AnalyticsService.shared.capture("screen_permission_notice_clicked_settings")
+    didDismissScreenRecordingPermissionNoticeThisSession = true
+    withAnimation(.spring(response: 0.25, dampingFraction: 0.92)) {
+      showScreenRecordingPermissionNotice = false
+    }
+    ScreenRecordingPermissionNotice.openSystemSettings()
+  }
+
+  private func handleScreenRecordingPermissionNoticeDismiss() {
+    AnalyticsService.shared.capture("screen_permission_notice_dismissed")
+    didDismissScreenRecordingPermissionNoticeThisSession = true
+    withAnimation(.spring(response: 0.25, dampingFraction: 0.92)) {
+      showScreenRecordingPermissionNotice = false
     }
   }
 
@@ -954,7 +1013,8 @@ extension MainView {
             onSelectActivity: selectTimelineActivity,
             onClearSelection: { clearTimelineSelection() },
             weeklyHoursFrame: weeklyHoursFrame,
-            weeklyHoursIntersectsCard: $weeklyHoursIntersectsCard
+            weeklyHoursIntersectsCard: $weeklyHoursIntersectsCard,
+            hideCardsForModeSwitch: hideWeekCardsDuringModeSwitch
           )
           // Week is the zoomed-OUT view (7 days). Entering Week from Day
           // feels like pulling back: start at 1.05 (slightly too large) and
@@ -1010,7 +1070,6 @@ extension MainView {
       switch timelineMode {
       case .day:
         dayTimelineInspectorContent(geo: geo)
-
       case .week:
         weekTimelineInspectorContent(geo: geo)
       }
@@ -1307,6 +1366,73 @@ private struct TimelineFailureToastView: View {
             Image(systemName: "gearshape")
               .font(.system(size: 12))
             Text("Open Provider Settings")
+              .font(.custom("Nunito", size: 12))
+              .fontWeight(.semibold)
+          }
+        },
+        background: Color(red: 0.25, green: 0.17, blue: 0),
+        foreground: .white,
+        borderColor: .clear,
+        cornerRadius: 8,
+        horizontalPadding: 14,
+        verticalPadding: 8,
+        showOverlayStroke: true
+      )
+    }
+    .padding(14)
+    .frame(width: 360, alignment: .leading)
+    .background(Color(hex: "FFF8F2"))
+    .cornerRadius(12)
+    .overlay(
+      RoundedRectangle(cornerRadius: 12)
+        .stroke(Color(hex: "F3D9C2"), lineWidth: 1)
+    )
+    .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 6)
+  }
+}
+
+private struct ScreenRecordingPermissionNoticeView: View {
+  let onOpenSettings: () -> Void
+  let onDismiss: () -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .top, spacing: 10) {
+        Image(systemName: "record.circle.fill")
+          .font(.system(size: 15))
+          .foregroundColor(Color(hex: "C7352D"))
+          .padding(.top, 2)
+
+        VStack(alignment: .leading, spacing: 3) {
+          Text("Screen recording access needed")
+            .font(.custom("Nunito", size: 13))
+            .fontWeight(.semibold)
+            .foregroundColor(.black.opacity(0.86))
+
+          Text("Dayflow cannot update your timeline until access is restored.")
+            .font(.custom("Nunito", size: 12))
+            .foregroundColor(.black.opacity(0.62))
+            .fixedSize(horizontal: false, vertical: true)
+        }
+
+        Button(action: onDismiss) {
+          Image(systemName: "xmark")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundColor(.black.opacity(0.45))
+            .frame(width: 18, height: 18)
+        }
+        .buttonStyle(.plain)
+        .hoverScaleEffect(scale: 1.02)
+        .pointingHandCursorOnHover(reassertOnPressEnd: true)
+      }
+
+      DayflowSurfaceButton(
+        action: onOpenSettings,
+        content: {
+          HStack(spacing: 6) {
+            Image(systemName: "gearshape")
+              .font(.system(size: 12))
+            Text("Open System Settings")
               .font(.custom("Nunito", size: 12))
               .fontWeight(.semibold)
           }
