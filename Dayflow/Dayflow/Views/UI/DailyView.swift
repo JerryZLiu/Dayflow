@@ -3101,13 +3101,28 @@ private func computeDailyWorkflow(cards: [TimelineCard], categories: [TimelineCa
 
       // Source 2: Mini distractions embedded within any card
       if let distractions = card.distractions {
+        guard let rawCardStart = parseCardMinute(card.startTimestamp),
+          let rawCardEnd = parseCardMinute(card.endTimestamp)
+        else {
+          continue
+        }
+
+        let parentRange = normalizedMinuteRange(start: rawCardStart, end: rawCardEnd)
+
         for distraction in distractions {
           if let rawStart = parseCardMinute(distraction.startTime),
             let rawEnd = parseCardMinute(distraction.endTime)
           {
-            var (startMin, endMin) = normalizedMinuteRange(start: rawStart, end: rawEnd)
-            // Ensure mini distractions have at least 1 minute of visual width
-            if endMin - startMin < 1 { endMin = startMin + 1 }
+            guard
+              let (startMin, endMin) = normalizedMiniDistractionRange(
+                start: rawStart,
+                end: rawEnd,
+                parentStart: parentRange.start,
+                parentEnd: parentRange.end
+              )
+            else {
+              continue
+            }
 
             let clippedStart = max(startMin, visibleStart)
             let clippedEnd = min(endMin, visibleEnd)
@@ -3184,6 +3199,53 @@ private func normalizedMinuteRange(start: Double, end: Double) -> (start: Double
   var e = end < 240 ? end + 1440 : end
   if e <= s { e += 1440 }
   return (s, e)
+}
+
+func normalizedMiniDistractionRange(
+  start rawStart: Double,
+  end rawEnd: Double,
+  parentStart: Double,
+  parentEnd: Double
+) -> (start: Double, end: Double)? {
+  guard parentEnd > parentStart else { return nil }
+
+  let start = anchoredMinute(rawStart, parentStart: parentStart, parentEnd: parentEnd)
+  let end = anchoredMinute(rawEnd, parentStart: parentStart, parentEnd: parentEnd)
+
+  let isValidParentAnchoredRange =
+    end > start
+    && start >= parentStart
+    && end <= parentEnd
+
+  if isValidParentAnchoredRange {
+    return (start, end)
+  }
+
+  let latestValidStart = max(parentStart, parentEnd - 1)
+  let collapsedStart = min(max(start, parentStart), latestValidStart)
+  let collapsedEnd = min(parentEnd, collapsedStart + 1)
+
+  guard collapsedEnd > collapsedStart else { return nil }
+  return (collapsedStart, collapsedEnd)
+}
+
+private func anchoredMinute(
+  _ rawMinute: Double,
+  parentStart: Double,
+  parentEnd: Double
+) -> Double {
+  let candidates = [rawMinute, rawMinute + 1440, rawMinute - 1440]
+
+  return candidates.min {
+    distanceToRange($0, start: parentStart, end: parentEnd)
+      < distanceToRange($1, start: parentStart, end: parentEnd)
+  } ?? rawMinute
+}
+
+private func distanceToRange(_ value: Double, start: Double, end: Double) -> Double {
+  if value < start { return start - value }
+  if value > end { return value - end }
+  return 0
 }
 
 private func parseCardMinute(_ value: String) -> Double? {
