@@ -25,6 +25,7 @@ struct TimelineActivity: Identifiable {
   let screenshot: NSImage?
   let appSites: AppSites?
   let isBackupGenerated: Bool?
+  let llmLabel: String?
 
   static func stableId(
     recordId: Int64?, batchId: Int64?, startTime: Date, endTime: Date, title: String,
@@ -64,7 +65,8 @@ struct TimelineActivity: Identifiable {
       videoSummaryURL: videoSummaryURL,
       screenshot: screenshot,
       appSites: appSites,
-      isBackupGenerated: isBackupGenerated
+      isBackupGenerated: isBackupGenerated,
+      llmLabel: llmLabel
     )
   }
 
@@ -84,7 +86,8 @@ struct TimelineActivity: Identifiable {
       videoSummaryURL: newVideoSummaryURL,
       screenshot: screenshot,
       appSites: appSites,
-      isBackupGenerated: isBackupGenerated
+      isBackupGenerated: isBackupGenerated,
+      llmLabel: llmLabel
     )
   }
 }

@@ -1438,7 +1438,8 @@ private struct WeekTimelineHoverPrototypeHarness: View {
         videoSummaryURL: nil,
         screenshot: nil,
         appSites: spec.favicon.map { AppSites(primary: $0, secondary: nil) },
-        isBackupGenerated: false
+        isBackupGenerated: false,
+        llmLabel: nil
       )
 
       let yPos = CGFloat(spec.startMinutes) * ppm + 1

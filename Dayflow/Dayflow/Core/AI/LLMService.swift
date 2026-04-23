@@ -166,6 +166,19 @@ final class LLMService: LLMServicing {
       chatTool: resolvedChatCLITool(for: providerID, override: chatToolOverride))
   }
 
+  /// Same as `providerLabel` but substitutes the configured local model id
+  /// for `.ollama` (e.g. "Qwen3-VL-4B-Instruct" instead of just "local").
+  private func enrichedProviderLabel(base: String, providerID: LLMProviderID) -> String {
+    if providerID == .ollama,
+      let modelId = UserDefaults.standard.string(forKey: "llmLocalModelId")?
+        .trimmingCharacters(in: .whitespacesAndNewlines),
+      !modelId.isEmpty
+    {
+      return modelId
+    }
+    return base
+  }
+
   private func noProviderError() -> NSError {
     NSError(
       domain: "LLMService",
@@ -773,6 +786,8 @@ final class LLMService: LLMServicing {
         // Note: card generation log is not persisted per-batch yet
 
         // Replace old cards with new ones in the time range
+        let effectiveProviderLabel = enrichedProviderLabel(
+          base: activeContext.providerLabel, providerID: activeContext.id)
         let (insertedCardIds, deletedVideoPaths) = StorageManager.shared
           .replaceTimelineCardsInRange(
             from: windowStartTime,
@@ -788,7 +803,8 @@ final class LLMService: LLMServicing {
                 detailedSummary: card.detailedSummary,
                 distractions: card.distractions,
                 appSites: card.appSites,
-                isBackupGenerated: isBackupGenerated ? true : nil
+                isBackupGenerated: isBackupGenerated ? true : nil,
+                llmLabel: effectiveProviderLabel
               )
             },
             batchId: batchId
