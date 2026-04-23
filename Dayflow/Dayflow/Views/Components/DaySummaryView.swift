@@ -947,18 +947,52 @@ struct DaySummaryView: View {
   nonisolated private func computeCategoryDurations(
     from precomputed: [CardWithDuration], categories: [TimelineCategory]
   ) -> [CategoryTimeData] {
+    let categoryLookup = firstCategoryLookup(
+      from: categories, normalizedKey: normalizedCategoryName)
     var durationsByCategory: [String: TimeInterval] = [:]
+    var fallbackNamesByCategory: [String: String] = [:]
 
     for item in normalizedNonSystemDurations(from: precomputed, categories: categories) {
-      durationsByCategory[item.card.category, default: 0] += item.duration
+      let categoryKey = normalizedCategoryName(item.card.category)
+      durationsByCategory[categoryKey, default: 0] += item.duration
+
+      if fallbackNamesByCategory[categoryKey] == nil {
+        fallbackNamesByCategory[categoryKey] = item.card.category
+      }
     }
 
-    return durationsByCategory.compactMap { (name, duration) -> CategoryTimeData? in
-      guard duration > 0 else { return nil }
-      let colorHex = categories.first(where: { $0.name == name })?.colorHex ?? "#E5E7EB"
-      return CategoryTimeData(name: name, colorHex: colorHex, duration: duration)
+    return durationsByCategory.keys.sorted { lhs, rhs in
+      let lhsDuration = durationsByCategory[lhs, default: 0]
+      let rhsDuration = durationsByCategory[rhs, default: 0]
+      let lhsDisplayMinutes = Int(lhsDuration / 60)
+      let rhsDisplayMinutes = Int(rhsDuration / 60)
+
+      if lhsDisplayMinutes != rhsDisplayMinutes {
+        return lhsDisplayMinutes > rhsDisplayMinutes
+      }
+
+      let lhsOrder = categoryLookup[lhs]?.order ?? Int.max
+      let rhsOrder = categoryLookup[rhs]?.order ?? Int.max
+
+      if lhsOrder != rhsOrder {
+        return lhsOrder < rhsOrder
+      }
+
+      let lhsName = categoryLookup[lhs]?.name ?? fallbackNamesByCategory[lhs] ?? lhs
+      let rhsName = categoryLookup[rhs]?.name ?? fallbackNamesByCategory[rhs] ?? rhs
+      return lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedAscending
     }
-    .sorted { $0.duration > $1.duration }
+    .compactMap { categoryKey -> CategoryTimeData? in
+      guard let duration = durationsByCategory[categoryKey] else { return nil }
+      guard duration > 0 else { return nil }
+
+      if let category = categoryLookup[categoryKey] {
+        return CategoryTimeData(category: category, duration: duration)
+      }
+
+      let name = fallbackNamesByCategory[categoryKey] ?? categoryKey
+      return CategoryTimeData(name: name, colorHex: "#E5E7EB", duration: duration)
+    }
   }
 
   /// Computes total captured time from pre-computed data
