@@ -11,23 +11,29 @@ import SwiftUI
 // MARK: - Data Model
 
 struct CategoryTimeData: Identifiable {
-  let id: UUID
+  let id: String
   let name: String
   let colorHex: String
   let duration: TimeInterval  // in seconds
 
-  init(id: UUID = UUID(), name: String, colorHex: String, duration: TimeInterval) {
-    self.id = id
+  init(id: String? = nil, name: String, colorHex: String, duration: TimeInterval) {
+    self.id = id ?? Self.stableFallbackID(name: name, colorHex: colorHex)
     self.name = name
     self.colorHex = colorHex
     self.duration = duration
   }
 
   init(category: TimelineCategory, duration: TimeInterval) {
-    self.id = category.id
+    self.id = category.id.uuidString
     self.name = category.name
     self.colorHex = category.colorHex
     self.duration = duration
+  }
+
+  private static func stableFallbackID(name: String, colorHex: String) -> String {
+    let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let normalizedColor = colorHex.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return "\(normalizedName)|\(normalizedColor)"
   }
 
   var color: Color {
