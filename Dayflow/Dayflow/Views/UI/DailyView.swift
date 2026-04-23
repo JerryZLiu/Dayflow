@@ -295,8 +295,8 @@ struct DailyView: View {
       providerAvailabilityTask?.cancel()
       providerAvailabilityTask = nil
     }
-    .onChange(of: selectedDate) { _, _ in
-      refreshWorkflowData()
+    .onChange(of: selectedDate) { oldDate, newDate in
+      handleSelectedDateChange(oldDate: oldDate, newDate: newDate)
     }
     .onChange(of: standupDraft) { _, _ in
       scheduleStandupDraftSave()
@@ -1136,6 +1136,8 @@ struct DailyView: View {
       guard !Task.isCancelled else { return }
 
       await MainActor.run {
+        guard isStillViewingWorkflowDay(workflowDay.dayString) else { return }
+
         workflowRows = computed.rows
         workflowTotals = computed.totals
         workflowStats = computed.stats
@@ -1144,6 +1146,30 @@ struct DailyView: View {
         workflowHasDistractionCategory = computed.hasDistractionCategory
       }
     }
+  }
+
+  private func handleSelectedDateChange(oldDate: Date, newDate: Date) {
+    let oldWorkflowDay = workflowDayString(for: oldDate)
+    let newWorkflowDay = workflowDayString(for: newDate)
+
+    if oldWorkflowDay != newWorkflowDay {
+      cancelStandupRegeneration()
+    }
+
+    refreshWorkflowData()
+  }
+
+  private func cancelStandupRegeneration() {
+    standupRegenerateTask?.cancel()
+    standupRegenerateTask = nil
+    standupRegenerateResetTask?.cancel()
+    standupRegenerateResetTask = nil
+    standupRegenerateState = .idle
+    standupRegeneratingDotsPhase = 1
+  }
+
+  private func isStillViewingWorkflowDay(_ dayString: String) -> Bool {
+    workflowDayString(for: selectedDate) == dayString
   }
 
   private func copyStandupUpdateToClipboard() {
@@ -1249,8 +1275,6 @@ struct DailyView: View {
         print(
           "[Daily] Regenerate failed run_id=\(regenerateRunId) day=\(dayString) reason=no_cards")
         await MainActor.run {
-          standupRegenerateState = .noData
-          standupRegenerateTask = nil
           AnalyticsService.shared.capture(
             "daily_generation_failed",
             providerProps.merging(
@@ -1261,6 +1285,11 @@ struct DailyView: View {
               ],
               uniquingKeysWith: { _, new in new }
             ))
+
+          guard isStillViewingWorkflowDay(storageDayString) else { return }
+
+          standupRegenerateState = .noData
+          standupRegenerateTask = nil
           scheduleStandupRegenerateReset()
         }
         return
@@ -1332,8 +1361,6 @@ struct DailyView: View {
               + "reason=encode_failed"
           )
           await MainActor.run {
-            standupRegenerateState = .idle
-            standupRegenerateTask = nil
             AnalyticsService.shared.capture(
               "daily_generation_failed",
               providerProps.merging(
@@ -1344,6 +1371,11 @@ struct DailyView: View {
                 ],
                 uniquingKeysWith: { _, new in new }
               ))
+
+            guard isStillViewingWorkflowDay(storageDayString) else { return }
+
+            standupRegenerateState = .idle
+            standupRegenerateTask = nil
           }
           return
         }
@@ -1359,15 +1391,11 @@ struct DailyView: View {
           "[Daily] Regenerate succeeded run_id=\(regenerateRunId) day=\(dayString) cards=\(cards.count) observations=\(observations.count) highlights=\(regeneratedDraft.highlights.count) tasks=\(regeneratedDraft.tasks.count) blockers=\(blockersCount) latency_ms=\(latencyMs)"
         )
 
-        await MainActor.run {
-          standupDraft = regeneratedDraft
-          loadedStandupDraftDay = storageDayString
-          loadedStandupFallbackSourceDay = sourceDayInfo.dayString
-          standupSourceDay = sourceDayInfo
-          hasPersistedStandupEntry = true
-          standupRegenerateTask = nil
-          standupRegenerateState = .regenerated
+        let shouldApplyVisibleResult = await MainActor.run {
+          isStillViewingWorkflowDay(storageDayString)
+        }
 
+        await MainActor.run {
           AnalyticsService.shared.capture(
             "daily_standup_regenerated",
             providerProps.merging(
@@ -1398,6 +1426,16 @@ struct DailyView: View {
           )
           NotificationService.shared.scheduleDailyRecapReadyNotification(forDay: storageDayString)
 
+          guard shouldApplyVisibleResult else { return }
+
+          standupDraft = regeneratedDraft
+          loadedStandupDraftDay = storageDayString
+          loadedStandupFallbackSourceDay = sourceDayInfo.dayString
+          standupSourceDay = sourceDayInfo
+          hasPersistedStandupEntry = true
+          standupRegenerateTask = nil
+          standupRegenerateState = .regenerated
+
           scheduleStandupRegenerateReset()
         }
       } catch {
@@ -1407,8 +1445,6 @@ struct DailyView: View {
           "[Daily] Regenerate failed run_id=\(regenerateRunId) day=\(dayString) reason=api_error error_domain=\(nsError.domain) error_code=\(nsError.code) error_message=\(nsError.localizedDescription)"
         )
         await MainActor.run {
-          standupRegenerateState = .idle
-          standupRegenerateTask = nil
           AnalyticsService.shared.capture(
             "daily_generation_failed",
             providerProps.merging(
@@ -1422,6 +1458,11 @@ struct DailyView: View {
               ],
               uniquingKeysWith: { _, new in new }
             ))
+
+          guard isStillViewingWorkflowDay(storageDayString) else { return }
+
+          standupRegenerateState = .idle
+          standupRegenerateTask = nil
         }
       }
     }
