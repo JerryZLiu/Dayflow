@@ -24,6 +24,13 @@ protocol AnalysisManaging {
   func reprocessBatch(
     _ batchId: Int64, stepHandler: @escaping (LLMProcessingStep) -> Void,
     completion: @escaping (Result<Void, Error>) -> Void)
+  /// Re-run LLM analysis for a single card's source batch with an explicit provider override.
+  func reanalyzeCard(
+    _ cardId: Int64,
+    providerOverride: LLMProviderID,
+    chatToolOverride: ChatCLITool?,
+    stepHandler: @escaping (LLMProcessingStep) -> Void,
+    completion: @escaping (Result<Void, Error>) -> Void)
 }
 
 final class AnalysisManager: AnalysisManaging {
@@ -381,6 +388,68 @@ final class AnalysisManager: AnalysisManaging {
     }
   }
 
+  func reanalyzeCard(
+    _ cardId: Int64,
+    providerOverride: LLMProviderID,
+    chatToolOverride: ChatCLITool?,
+    stepHandler: @escaping (LLMProcessingStep) -> Void,
+    completion: @escaping (Result<Void, Error>) -> Void
+  ) {
+    queue.async { [weak self] in
+      guard let self else {
+        DispatchQueue.main.async {
+          completion(
+            .failure(
+              NSError(
+                domain: "AnalysisManager", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Manager deallocated"])))
+        }
+        return
+      }
+
+      guard let batchId = self.store.batchIdForTimelineCard(cardId) else {
+        DispatchQueue.main.async {
+          completion(
+            .failure(
+              NSError(
+                domain: "AnalysisManager", code: 5,
+                userInfo: [
+                  NSLocalizedDescriptionKey:
+                    "Can't re-analyze: this card has no source batch on disk."
+                ])))
+        }
+        return
+      }
+
+      guard !self.store.screenshotsForBatch(batchId).isEmpty else {
+        DispatchQueue.main.async {
+          completion(
+            .failure(
+              NSError(
+                domain: "AnalysisManager", code: 6,
+                userInfo: [
+                  NSLocalizedDescriptionKey:
+                    "Can't re-analyze: screenshots for this card have been purged."
+                ])))
+        }
+        return
+      }
+
+      self.store.deleteObservations(forBatchIds: [batchId])
+      _ = self.store.resetBatchStatuses(forBatchIds: [batchId])
+
+      self.queueLLMRequest(
+        batchId: batchId,
+        providerOverride: providerOverride,
+        chatToolOverride: chatToolOverride,
+        progressHandler: stepHandler,
+        completion: { result in
+          DispatchQueue.main.async { completion(result) }
+        }
+      )
+    }
+  }
+
   @objc private func timerFired() { triggerAnalysisNow() }
 
   private func processRecordings() {
@@ -400,6 +469,8 @@ final class AnalysisManager: AnalysisManaging {
 
   private func queueLLMRequest(
     batchId: Int64,
+    providerOverride: LLMProviderID? = nil,
+    chatToolOverride: ChatCLITool? = nil,
     progressHandler: ((LLMProcessingStep) -> Void)? = nil,
     completion: ((Result<Void, Error>) -> Void)? = nil
   ) {
@@ -473,7 +544,12 @@ final class AnalysisManager: AnalysisManaging {
 
     updateBatchStatus(batchId: batchId, status: "processing")
 
-    llmService.processBatch(batchId, progressHandler: progressHandler) {
+    llmService.processBatch(
+      batchId,
+      providerOverride: providerOverride,
+      chatToolOverride: chatToolOverride,
+      progressHandler: progressHandler
+    ) {
       [weak self] (result: Result<ProcessedBatchResult, Error>) in
       guard let self else { return }
 

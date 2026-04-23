@@ -23,6 +23,14 @@ protocol LLMServicing {
   func processBatch(
     _ batchId: Int64, progressHandler: ((LLMProcessingStep) -> Void)?,
     completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void)
+  /// Process a batch with an explicit provider override (bypasses user's configured primary/backup).
+  /// Used by per-card retry so the user can pick "re-analyze with X".
+  func processBatch(
+    _ batchId: Int64,
+    providerOverride: LLMProviderID?,
+    chatToolOverride: ChatCLITool?,
+    progressHandler: ((LLMProcessingStep) -> Void)?,
+    completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void)
   func generateText(prompt: String) async throws -> String
   func generateTextStreaming(prompt: String) -> AsyncThrowingStream<String, Error>
   /// Rich chat streaming with thinking, tool calls, and text events.
@@ -605,6 +613,22 @@ final class LLMService: LLMServicing {
     _ batchId: Int64, progressHandler: ((LLMProcessingStep) -> Void)? = nil,
     completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void
   ) {
+    processBatch(
+      batchId,
+      providerOverride: nil,
+      chatToolOverride: nil,
+      progressHandler: progressHandler,
+      completion: completion
+    )
+  }
+
+  func processBatch(
+    _ batchId: Int64,
+    providerOverride: LLMProviderID?,
+    chatToolOverride: ChatCLITool?,
+    progressHandler: ((LLMProcessingStep) -> Void)?,
+    completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void
+  ) {
     Task {
       // Get batch info first (outside do-catch so it's available in catch block)
       let batches = StorageManager.shared.allBatches()
@@ -619,9 +643,16 @@ final class LLMService: LLMServicing {
 
       let (_, batchStartTs, batchEndTs, _) = batchInfo
       let processingStartTime = Date()
-      let primaryProviderID = LLMProviderID.from(providerType)
-      let primaryProviderLabel = providerLabel(for: primaryProviderID)
-      let configuredBackup = configuredBackupProvider(primaryProviderID: primaryProviderID)
+      let primaryProviderID = providerOverride ?? LLMProviderID.from(providerType)
+      let primaryChatToolOverride = providerOverride != nil ? chatToolOverride : nil
+      let primaryProviderLabel = providerLabel(
+        for: primaryProviderID, chatToolOverride: primaryChatToolOverride)
+      // When an override is used, skip the configured-backup chain: the caller
+      // explicitly chose this provider and fallback to a different one would be surprising.
+      let configuredBackup =
+        providerOverride == nil
+        ? configuredBackupProvider(primaryProviderID: primaryProviderID)
+        : nil
       let configuredBackupProviderName = configuredBackup?.id.analyticsName
       let configuredBackupProviderLabel = configuredBackup.map {
         providerLabel(for: $0.id, chatToolOverride: $0.chatToolOverride)
@@ -645,7 +676,8 @@ final class LLMService: LLMServicing {
             "llm_provider_label": primaryProviderLabel,
           ])
 
-        let primaryContext = try makeTimelineProviderContext(for: primaryProviderID)
+        let primaryContext = try makeTimelineProviderContext(
+          for: primaryProviderID, chatToolOverride: primaryChatToolOverride)
         let backupContext: TimelineProviderContext? = {
           guard let configuredBackup else { return nil }
           return try? makeTimelineProviderContext(

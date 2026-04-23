@@ -240,12 +240,28 @@ enum LLMProviderID: String, Codable, CaseIterable {
 enum LLMProviderRoutingPreferences {
   static let backupProviderDefaultsKey = "llmBackupProviderId"
   static let backupChatCLIToolDefaultsKey = "llmBackupChatCLITool"
+  static let tertiaryProviderDefaultsKey = "llmTertiaryProviderId"
+  static let tertiaryChatCLIToolDefaultsKey = "llmTertiaryChatCLITool"
 
   static func loadBackupProvider(from defaults: UserDefaults = .standard) -> LLMProviderID? {
     guard let rawValue = defaults.string(forKey: backupProviderDefaultsKey) else {
       return nil
     }
     return LLMProviderID(rawValue: rawValue)
+  }
+
+  static func loadTertiaryProvider(from defaults: UserDefaults = .standard) -> LLMProviderID? {
+    guard let rawValue = defaults.string(forKey: tertiaryProviderDefaultsKey) else {
+      return nil
+    }
+    return LLMProviderID(rawValue: rawValue)
+  }
+
+  static func loadTertiaryChatCLITool(from defaults: UserDefaults = .standard) -> ChatCLITool? {
+    guard let rawValue = defaults.string(forKey: tertiaryChatCLIToolDefaultsKey) else {
+      return nil
+    }
+    return ChatCLITool(rawValue: rawValue)
   }
 
   static func saveBackupProvider(_ provider: LLMProviderID?, to defaults: UserDefaults = .standard)
