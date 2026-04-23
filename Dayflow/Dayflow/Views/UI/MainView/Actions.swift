@@ -78,24 +78,35 @@ extension MainView {
   }
 
   func loadWeeklyTrackedMinutes(trigger: String = "unspecified") {
-    let weekRange = timelineWeekRange
-    let weekStartDay = dayString(weekRange.weekStart)
-    timelinePerfLog("weeklyTrackedMinutes.schedule trigger=\(trigger) week=\(weekStartDay)")
+    let requestedWeekRange = timelineWeekRange
+    let requestedWeekStartDay = dayString(requestedWeekRange.weekStart)
+    timelinePerfLog(
+      "weeklyTrackedMinutes.schedule trigger=\(trigger) week=\(requestedWeekStartDay)"
+    )
 
     Task.detached(priority: .userInitiated) {
       let fetchStart = CFAbsoluteTimeGetCurrent()
       let minutes = StorageManager.shared.fetchTotalMinutesTracked(
-        from: weekRange.weekStart,
-        to: weekRange.weekEnd
+        from: requestedWeekRange.weekStart,
+        to: requestedWeekRange.weekEnd
       )
       let fetchMs = Int((CFAbsoluteTimeGetCurrent() - fetchStart) * 1000)
 
       await MainActor.run {
+        let currentWeekRange = timelineWeekRange
+        guard currentWeekRange == requestedWeekRange else {
+          let currentWeekStartDay = dayString(currentWeekRange.weekStart)
+          timelinePerfLog(
+            "weeklyTrackedMinutes.discardStale trigger=\(trigger) requestedWeek=\(requestedWeekStartDay) currentWeek=\(currentWeekStartDay) fetch_ms=\(fetchMs)"
+          )
+          return
+        }
+
         let commitStart = CFAbsoluteTimeGetCurrent()
         weeklyTrackedMinutes = minutes
         let commitMs = Int((CFAbsoluteTimeGetCurrent() - commitStart) * 1000)
         timelinePerfLog(
-          "weeklyTrackedMinutes.complete trigger=\(trigger) week=\(weekStartDay) minutes=\(Int(minutes.rounded())) fetch_ms=\(fetchMs) commit_ms=\(commitMs)"
+          "weeklyTrackedMinutes.complete trigger=\(trigger) week=\(requestedWeekStartDay) minutes=\(Int(minutes.rounded())) fetch_ms=\(fetchMs) commit_ms=\(commitMs)"
         )
       }
     }
@@ -114,7 +125,19 @@ extension MainView {
         forDay: dayString, coverageThreshold: 0.8)
       let fetchMs = Int((CFAbsoluteTimeGetCurrent() - fetchStart) * 1000)
 
+      guard !Task.isCancelled else { return }
+
       await MainActor.run {
+        let currentDayString = DateFormatter.yyyyMMdd.string(
+          from: timelineDisplayDate(from: selectedDate, now: Date())
+        )
+        guard currentDayString == dayString else {
+          timelinePerfLog(
+            "reviewCount.discardStale trigger=\(trigger) requestedDay=\(dayString) currentDay=\(currentDayString) fetch_ms=\(fetchMs)"
+          )
+          return
+        }
+
         let commitStart = CFAbsoluteTimeGetCurrent()
         cardsToReviewCount = count
         let commitMs = Int((CFAbsoluteTimeGetCurrent() - commitStart) * 1000)
