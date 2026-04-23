@@ -87,6 +87,7 @@ struct WeekTimelineGridView: View {
   // over a card. Defaults to .zero so Xcode previews don't need to wire it.
   var weeklyHoursFrame: CGRect = .zero
   var weeklyHoursIntersectsCard: Binding<Bool> = .constant(false)
+  var hideCardsForModeSwitch = false
 
   // Opt-in fake data for #Preview; nil in production so loadActivities() runs normally.
   var previewPositionedActivities: [WeekPositionedActivity]? = nil
@@ -115,6 +116,7 @@ struct WeekTimelineGridView: View {
   @AppStorage("showTimelineAppIcons") private var showTimelineAppIcons = true
   @EnvironmentObject private var appState: AppState
   @EnvironmentObject private var categoryStore: CategoryStore
+  @EnvironmentObject private var retryCoordinator: RetryCoordinator
   @ObservedObject private var pauseManager = PauseManager.shared
 
   private var recordingControlMode: RecordingControlMode {
@@ -308,11 +310,12 @@ struct WeekTimelineGridView: View {
 
       HStack(spacing: 0) {
         timeColumn
-        cardsLayer(dayWidth: dayWidth)
+        weekCardsArea(dayWidth: dayWidth)
       }
       .zIndex(hoveredCardID != nil ? 4 : 0)
 
-      if let recordingProjection,
+      if !hideCardsForModeSwitch,
+        let recordingProjection,
         let todayIndex = weekRange.days.firstIndex(where: { $0.dayString == todayDayString })
       {
         statusCard(
@@ -323,6 +326,16 @@ struct WeekTimelineGridView: View {
       }
     }
     .frame(height: WeekTimelineConfig.totalHeight)
+  }
+
+  @ViewBuilder
+  private func weekCardsArea(dayWidth: CGFloat) -> some View {
+    if hideCardsForModeSwitch {
+      Color.clear
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    } else {
+      cardsLayer(dayWidth: dayWidth)
+    }
   }
 
   private func weekGridLines(dayWidth: CGFloat, gridWidth: CGFloat) -> some View {
@@ -407,6 +420,8 @@ struct WeekTimelineGridView: View {
           faviconSecondaryRaw: item.faviconSecondaryRaw,
           faviconPrimaryHost: item.faviconPrimaryHost,
           faviconSecondaryHost: item.faviconSecondaryHost,
+          statusLine: retryCoordinator.statusLine(for: item.activity.batchId),
+          isRetryActive: retryCoordinator.isActive(batchId: item.activity.batchId),
           onHoverChanged: { hovering in
             scheduleHoverChange(cardID: item.id, hovering: hovering)
           }
@@ -592,8 +607,12 @@ struct WeekTimelineGridView: View {
   }
 
   private func loadActivities(trigger: String = "unspecified") {
-    let weekID = DateFormatter.yyyyMMdd.string(from: weekRange.weekStart)
-    let selectedDay = DateFormatter.yyyyMMdd.string(from: timelineDisplayDate(from: selectedDate))
+    let requestedSelectedDate = selectedDate
+    let requestedSelectedDay = DateFormatter.yyyyMMdd.string(
+      from: timelineDisplayDate(from: requestedSelectedDate)
+    )
+    let requestedWeekRange = TimelineWeekRange.containing(requestedSelectedDate)
+    let requestedWeekID = DateFormatter.yyyyMMdd.string(from: requestedWeekRange.weekStart)
 
     // Preview short-circuit: skip DB entirely when fake data is injected.
     if let preview = previewPositionedActivities {
@@ -602,31 +621,30 @@ struct WeekTimelineGridView: View {
       positionedActivities = preview
       recordingProjection = nil
       hasAnyActivities = !preview.isEmpty
-      if autoScrollWeekKey != weekAutoScrollKey {
-        autoScrollWeekKey = weekAutoScrollKey
+      if autoScrollWeekKey != requestedWeekID {
+        autoScrollWeekKey = requestedWeekID
       }
       timelinePerfLog(
-        "weekGrid.load.preview trigger=\(trigger) week=\(weekID) selected=\(selectedDay) cards=\(preview.count)"
+        "weekGrid.load.preview trigger=\(trigger) week=\(requestedWeekID) selected=\(requestedSelectedDay) cards=\(preview.count)"
       )
       return
     }
 
     if loadTask != nil {
-      timelinePerfLog("weekGrid.load.cancelPrevious trigger=\(trigger) week=\(weekID)")
+      timelinePerfLog("weekGrid.load.cancelPrevious trigger=\(trigger) week=\(requestedWeekID)")
     }
     loadTask?.cancel()
 
     timelinePerfLog(
-      "weekGrid.load.begin trigger=\(trigger) week=\(weekID) selected=\(selectedDay)"
+      "weekGrid.load.begin trigger=\(trigger) week=\(requestedWeekID) selected=\(requestedSelectedDay)"
     )
 
-    let weekRange = weekRange
     loadTask = Task.detached(priority: .userInitiated) {
       let overallStart = CFAbsoluteTimeGetCurrent()
       let fetchStart = CFAbsoluteTimeGetCurrent()
-      let activities = TimelineActivityLoader.activities(in: weekRange)
+      let activities = TimelineActivityLoader.activities(in: requestedWeekRange)
       let fetchMs = Int((CFAbsoluteTimeGetCurrent() - fetchStart) * 1000)
-      let weekDays = weekRange.days
+      let weekDays = requestedWeekRange.days
       let dayLookup = Dictionary(
         uniqueKeysWithValues: weekDays.enumerated().map { ($1.dayString, $0) })
 
@@ -677,7 +695,7 @@ struct WeekTimelineGridView: View {
       let currentDaySegments = TimelineActivityLoader.resolveDisplaySegments(
         from: currentDayActivities)
       let projection =
-        weekRange.contains(Date())
+        requestedWeekRange.contains(Date())
         ? TimelineActivityLoader.recordingProjectionWindow(
           for: currentTimelineDay, displaySegments: currentDaySegments)
         : nil
@@ -685,7 +703,21 @@ struct WeekTimelineGridView: View {
 
       guard !Task.isCancelled else {
         timelinePerfLog(
-          "weekGrid.load.cancelled trigger=\(trigger) week=\(weekID) selected=\(selectedDay)"
+          "weekGrid.load.cancelled trigger=\(trigger) week=\(requestedWeekID) selected=\(requestedSelectedDay)"
+        )
+        return
+      }
+
+      let currentSelectedDate = await MainActor.run { self.selectedDate }
+      let currentWeekRange = TimelineWeekRange.containing(currentSelectedDate)
+
+      guard currentWeekRange == requestedWeekRange else {
+        let currentWeekID = DateFormatter.yyyyMMdd.string(from: currentWeekRange.weekStart)
+        let currentSelectedDay = DateFormatter.yyyyMMdd.string(
+          from: timelineDisplayDate(from: currentSelectedDate)
+        )
+        timelinePerfLog(
+          "weekGrid.load.discardStale trigger=\(trigger) requestedWeek=\(requestedWeekID) currentWeek=\(currentWeekID) requestedSelected=\(requestedSelectedDay) currentSelected=\(currentSelectedDay)"
         )
         return
       }
@@ -695,17 +727,22 @@ struct WeekTimelineGridView: View {
         positionedActivities = positioned
         recordingProjection = projection
         hasAnyActivities = !positioned.isEmpty
-
-        if autoScrollWeekKey != weekAutoScrollKey {
-          autoScrollWeekKey = weekAutoScrollKey
+        if let selectedActivity,
+          !positioned.contains(where: { $0.activity.id == selectedActivity.id })
+        {
+          self.selectedActivity = nil
         }
 
-        updateWeeklyHoursIntersection()
+        if autoScrollWeekKey != requestedWeekID {
+          autoScrollWeekKey = requestedWeekID
+        }
+
+        updateWeeklyHoursIntersection(visibleWeekRange: requestedWeekRange)
 
         let commitMs = Int((CFAbsoluteTimeGetCurrent() - commitStart) * 1000)
         let totalMs = Int((CFAbsoluteTimeGetCurrent() - overallStart) * 1000)
         timelinePerfLog(
-          "weekGrid.load.end trigger=\(trigger) week=\(weekID) selected=\(selectedDay) activities=\(activities.count) cards=\(positioned.count) fetch_ms=\(fetchMs) position_ms=\(positioningMs) projection_ms=\(projectionMs) commit_ms=\(commitMs) total_ms=\(totalMs)"
+          "weekGrid.load.end trigger=\(trigger) week=\(requestedWeekID) selected=\(requestedSelectedDay) activities=\(activities.count) cards=\(positioned.count) fetch_ms=\(fetchMs) position_ms=\(positioningMs) projection_ms=\(projectionMs) commit_ms=\(commitMs) total_ms=\(totalMs)"
         )
       }
     }
@@ -714,7 +751,7 @@ struct WeekTimelineGridView: View {
   // Mirrors CanvasTimelineDataView.updateWeeklyHoursIntersection but rebuilds
   // each card's pane-space rect from (columnIndex × dayWidth) since the week
   // view lays cards across 7 columns instead of one stacked column.
-  private func updateWeeklyHoursIntersection() {
+  private func updateWeeklyHoursIntersection(visibleWeekRange: TimelineWeekRange? = nil) {
     guard weeklyHoursFrame != .zero,
       cardsLayerFrame != .zero,
       weeklyHoursFrame.intersects(cardsLayerFrame)
@@ -727,6 +764,7 @@ struct WeekTimelineGridView: View {
 
     let dayWidth = cardsLayerFrame.width / 7
     let cardWidth = weekCardWidth(for: dayWidth)
+    let activeWeekRange = visibleWeekRange ?? weekRange
 
     let intersectsTimelineCard = positionedActivities.contains { item in
       let cardFrame = CGRect(
@@ -741,7 +779,7 @@ struct WeekTimelineGridView: View {
 
     let intersectsStatusCard: Bool
     if let projection = recordingProjection,
-      let todayIndex = weekRange.days.firstIndex(where: { $0.dayString == todayDayString })
+      let todayIndex = activeWeekRange.days.firstIndex(where: { $0.dayString == todayDayString })
     {
       let statusFrame = CGRect(
         x: cardsLayerFrame.minX + CGFloat(todayIndex) * dayWidth
@@ -975,6 +1013,8 @@ private struct WeekTimelineActivityCard: View {
   let faviconSecondaryRaw: String?
   let faviconPrimaryHost: String?
   let faviconSecondaryHost: String?
+  let statusLine: String?
+  let isRetryActive: Bool
   let onHoverChanged: (Bool) -> Void
   let onTap: () -> Void
 
@@ -1004,6 +1044,10 @@ private struct WeekTimelineActivityCard: View {
     isCompact ? 2 : 4
   }
 
+  private var showsRetryStatus: Bool {
+    isFailedCard && statusLine != nil
+  }
+
   // Max lines the title can wrap to *at rest* (not hovered) — bounded by
   // how much vertical space the card actually has. Previously we binary-
   // gated on `isCompact` and forced 1 line for any "short-duration" card,
@@ -1013,7 +1057,8 @@ private struct WeekTimelineActivityCard: View {
   // (~12pt). `max(1, …)` guarantees at least one line for the smallest
   // cards.
   private var maxUnhoveredTitleLines: Int {
-    let available = height - 2 * verticalPadding
+    let reservedStatusHeight: CGFloat = showsRetryStatus ? 14 : 0
+    let available = height - 2 * verticalPadding - reservedStatusHeight
     let perLine: CGFloat = 12
     return max(1, Int(available / perLine))
   }
@@ -1072,6 +1117,10 @@ private struct WeekTimelineActivityCard: View {
           .multilineTextAlignment(.leading)
           .lineLimit(renderingExpanded ? nil : maxUnhoveredTitleLines)
           .truncationMode(.tail)
+
+        if let statusLine, isFailedCard {
+          retryStatusRow(statusLine: statusLine, renderingExpanded: renderingExpanded)
+        }
 
         Spacer(minLength: 0)
       }
@@ -1150,6 +1199,10 @@ private struct WeekTimelineActivityCard: View {
           .font(.custom("Nunito", size: titleFontSize).weight(.semibold))
           .multilineTextAlignment(.leading)
           .fixedSize(horizontal: false, vertical: true)
+
+        if let statusLine, isFailedCard {
+          retryStatusRow(statusLine: statusLine, renderingExpanded: true)
+        }
       }
 
       Spacer(minLength: 0)
@@ -1168,6 +1221,24 @@ private struct WeekTimelineActivityCard: View {
     )
     .hidden()
     .allowsHitTesting(false)
+  }
+
+  @ViewBuilder
+  private func retryStatusRow(statusLine: String, renderingExpanded: Bool) -> some View {
+    HStack(alignment: .center, spacing: 4) {
+      if isRetryActive {
+        ProgressView()
+          .controlSize(.mini)
+          .scaleEffect(0.5)
+          .frame(width: 8, height: 8)
+      }
+
+      Text(statusLine)
+        .font(.custom("Nunito", size: 9))
+        .foregroundColor(Color(hex: "7A6254"))
+        .lineLimit(renderingExpanded ? nil : 1)
+        .truncationMode(.tail)
+    }
   }
 }
 
