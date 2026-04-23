@@ -19,6 +19,8 @@ struct ActivityCard: View {
     false
 
   @State private var showCategoryPicker = false
+  @State private var showReanalyzePicker = false
+  @State private var isReanalyzing = false
   @State private var isPreparingSlideshow = false
   @State private var slideshowError: String?
   @State private var slideshowRequestID = 0
@@ -66,12 +68,30 @@ struct ActivityCard: View {
           .transition(.move(edge: .top).combined(with: .opacity))
           .zIndex(1)
         }
+
+        if showReanalyzePicker && !isFailedCard(activity) {
+          ReanalyzePickerOverlay(
+            recordId: activity.recordId,
+            onClose: {
+              withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                showReanalyzePicker = false
+              }
+            },
+            onRunStart: { isReanalyzing = true },
+            onRunEnd: { _ in isReanalyzing = false },
+            onCompleted: onRetryBatchCompleted
+          )
+          .transition(.move(edge: .top).combined(with: .opacity))
+          .zIndex(2)
+        }
       }
       .if(maxHeight != nil) { view in
         view.frame(maxHeight: maxHeight!)
       }
       .onChange(of: activity.id) {
         showCategoryPicker = false
+        showReanalyzePicker = false
+        isReanalyzing = false
         isPreparingSlideshow = false
         slideshowError = nil
         slideshowRequestID &+= 1
@@ -219,6 +239,11 @@ struct ActivityCard: View {
                 .hoverScaleEffect(scale: 1.02)
                 .pointingHandCursorOnHover(reassertOnPressEnd: true)
                 .accessibilityLabel(Text("Change category"))
+
+                ActivityCardReanalyzeMenu(
+                  isPresented: $showReanalyzePicker,
+                  isRunning: isReanalyzing
+                )
               }
             }
           }
