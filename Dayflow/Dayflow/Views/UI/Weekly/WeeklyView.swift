@@ -9,16 +9,6 @@ struct WeeklyView: View {
   @State private var donutSnapshot = WeeklyDonutSnapshot.empty
   @State private var isLoadingWeekData = false
   @State private var weekLoadTask: Task<Void, Never>?
-  @State private var sankeyMinAppSharePercent: Double = 4
-  @State private var capsSankeyApps = false
-  @State private var sankeyMaxVisibleApps = 6
-
-  private var sankeyAppFilterPolicy: WeeklySankeyAppFilterPolicy {
-    WeeklySankeyAppFilterPolicy(
-      minAppSharePercent: Int(sankeyMinAppSharePercent.rounded()),
-      maxVisibleApps: capsSankeyApps ? sankeyMaxVisibleApps : nil
-    )
-  }
 
   var body: some View {
     ScrollView(.vertical, showsIndicators: false) {
@@ -45,20 +35,11 @@ struct WeeklyView: View {
         )
         .frame(maxWidth: .infinity, alignment: .leading)
 
-        VStack(alignment: .leading, spacing: 16) {
-          WeeklySankeyControlsCard(
-            minAppSharePercent: $sankeyMinAppSharePercent,
-            capsVisibleApps: $capsSankeyApps,
-            maxVisibleApps: $sankeyMaxVisibleApps
-          )
-
-          WeeklySankeyDistributionSection(
-            cards: weeklyCards,
-            categories: categoryStore.categories,
-            weekRange: weekRange,
-            appFilterPolicy: sankeyAppFilterPolicy
-          )
-        }
+        WeeklySankeyDistributionSection(
+          cards: weeklyCards,
+          categories: categoryStore.categories,
+          weekRange: weekRange
+        )
         .frame(maxWidth: .infinity, alignment: .leading)
 
         WeeklyTreemapSection(snapshot: .figmaPreview)
