@@ -75,7 +75,7 @@ struct SidebarView: View {
 
   private var visibleIcons: [SidebarIcon] {
     SidebarIcon.allCases.filter { icon in
-      icon != .journal && icon != .weekly
+      icon != .journal
     }
   }
 
