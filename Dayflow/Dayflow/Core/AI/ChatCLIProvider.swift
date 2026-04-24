@@ -1,6 +1,26 @@
 import AppKit
 import Foundation
 
+private final class ChatCLIStreamingDebugSink: @unchecked Sendable {
+  private let lock = NSLock()
+  private var shellCommand: String?
+  private var environmentOverrides: [String: String] = [:]
+
+  func update(shellCommand: String, environmentOverrides: [String: String]) {
+    lock.lock()
+    self.shellCommand = shellCommand
+    self.environmentOverrides = environmentOverrides
+    lock.unlock()
+  }
+
+  func snapshot() -> (shellCommand: String?, environmentOverrides: [String: String]) {
+    lock.lock()
+    let snapshot = (shellCommand, environmentOverrides)
+    lock.unlock()
+    return snapshot
+  }
+}
+
 final class ChatCLIProvider {
   let tool: ChatCLITool
   let runner = ChatCLIProcessRunner()
@@ -34,6 +54,7 @@ final class ChatCLIProvider {
     var collectedText = ""
     var sawTextDelta = false
     var capturedSessionId = sessionId
+    let debugSink = ChatCLIStreamingDebugSink()
 
     let stream = runner.runStreaming(
       tool: tool,
@@ -41,16 +62,20 @@ final class ChatCLIProvider {
       workingDirectory: config.workingDirectory,
       model: model,
       reasoningEffort: reasoningEffort,
-      sessionId: sessionId
+      sessionId: sessionId,
+      onProcessStart: { shellCommand, environmentOverrides in
+        debugSink.update(
+          shellCommand: shellCommand,
+          environmentOverrides: environmentOverrides
+        )
+      }
     )
 
     do {
       for try await event in stream {
         switch event {
         case .sessionStarted(let id):
-          if capturedSessionId == nil {
-            capturedSessionId = id
-          }
+          capturedSessionId = id
         case .textDelta(let chunk):
           sawTextDelta = true
           collectedText += chunk
@@ -59,7 +84,20 @@ final class ChatCLIProvider {
             collectedText = text
           }
         case .error(let message):
-          throw NSError(domain: "ChatCLI", code: -4, userInfo: [NSLocalizedDescriptionKey: message])
+          let debug = debugSink.snapshot()
+          var userInfo: [String: Any] = [
+            NSLocalizedDescriptionKey: message,
+            "partialStdout": collectedText,
+            "partialStderr": message,
+            "environmentOverrides": debug.environmentOverrides,
+          ]
+          if let shellCommand = debug.shellCommand {
+            userInfo["shellCommand"] = shellCommand
+          }
+          throw NSError(
+            domain: "ChatCLI",
+            code: -4,
+            userInfo: userInfo)
         default:
           break
         }
@@ -69,11 +107,14 @@ final class ChatCLIProvider {
     }
 
     let finished = Date()
+    let debug = debugSink.snapshot()
     let run = ChatCLIRunResult(
       exitCode: 0,
       stdout: collectedText,
       rawStdout: collectedText,
       stderr: "",
+      shellCommand: debug.shellCommand,
+      environmentOverrides: debug.environmentOverrides,
       startedAt: started,
       finishedAt: finished,
       usage: nil

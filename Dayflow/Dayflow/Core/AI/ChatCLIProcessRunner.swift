@@ -106,16 +106,59 @@ struct ChatCLIProcessRunner {
     return process
   }
 
-  func invalidTransportConfigURL(from stderr: String) -> URL? {
-    let pattern = #"Error:\s+(.+?):\d+:\d+:\s+invalid transport"#
+  func shouldDisableConfiguredCodexMCPServers(processEnvironment: [String: String]) -> Bool {
+    processEnvironment["CODEX_HOME"] == nil
+  }
+
+  func printShellCommand(
+    tool: ChatCLITool,
+    shellCommand: String,
+    environment: [String: String],
+    isFallbackRetry: Bool
+  ) {
+    let retryLabel = isFallbackRetry ? " fallback retry" : ""
+    print("[ChatCLI] Executing \(tool.rawValue)\(retryLabel):\n\(shellCommand)")
+
+    guard !environment.isEmpty else { return }
+    let environmentText =
+      environment
+      .sorted { $0.key < $1.key }
+      .map { "\($0.key)=\(LoginShellRunner.shellEscape($0.value))" }
+      .joined(separator: "\n")
+    print("[ChatCLI] Environment overrides:\n\(environmentText)")
+  }
+
+  func containsInvalidTransportError(_ stderr: String) -> Bool {
+    stderr.range(of: "invalid transport", options: [.caseInsensitive]) != nil
+  }
+
+  func defaultCodexConfigURL() -> URL {
+    if let codexHome = ProcessInfo.processInfo.environment["CODEX_HOME"], !codexHome.isEmpty {
+      return URL(fileURLWithPath: codexHome, isDirectory: true)
+        .appendingPathComponent("config.toml")
+        .standardizedFileURL
+    }
+
+    return FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(".codex", isDirectory: true)
+      .appendingPathComponent("config.toml")
+      .standardizedFileURL
+  }
+
+  func invalidTransportConfigURL(from stderr: String, fallbackConfigURL: URL? = nil) -> URL? {
+    guard containsInvalidTransportError(stderr) else {
+      return nil
+    }
+
+    let pattern = #"(/[^:\n\r]*config\.toml)"#
     guard
-      let regex = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]),
+      let regex = try? NSRegularExpression(pattern: pattern),
       let match = regex.firstMatch(
         in: stderr, options: [], range: NSRange(stderr.startIndex..., in: stderr)),
       match.numberOfRanges >= 2,
       let range = Range(match.range(at: 1), in: stderr)
     else {
-      return nil
+      return fallbackConfigURL ?? defaultCodexConfigURL()
     }
 
     return URL(fileURLWithPath: String(stderr[range])).standardizedFileURL
@@ -148,15 +191,17 @@ struct ChatCLIProcessRunner {
 
   func makeCodexFallbackContext(
     fromInvalidTransportStderr stderr: String,
-    workingDirectory: URL
+    workingDirectory: URL,
+    fallbackConfigURL: URL? = nil
   ) -> CodexFallbackContext? {
-    guard let brokenConfigURL = invalidTransportConfigURL(from: stderr) else {
+    guard
+      let brokenConfigURL = invalidTransportConfigURL(
+        from: stderr,
+        fallbackConfigURL: fallbackConfigURL
+      )
+    else {
       return nil
     }
-    guard !isProjectScopedCodexConfig(brokenConfigURL, workingDirectory: workingDirectory) else {
-      return nil
-    }
-
     let fileManager = FileManager.default
     let tempCodexHome = fileManager.temporaryDirectory
       .appendingPathComponent(
@@ -199,7 +244,11 @@ struct ChatCLIProcessRunner {
     workingDirectory: URL,
     hasRetriedInvalidTransport: Bool
   ) -> CodexFallbackContext? {
-    guard tool == .codex, !hasRetriedInvalidTransport, stderr.contains("invalid transport") else {
+    guard
+      tool == .codex,
+      !hasRetriedInvalidTransport,
+      containsInvalidTransportError(stderr)
+    else {
       return nil
     }
     return makeCodexFallbackContext(
@@ -215,7 +264,8 @@ struct ChatCLIProcessRunner {
     workingDirectory: URL,
     model: String? = nil,
     reasoningEffort: String? = nil,
-    sessionId: String? = nil
+    sessionId: String? = nil,
+    onProcessStart: (@Sendable (String, [String: String]) -> Void)? = nil
   ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
     AsyncThrowingStream { continuation in
       Task.detached {
@@ -227,7 +277,8 @@ struct ChatCLIProcessRunner {
             model: model,
             reasoningEffort: reasoningEffort,
             sessionId: sessionId,
-            continuation: continuation
+            continuation: continuation,
+            onProcessStart: onProcessStart
           )
         } catch {
           continuation.yield(.error(error.localizedDescription))
@@ -245,6 +296,7 @@ struct ChatCLIProcessRunner {
     reasoningEffort: String?,
     sessionId: String?,
     continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation,
+    onProcessStart: (@Sendable (String, [String: String]) -> Void)? = nil,
     processEnvironment: [String: String] = [:],
     hasRetriedInvalidTransport: Bool = false
   ) async throws {
@@ -265,9 +317,11 @@ struct ChatCLIProcessRunner {
       if let effort = reasoningEffort {
         cmdParts.append(contentsOf: ["-c", "model_reasoning_effort=\(effort)"])
       }
-      let mcpServers = LoginShellRunner.getCodexMCPServerNames()
-      for serverName in mcpServers {
-        cmdParts.append(contentsOf: ["--config", "mcp_servers.\(serverName).enabled=false"])
+      if shouldDisableConfiguredCodexMCPServers(processEnvironment: processEnvironment) {
+        let mcpServers = LoginShellRunner.getCodexMCPServerNames()
+        for serverName in mcpServers {
+          cmdParts.append(contentsOf: ["--config", "mcp_servers.\(serverName).enabled=false"])
+        }
       }
       cmdParts.append(contentsOf: ["-c", "rmcp_client=false", "-c", "web_search=disabled"])
       cmdParts.append("--")
@@ -291,6 +345,13 @@ struct ChatCLIProcessRunner {
     let shellCommand =
       "cd \(LoginShellRunner.shellEscape(workingDirectory.path)) && exec \(cmdParts.joined(separator: " "))"
 
+    printShellCommand(
+      tool: tool,
+      shellCommand: shellCommand,
+      environment: processEnvironment,
+      isFallbackRetry: hasRetriedInvalidTransport
+    )
+    onProcessStart?(shellCommand, processEnvironment)
     let process = makeShellProcess(shellCommand: shellCommand, environment: processEnvironment)
     var cleanupPty: (() -> Void)?
     let stdoutHandle: FileHandle
@@ -320,7 +381,6 @@ struct ChatCLIProcessRunner {
     var stderrBuffer = Data()
     var sawTextDelta = false
     var didYieldComplete = false
-    var didYieldEvent = false
 
     func cleanupStreamingResources() {
       stdoutHandle.readabilityHandler = nil
@@ -377,9 +437,6 @@ struct ChatCLIProcessRunner {
       }
 
       for event in parsedEvents {
-        stateQueue.sync {
-          didYieldEvent = true
-        }
         continuation.yield(event)
       }
     }
@@ -478,10 +535,7 @@ struct ChatCLIProcessRunner {
       )
     }
 
-    let hadYieldedEvent = stateQueue.sync { didYieldEvent }
-
     if process.terminationStatus != 0,
-      !hadYieldedEvent,
       let fallback = codexFallbackContextIfNeeded(
         tool: tool,
         stderr: finalState.2,
@@ -501,6 +555,7 @@ struct ChatCLIProcessRunner {
         reasoningEffort: reasoningEffort,
         sessionId: sessionId,
         continuation: continuation,
+        onProcessStart: onProcessStart,
         processEnvironment: fallback.environment,
         hasRetriedInvalidTransport: true
       )
@@ -508,9 +563,6 @@ struct ChatCLIProcessRunner {
     }
 
     for event in finalEvents {
-      stateQueue.sync {
-        didYieldEvent = true
-      }
       continuation.yield(event)
     }
 
@@ -749,9 +801,11 @@ struct ChatCLIProcessRunner {
       if let effort = reasoningEffort {
         cmdParts.append(contentsOf: ["-c", "model_reasoning_effort=\(effort)"])
       }
-      let mcpServers = LoginShellRunner.getCodexMCPServerNames()
-      for serverName in mcpServers {
-        cmdParts.append(contentsOf: ["--config", "mcp_servers.\(serverName).enabled=false"])
+      if shouldDisableConfiguredCodexMCPServers(processEnvironment: processEnvironment) {
+        let mcpServers = LoginShellRunner.getCodexMCPServerNames()
+        for serverName in mcpServers {
+          cmdParts.append(contentsOf: ["--config", "mcp_servers.\(serverName).enabled=false"])
+        }
       }
       cmdParts.append(contentsOf: ["-c", "rmcp_client=false", "-c", "web_search=disabled"])
       for path in imagePaths {
@@ -771,6 +825,12 @@ struct ChatCLIProcessRunner {
     let shellCommand =
       "cd \(LoginShellRunner.shellEscape(workingDirectory.path)) && exec \(cmdParts.joined(separator: " "))"
 
+    printShellCommand(
+      tool: tool,
+      shellCommand: shellCommand,
+      environment: processEnvironment,
+      isFallbackRetry: hasRetriedInvalidTransport
+    )
     let started = Date()
     let process = makeShellProcess(shellCommand: shellCommand, environment: processEnvironment)
     let stdoutPipe = Pipe()
@@ -868,6 +928,7 @@ struct ChatCLIProcessRunner {
     print("⏱️ [ChatCLI] \(tool.rawValue) \(modelLabel) \(String(format: "%.2f", duration))s")
     return ChatCLIRunResult(
       exitCode: process.terminationStatus, stdout: parsed.text, rawStdout: rawOut, stderr: stderr,
+      shellCommand: shellCommand, environmentOverrides: processEnvironment,
       startedAt: started, finishedAt: finished, usage: parsed.usage)
   }
 }

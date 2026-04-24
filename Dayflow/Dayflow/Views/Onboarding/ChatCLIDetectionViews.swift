@@ -48,7 +48,13 @@ struct CLIDetector {
   /// Run an arbitrary debug command via login shell
   static func runDebugCommand(_ command: String) -> CLIResult {
     let result = LoginShellRunner.run(command, timeout: 30)
-    return CLIResult(stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode)
+    return CLIResult(
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exitCode: result.exitCode,
+      shellCommand: command,
+      environmentOverrides: [:]
+    )
   }
 }
 

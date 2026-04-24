@@ -13,6 +13,8 @@ struct CLIResult {
   let stdout: String
   let stderr: String
   let exitCode: Int32
+  let shellCommand: String?
+  let environmentOverrides: [String: String]
 }
 
 /// Run a CLI command via login shell.
@@ -42,7 +44,13 @@ func runCLI(
   }
 
   let result = LoginShellRunner.run(fullCommand, timeout: 60)
-  return CLIResult(stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode)
+  return CLIResult(
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+    shellCommand: fullCommand,
+    environmentOverrides: env ?? [:]
+  )
 }
 
 /// Streaming CLI runner that uses login shell for Terminal.app-like behavior.

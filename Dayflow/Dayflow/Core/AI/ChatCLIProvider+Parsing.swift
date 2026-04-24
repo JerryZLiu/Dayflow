@@ -546,17 +546,22 @@ extension ChatCLIProvider {
 
   func logFailure(
     ctx: LLMCallContext, finishedAt: Date, error: Error, stdout: String? = nil,
-    stderr: String? = nil
+    stderr: String? = nil, run: ChatCLIRunResult? = nil
   ) {
     let http: LLMHTTPInfo?
     let out = stdout ?? ""
     let err = stderr ?? ""
+    let commandDebug = chatCLICommandDebugText(for: run)
 
-    if out.isEmpty && err.isEmpty {
+    if out.isEmpty && err.isEmpty && commandDebug.isEmpty {
       http = nil
     } else {
-      let separator = out.isEmpty || err.isEmpty ? "" : "\n\n[stderr]\n"
-      let combined = out + separator + err
+      let sections = [
+        out.isEmpty ? nil : out,
+        err.isEmpty ? nil : "[stderr]\n" + err,
+        commandDebug.isEmpty ? nil : commandDebug,
+      ].compactMap { $0 }
+      let combined = sections.joined(separator: "\n\n")
       http = LLMHTTPInfo(
         httpStatus: nil, responseHeaders: nil, responseBody: combined.data(using: .utf8))
     }
@@ -564,6 +569,23 @@ extension ChatCLIProvider {
     LLMLogger.logFailure(
       ctx: ctx, http: http, finishedAt: finishedAt, errorDomain: "ChatCLI",
       errorCode: (error as NSError).code, errorMessage: error.localizedDescription)
+  }
+
+  func chatCLICommandDebugText(for run: ChatCLIRunResult?) -> String {
+    guard let run else { return "" }
+
+    var sections: [String] = []
+    if let shellCommand = run.shellCommand, !shellCommand.isEmpty {
+      sections.append("[command]\n" + shellCommand)
+    }
+    if !run.environmentOverrides.isEmpty {
+      let environmentText = run.environmentOverrides
+        .sorted { $0.key < $1.key }
+        .map { "\($0.key)=\(LoginShellRunner.shellEscape($0.value))" }
+        .joined(separator: "\n")
+      sections.append("[environment]\n" + environmentText)
+    }
+    return sections.joined(separator: "\n\n")
   }
 
   func makeLLMCall(start: Date, end: Date, input: String?, output: String?) -> LLMCall {

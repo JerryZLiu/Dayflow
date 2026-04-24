@@ -104,6 +104,16 @@ struct ChatCLITestView: View {
           debugParts.append("Tool: \(tool.shortName)")
           debugParts.append("Exit code: \(cliResult.exitCode)")
           debugParts.append("Shell: \(LoginShellRunner.userLoginShell.path)")
+          if let shellCommand = cliResult.shellCommand {
+            debugParts.append("Command executed:\n\(shellCommand)")
+          }
+          if !cliResult.environmentOverrides.isEmpty {
+            let environmentText = cliResult.environmentOverrides
+              .sorted { $0.key < $1.key }
+              .map { "\($0.key)=\(LoginShellRunner.shellEscape($0.value))" }
+              .joined(separator: "\n")
+            debugParts.append("Environment overrides:\n\(environmentText)")
+          }
 
           // Show all installations found (helps debug multi-install issues)
           let cmdName = tool == .codex ? "codex" : "claude"
@@ -304,29 +314,20 @@ struct ChatCLITestView: View {
 
     switch tool {
     case .codex:
-      // --skip-git-repo-check needed because app runs from sandboxed directory
-      // Disable MCP servers dynamically to avoid connecting to user's configured servers during test
-      // -- separator ensures prompt isn't parsed as an option
-      var codexArgs = [
-        "exec",
-        "--skip-git-repo-check",
-        "-c", "model_reasoning_effort=low",
-      ]
-      // Dynamically disable each MCP server by name
-      let mcpServers = LoginShellRunner.getCodexMCPServerNames()
-      for serverName in mcpServers {
-        codexArgs.append(contentsOf: ["--config", "mcp_servers.\(serverName).enabled=false"])
-      }
-      codexArgs.append(contentsOf: [
-        "-c", "rmcp_client=false",
-        "-c", "web_search=disabled",
-        "--",
-        prompt,
-      ])
-      return try runCLI(
-        "codex",
-        args: codexArgs,
-        cwd: safeWorkingDir
+      let runner = ChatCLIProcessRunner()
+      let run = try runner.run(
+        tool: .codex,
+        prompt: prompt,
+        workingDirectory: safeWorkingDir,
+        reasoningEffort: "low",
+        disableTools: true
+      )
+      return CLIResult(
+        stdout: run.stdout,
+        stderr: run.stderr,
+        exitCode: run.exitCode,
+        shellCommand: run.shellCommand,
+        environmentOverrides: run.environmentOverrides
       )
     case .claude:
       let runner = ChatCLIProcessRunner()
@@ -336,7 +337,13 @@ struct ChatCLITestView: View {
         workingDirectory: safeWorkingDir,
         disableTools: true
       )
-      return CLIResult(stdout: run.stdout, stderr: run.stderr, exitCode: run.exitCode)
+      return CLIResult(
+        stdout: run.stdout,
+        stderr: run.stderr,
+        exitCode: run.exitCode,
+        shellCommand: run.shellCommand,
+        environmentOverrides: run.environmentOverrides
+      )
     }
   }
 

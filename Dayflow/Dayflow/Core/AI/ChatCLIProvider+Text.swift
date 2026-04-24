@@ -113,7 +113,8 @@ extension ChatCLIProvider {
         domain: "ChatCLI", code: Int(run.exitCode),
         userInfo: [NSLocalizedDescriptionKey: errorMessage])
       logFailure(
-        ctx: ctx, finishedAt: run.finishedAt, error: error, stdout: run.stdout, stderr: run.stderr)
+        ctx: ctx, finishedAt: run.finishedAt, error: error, stdout: run.stdout, stderr: run.stderr,
+        run: run)
       throw error
     }
 

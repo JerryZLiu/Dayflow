@@ -391,7 +391,7 @@ extension ChatCLIProvider {
       ctx: makeCtx(
         batchId: batchId, operation: "transcribe_screenshots", startedAt: callStart,
         attempt: maxTranscribeAttempts), finishedAt: finishedAt, error: finalError,
-      stdout: finalStdout, stderr: finalStderr)
+      stdout: finalStdout, stderr: finalStderr, run: lastRun)
     throw finalError
   }
 

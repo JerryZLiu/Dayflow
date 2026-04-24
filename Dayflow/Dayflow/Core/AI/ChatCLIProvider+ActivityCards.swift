@@ -134,10 +134,49 @@ extension ChatCLIProvider {
     let finalStderr =
       lastRun?.stderr
       ?? (lastError as NSError?)?.userInfo["partialStderr"] as? String
+    let finalRun =
+      lastRun
+      ?? runResultFromStreamingError(
+        finalError,
+        stdout: lastRawOutput,
+        stderr: finalStderr ?? "",
+        startedAt: callStart,
+        finishedAt: finishedAt)
     logFailure(
       ctx: makeCtx(batchId: batchId, operation: "generate_cards", startedAt: callStart, attempt: 3),
-      finishedAt: finishedAt, error: finalError, stdout: lastRawOutput, stderr: finalStderr)
+      finishedAt: finishedAt, error: finalError, stdout: lastRawOutput, stderr: finalStderr,
+      run: finalRun)
     throw finalError
+  }
+
+  private func runResultFromStreamingError(
+    _ error: Error,
+    stdout: String,
+    stderr: String,
+    startedAt: Date,
+    finishedAt: Date
+  ) -> ChatCLIRunResult? {
+    let userInfo = (error as NSError).userInfo
+    guard
+      let shellCommand = userInfo["shellCommand"] as? String
+    else {
+      return nil
+    }
+
+    let environmentOverrides =
+      userInfo["environmentOverrides"] as? [String: String]
+      ?? [:]
+    return ChatCLIRunResult(
+      exitCode: -1,
+      stdout: stdout,
+      rawStdout: stdout,
+      stderr: stderr,
+      shellCommand: shellCommand,
+      environmentOverrides: environmentOverrides,
+      startedAt: startedAt,
+      finishedAt: finishedAt,
+      usage: nil
+    )
   }
 
 }
