@@ -694,10 +694,11 @@ struct WeekTimelineGridView: View {
       }
       let currentDaySegments = TimelineActivityLoader.resolveDisplaySegments(
         from: currentDayActivities)
+      let currentDayVisualBlockers = Self.visualBlockingSegments(from: currentDaySegments)
       let projection =
         requestedWeekRange.contains(Date())
         ? TimelineActivityLoader.recordingProjectionWindow(
-          for: currentTimelineDay, displaySegments: currentDaySegments)
+          for: currentTimelineDay, displaySegments: currentDayVisualBlockers)
         : nil
       let projectionMs = Int((CFAbsoluteTimeGetCurrent() - projectionStart) * 1000)
 
@@ -902,6 +903,29 @@ struct WeekTimelineGridView: View {
     let durationMinutes = max(0, projection.end.timeIntervalSince(projection.start) / 60)
     let rawHeight = CGFloat(durationMinutes) * WeekTimelineConfig.pixelsPerMinute
     return max(WeekTimelineConfig.minimumCardHeight, rawHeight - 2)
+  }
+
+  // Week cards have a minimum rendered height, so very short cards can occupy
+  // more vertical space than their timestamp range. Use rendered height as the
+  // projection blocker so the status card never visually intersects them.
+  nonisolated private static func visualBlockingSegments(
+    from segments: [TimelineDisplaySegment]
+  ) -> [TimelineDisplaySegment] {
+    segments.map { segment in
+      let durationMinutes = max(0, segment.end.timeIntervalSince(segment.start) / 60)
+      let rawHeight = CGFloat(durationMinutes) * WeekTimelineConfig.pixelsPerMinute
+      let renderedHeight = max(WeekTimelineConfig.minimumCardHeight, rawHeight - 2)
+      let renderedDurationMinutes = ceil(
+        Double(renderedHeight / WeekTimelineConfig.pixelsPerMinute)
+      )
+      let renderedEnd = segment.start.addingTimeInterval(renderedDurationMinutes * 60)
+
+      return TimelineDisplaySegment(
+        activity: segment.activity,
+        start: segment.start,
+        end: max(segment.end, renderedEnd)
+      )
+    }
   }
 
   private func calculateYPosition(for time: Date) -> CGFloat {
