@@ -9,14 +9,14 @@
   </p>
 
   <p>
-    <a href="https://github.com/JerryZLiu/Dayflow/releases/latest/download/Dayflow.dmg">
-      <img src="docs/images/download_dayflow_button.png" alt="Download Dayflow for Mac" width="352">
+    <a href="https://trendshift.io/repositories/17458" target="_blank" rel="noreferrer">
+      <img src="https://trendshift.io/api/badge/repositories/17458" alt="JerryZLiu/Dayflow | Trendshift" width="250" height="55">
     </a>
   </p>
 
   <p>
-    <a href="https://trendshift.io/repositories/17458" target="_blank" rel="noreferrer">
-      <img src="https://trendshift.io/api/badge/repositories/17458" alt="JerryZLiu/Dayflow | Trendshift" width="250" height="55">
+    <a href="https://github.com/JerryZLiu/Dayflow/releases/latest/download/Dayflow.dmg">
+      <img src="docs/images/download_dayflow_button.png" alt="Download Dayflow for Mac" width="352">
     </a>
   </p>
 </div>
