@@ -1,9 +1,7 @@
 <div align="center">
   <img src="docs/images/dayflow_header.png" alt="Dayflow" width="380">
 
-  <h1>Dayflow</h1>
-
-  <p><strong>A private, automatic work journal for your Mac.</strong></p>
+  <p><strong>A private, automatic work journal for Mac.</strong></p>
 
   <p>
     Dayflow understands the work you do on your Mac and turns it into a clear timeline of your day.
@@ -12,7 +10,7 @@
 
   <p>
     <a href="https://github.com/JerryZLiu/Dayflow/releases/latest/download/Dayflow.dmg">
-      <img src="docs/images/download_dayflow.svg" alt="Download Dayflow for Mac" width="280" height="56">
+      <img src="docs/images/download_dayflow_button.png" alt="Download Dayflow for Mac" width="352">
     </a>
   </p>
 
@@ -104,7 +102,7 @@ Download the latest `Dayflow.dmg` from GitHub Releases:
 
 <p>
   <a href="https://github.com/JerryZLiu/Dayflow/releases/latest/download/Dayflow.dmg">
-    <img src="docs/images/download_dayflow.svg" alt="Download Dayflow for Mac" width="280" height="56">
+    <img src="docs/images/download_dayflow_button.png" alt="Download Dayflow for Mac" width="352">
   </a>
 </p>
 
