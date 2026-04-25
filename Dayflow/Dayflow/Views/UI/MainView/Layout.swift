@@ -1125,6 +1125,9 @@ extension MainView {
     if let activity = selectedActivity, isWeekTimelineInspectorVisible {
       timelineActivityInspector(activity: activity, geo: geo)
         .id(activity.id)
+        .opacity(weekInspectorContentVisible ? 1 : 0)
+        .offset(x: weekInspectorContentVisible ? 0 : 10)
+        .animation(inspectorContentAnimation, value: weekInspectorContentVisible)
         .transition(.opacity.combined(with: .offset(x: 10)))
     }
   }

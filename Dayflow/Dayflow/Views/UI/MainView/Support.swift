@@ -147,8 +147,10 @@ extension MainView {
     return .timingCurve(0.165, 0.84, 0.44, 1, duration: 0.24)
   }
 
+  var inspectorContentAnimationDuration: TimeInterval { 0.18 }
+
   var inspectorContentAnimation: Animation {
-    return .easeOut(duration: 0.18)
+    return .easeOut(duration: inspectorContentAnimationDuration)
   }
 
   var timelineTitleText: String {
@@ -251,6 +253,7 @@ extension MainView {
       transaction.disablesAnimations = true
       withTransaction(transaction) {
         hideWeekCardsDuringModeSwitch = true
+        weekInspectorContentVisible = false
         weeklyHoursIntersectsCard = false
       }
 
@@ -259,6 +262,7 @@ extension MainView {
       DispatchQueue.main.async {
         withAnimation(timelineModeContentAnimation) {
           timelineMode = mode
+          weekInspectorContentVisible = false
           selectedActivity = nil
         }
       }
@@ -266,6 +270,7 @@ extension MainView {
       hideWeekCardsDuringModeSwitch = false
       withAnimation(timelineModeContentAnimation) {
         timelineMode = mode
+        weekInspectorContentVisible = false
         selectedActivity = nil
       }
     }
@@ -292,11 +297,16 @@ extension MainView {
       if isWeekTimelineInspectorVisible {
         guard selectedActivity?.id != activity.id else { return }
         withAnimation(inspectorContentAnimation) {
+          weekInspectorContentVisible = true
           selectedActivity = activity
         }
       } else {
-        withAnimation(shellAnimation) {
-          selectedActivity = activity
+        setTimelineSelectionWithoutLayoutAnimation(activity, weekInspectorContentVisible: false)
+        DispatchQueue.main.async {
+          guard timelineMode == .week, selectedActivity?.id == activity.id else { return }
+          withAnimation(inspectorContentAnimation) {
+            weekInspectorContentVisible = true
+          }
         }
       }
     }
@@ -306,13 +316,40 @@ extension MainView {
     guard selectedActivity != nil else { return }
 
     guard animated else {
-      selectedActivity = nil
+      setTimelineSelectionWithoutLayoutAnimation(nil)
       return
     }
 
-    let animation = timelineMode == .week ? shellAnimation : inspectorContentAnimation
-    withAnimation(animation) {
+    if timelineMode == .week {
+      let selectedID = selectedActivity?.id
+      withAnimation(inspectorContentAnimation) {
+        weekInspectorContentVisible = false
+      }
+      DispatchQueue.main.asyncAfter(deadline: .now() + inspectorContentAnimationDuration) {
+        guard selectedActivity?.id == selectedID, !weekInspectorContentVisible else { return }
+        setTimelineSelectionWithoutLayoutAnimation(nil)
+      }
+      return
+    }
+
+    withAnimation(inspectorContentAnimation) {
       selectedActivity = nil
+    }
+  }
+
+  func setTimelineSelectionWithoutLayoutAnimation(
+    _ activity: TimelineActivity?,
+    weekInspectorContentVisible nextWeekInspectorContentVisible: Bool? = nil
+  ) {
+    var transaction = Transaction(animation: nil)
+    transaction.disablesAnimations = true
+    withTransaction(transaction) {
+      if let nextWeekInspectorContentVisible {
+        weekInspectorContentVisible = nextWeekInspectorContentVisible
+      } else if activity == nil {
+        weekInspectorContentVisible = false
+      }
+      selectedActivity = activity
     }
   }
 

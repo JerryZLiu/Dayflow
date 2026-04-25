@@ -29,6 +29,7 @@ struct MainView: View {
   @State var showTimelineCalendarPopover = false
   @State var timelineCalendarButtonFrame: CGRect = .zero
   @State var selectedActivity: TimelineActivity? = nil
+  @State var weekInspectorContentVisible = false
   @State var scrollToNowTick: Int = 0
   @State var hasAnyActivities: Bool = true
   @State var refreshActivitiesTrigger: Int = 0
