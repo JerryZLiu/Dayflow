@@ -156,6 +156,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Start daily recap generation scheduler (checks every 5 minutes)
     DailyRecapScheduler.shared.start()
+    PersonalPlugins.start()
 
     // Observe recording state
     analyticsSub = AppState.shared.$isRecording

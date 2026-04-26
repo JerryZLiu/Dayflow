@@ -269,6 +269,7 @@ final class DailyRecapScheduler: @unchecked Sendable {
       await MainActor.run {
         NotificationService.shared.scheduleDailyRecapReadyNotification(forDay: recapDay)
       }
+      NotificationCenter.default.post(name: Notification.Name.dayflowDailyRecapCompleted, object: recapDay)
     } catch {
       let nsError = error as NSError
       AnalyticsService.shared.capture(
