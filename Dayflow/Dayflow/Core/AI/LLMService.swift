@@ -259,7 +259,26 @@ final class LLMService: LLMServicing {
           generateActivityCards: provider.generateActivityCards
         ), fallbackState: nil
       )
+    case .apfel:
+      guard let provider = makeApfelProvider() else {
+        throw NSError(
+          domain: "LLMService", code: 10,
+          userInfo: [
+            NSLocalizedDescriptionKey:
+              "Apple Intelligence is not available on this device. Requires macOS 26 or later with Apple Intelligence enabled."
+          ])
+      }
+      return (
+        actions: BatchProviderActions(
+          transcribeScreenshots: provider.transcribeScreenshots,
+          generateActivityCards: provider.generateActivityCards
+        ), fallbackState: nil
+      )
     }
+  }
+
+  private func makeApfelProvider() -> ApfelProvider? {
+    ApfelProvider.makeIfAvailable()
   }
 
   private func makeTimelineProviderContext(
@@ -530,6 +549,14 @@ final class LLMService: LLMServicing {
           try await provider.generateText(prompt: prompt)
         },
         generateTextStreaming: provider.generateTextStreaming
+      )
+    case .apfel:
+      guard let provider = makeApfelProvider() else { throw noProviderError() }
+      return TextProviderActions(
+        generateText: { prompt in
+          try await provider.generateText(prompt: prompt)
+        },
+        generateTextStreaming: nil
       )
     }
   }
