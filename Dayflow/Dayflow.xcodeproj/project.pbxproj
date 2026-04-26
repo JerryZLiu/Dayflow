@@ -13,27 +13,6 @@
 		C4EBF0022DBDF82000FC5824 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = C4EBF0012DBDF82000FC5824 /* GRDB */; };
 /* End PBXBuildFile section */
 
-/* Begin PBXShellScriptBuildPhase section */
-		0AEE4CB1C67C42909CFA55F6 /* Re-sign Sparkle Installer.xpc for Debug */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Re-sign Sparkle Installer.xpc for Debug";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "if [ \"$CONFIGURATION\" != \"Debug\" ]; then\n    exit 0\nfi\n\nENTITLEMENTS=\"${SRCROOT}/Dayflow/Debug.entitlements\"\nXPC_BUNDLE=\"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/Sparkle.framework/Versions/B/XPCServices/Installer.xpc\"\n\nif [ ! -f \"$ENTITLEMENTS\" ]; then\n    echo \"warning: Debug.entitlements not found at $ENTITLEMENTS\"\n    exit 0\nfi\n\nif [ -d \"$XPC_BUNDLE\" ]; then\n    codesign --force --sign - --entitlements \"$ENTITLEMENTS\" \"$XPC_BUNDLE\"\nelse\n    echo \"warning: Installer.xpc not found at $XPC_BUNDLE\"\nfi\n";
-		};
-/* End PBXShellScriptBuildPhase section */
-
 /* Begin PBXContainerItemProxy section */
 		C4C1D2B32DB56806007D5A55 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -264,6 +243,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		0AEE4CB1C67C42909CFA55F6 /* Re-sign Sparkle Installer.xpc for Debug */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Dayflow/Debug.entitlements",
+			);
+			name = "Re-sign Sparkle Installer.xpc for Debug";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"$CONFIGURATION\" != \"Debug\" ]; then\n    exit 0\nfi\n\nENTITLEMENTS=\"${SRCROOT}/Dayflow/Debug.entitlements\"\nXPC_BUNDLE=\"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/Sparkle.framework/Versions/B/XPCServices/Installer.xpc\"\n\nif [ ! -f \"$ENTITLEMENTS\" ]; then\n    echo \"warning: Debug.entitlements not found at $ENTITLEMENTS\"\n    exit 0\nfi\n\nif [ -d \"$XPC_BUNDLE\" ]; then\n    codesign --force --sign - --entitlements \"$ENTITLEMENTS\" \"$XPC_BUNDLE\"\nelse\n    echo \"warning: Installer.xpc not found at $XPC_BUNDLE\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		C4C1D29D2DB56805007D5A55 /* Sources */ = {
