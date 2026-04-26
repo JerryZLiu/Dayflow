@@ -253,7 +253,6 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
-				"$(SRCROOT)/Dayflow/Debug.entitlements",
 			);
 			name = "Re-sign Sparkle Installer.xpc for Debug";
 			outputFileListPaths = (
@@ -438,6 +437,7 @@
 				DEVELOPMENT_TEAM = VS3FLTY94C;
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Dayflow/Info.plist;
 				INFOPLIST_KEY_LSUIElement = NO;
