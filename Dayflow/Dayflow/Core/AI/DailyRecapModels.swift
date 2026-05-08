@@ -49,6 +49,8 @@ enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
       return preferredTool == "claude" ? .claude : .chatgpt
     case .ollamaLocal:
       return .local
+    case .apfel:
+      return .local
     }
   }
 

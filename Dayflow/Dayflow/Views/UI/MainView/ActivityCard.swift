@@ -19,6 +19,8 @@ struct ActivityCard: View {
     false
 
   @State private var showCategoryPicker = false
+  @State private var showReanalyzePicker = false
+  @State private var isReanalyzing = false
   @State private var isPreparingSlideshow = false
   @State private var slideshowError: String?
   @State private var slideshowRequestID = 0
@@ -66,12 +68,30 @@ struct ActivityCard: View {
           .transition(.move(edge: .top).combined(with: .opacity))
           .zIndex(1)
         }
+
+        if showReanalyzePicker && !isFailedCard(activity) {
+          ReanalyzePickerOverlay(
+            recordId: activity.recordId,
+            onClose: {
+              withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                showReanalyzePicker = false
+              }
+            },
+            onRunStart: { isReanalyzing = true },
+            onRunEnd: { _ in isReanalyzing = false },
+            onCompleted: onRetryBatchCompleted
+          )
+          .transition(.move(edge: .top).combined(with: .opacity))
+          .zIndex(2)
+        }
       }
       .if(maxHeight != nil) { view in
         view.frame(maxHeight: maxHeight!)
       }
       .onChange(of: activity.id) {
         showCategoryPicker = false
+        showReanalyzePicker = false
+        isReanalyzing = false
         isPreparingSlideshow = false
         slideshowError = nil
         slideshowRequestID &+= 1
@@ -179,6 +199,22 @@ struct ActivityCard: View {
                 .stroke(Color(red: 0.9, green: 0.9, blue: 0.9), lineWidth: 0.75)
             )
 
+            if let label = activity.llmLabel {
+              Text(llmDisplayLabel(for: label))
+                .font(Font.custom("Nunito", size: 11))
+                .foregroundColor(Color(red: 0.45, green: 0.45, blue: 0.45))
+                .lineLimit(1)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(Color(red: 0.93, green: 0.93, blue: 0.96).opacity(0.9))
+                .cornerRadius(6)
+                .overlay(
+                  RoundedRectangle(cornerRadius: 6)
+                    .inset(by: 0.38)
+                    .stroke(Color(red: 0.85, green: 0.85, blue: 0.92), lineWidth: 0.75)
+                )
+            }
+
             Spacer(minLength: 6)
 
             HStack(spacing: 6) {
@@ -219,6 +255,11 @@ struct ActivityCard: View {
                 .hoverScaleEffect(scale: 1.02)
                 .pointingHandCursorOnHover(reassertOnPressEnd: true)
                 .accessibilityLabel(Text("Change category"))
+
+                ActivityCardReanalyzeMenu(
+                  isPresented: $showReanalyzePicker,
+                  isRunning: isReanalyzing
+                )
               }
             }
           }
@@ -356,6 +397,18 @@ struct ActivityCard: View {
       mutable.insert("\n", at: matches[idx].range.location)
     }
     return mutable as String
+  }
+
+  private func llmDisplayLabel(for llmLabel: String) -> String {
+    switch llmLabel {
+    case "gemini": return "Gemini"
+    case "dayflow": return "Dayflow"
+    case "local": return "Local"
+    case "claude": return "Claude"
+    case "chatgpt": return "ChatGPT"
+    case "apple": return "Apple AI"
+    default: return llmLabel  // raw model name (e.g. "Qwen3-VL-4B-Instruct")
+    }
   }
 
   private func categoryBadge(for raw: String) -> (name: String, indicator: Color)? {
