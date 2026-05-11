@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 enum TimelineMode: String, CaseIterable, Identifiable {
@@ -13,6 +14,64 @@ enum TimelineMode: String, CaseIterable, Identifiable {
     case .week:
       return "Week"
     }
+  }
+}
+
+enum WeekTimelineFontSizePreference {
+  static let storageKey = "weekTimelineFontSizeValue"
+  static let minimum: Double = 10
+  static let maximum: Double = 20
+  static let defaultValue: Double = 12
+
+  static func clamped(_ value: Double) -> Double {
+    min(max(value, minimum), maximum)
+  }
+
+  static func cardTitleFontSize(for value: Double) -> CGFloat {
+    CGFloat(clamped(value))
+  }
+
+  static func estimatedCardTitleLineHeight(for value: Double) -> CGFloat {
+    cardTitleFontSize(for: value) + 2
+  }
+}
+
+enum WeekTimelineFontWeightOption: Int, CaseIterable, Identifiable {
+  case light
+  case regular
+  case medium
+  case semibold
+  case bold
+
+  static let storageKey = "weekTimelineFontWeightIndex"
+  static let defaultOption: WeekTimelineFontWeightOption = .regular
+
+  var id: Int { rawValue }
+
+  var title: String {
+    switch self {
+    case .light:
+      return "Light"
+    case .regular:
+      return "Regular"
+    case .medium:
+      return "Medium"
+    case .semibold:
+      return "Semibold"
+    case .bold:
+      return "Bold"
+    }
+  }
+
+  static func option(for index: Double) -> WeekTimelineFontWeightOption {
+    let roundedIndex = Int(index.rounded())
+    return WeekTimelineFontWeightOption(rawValue: roundedIndex) ?? defaultOption
+  }
+
+  static var sliderRange: ClosedRange<Double> {
+    let minIndex = Double(allCases.first?.rawValue ?? 0)
+    let maxIndex = Double(allCases.last?.rawValue ?? 0)
+    return minIndex...maxIndex
   }
 }
 

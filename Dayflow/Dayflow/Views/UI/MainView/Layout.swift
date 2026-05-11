@@ -78,6 +78,7 @@ extension MainView {
       .overlay { overlayContent }
       .overlay(alignment: .bottomTrailing) { timelineFailureToastOverlayContent }
       .overlay(alignment: .bottomTrailing) { screenRecordingPermissionNoticeOverlayContent }
+      .overlay(alignment: .topTrailing) { weekTimelineFontSizeOverlay }
       .overlay { categoryEditorOverlay }
   }
 
@@ -679,6 +680,84 @@ extension MainView {
 
   private var timelineTrailingControls: some View {
     PausePillView()
+  }
+
+  @ViewBuilder
+  private var weekTimelineFontSizeOverlay: some View {
+    if selectedIcon == .timeline, timelineMode == .week {
+      VStack(alignment: .trailing, spacing: 6) {
+        weekTimelineFontSizeSlider
+        weekTimelineFontWeightSlider
+      }
+      .padding(10)
+      .background(
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .fill(Color.white.opacity(0.78))
+          .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 3)
+      )
+      .padding(.top, 58)
+      .padding(.trailing, 24)
+      .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topTrailing)))
+      .zIndex(20)
+    }
+  }
+
+  private var weekTimelineFontSizeSlider: some View {
+    HStack(spacing: 8) {
+      weekTimelineFontOverlayIcon("textformat.size")
+
+      Slider(
+        value: Binding(
+          get: {
+            WeekTimelineFontSizePreference.clamped(weekTimelineFontSizeValue)
+          },
+          set: {
+            weekTimelineFontSizeValue = WeekTimelineFontSizePreference.clamped($0)
+          }
+        ),
+        in: WeekTimelineFontSizePreference.minimum...WeekTimelineFontSizePreference.maximum,
+        step: 1
+      )
+      .frame(width: 148)
+
+      Text("\(Int(WeekTimelineFontSizePreference.clamped(weekTimelineFontSizeValue)))px")
+        .font(.custom("Nunito", size: 11).weight(.medium))
+        .foregroundColor(Color(hex: "796E64"))
+        .frame(width: 32, alignment: .trailing)
+    }
+  }
+
+  private var weekTimelineFontWeightSlider: some View {
+    HStack(spacing: 8) {
+      weekTimelineFontOverlayIcon("bold")
+
+      Slider(
+        value: Binding(
+          get: {
+            Double(WeekTimelineFontWeightOption.option(for: weekTimelineFontWeightIndex).rawValue)
+          },
+          set: {
+            weekTimelineFontWeightIndex =
+              Double(WeekTimelineFontWeightOption.option(for: $0).rawValue)
+          }
+        ),
+        in: WeekTimelineFontWeightOption.sliderRange,
+        step: 1
+      )
+      .frame(width: 148)
+
+      Text(WeekTimelineFontWeightOption.option(for: weekTimelineFontWeightIndex).title)
+        .font(.custom("Nunito", size: 11).weight(.medium))
+        .foregroundColor(Color(hex: "796E64"))
+        .frame(width: 52, alignment: .trailing)
+    }
+  }
+
+  private func weekTimelineFontOverlayIcon(_ systemName: String) -> some View {
+    Image(systemName: systemName)
+      .font(.system(size: 12, weight: .semibold))
+      .foregroundColor(Color(hex: "796E64"))
+      .frame(width: 16, height: 26)
   }
 
   private var timelineHeaderTrailingReservation: CGFloat {

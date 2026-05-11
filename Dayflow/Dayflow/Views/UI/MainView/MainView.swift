@@ -21,6 +21,10 @@ struct MainView: View {
   @State var cachedTimelineWeekRange: TimelineWeekRange = TimelineWeekRange.containing(
     timelineDisplayDate(from: Date()))
   @State var timelineMode: TimelineMode = .day
+  @AppStorage(WeekTimelineFontSizePreference.storageKey) var weekTimelineFontSizeValue: Double =
+    WeekTimelineFontSizePreference.defaultValue
+  @AppStorage(WeekTimelineFontWeightOption.storageKey) var weekTimelineFontWeightIndex: Double =
+    Double(WeekTimelineFontWeightOption.defaultOption.rawValue)
   @State var hideWeekCardsDuringModeSwitch = false
   @State var showDatePicker = false
   // Arrowless calendar card anchored to the timeline header's calendar pill

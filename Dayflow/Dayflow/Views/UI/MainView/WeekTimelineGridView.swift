@@ -1042,6 +1042,11 @@ private struct WeekTimelineActivityCard: View {
   let onHoverChanged: (Bool) -> Void
   let onTap: () -> Void
 
+  @AppStorage(WeekTimelineFontSizePreference.storageKey) private var fontSizeValue: Double =
+    WeekTimelineFontSizePreference.defaultValue
+  @AppStorage(WeekTimelineFontWeightOption.storageKey) private var fontWeightIndex: Double =
+    Double(WeekTimelineFontWeightOption.defaultOption.rawValue)
+
   private var isCompact: Bool {
     durationMinutes < 24 || height < 40
   }
@@ -1055,11 +1060,27 @@ private struct WeekTimelineActivityCard: View {
     title == "Processing failed"
   }
 
-  // Title font size is a single constant across every card in the grid — no
-  // compact/long split, no hover switch — so text never changes size for any
-  // reason. The hover interaction handles "too small to read" by revealing
-  // more lines, not by shrinking the font.
-  private var titleFontSize: CGFloat { 10 }
+  // Title font size is controlled at the weekly-view level. It stays stable
+  // across hover and card height states so the hover interaction reveals more
+  // lines without changing already-visible text.
+  private var titleFontSize: CGFloat {
+    WeekTimelineFontSizePreference.cardTitleFontSize(for: fontSizeValue)
+  }
+
+  private var titleFontWeight: Font.Weight {
+    switch WeekTimelineFontWeightOption.option(for: fontWeightIndex) {
+    case .light:
+      return .light
+    case .regular:
+      return .regular
+    case .medium:
+      return .medium
+    case .semibold:
+      return .semibold
+    case .bold:
+      return .bold
+    }
+  }
 
   // Vertical padding still varies by card size (compact cards need a tighter
   // fit at rest), but it's stable across hover states so the first line's Y
@@ -1077,14 +1098,19 @@ private struct WeekTimelineActivityCard: View {
   // gated on `isCompact` and forced 1 line for any "short-duration" card,
   // which truncated titles even when 2+ lines would clearly fit. Here we
   // derive the line count from the real text-area height: card height
-  // minus both vertical paddings, divided by Nunito 10's line-height
-  // (~12pt). `max(1, …)` guarantees at least one line for the smallest
-  // cards.
+  // minus both vertical paddings, divided by the selected font size's
+  // estimated line height. `max(1, …)` guarantees at least one line for the
+  // smallest cards.
   private var maxUnhoveredTitleLines: Int {
     let reservedStatusHeight: CGFloat = showsRetryStatus ? 14 : 0
     let available = height - 2 * verticalPadding - reservedStatusHeight
-    let perLine: CGFloat = 12
-    return max(1, Int(available / perLine))
+    return max(
+      1,
+      Int(
+        available
+          / WeekTimelineFontSizePreference.estimatedCardTitleLineHeight(for: fontSizeValue)
+      )
+    )
   }
 
   private var hasFavicon: Bool {
@@ -1136,7 +1162,7 @@ private struct WeekTimelineActivityCard: View {
 
       VStack(alignment: .leading, spacing: 2) {
         Text(title)
-          .font(.custom("Nunito", size: titleFontSize).weight(.semibold))
+          .font(.custom("Nunito", size: titleFontSize).weight(titleFontWeight))
           .foregroundColor(palette.title)
           .multilineTextAlignment(.leading)
           .lineLimit(renderingExpanded ? nil : maxUnhoveredTitleLines)
@@ -1220,7 +1246,7 @@ private struct WeekTimelineActivityCard: View {
 
       VStack(alignment: .leading, spacing: 2) {
         Text(title)
-          .font(.custom("Nunito", size: titleFontSize).weight(.semibold))
+          .font(.custom("Nunito", size: titleFontSize).weight(titleFontWeight))
           .multilineTextAlignment(.leading)
           .fixedSize(horizontal: false, vertical: true)
 
