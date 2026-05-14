@@ -33,9 +33,9 @@ struct WeeklyDateRange: Equatable, Sendable {
   }
 
   var title: String {
-    let workweekEnd = Self.calendar.date(byAdding: .day, value: 4, to: weekStart) ?? weekStart
+    let displayWeekEnd = Self.calendar.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
     let startText = Self.titleStartFormatter.string(from: weekStart)
-    let endText = Self.titleEndFormatter.string(from: workweekEnd)
+    let endText = Self.titleEndFormatter.string(from: displayWeekEnd)
     return "\(startText) - \(endText)"
   }
 
