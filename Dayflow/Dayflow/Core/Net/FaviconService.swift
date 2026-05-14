@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 
 final class FaviconService {
   static let shared = FaviconService()
@@ -18,6 +19,22 @@ final class FaviconService {
   private let faviconPatterns: [(pattern: String, asset: String)] = [
     // Dayflow
     ("dayflow", "DayflowFavicon"),
+
+    // AI/tools
+    ("chat.openai", "ChatGPTLogo"),
+    ("chatgpt", "ChatGPTLogo"),
+    ("claude", "ClaudeLogo"),
+    ("anthropic", "ClaudeLogo"),
+    ("gemini", "GeminiLogo"),
+
+    // Common web apps
+    ("youtube", "YouTubeFavicon"),
+    ("youtu.be", "YouTubeFavicon"),
+    ("reddit", "RedditFavicon"),
+    ("twitter", "XFavicon"),
+    ("x.com", "XFavicon"),
+    ("leagueoflegends", "LeagueOfLegendsFavicon"),
+    ("league of legends", "LeagueOfLegendsFavicon"),
 
     // Apple services - specific patterns first
     ("imessage", "iMessageFavicon"),
@@ -122,33 +139,55 @@ final class FaviconService {
     return nil
   }
 
+  func hasRawFaviconOverride(_ raw: String?) -> Bool {
+    assetName(forRaw: raw) != nil
+  }
+
+  static func normalizedHost(from site: String?) -> String? {
+    guard var site, !site.isEmpty else { return nil }
+    site = site.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if let url = URL(string: site), let host = url.host {
+      return host
+    }
+    if site.contains("://"), let url = URL(string: site), let host = url.host {
+      return host
+    }
+    if site.contains("/"), let url = URL(string: "https://" + site), let host = url.host {
+      return host
+    }
+    if !site.contains(".") {
+      return site + ".com"
+    }
+    return site
+  }
+
   private func resolveRawFavicon(_ raw: String?) -> NSImage? {
+    guard let assetName = assetName(forRaw: raw) else { return nil }
+    return NSImage(named: assetName)
+  }
+
+  private func assetName(forRaw raw: String?) -> String? {
     guard let raw else { return nil }
-    if let img = matchPattern(raw) { return img }
-    return matchDualPattern(raw)
+    return matchPattern(raw) ?? matchDualPattern(raw)
   }
 
   /// Check raw string against hardcoded patterns (no network fetch)
-  private func matchPattern(_ raw: String) -> NSImage? {
+  private func matchPattern(_ raw: String) -> String? {
     let rawLower = raw.lowercased()
     for (pattern, assetName) in faviconPatterns {
       if rawLower.contains(pattern) {
-        if let img = NSImage(named: assetName) {
-          return img
-        }
+        return assetName
       }
     }
     return nil
   }
 
   /// Check raw string against dual patterns (requires BOTH patterns to match)
-  private func matchDualPattern(_ raw: String) -> NSImage? {
+  private func matchDualPattern(_ raw: String) -> String? {
     let rawLower = raw.lowercased()
     for (pattern1, pattern2, assetName) in faviconDualPatterns {
       if rawLower.contains(pattern1) && rawLower.contains(pattern2) {
-        if let img = NSImage(named: assetName) {
-          return img
-        }
+        return assetName
       }
     }
     return nil
@@ -279,5 +318,89 @@ final class FaviconService {
     inFlightLock.lock()
     inFlight[host] = nil
     inFlightLock.unlock()
+  }
+}
+
+struct FaviconImageView: View {
+  let primaryRaw: String?
+  let secondaryRaw: String?
+  let primaryHost: String?
+  let secondaryHost: String?
+  let fallbackRaw: String?
+  let size: CGFloat
+  let cornerRadius: CGFloat
+
+  @State private var image: NSImage?
+
+  init(
+    primaryRaw: String?,
+    secondaryRaw: String?,
+    primaryHost: String?,
+    secondaryHost: String?,
+    fallbackRaw: String? = nil,
+    size: CGFloat,
+    cornerRadius: CGFloat = 2
+  ) {
+    self.primaryRaw = primaryRaw
+    self.secondaryRaw = secondaryRaw
+    self.primaryHost = primaryHost
+    self.secondaryHost = secondaryHost
+    self.fallbackRaw = fallbackRaw
+    self.size = size
+    self.cornerRadius = cornerRadius
+  }
+
+  var body: some View {
+    Group {
+      if let image {
+        Image(nsImage: image)
+          .resizable()
+          .interpolation(.high)
+          .aspectRatio(contentMode: .fit)
+          .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+      } else {
+        Color.clear
+      }
+    }
+    .frame(width: size, height: size)
+    .task(id: requestKey) {
+      image = nil
+      guard hasLookupSource else { return }
+      image = await FaviconService.shared.fetchFavicon(
+        primaryRaw: effectivePrimaryRaw,
+        secondaryRaw: secondaryRaw,
+        primaryHost: primaryHost,
+        secondaryHost: secondaryHost
+      )
+    }
+  }
+
+  private var effectivePrimaryRaw: String? {
+    nonEmpty(primaryRaw) ?? nonEmpty(fallbackRaw)
+  }
+
+  private var hasLookupSource: Bool {
+    effectivePrimaryRaw != nil || nonEmpty(secondaryRaw) != nil
+      || nonEmpty(primaryHost) != nil || nonEmpty(secondaryHost) != nil
+  }
+
+  private var requestKey: String {
+    [
+      effectivePrimaryRaw,
+      nonEmpty(secondaryRaw),
+      nonEmpty(primaryHost),
+      nonEmpty(secondaryHost),
+    ]
+    .map { $0 ?? "" }
+    .joined(separator: "|")
+  }
+
+  private func nonEmpty(_ value: String?) -> String? {
+    guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !trimmed.isEmpty
+    else {
+      return nil
+    }
+    return trimmed
   }
 }
