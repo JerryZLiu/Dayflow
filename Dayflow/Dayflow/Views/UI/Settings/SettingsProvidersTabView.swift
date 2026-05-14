@@ -5,6 +5,9 @@ struct SettingsProvidersTabView: View {
   @ObservedObject var viewModel: ProvidersSettingsViewModel
   @ObservedObject private var authManager = DayflowAuthManager.shared
 
+  /// Provider id pending a config removal, used to drive the confirmation alert.
+  @State private var providerPendingRemoval: String?
+
   var body: some View {
     VStack(alignment: .leading, spacing: SettingsStyle.sectionSpacing) {
       if viewModel.currentProvider == "ollama", viewModel.showLocalModelUpgradeBanner {
@@ -34,6 +37,38 @@ struct SettingsProvidersTabView: View {
       }
 
       promptCustomizationSection
+    }
+    .alert(
+      "Remove configuration?",
+      isPresented: Binding(
+        get: { providerPendingRemoval != nil },
+        set: { newValue in if !newValue { providerPendingRemoval = nil } }
+      )
+    ) {
+      Button("Cancel", role: .cancel) { providerPendingRemoval = nil }
+      Button("Remove", role: .destructive) {
+        if let id = providerPendingRemoval {
+          viewModel.removeProviderConfig(id)
+        }
+        providerPendingRemoval = nil
+      }
+    } message: {
+      Text(removalConfirmationMessage(for: providerPendingRemoval))
+    }
+  }
+
+  private func removalConfirmationMessage(for providerId: String?) -> String {
+    guard let providerId else { return "" }
+    let name = viewModel.providerDisplayName(providerId)
+    switch viewModel.canonicalProviderId(for: providerId) {
+    case "gemini":
+      return "This will delete your Gemini API key from Keychain and reset \(name)'s saved settings. You'll need to re-enter the key to use this provider again."
+    case "ollama":
+      return "This will clear your saved \(name) endpoint, model selection, and local API key. You can re-run setup any time."
+    case "chatgpt_claude":
+      return "This will clear the saved CLI tool preference for \(name). You can re-run setup any time."
+    default:
+      return "This will clear all saved configuration for \(name)."
     }
   }
 
@@ -266,6 +301,12 @@ struct SettingsProvidersTabView: View {
           } else {
             SettingsSecondaryButton(title: "Unset secondary") {
               viewModel.clearBackupProvider()
+            }
+          }
+
+          if viewModel.canRemoveProviderConfig(provider.id) {
+            SettingsSecondaryButton(title: "Remove configuration") {
+              providerPendingRemoval = provider.id
             }
           }
         }
