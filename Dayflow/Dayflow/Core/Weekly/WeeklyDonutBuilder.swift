@@ -60,15 +60,15 @@ enum WeeklyDonutBuilder {
       normalizedKey: normalizedCategoryKey
     )
 
-    let visibleWorkdays = Set(workdayStrings(for: weekRange.weekStart))
-    let workweekCards = cards.filter { visibleWorkdays.contains($0.day) }
+    let visibleWeekDays = Set(weekDayStrings(for: weekRange.weekStart))
+    let weeklyCards = cards.filter { visibleWeekDays.contains($0.day) }
 
     var minutesByCategory: [String: Int] = [:]
     var namesByCategory: [String: String] = [:]
     var colorsByCategory: [String: String] = [:]
     var ordersByCategory: [String: Int] = [:]
 
-    for card in workweekCards {
+    for card in weeklyCards {
       let key = normalizedCategoryKey(displayName(for: card.category))
       guard key != systemCategoryKey else { continue }
 
@@ -140,8 +140,8 @@ enum WeeklyDonutBuilder {
     ]
   }
 
-  private static func workdayStrings(for weekStart: Date) -> [String] {
-    (0..<5).compactMap { offset in
+  private static func weekDayStrings(for weekStart: Date) -> [String] {
+    (0..<7).compactMap { offset in
       guard let date = calendar.date(byAdding: .day, value: offset, to: weekStart) else {
         return nil
       }
