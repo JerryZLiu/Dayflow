@@ -82,6 +82,8 @@ enum WeeklyOverviewBuilder {
     ("Wed", "Wednesday"),
     ("Thu", "Thursday"),
     ("Fri", "Friday"),
+    ("Sat", "Saturday"),
+    ("Sun", "Sunday"),
   ]
 
   static func build(
@@ -99,16 +101,16 @@ enum WeeklyOverviewBuilder {
       normalizedKey: normalizedCategoryKey
     )
 
-    let workdays = workdays(for: weekRange.weekStart)
-    let workdayLookup = Dictionary(uniqueKeysWithValues: workdays.map { ($0.dayString, $0) })
+    let weekDays = weekDays(for: weekRange.weekStart)
+    let weekDayLookup = Dictionary(uniqueKeysWithValues: weekDays.map { ($0.dayString, $0) })
 
-    let workweekCards = cards.filter { workdayLookup[$0.day] != nil }
+    let weeklyCards = cards.filter { weekDayLookup[$0.day] != nil }
 
     var minutesByCategory: [String: Double] = [:]
     var displayNameByCategory: [String: String] = [:]
     var colorHexByCategory: [String: String] = [:]
 
-    for card in workweekCards {
+    for card in weeklyCards {
       let key = normalizedCategoryKey(displayName(for: card.category))
       guard key != systemCategoryKey else { continue }
 
@@ -134,13 +136,13 @@ enum WeeklyOverviewBuilder {
     }
 
     let visibleCategoryKeys = visibleCategoryKeys(from: categorySummaries)
-    let rows = workdays.map { workday in
+    let rows = weekDays.map { weekDay in
       WeeklyOverviewRow(
-        id: workday.dayString,
-        label: workday.label,
-        weekdayName: workday.weekdayName,
+        id: weekDay.dayString,
+        label: weekDay.label,
+        weekdayName: weekDay.weekdayName,
         segments: rowSegments(
-          for: workweekCards.filter { $0.day == workday.dayString },
+          for: weeklyCards.filter { $0.day == weekDay.dayString },
           visibleCategoryKeys: visibleCategoryKeys,
           categories: categoryLookup
         )
@@ -148,18 +150,18 @@ enum WeeklyOverviewBuilder {
     }
 
     let legendItems = legendItems(from: categorySummaries, visibleCategoryKeys: visibleCategoryKeys)
-    let contextSwitchTotal = workdays.reduce(0) { partial, workday in
+    let contextSwitchTotal = weekDays.reduce(0) { partial, weekDay in
       partial
         + contextSwitchCount(
-          for: workweekCards.filter { $0.day == workday.dayString }
+          for: weeklyCards.filter { $0.day == weekDay.dayString }
         )
     }
 
     let focusSummaries = categorySummaries.filter { !$0.isIdle }
     let totalFocusMinutes = Int(focusSummaries.reduce(0) { $0 + $1.minutes }.rounded())
     let longestFocus = longestFocusSummary(
-      cardsByDay: workdays.map { workday in
-        (workday: workday, cards: workweekCards.filter { $0.day == workday.dayString })
+      cardsByDay: weekDays.map { weekDay in
+        (weekDay: weekDay, cards: weeklyCards.filter { $0.day == weekDay.dayString })
       },
       categories: categoryLookup
     )
@@ -176,9 +178,9 @@ enum WeeklyOverviewBuilder {
       }
 
     let contextSwitchAverage =
-      workdays.isEmpty
+      weekDays.isEmpty
       ? 0
-      : Int((Double(contextSwitchTotal) / Double(workdays.count)).rounded())
+      : Int((Double(contextSwitchTotal) / Double(weekDays.count)).rounded())
 
     return WeeklyOverviewSnapshot(
       rows: rows,
@@ -278,7 +280,7 @@ enum WeeklyOverviewBuilder {
   }
 
   private static func longestFocusSummary(
-    cardsByDay: [(workday: Workday, cards: [TimelineCard])],
+    cardsByDay: [(weekDay: WeeklyOverviewDay, cards: [TimelineCard])],
     categories: [String: TimelineCategory]
   ) -> WeeklyOverviewFocusSummary? {
     var bestSummary: WeeklyOverviewFocusSummary? = nil
@@ -314,7 +316,7 @@ enum WeeklyOverviewBuilder {
           continue
         } else {
           bestSummary = WeeklyOverviewFocusSummary(
-            weekdayName: entry.workday.weekdayName,
+            weekdayName: entry.weekDay.weekdayName,
             minutes: minutes
           )
         }
@@ -434,13 +436,13 @@ enum WeeklyOverviewBuilder {
     return max(0, normalized.end - normalized.start)
   }
 
-  private static func workdays(for weekStart: Date) -> [Workday] {
+  private static func weekDays(for weekStart: Date) -> [WeeklyOverviewDay] {
     weekdayTemplates.enumerated().compactMap { offset, labels in
       guard let dayDate = calendar.date(byAdding: .day, value: offset, to: weekStart) else {
         return nil
       }
 
-      return Workday(
+      return WeeklyOverviewDay(
         label: labels.short,
         weekdayName: labels.full,
         dayString: DateFormatter.yyyyMMdd.string(from: dayDate)
@@ -507,7 +509,7 @@ enum WeeklyOverviewBuilder {
   }
 }
 
-private struct Workday: Sendable {
+private struct WeeklyOverviewDay: Sendable {
   let label: String
   let weekdayName: String
   let dayString: String
