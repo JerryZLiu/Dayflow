@@ -4,6 +4,17 @@ import SwiftUI
 struct WeeklyDonutSection: View {
   let snapshot: WeeklyDonutSnapshot
   let isLoading: Bool
+  let width: CGFloat
+
+  init(
+    snapshot: WeeklyDonutSnapshot,
+    isLoading: Bool,
+    width: CGFloat = Design.cardWidth
+  ) {
+    self.snapshot = snapshot
+    self.isLoading = isLoading
+    self.width = width
+  }
 
   private enum Design {
     static let cardWidth: CGFloat = 461
@@ -12,9 +23,13 @@ struct WeeklyDonutSection: View {
     static let borderColor = Color(hex: "EBE6E3")
     static let backgroundColor = Color.white.opacity(0.6)
     static let titleColor = Color(hex: "B46531")
-    static let contentSpacing: CGFloat = 32
+    static let contentHorizontalPadding: CGFloat = 18
+    static let contentSpacing: CGFloat = 18
     static let donutSize: CGFloat = 205
-    static let legendWidth: CGFloat = 129
+  }
+
+  private var donutSize: CGFloat {
+    min(235, max(176, width * 0.43))
   }
 
   var body: some View {
@@ -34,11 +49,10 @@ struct WeeklyDonutSection: View {
         legendContent
       }
       .padding(.top, 56)
-      .padding(.leading, 29)
-      .padding(.trailing, 18)
+      .padding(.horizontal, Design.contentHorizontalPadding)
 
     }
-    .frame(width: Design.cardWidth, height: Design.cardHeight, alignment: .topLeading)
+    .frame(width: width, height: Design.cardHeight, alignment: .topLeading)
     .clipShape(RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
@@ -50,13 +64,13 @@ struct WeeklyDonutSection: View {
   private var donutContent: some View {
     if isLoading {
       ProgressView()
-        .frame(width: Design.donutSize, height: Design.donutSize)
+        .frame(width: donutSize, height: donutSize)
     } else if snapshot.items.isEmpty {
-      WeeklyDonutEmptyState(size: Design.donutSize)
+      WeeklyDonutEmptyState(size: donutSize)
     } else {
       WeeklyDonutChart(
         snapshot: snapshot,
-        size: Design.donutSize
+        size: donutSize
       )
     }
   }
@@ -70,7 +84,7 @@ struct WeeklyDonutSection: View {
         )
       }
     }
-    .frame(width: Design.legendWidth, alignment: .leading)
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
 
@@ -186,13 +200,15 @@ private struct WeeklyDonutLegendRow: View {
           .font(.custom("Figtree-Regular", size: 14))
           .foregroundStyle(Color.black)
           .lineLimit(1)
+          .layoutPriority(1)
       }
 
-      Spacer(minLength: 16)
+      Spacer(minLength: 8)
 
       Text(percentageText)
         .font(.custom("Figtree-Regular", size: 14))
         .foregroundStyle(Color.black)
+        .frame(minWidth: 32, alignment: .trailing)
     }
   }
 }
