@@ -118,7 +118,7 @@ struct WeeklyTreemapLeafTile: View {
       let presentationMode = WeeklyTreemapLeafPresentationMode.resolve(
         for: proxy.size,
         hasChange: app.change != nil,
-        hasFavicon: app.faviconAssetName != nil
+        hasFavicon: app.hasFaviconSource
       )
 
       RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
@@ -236,13 +236,16 @@ struct WeeklyTreemapLeafTile: View {
 
   @ViewBuilder
   func faviconImage(size: CGFloat) -> some View {
-    if let assetName = app.faviconAssetName {
-      Image(assetName)
-        .resizable()
-        .interpolation(.high)
-        .scaledToFit()
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
+    if app.hasFaviconSource {
+      FaviconImageView(
+        primaryRaw: app.faviconPrimaryRaw,
+        secondaryRaw: app.faviconSecondaryRaw,
+        primaryHost: app.faviconPrimaryHost,
+        secondaryHost: app.faviconSecondaryHost,
+        fallbackRaw: app.fallbackFaviconRaw,
+        size: size
+      )
+      .accessibilityHidden(true)
     }
   }
 }
