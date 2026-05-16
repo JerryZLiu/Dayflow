@@ -34,6 +34,10 @@ struct WeeklyTreemapApp: Identifiable {
   let name: String
   let duration: TimeInterval
   let change: WeeklyTreemapChange?
+  let faviconPrimaryRaw: String?
+  let faviconSecondaryRaw: String?
+  let faviconPrimaryHost: String?
+  let faviconSecondaryHost: String?
   let isAggregate: Bool
   let isPlaceholder: Bool
 
@@ -42,6 +46,10 @@ struct WeeklyTreemapApp: Identifiable {
     name: String,
     duration: TimeInterval,
     change: WeeklyTreemapChange?,
+    faviconPrimaryRaw: String? = nil,
+    faviconSecondaryRaw: String? = nil,
+    faviconPrimaryHost: String? = nil,
+    faviconSecondaryHost: String? = nil,
     isAggregate: Bool = false,
     isPlaceholder: Bool = false
   ) {
@@ -49,6 +57,10 @@ struct WeeklyTreemapApp: Identifiable {
     self.name = name
     self.duration = duration
     self.change = change
+    self.faviconPrimaryRaw = faviconPrimaryRaw
+    self.faviconSecondaryRaw = faviconSecondaryRaw
+    self.faviconPrimaryHost = faviconPrimaryHost
+    self.faviconSecondaryHost = faviconSecondaryHost
     self.isAggregate = isAggregate
     self.isPlaceholder = isPlaceholder
   }
@@ -61,9 +73,23 @@ struct WeeklyTreemapApp: Identifiable {
     duration.weeklyTreemapDurationString
   }
 
-  var faviconAssetName: String? {
-    guard !isAggregate, !isPlaceholder else { return nil }
-    return WeeklyTreemapFavicon.assetName(forID: id, name: name)
+  var hasFaviconSource: Bool {
+    guard !isAggregate, !isPlaceholder else { return false }
+    if hasNonEmpty(faviconPrimaryRaw) || hasNonEmpty(faviconSecondaryRaw)
+      || hasNonEmpty(faviconPrimaryHost) || hasNonEmpty(faviconSecondaryHost)
+    {
+      return true
+    }
+
+    return FaviconService.shared.hasRawFaviconOverride(name)
+  }
+
+  var fallbackFaviconRaw: String? {
+    FaviconService.shared.hasRawFaviconOverride(name) ? name : nil
+  }
+
+  private func hasNonEmpty(_ value: String?) -> Bool {
+    value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
   }
 
   static func displayOrder(_ lhs: WeeklyTreemapApp, _ rhs: WeeklyTreemapApp) -> Bool {
@@ -94,41 +120,6 @@ struct WeeklyTreemapApp: Identifiable {
       isAggregate: true,
       isPlaceholder: false
     )
-  }
-}
-
-enum WeeklyTreemapFavicon {
-  static func assetName(forID id: String, name: String) -> String? {
-    let lookupText = "\(id) \(name)".lowercased()
-    if id == "x" || name.lowercased() == "x" || lookupText.contains("twitter") {
-      return "XFavicon"
-    }
-
-    let assetMatches: [(needle: String, assetName: String)] = [
-      ("dayflow", "DayflowLogoMainApp"),
-      ("claude", "ClaudeLogo"),
-      ("chatgpt", "ChatGPTLogo"),
-      ("youtube", "YouTubeFavicon"),
-      ("reddit", "RedditFavicon"),
-      ("leagueoflegends", "LeagueOfLegendsFavicon"),
-      ("league of legends", "LeagueOfLegendsFavicon"),
-      ("google", "GoogleFavicon"),
-      ("mail", "MailFavicon"),
-      ("maps", "MapsFavicon"),
-      ("chrome", "ChromeFavicon"),
-      ("safari", "SafariFavicon"),
-      ("calendar", "CalendarFavicon"),
-      ("messages", "MessagesFavicon"),
-      ("xcode", "XCodeFavicon"),
-      ("vscode", "VSCodeFavicon"),
-      ("vs code", "VSCodeFavicon"),
-      ("terminal", "TerminalFavicon"),
-      ("ghostty", "GhosttyFavicon"),
-      ("finder", "FinderFavicon"),
-      ("settings", "SettingsFavicon"),
-    ]
-
-    return assetMatches.first { lookupText.contains($0.needle) }?.assetName
   }
 }
 
