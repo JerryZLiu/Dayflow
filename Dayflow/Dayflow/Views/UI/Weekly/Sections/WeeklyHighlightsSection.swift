@@ -2,6 +2,12 @@ import SwiftUI
 
 struct WeeklyHighlightsSection: View {
   let snapshot: WeeklyHighlightsSnapshot
+  let width: CGFloat
+
+  init(snapshot: WeeklyHighlightsSnapshot, width: CGFloat = Design.width) {
+    self.snapshot = snapshot
+    self.width = width
+  }
 
   private enum Design {
     static let width: CGFloat = 470
@@ -38,7 +44,7 @@ struct WeeklyHighlightsSection: View {
               .font(.custom("Figtree-Regular", size: 12))
               .foregroundStyle(Color(hex: "333333"))
               .lineSpacing(1)
-              .frame(width: 322, alignment: .leading)
+              .frame(maxWidth: .infinity, alignment: .leading)
           }
         }
       }
@@ -48,7 +54,7 @@ struct WeeklyHighlightsSection: View {
     }
     .padding(.top, 19)
     .padding(.horizontal, 18)
-    .frame(width: Design.width, height: Design.height, alignment: .topLeading)
+    .frame(width: width, height: Design.height, alignment: .topLeading)
     .background(Design.background)
     .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
     .overlay(
