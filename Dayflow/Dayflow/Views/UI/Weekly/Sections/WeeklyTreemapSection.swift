@@ -4,7 +4,16 @@ let weeklyTreemapContentCoordinateSpace = "weekly-treemap-content"
 
 struct WeeklyTreemapSection: View {
   let snapshot: WeeklyTreemapSnapshot
+  let width: CGFloat
   @State var hoveredLeaf: WeeklyTreemapHoverState?
+
+  init(
+    snapshot: WeeklyTreemapSnapshot,
+    width: CGFloat = Design.sectionSize.width
+  ) {
+    self.snapshot = snapshot
+    self.width = width
+  }
 
   enum Design {
     static let sectionSize = CGSize(width: 958, height: 549)
@@ -19,6 +28,10 @@ struct WeeklyTreemapSection: View {
     static let hoverCardGap: CGFloat = 10
   }
 
+  private var contentWidth: CGFloat {
+    max(Design.contentSize.width, width - (Design.contentOrigin.x * 2))
+  }
+
   var body: some View {
     ZStack(alignment: .topLeading) {
       RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
@@ -30,10 +43,10 @@ struct WeeklyTreemapSection: View {
         .offset(x: Design.titleOrigin.x, y: Design.titleOrigin.y)
 
       contentLayer
-        .frame(width: Design.contentSize.width, height: Design.contentSize.height)
+        .frame(width: contentWidth, height: Design.contentSize.height)
         .offset(x: Design.contentOrigin.x, y: Design.contentOrigin.y)
     }
-    .frame(width: Design.sectionSize.width, height: Design.sectionSize.height)
+    .frame(width: width, height: Design.sectionSize.height)
     .clipShape(RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
