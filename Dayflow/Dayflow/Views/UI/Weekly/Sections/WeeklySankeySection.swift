@@ -7,10 +7,16 @@ struct WeeklySankeySection: View {
 
   private let snapshot: WeeklySankeySnapshot?
   private let showsControls: Bool
+  private let width: CGFloat
 
-  init(snapshot: WeeklySankeySnapshot? = nil, showsControls: Bool = true) {
+  init(
+    snapshot: WeeklySankeySnapshot? = nil,
+    showsControls: Bool = true,
+    width: CGFloat = WeeklySankeyDesign.cardWidth
+  ) {
     self.snapshot = snapshot
     self.showsControls = showsControls
+    self.width = width
   }
 
   private var model: WeeklySankeyModel {
@@ -33,9 +39,9 @@ struct WeeklySankeySection: View {
       if showsControls {
         controls
       }
-      WeeklySankeyCard(model: model)
+      WeeklySankeyCard(model: model, width: width)
     }
-    .frame(width: WeeklySankeyDesign.cardWidth, alignment: .topLeading)
+    .frame(width: width, alignment: .topLeading)
     .background(Color.white.opacity(0.6))
     .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
     .overlay(
@@ -116,6 +122,7 @@ private enum WeeklySankeyDataset {
 
 private struct WeeklySankeyCard: View {
   let model: WeeklySankeyModel
+  let width: CGFloat
 
   @State private var hoveredNodeID: String?
   @State private var pinnedNodeID: String?
@@ -124,7 +131,13 @@ private struct WeeklySankeyCard: View {
     pinnedNodeID ?? hoveredNodeID
   }
 
+  private var height: CGFloat {
+    width * WeeklySankeyDesign.virtualHeight / WeeklySankeyDesign.virtualWidth
+  }
+
   var body: some View {
+    let scale = WeeklySankeyScale(size: CGSize(width: width, height: height))
+
     ZStack(alignment: .topLeading) {
       Canvas { context, size in
         let scale = WeeklySankeyScale(size: size)
@@ -134,13 +147,14 @@ private struct WeeklySankeyCard: View {
 
       WeeklySankeyFlowInteractionLayer(
         model: model,
+        size: CGSize(width: width, height: height),
         onHoveredNodeChanged: { hoveredNodeID = $0 },
         onFlowTapped: { togglePinned($0) },
         onEmptyTapped: { pinnedNodeID = nil }
       )
 
       ForEach(model.nodes) { node in
-        let frame = WeeklySankeyScale.displayFrame(node.bar)
+        let frame = scale.displayFrame(node.bar)
 
         Rectangle()
           .fill(Color(hex: node.barColorHex))
@@ -158,26 +172,31 @@ private struct WeeklySankeyCard: View {
 
       WeeklySankeyPlainLabel(
         node: model.source,
-        opacity: nodeOpacity(model.source.id)
+        opacity: nodeOpacity(model.source.id),
+        scale: scale
       )
       .onHover { updateHoveredNode(model.source.id, isHovering: $0) }
       .onTapGesture { togglePinned(model.source.id) }
 
       ForEach(model.categories) { category in
-        WeeklySankeyPlainLabel(node: category, opacity: nodeOpacity(category.id))
-          .onHover { updateHoveredNode(category.id, isHovering: $0) }
-          .onTapGesture { togglePinned(category.id) }
+        WeeklySankeyPlainLabel(
+          node: category,
+          opacity: nodeOpacity(category.id),
+          scale: scale
+        )
+        .onHover { updateHoveredNode(category.id, isHovering: $0) }
+        .onTapGesture { togglePinned(category.id) }
       }
 
       ForEach(model.apps) { app in
-        WeeklySankeyAppLabel(node: app, opacity: nodeOpacity(app.id))
+        WeeklySankeyAppLabel(node: app, opacity: nodeOpacity(app.id), scale: scale)
           .onHover { updateHoveredNode(app.id, isHovering: $0) }
           .onTapGesture { togglePinned(app.id) }
       }
     }
     .frame(
-      width: WeeklySankeyDesign.cardWidth,
-      height: WeeklySankeyDesign.cardHeight
+      width: width,
+      height: height
     )
     .onHover { isHovering in
       if !isHovering {
@@ -352,6 +371,7 @@ private struct WeeklySankeyCard: View {
 
 private struct WeeklySankeyFlowInteractionLayer: View {
   let model: WeeklySankeyModel
+  let size: CGSize
   let onHoveredNodeChanged: (String?) -> Void
   let onFlowTapped: (String) -> Void
   let onEmptyTapped: () -> Void
@@ -360,8 +380,8 @@ private struct WeeklySankeyFlowInteractionLayer: View {
     Rectangle()
       .fill(Color.clear)
       .frame(
-        width: WeeklySankeyDesign.cardWidth,
-        height: WeeklySankeyDesign.cardHeight
+        width: size.width,
+        height: size.height
       )
       .contentShape(Rectangle())
       .onContinuousHover(coordinateSpace: .local) { phase in
@@ -386,12 +406,7 @@ private struct WeeklySankeyFlowInteractionLayer: View {
   }
 
   private func flow(at point: CGPoint) -> WeeklySankeyFlow? {
-    let scale = WeeklySankeyScale(
-      size: CGSize(
-        width: WeeklySankeyDesign.cardWidth,
-        height: WeeklySankeyDesign.cardHeight
-      )
-    )
+    let scale = WeeklySankeyScale(size: size)
 
     return model.flows.reversed().first { flow in
       let hitFlow = flow.expandingVertically(by: 8 / scale.y)
@@ -410,6 +425,7 @@ private struct WeeklySankeyFlowInteractionLayer: View {
 private struct WeeklySankeyPlainLabel: View {
   let node: WeeklySankeyNode
   let opacity: Double
+  let scale: WeeklySankeyScale
 
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
@@ -420,10 +436,10 @@ private struct WeeklySankeyPlainLabel: View {
 
       metaLine(fontSize: 10)
     }
-    .frame(width: WeeklySankeyScale.displayWidth(node.label.width), alignment: .leading)
+    .frame(width: scale.displayWidth(node.label.width), alignment: .leading)
     .offset(
-      x: WeeklySankeyScale.displayX(node.label.x),
-      y: WeeklySankeyScale.displayY(node.label.y)
+      x: scale.displayX(node.label.x),
+      y: scale.displayY(node.label.y)
     )
     .opacity(opacity)
     .contentShape(Rectangle())
@@ -446,6 +462,7 @@ private struct WeeklySankeyPlainLabel: View {
 private struct WeeklySankeyAppLabel: View {
   let node: WeeklySankeyNode
   let opacity: Double
+  let scale: WeeklySankeyScale
 
   var body: some View {
     HStack(alignment: .center, spacing: 4) {
@@ -474,13 +491,13 @@ private struct WeeklySankeyAppLabel: View {
       .lineLimit(1)
     }
     .frame(
-      width: WeeklySankeyScale.displayWidth(node.label.width),
-      height: WeeklySankeyScale.displayHeight(WeeklySankeyLayout.base.apps.labelHeight),
+      width: scale.displayWidth(node.label.width),
+      height: scale.displayHeight(WeeklySankeyLayout.base.apps.labelHeight),
       alignment: .leading
     )
     .offset(
-      x: WeeklySankeyScale.displayX(node.label.x),
-      y: WeeklySankeyScale.displayY(node.label.y)
+      x: scale.displayX(node.label.x),
+      y: scale.displayY(node.label.y)
     )
     .opacity(opacity)
     .contentShape(Rectangle())
@@ -501,6 +518,17 @@ private struct WeeklySankeyIconView: View {
       } else {
         fallbackMonogram("?")
       }
+    case .favicon(
+      let primaryRaw, let secondaryRaw, let primaryHost, let secondaryHost, let fallbackRaw):
+      FaviconImageView(
+        primaryRaw: primaryRaw,
+        secondaryRaw: secondaryRaw,
+        primaryHost: primaryHost,
+        secondaryHost: secondaryHost,
+        fallbackRaw: fallbackRaw,
+        size: 14,
+        cornerRadius: 3
+      )
     case .monogram(let text, let backgroundHex, let foregroundHex):
       fallbackMonogram(text, backgroundHex: backgroundHex, foregroundHex: foregroundHex)
     case .none:
@@ -528,7 +556,6 @@ private enum WeeklySankeyDesign {
   static let virtualHeight: CGFloat = 933
   static let sourceCurveTension: CGFloat = 0.15
   static let cardWidth: CGFloat = 958
-  static let cardHeight: CGFloat = cardWidth * virtualHeight / virtualWidth
 }
 
 private struct WeeklySankeyScale {
@@ -544,7 +571,7 @@ private struct WeeklySankeyScale {
     CGPoint(x: x * self.x, y: y * self.y)
   }
 
-  static func displayFrame(_ rect: CGRect) -> CGRect {
+  func displayFrame(_ rect: CGRect) -> CGRect {
     CGRect(
       x: displayX(rect.minX),
       y: displayY(rect.minY),
@@ -553,20 +580,20 @@ private struct WeeklySankeyScale {
     )
   }
 
-  static func displayX(_ value: CGFloat) -> CGFloat {
-    value * WeeklySankeyDesign.cardWidth / WeeklySankeyDesign.virtualWidth
+  func displayX(_ value: CGFloat) -> CGFloat {
+    value * x
   }
 
-  static func displayY(_ value: CGFloat) -> CGFloat {
-    value * WeeklySankeyDesign.cardHeight / WeeklySankeyDesign.virtualHeight
+  func displayY(_ value: CGFloat) -> CGFloat {
+    value * y
   }
 
-  static func displayWidth(_ value: CGFloat) -> CGFloat {
-    value * WeeklySankeyDesign.cardWidth / WeeklySankeyDesign.virtualWidth
+  func displayWidth(_ value: CGFloat) -> CGFloat {
+    value * x
   }
 
-  static func displayHeight(_ value: CGFloat) -> CGFloat {
-    value * WeeklySankeyDesign.cardHeight / WeeklySankeyDesign.virtualHeight
+  func displayHeight(_ value: CGFloat) -> CGFloat {
+    value * y
   }
 }
 
@@ -619,6 +646,13 @@ private enum WeeklySankeyLayout {
 
 private enum WeeklySankeyIcon: Equatable {
   case asset(String)
+  case favicon(
+    primaryRaw: String?,
+    secondaryRaw: String?,
+    primaryHost: String?,
+    secondaryHost: String?,
+    fallbackRaw: String?
+  )
   case monogram(text: String, backgroundHex: String, foregroundHex: String)
   case none
 }
@@ -1438,32 +1472,14 @@ private enum WeeklySankeyModelFactory {
       return .asset("XFavicon")
     }
 
-    let assetMatches: [(needle: String, assetName: String)] = [
-      ("dayflow", "DayflowLogoMainApp"),
-      ("claude", "ClaudeLogo"),
-      ("chatgpt", "ChatGPTLogo"),
-      ("youtube", "YouTubeFavicon"),
-      ("reddit", "RedditFavicon"),
-      ("leagueoflegends", "LeagueOfLegendsFavicon"),
-      ("league of legends", "LeagueOfLegendsFavicon"),
-      ("google", "GoogleFavicon"),
-      ("mail", "MailFavicon"),
-      ("maps", "MapsFavicon"),
-      ("chrome", "ChromeFavicon"),
-      ("safari", "SafariFavicon"),
-      ("calendar", "CalendarFavicon"),
-      ("messages", "MessagesFavicon"),
-      ("xcode", "XCodeFavicon"),
-      ("vscode", "VSCodeFavicon"),
-      ("vs code", "VSCodeFavicon"),
-      ("terminal", "TerminalFavicon"),
-      ("ghostty", "GhosttyFavicon"),
-      ("finder", "FinderFavicon"),
-      ("settings", "SettingsFavicon"),
-    ]
-
-    if let match = assetMatches.first(where: { lookupText.contains($0.needle) }) {
-      return .asset(match.assetName)
+    if app.hasFaviconSource {
+      return .favicon(
+        primaryRaw: app.faviconPrimaryRaw,
+        secondaryRaw: app.faviconSecondaryRaw,
+        primaryHost: app.faviconPrimaryHost,
+        secondaryHost: app.faviconSecondaryHost,
+        fallbackRaw: app.fallbackFaviconRaw
+      )
     }
 
     return .monogram(
