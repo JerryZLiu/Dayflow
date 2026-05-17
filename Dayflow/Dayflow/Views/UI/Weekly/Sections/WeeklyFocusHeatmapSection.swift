@@ -3,6 +3,7 @@ import SwiftUI
 
 struct WeeklyFocusHeatmapSection: View {
   let snapshot: WeeklyFocusHeatmapSnapshot
+  let width: CGFloat
   let cellGap: CGFloat
 
   private enum Design {
@@ -31,8 +32,13 @@ struct WeeklyFocusHeatmapSection: View {
     static let legendCornerRadius: CGFloat = 2
   }
 
-  init(snapshot: WeeklyFocusHeatmapSnapshot, cellGap: CGFloat = 1) {
+  init(
+    snapshot: WeeklyFocusHeatmapSnapshot,
+    width: CGFloat = Design.cardWidth,
+    cellGap: CGFloat = 1
+  ) {
     self.snapshot = snapshot
+    self.width = width
     self.cellGap = cellGap
   }
 
@@ -47,8 +53,16 @@ struct WeeklyFocusHeatmapSection: View {
   private var gridWidth: CGFloat {
     guard columnCount > 0 else { return 0 }
 
-    return (CGFloat(columnCount) * Design.cellWidth)
+    return (CGFloat(columnCount) * cellWidth)
       + (CGFloat(columnCount - 1) * resolvedCellGap)
+  }
+
+  private var cellWidth: CGFloat {
+    Design.cellWidth
+  }
+
+  private var legendWidth: CGFloat {
+    min(max(Design.legendWidth, width * 0.32), 420)
   }
 
   var body: some View {
@@ -60,7 +74,7 @@ struct WeeklyFocusHeatmapSection: View {
     .padding(.leading, Design.leadingPadding)
     .padding(.trailing, Design.trailingPadding)
     .padding(.bottom, Design.bottomPadding)
-    .frame(width: Design.cardWidth, height: Design.cardHeight, alignment: .topLeading)
+    .frame(width: width, height: Design.cardHeight, alignment: .topLeading)
     .background(
       RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
         .fill(Design.backgroundColor)
@@ -96,7 +110,7 @@ struct WeeklyFocusHeatmapSection: View {
         startPoint: .leading,
         endPoint: .trailing
       )
-      .frame(width: Design.legendWidth, height: Design.legendBarHeight)
+      .frame(width: legendWidth, height: Design.legendBarHeight)
       .clipShape(
         RoundedRectangle(cornerRadius: Design.legendCornerRadius, style: .continuous)
       )
@@ -108,7 +122,7 @@ struct WeeklyFocusHeatmapSection: View {
       }
       .font(.custom("Figtree-Regular", size: 10))
       .foregroundStyle(Color.black)
-      .frame(width: Design.legendWidth)
+      .frame(width: legendWidth)
     }
   }
 
@@ -117,6 +131,8 @@ struct WeeklyFocusHeatmapSection: View {
       dayLabels
       gridAndAxis
     }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .clipped()
   }
 
   private var dayLabels: some View {
@@ -137,43 +153,69 @@ struct WeeklyFocusHeatmapSection: View {
           HStack(spacing: resolvedCellGap) {
             ForEach(Array(row.values.enumerated()), id: \.offset) { entry in
               RoundedRectangle(cornerRadius: 0.5, style: .continuous)
-                .fill(color(for: entry.element))
-                .frame(width: Design.cellWidth, height: Design.cellHeight)
+                .fill(color(for: entry.element, rowValues: row.values, index: entry.offset))
+                .frame(width: cellWidth, height: Design.cellHeight)
             }
           }
         }
       }
       .frame(width: gridWidth, alignment: .leading)
 
-      HStack {
-        ForEach(Array(snapshot.timeLabels.enumerated()), id: \.offset) { entry in
-          Text(entry.element)
+      ZStack(alignment: .leading) {
+        ForEach(snapshot.timeLabels) { label in
+          Text(label.label)
             .font(.custom("Figtree-Regular", size: 10))
             .foregroundStyle(Color.black)
-
-          if entry.offset < snapshot.timeLabels.count - 1 {
-            Spacer(minLength: 0)
-          }
+            .frame(width: 34, alignment: axisAlignment(for: label))
+            .offset(x: axisOffset(for: label))
         }
       }
-      .frame(width: Design.axisWidth, alignment: .leading)
-      .frame(width: gridWidth, alignment: .center)
+      .frame(width: gridWidth, height: 14, alignment: .leading)
     }
   }
 
-  private func color(for value: Double) -> Color {
-    let clampedValue = max(-1, min(1, value))
+  private func axisOffset(for label: WeeklyWorkflowTimeLabel) -> CGFloat {
+    guard snapshot.endMinute > snapshot.startMinute else { return 0 }
+
+    let labelWidth: CGFloat = 34
+    let progress = CGFloat(
+      (label.minute - snapshot.startMinute) / (snapshot.endMinute - snapshot.startMinute))
+    let rawOffset = (progress * gridWidth) - (labelWidth / 2)
+
+    if label.minute <= snapshot.startMinute {
+      return 0
+    }
+    if label.minute >= snapshot.endMinute {
+      return max(0, gridWidth - labelWidth)
+    }
+    return min(max(0, rawOffset), max(0, gridWidth - labelWidth))
+  }
+
+  private func axisAlignment(for label: WeeklyWorkflowTimeLabel) -> Alignment {
+    if label.minute <= snapshot.startMinute {
+      return .leading
+    }
+    if label.minute >= snapshot.endMinute {
+      return .trailing
+    }
+    return .center
+  }
+
+  private func color(for value: Double, rowValues: [Double], index: Int) -> Color {
+    let clampedValue = adjustedValue(value, rowValues: rowValues, index: index)
     let intensity = abs(clampedValue)
 
-    if intensity < 0.06 {
+    if intensity < DesignColor.neutralThreshold {
       return DesignColor.neutral
     }
+
+    let progress = colorProgress(for: intensity)
 
     if clampedValue < 0 {
       let nsColor = interpolatedColor(
         from: DesignColor.focusSoftNS,
         to: DesignColor.focusDarkNS,
-        progress: intensity
+        progress: progress
       )
       return Color(nsColor: nsColor)
     }
@@ -181,9 +223,71 @@ struct WeeklyFocusHeatmapSection: View {
     let nsColor = interpolatedColor(
       from: DesignColor.distractionSoftNS,
       to: DesignColor.distractionDarkNS,
-      progress: intensity
+      progress: progress
     )
     return Color(nsColor: nsColor)
+  }
+
+  private func adjustedValue(_ value: Double, rowValues: [Double], index: Int) -> Double {
+    guard abs(value) >= DesignColor.neutralThreshold else {
+      return value
+    }
+
+    let sign = value.sign == .minus ? -1.0 : 1.0
+    let run = sameSignRun(in: rowValues, index: index, sign: sign)
+    guard run.length >= 4 else {
+      return value
+    }
+
+    let baseIntensity = abs(value)
+    let centerProgress = centerRampProgress(index: index, run: run)
+    let edgeIntensity = max(
+      DesignColor.neutralThreshold,
+      baseIntensity * (1 - DesignColor.edgeFadeStrength)
+    )
+    let centerIntensity = min(1, baseIntensity + DesignColor.centerBoostStrength)
+    let boostedIntensity = edgeIntensity + ((centerIntensity - edgeIntensity) * centerProgress)
+    return sign * boostedIntensity
+  }
+
+  private func centerRampProgress(
+    index: Int,
+    run: (start: Int, end: Int, length: Int)
+  ) -> Double {
+    guard run.length > 1 else { return 1 }
+
+    let position = Double(index - run.start)
+    let center = Double(run.length - 1) / 2
+    let distanceFromCenter = abs(position - center)
+    let linearProgress = 1 - (distanceFromCenter / max(center, 1))
+    let clampedProgress = max(0, min(1, linearProgress))
+
+    return clampedProgress * clampedProgress * (3 - (2 * clampedProgress))
+  }
+
+  private func sameSignRun(in values: [Double], index: Int, sign: Double) -> (
+    start: Int, end: Int, length: Int
+  ) {
+    var start = index
+    var end = index
+
+    while start > 0 && hasSameSign(values[start - 1], sign: sign) {
+      start -= 1
+    }
+    while end < values.count - 1 && hasSameSign(values[end + 1], sign: sign) {
+      end += 1
+    }
+
+    return (start, end, end - start + 1)
+  }
+
+  private func hasSameSign(_ value: Double, sign: Double) -> Bool {
+    abs(value) >= DesignColor.neutralThreshold && (value.sign == .minus ? -1.0 : 1.0) == sign
+  }
+
+  private func colorProgress(for intensity: Double) -> Double {
+    let clamped = max(0, min(1, intensity))
+    return pow(clamped, 0.72)
   }
 
   private func interpolatedColor(from start: NSColor, to end: NSColor, progress: Double) -> NSColor
@@ -212,14 +316,31 @@ struct WeeklyFocusHeatmapSnapshot {
   let title: String
   let focusedLabel: String
   let distractedLabel: String
-  let timeLabels: [String]
+  let startMinute: Double
+  let endMinute: Double
+  let bucketMinutes: Double
+  let timeLabels: [WeeklyWorkflowTimeLabel]
   let rows: [WeeklyFocusHeatmapRow]
 
   static let figmaPreview = WeeklyFocusHeatmapSnapshot(
     title: "Focus and distraction heat map",
     focusedLabel: "Focused work",
     distractedLabel: "Distracted",
-    timeLabels: ["9am", "10am", "11am", "12pm", "1pm", "2pm", "3pm", "4pm", "5pm"],
+    startMinute: 9.0 * 60.0,
+    endMinute: 18.0 * 60.0,
+    bucketMinutes: 5.0,
+    timeLabels: [
+      .init(id: "9", label: "9am", minute: 9.0 * 60.0),
+      .init(id: "10", label: "10am", minute: 10.0 * 60.0),
+      .init(id: "11", label: "11am", minute: 11.0 * 60.0),
+      .init(id: "12", label: "12pm", minute: 12.0 * 60.0),
+      .init(id: "13", label: "1pm", minute: 13.0 * 60.0),
+      .init(id: "14", label: "2pm", minute: 14.0 * 60.0),
+      .init(id: "15", label: "3pm", minute: 15.0 * 60.0),
+      .init(id: "16", label: "4pm", minute: 16.0 * 60.0),
+      .init(id: "17", label: "5pm", minute: 17.0 * 60.0),
+      .init(id: "18", label: "6pm", minute: 18.0 * 60.0),
+    ],
     rows: [
       .init(
         id: "sun",
@@ -379,6 +500,10 @@ struct WeeklyFocusHeatmapRow: Identifiable {
 }
 
 private enum DesignColor {
+  static let centerBoostStrength = 0.34
+  static let edgeFadeStrength = 0.65
+  static let neutralThreshold = 0.045
+
   static let neutral = Color(hex: "F2F2F2")
   static let focusSoft = Color(hex: "E3DBFD")
   static let focusDark = Color(hex: "4276E9")
