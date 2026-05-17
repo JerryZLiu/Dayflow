@@ -231,22 +231,9 @@ struct WeeklyContextShiftComparisonSnapshot {
           .init(dayIndex: 5, value: 15),
         ]
       ),
-      WeeklyContextShiftComparisonSeries(
-        id: "meetings",
-        label: "Number of meetings",
-        colorHex: "CEC5BC",
-        points: [
-          .init(dayIndex: 0, value: 4),
-          .init(dayIndex: 1, value: 6),
-          .init(dayIndex: 2, value: 0),
-          .init(dayIndex: 3, value: 3),
-          .init(dayIndex: 4, value: 3),
-          .init(dayIndex: 5, value: 0),
-        ]
-      ),
     ],
     insightText:
-      "You tend to be more distracted and have more context shifts on days with lighter meetings.",
+      "Your interruptions are driven by context shifts and distractions.",
     callToAction: "Pinpoint"
   )
 }
