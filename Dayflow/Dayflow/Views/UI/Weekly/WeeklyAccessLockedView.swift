@@ -145,7 +145,7 @@ private struct WeeklyAccessLockCard: View {
       WeeklyAccessCardBackground()
 
       VStack(spacing: 4) {
-        Text("Continue using Dayflow to unlock Weekly view")
+        Text("Unlock Weekly")
           .font(.custom("InstrumentSerif-Regular", size: 22))
           .foregroundStyle(Color(hex: "333333"))
           .multilineTextAlignment(.center)
@@ -434,18 +434,11 @@ private struct WeeklyAccessPreviewBackground: View {
 
   private var previewContent: some View {
     VStack(spacing: Self.sectionSpacing) {
-      HStack(alignment: .top, spacing: 27) {
-        WeeklyDonutSection(snapshot: .figmaPreview, isLoading: false)
-        WeeklyHighlightsSection(snapshot: .figmaPreview)
-      }
-      .frame(width: Self.designWidth, height: 300, alignment: .topLeading)
+      WeeklyDonutSection(snapshot: .figmaPreview, isLoading: false, width: Self.designWidth)
+        .frame(width: Self.designWidth, height: 300, alignment: .topLeading)
 
       WeeklyOverviewSection(snapshot: .figmaPreview)
         .frame(width: Self.designWidth, height: 339, alignment: .topLeading)
-        .clipped()
-
-      WeeklySuggestionsSection(snapshot: .figmaPreview)
-        .frame(width: Self.designWidth, height: 328, alignment: .topLeading)
         .clipped()
 
       WeeklyTreemapSection(snapshot: .figmaPreview)
