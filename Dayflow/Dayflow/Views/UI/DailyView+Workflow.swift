@@ -78,17 +78,9 @@ extension DailyView {
 
     return HStack {
       HStack(spacing: 8 * scale) {
-        Button(action: { shiftDate(by: -1) }) {
-          Image("LeftArrow")
-            .resizable()
-            .scaledToFit()
-            .frame(width: 18 * scale, height: 18 * scale)
-            .frame(width: 32 * scale, height: 32 * scale)
-            .contentShape(Rectangle())
+        DailyNavigationButton(assetName: "LeftArrow", scale: scale) {
+          shiftDate(by: -1)
         }
-        .buttonStyle(PlainButtonStyle())
-        .hoverScaleEffect(scale: 1.02)
-        .pointingHandCursorOnHover(reassertOnPressEnd: true)
 
         Text(dailyDateTitle(for: selectedDate))
           .font(.custom("InstrumentSerif-Regular", size: 26 * scale))
@@ -98,22 +90,13 @@ extension DailyView {
           .allowsTightening(true)
           .frame(width: Self.maxDateTitleWidth * scale, alignment: .center)
 
-        Button(action: {
-          guard canMoveToNextDay else { return }
+        DailyNavigationButton(
+          assetName: "RightArrow",
+          isEnabled: canMoveToNextDay,
+          scale: scale
+        ) {
           shiftDate(by: 1)
-        }) {
-          Image("RightArrow")
-            .resizable()
-            .scaledToFit()
-            .frame(width: 18 * scale, height: 18 * scale)
-            .frame(width: 32 * scale, height: 32 * scale)
-            .contentShape(Rectangle())
-            .opacity(canMoveToNextDay ? 1 : 0.35)
         }
-        .buttonStyle(PlainButtonStyle())
-        .disabled(!canMoveToNextDay)
-        .hoverScaleEffect(enabled: canMoveToNextDay, scale: 1.02)
-        .pointingHandCursorOnHover(enabled: canMoveToNextDay, reassertOnPressEnd: true)
       }
       .frame(maxWidth: .infinity)
     }
@@ -432,5 +415,52 @@ extension DailyView {
   }
   func formatDuration(minutes: Double) -> String {
     formatDurationValue(minutes)
+  }
+}
+
+private struct DailyNavigationButton: View {
+  let assetName: String
+  var isEnabled = true
+  let scale: CGFloat
+  let action: () -> Void
+
+  @State private var isHovering = false
+
+  private var arrowSize: CGFloat { 24 * scale }
+  private var hoverCircleSize: CGFloat { 30 * scale }
+
+  var body: some View {
+    Button {
+      guard isEnabled else { return }
+      action()
+    } label: {
+      ZStack {
+        Circle()
+          .fill(Color(hex: "FFEBD3").opacity(0.79))
+          .frame(width: hoverCircleSize, height: hoverCircleSize)
+          .opacity(isHovering && isEnabled ? 1 : 0)
+
+        Image(assetName)
+          .resizable()
+          .scaledToFit()
+          .frame(width: arrowSize, height: arrowSize)
+          .opacity(isEnabled ? 1 : 0.35)
+      }
+      .frame(width: hoverCircleSize, height: hoverCircleSize)
+      .contentShape(Circle())
+    }
+    .buttonStyle(DayflowPressScaleButtonStyle(enabled: isEnabled))
+    .disabled(!isEnabled)
+    .onHover { hovering in
+      withAnimation(.easeOut(duration: 0.12)) {
+        isHovering = isEnabled && hovering
+      }
+    }
+    .onChange(of: isEnabled) { _, enabled in
+      if !enabled {
+        isHovering = false
+      }
+    }
+    .pointingHandCursorOnHover(enabled: isEnabled, reassertOnPressEnd: true)
   }
 }
