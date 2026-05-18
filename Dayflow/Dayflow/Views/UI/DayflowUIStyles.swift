@@ -50,15 +50,19 @@ struct DayflowCircleButton<Content: View>: View {
 
   var body: some View {
     Button(action: action) {
-      content()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
+      ZStack {
+        Circle()
+          .fill(Color.white)
+
+        content()
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
+      .frame(width: size.width, height: size.height)
+      .contentShape(Circle())
     }
     .buttonStyle(
       DayflowPressScaleButtonStyle(pressedScale: pressedScale, animation: pressAnimation)
     )
-    .frame(width: size.width, height: size.height)
-    .dayflowCircleStyle()
     .contentShape(Circle())
     .hoverScaleEffect(scale: 1.02)
     .pointingHandCursorOnHover(reassertOnPressEnd: true)
