@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum DayGoalFlowInitialScreen {
+enum DayGoalFlowInitialScreen: String {
   case review
   case setup
 }
@@ -71,6 +71,8 @@ struct DayGoalFlowPresentation: Identifiable {
   let initialScreen: DayGoalFlowInitialScreen
   var onSkip: () -> Void
   var onConfirm: (DayGoalPlan) -> Void
+  var onSetupStarted: () -> Void
+  var onCategoryToggled: (DayGoalCategoryKind, String, DayGoalPlan) -> Void
 }
 
 private struct GoalSetupStatPair {
@@ -105,7 +107,9 @@ struct DayGoalFlowOverlay: View {
           onConfirm: { plan in
             presentation.onConfirm(plan)
             onDismiss()
-          }
+          },
+          onSetupStarted: presentation.onSetupStarted,
+          onCategoryToggled: presentation.onCategoryToggled
         )
         .frame(width: proxy.size.width, height: proxy.size.height)
       }
@@ -124,6 +128,8 @@ struct DayGoalFlowView: View {
   let initialScreen: DayGoalFlowInitialScreen
   var onSkip: () -> Void
   var onConfirm: (DayGoalPlan) -> Void
+  var onSetupStarted: () -> Void
+  var onCategoryToggled: (DayGoalCategoryKind, String, DayGoalPlan) -> Void
 
   @State private var screen: DayGoalFlowInitialScreen
   @State private var draft: DayGoalPlan
@@ -135,7 +141,9 @@ struct DayGoalFlowView: View {
     setupReferenceStats: DayGoalSetupReferenceStats = .empty,
     initialScreen: DayGoalFlowInitialScreen = .review,
     onSkip: @escaping () -> Void,
-    onConfirm: @escaping (DayGoalPlan) -> Void
+    onConfirm: @escaping (DayGoalPlan) -> Void,
+    onSetupStarted: @escaping () -> Void,
+    onCategoryToggled: @escaping (DayGoalCategoryKind, String, DayGoalPlan) -> Void
   ) {
     self.review = review
     self.categories = categories
@@ -143,6 +151,8 @@ struct DayGoalFlowView: View {
     self.initialScreen = initialScreen
     self.onSkip = onSkip
     self.onConfirm = onConfirm
+    self.onSetupStarted = onSetupStarted
+    self.onCategoryToggled = onCategoryToggled
     _screen = State(initialValue: initialScreen)
     _draft = State(initialValue: plan)
   }
@@ -221,6 +231,7 @@ struct DayGoalFlowView: View {
       .position(x: 600, y: 491.5)
 
       primaryButton("Set today’s goals") {
+        onSetupStarted()
         withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
           screen = .setup
         }
@@ -260,8 +271,8 @@ struct DayGoalFlowView: View {
         trailingStatMinutes: focusStats.lastWeekAverageMinutes,
         statScaleMaxMinutes: focusStats.scaleMaxMinutes,
         selectedCategories: resolvedSnapshots(for: .focus),
-        onRemoveCategory: { removeCategory($0, from: .focus) },
-        onDropCategory: { moveCategory($0, to: .focus) }
+        onRemoveCategory: { removeCategoryFromPanel($0, from: .focus) },
+        onDropCategory: { moveCategoryFromDrop($0, to: .focus) }
       )
       .frame(width: 396, height: 321)
       .position(x: 397.86, y: 384.5)
@@ -276,8 +287,8 @@ struct DayGoalFlowView: View {
         trailingStatMinutes: distractionStats.lastWeekAverageMinutes,
         statScaleMaxMinutes: distractionStats.scaleMaxMinutes,
         selectedCategories: resolvedSnapshots(for: .distraction),
-        onRemoveCategory: { removeCategory($0, from: .distraction) },
-        onDropCategory: { moveCategory($0, to: .distraction) }
+        onRemoveCategory: { removeCategoryFromPanel($0, from: .distraction) },
+        onDropCategory: { moveCategoryFromDrop($0, to: .distraction) }
       )
       .frame(width: 400.28, height: 323)
       .position(x: 804, y: 385.5)
@@ -365,10 +376,13 @@ struct DayGoalFlowView: View {
     if focusIDs.contains(id) {
       removeCategory(id, from: .focus)
       addCategory(category, to: .distraction)
+      onCategoryToggled(.distraction, "moved_to_distraction", draft)
     } else if distractionIDs.contains(id) {
       removeCategory(id, from: .distraction)
+      onCategoryToggled(.distraction, "removed", draft)
     } else {
       addCategory(category, to: .focus)
+      onCategoryToggled(.focus, "added", draft)
     }
   }
 
@@ -400,6 +414,32 @@ struct DayGoalFlowView: View {
       return
     }
     addCategory(category, to: kind)
+  }
+
+  private func removeCategoryFromPanel(_ categoryID: String, from kind: DayGoalCategoryKind) {
+    let before = draft
+    removeCategory(categoryID, from: kind)
+    guard before != draft else { return }
+    onCategoryToggled(kind, "removed", draft)
+  }
+
+  private func moveCategoryFromDrop(_ categoryID: String, to kind: DayGoalCategoryKind) {
+    let before = draft
+    let previousKind = assignmentKind(for: categoryID)
+    moveCategory(categoryID, to: kind)
+    guard before != draft else { return }
+    let action = previousKind == nil ? "dropped" : "moved"
+    onCategoryToggled(kind, action, draft)
+  }
+
+  private func assignmentKind(for categoryID: String) -> DayGoalCategoryKind? {
+    if draft.focusCategories.contains(where: { $0.categoryID == categoryID }) {
+      return .focus
+    }
+    if draft.distractionCategories.contains(where: { $0.categoryID == categoryID }) {
+      return .distraction
+    }
+    return nil
   }
 
   private func removeCategory(_ categoryID: String, from kind: DayGoalCategoryKind) {
@@ -1434,6 +1474,8 @@ private struct DayGoalFlowLayout: Layout {
     plan: plan,
     categories: categories,
     onSkip: {},
-    onConfirm: { _ in }
+    onConfirm: { _ in },
+    onSetupStarted: {},
+    onCategoryToggled: { _, _, _ in }
   )
 }
