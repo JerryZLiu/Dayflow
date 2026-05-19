@@ -742,8 +742,8 @@ struct CanvasTimelineDataView: View {
         // Raw values for pattern matching, normalized for network fetch
         let primaryRaw = seg.activity.appSites?.primary
         let secondaryRaw = seg.activity.appSites?.secondary
-        let primaryHost = self.normalizeHost(primaryRaw)
-        let secondaryHost = self.normalizeHost(secondaryRaw)
+        let primaryHost = FaviconService.normalizedHost(from: primaryRaw)
+        let secondaryHost = FaviconService.normalizedHost(from: secondaryRaw)
 
         return CanvasPositionedActivity(
           id: seg.activity.id,
@@ -852,27 +852,6 @@ struct CanvasTimelineDataView: View {
     if weeklyHoursIntersectsCard != intersects {
       weeklyHoursIntersectsCard = intersects
     }
-  }
-
-  // Normalize a domain or URL-like string to just the host
-  private func normalizeHost(_ site: String?) -> String? {
-    guard var site = site, !site.isEmpty else { return nil }
-    site = site.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    if let url = URL(string: site), url.host != nil {
-      return url.host
-    }
-    if site.contains("://") {
-      if let url = URL(string: site), let host = url.host { return host }
-    } else if site.contains("/") {
-      if let url = URL(string: "https://" + site), let host = url.host { return host }
-    } else {
-      // If no TLD present, append .com for common sites like "YouTube" → "youtube.com"
-      if !site.contains(".") {
-        return site + ".com"
-      }
-      return site
-    }
-    return nil
   }
 
   private func processTimelineCards(_ cards: [TimelineCard], for date: Date) -> [TimelineActivity] {
@@ -1365,7 +1344,7 @@ struct CanvasActivityCard: View {
             }
           } else {
             if showTimelineAppIcons && (faviconPrimaryRaw != nil || faviconSecondaryRaw != nil) {
-              FaviconOrSparkleView(
+              FaviconImageView(
                 primaryRaw: faviconPrimaryRaw,
                 secondaryRaw: faviconSecondaryRaw,
                 primaryHost: faviconPrimaryHost,
@@ -1519,46 +1498,4 @@ struct CanvasCardButtonStyle: ButtonStyle {
     }
   }
   return PreviewWrapper()
-}
-
-private struct FaviconOrSparkleView: View {
-  // Raw values for pattern matching (may contain paths like "developer.apple.com/xcode")
-  let primaryRaw: String?
-  let secondaryRaw: String?
-  // Normalized hosts for network fetch
-  let primaryHost: String?
-  let secondaryHost: String?
-  let size: CGFloat
-  @State private var image: NSImage? = nil
-  @State private var didStart = false
-
-  var body: some View {
-    Group {
-      if let img = image {
-        Image(nsImage: img)
-          .resizable()
-          .interpolation(.high)
-          .aspectRatio(contentMode: .fit)
-          .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
-      } else {
-        Color.clear
-      }
-    }
-    .frame(width: size, height: size)
-    .onAppear {
-      guard !didStart else { return }
-      didStart = true
-      guard primaryRaw != nil || secondaryRaw != nil else { return }
-      Task { @MainActor in
-        if let img = await FaviconService.shared.fetchFavicon(
-          primaryRaw: primaryRaw,
-          secondaryRaw: secondaryRaw,
-          primaryHost: primaryHost,
-          secondaryHost: secondaryHost
-        ) {
-          self.image = img
-        }
-      }
-    }
-  }
 }
