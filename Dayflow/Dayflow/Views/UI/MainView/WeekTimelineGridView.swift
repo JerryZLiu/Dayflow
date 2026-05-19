@@ -678,8 +678,8 @@ struct WeekTimelineGridView: View {
               categoryName: segment.activity.category,
               faviconPrimaryRaw: primaryRaw,
               faviconSecondaryRaw: secondaryRaw,
-              faviconPrimaryHost: normalizeHost(primaryRaw),
-              faviconSecondaryHost: normalizeHost(secondaryRaw)
+              faviconPrimaryHost: FaviconService.normalizedHost(from: primaryRaw),
+              faviconSecondaryHost: FaviconService.normalizedHost(from: secondaryRaw)
             )
           )
         }
@@ -964,24 +964,6 @@ struct WeekTimelineGridView: View {
     return "\(formatter.string(from: start)) - \(formatter.string(from: end))"
   }
 
-  private func normalizeHost(_ site: String?) -> String? {
-    guard var site, !site.isEmpty else { return nil }
-    site = site.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    if let url = URL(string: site), let host = url.host {
-      return host
-    }
-    if site.contains("://"), let url = URL(string: site), let host = url.host {
-      return host
-    }
-    if site.contains("/"), let url = URL(string: "https://" + site), let host = url.host {
-      return host
-    }
-    if !site.contains(".") {
-      return site + ".com"
-    }
-    return site
-  }
-
   private func weekCardWidth(for dayWidth: CGFloat) -> CGFloat {
     max(0, dayWidth - WeekTimelineConfig.cardLeadingGap - WeekTimelineConfig.cardTrailingGap)
   }
@@ -1125,13 +1107,13 @@ private struct WeekTimelineActivityCard: View {
   private func cardCanvas(renderingExpanded: Bool) -> some View {
     HStack(alignment: .top, spacing: 4) {
       if hasFavicon {
-        WeekTimelineFaviconView(
+        FaviconImageView(
           primaryRaw: faviconPrimaryRaw,
           secondaryRaw: faviconSecondaryRaw,
           primaryHost: faviconPrimaryHost,
-          secondaryHost: faviconSecondaryHost
+          secondaryHost: faviconSecondaryHost,
+          size: 12
         )
-        .frame(width: 12, height: 12)
       }
 
       VStack(alignment: .leading, spacing: 2) {
@@ -1262,42 +1244,6 @@ private struct WeekTimelineActivityCard: View {
         .foregroundColor(Color(hex: "7A6254"))
         .lineLimit(renderingExpanded ? nil : 1)
         .truncationMode(.tail)
-    }
-  }
-}
-
-private struct WeekTimelineFaviconView: View {
-  let primaryRaw: String?
-  let secondaryRaw: String?
-  let primaryHost: String?
-  let secondaryHost: String?
-
-  @State private var image: NSImage?
-  @State private var didStart = false
-
-  var body: some View {
-    Group {
-      if let image {
-        Image(nsImage: image)
-          .resizable()
-          .interpolation(.high)
-          .aspectRatio(contentMode: .fit)
-          .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
-      } else {
-        Color.clear
-      }
-    }
-    .onAppear {
-      guard !didStart else { return }
-      didStart = true
-      Task { @MainActor in
-        image = await FaviconService.shared.fetchFavicon(
-          primaryRaw: primaryRaw,
-          secondaryRaw: secondaryRaw,
-          primaryHost: primaryHost,
-          secondaryHost: secondaryHost
-        )
-      }
     }
   }
 }
