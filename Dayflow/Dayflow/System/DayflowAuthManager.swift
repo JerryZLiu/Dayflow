@@ -269,12 +269,49 @@ final class DayflowAuthManager: ObservableObject {
     ]
 
     var item: AnyObject?
-    guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-      let data = item as? Data
-    else {
+    let status = SecItemCopyMatching(query as CFDictionary, &item)
+    guard status == errSecSuccess else {
+      logSessionTokenReadFailure(status: status)
       return nil
     }
-    return String(data: data, encoding: .utf8)
+
+    guard let data = item as? Data else {
+      print(
+        "❌ [DayflowAuthManager] Session token keychain item had unexpected type: \(type(of: item))"
+      )
+      return nil
+    }
+
+    guard let token = String(data: data, encoding: .utf8) else {
+      print(
+        "❌ [DayflowAuthManager] Session token keychain item could not be decoded as UTF-8"
+      )
+      return nil
+    }
+
+    return token
+  }
+
+  nonisolated private static func logSessionTokenReadFailure(status: OSStatus) {
+    let reason: String
+    switch status {
+    case errSecItemNotFound:
+      reason = "item not found"
+    case errSecAuthFailed:
+      reason = "authentication failed"
+    case errSecInteractionNotAllowed:
+      reason = "interaction not allowed"
+    case errSecNotAvailable:
+      reason = "keychain not available"
+    case errSecParam:
+      reason = "invalid keychain query"
+    default:
+      reason = "unexpected keychain status"
+    }
+
+    print(
+      "❌ [DayflowAuthManager] Session token read failed: \(reason) (status=\(status))"
+    )
   }
 
   private func perform(
