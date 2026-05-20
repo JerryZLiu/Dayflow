@@ -632,6 +632,7 @@ private struct FocusTargetProgressBar: View {
   let targetDuration: TimeInterval
   let actualDuration: TimeInterval
 
+  private let leadingInset: CGFloat = 3
   private let segmentSpacing: CGFloat = 2.55
   private let trailingGap: CGFloat = 3
 
@@ -642,7 +643,8 @@ private struct FocusTargetProgressBar: View {
   var body: some View {
     GeometryReader { geometry in
       let segments = visibleSegments
-      let contentWidth = max(0, geometry.size.width - trailingGap)
+      let fillFrameWidth = max(0, geometry.size.width - trailingGap)
+      let contentWidth = max(0, fillFrameWidth - leadingInset)
       let totalSpacing = segmentSpacing * CGFloat(max(segments.count - 1, 0))
       let availableSegmentWidth = max(0, contentWidth - totalSpacing)
 
@@ -672,7 +674,8 @@ private struct FocusTargetProgressBar: View {
         }
         .frame(height: 8)
         .padding(.vertical, 3)
-        .frame(width: contentWidth, alignment: .leading)
+        .padding(.leading, leadingInset)
+        .frame(width: fillFrameWidth, alignment: .leading)
       }
     }
   }
@@ -746,8 +749,11 @@ private struct DistractionLimitBar: View {
   var body: some View {
     GeometryReader { geometry in
       let clampedRatio = min(max(usedRatio, 0), 1)
-      let startX = geometry.size.width * clampedRatio
-      let remainingWidth = geometry.size.width - startX
+      let fillHeight: CGFloat = 6
+      let leadingInset = max(0, (geometry.size.height - fillHeight) / 2)
+      let availableWidth = max(0, geometry.size.width - leadingInset)
+      let startX = leadingInset + (availableWidth * clampedRatio)
+      let remainingWidth = max(0, geometry.size.width - startX)
 
       ZStack(alignment: .leading) {
         RoundedRectangle(cornerRadius: 2)
@@ -755,12 +761,12 @@ private struct DistractionLimitBar: View {
 
         RoundedRectangle(cornerRadius: 6)
           .fill(color)
-          .frame(width: remainingWidth, height: 6)
+          .frame(width: remainingWidth, height: fillHeight)
           .offset(x: startX)
 
         if let loss {
-          let lostStartX = geometry.size.width * min(max(loss.startRatio, 0), 1)
-          let lostEndX = geometry.size.width * min(max(loss.endRatio, 0), 1)
+          let lostStartX = leadingInset + (availableWidth * min(max(loss.startRatio, 0), 1))
+          let lostEndX = leadingInset + (availableWidth * min(max(loss.endRatio, 0), 1))
           let lostWidth = max(0, lostEndX - lostStartX)
 
           Capsule()
@@ -774,7 +780,7 @@ private struct DistractionLimitBar: View {
                 endPoint: .trailing
               )
             )
-            .frame(width: lostWidth, height: 6)
+            .frame(width: lostWidth, height: fillHeight)
             .scaleEffect(x: lossScale, y: 1, anchor: .trailing)
             .opacity(lossOpacity)
             .shadow(color: Color(hex: "FF8857").opacity(0.42), radius: 7, x: 0, y: 0)
