@@ -193,6 +193,14 @@ private struct WeeklySankeyCard: View {
           .onHover { updateHoveredNode(app.id, isHovering: $0) }
           .onTapGesture { togglePinned(app.id) }
       }
+
+      Text("Weekly breakdown")
+        .font(.custom("InstrumentSerif-Regular", size: 20))
+        .foregroundStyle(Color(hex: "B46531"))
+        .offset(
+          x: scale.displayX(72),
+          y: scale.displayY(64)
+        )
     }
     .frame(
       width: width,
