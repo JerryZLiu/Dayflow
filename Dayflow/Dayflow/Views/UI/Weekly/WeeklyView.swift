@@ -91,11 +91,6 @@ struct WeeklyView: View {
             onPrevious: showPreviousWeek,
             onNext: showNextWeek
           )
-          .overlay(alignment: .trailing) {
-            WeeklyAccessLockButton(action: lockWeeklyAccess)
-              .frame(width: layout.contentWidth, alignment: .trailing)
-              .frame(maxWidth: .infinity, alignment: .center)
-          }
           .padding(.bottom, layout.headerBottomPadding)
 
           VStack(spacing: layout.sectionSpacing) {
@@ -121,32 +116,6 @@ struct WeeklyView: View {
 
               WeeklyExportableGraphic(
                 layout: layout,
-                title: "Focus breakdown",
-                fileName: exportFileName("focus-breakdown"),
-                displayHeight: WeeklyAdaptiveLayout.treemapHeight,
-                exportHeight: WeeklyAdaptiveLayout.treemapHeight,
-                watermarkPlacement: .bottomTrailing
-              ) { width in
-                WeeklyTreemapSection(snapshot: dashboardSnapshot.treemap, width: width)
-              }
-
-              WeeklyExportableGraphic(
-                layout: layout,
-                title: "Application flow",
-                fileName: exportFileName("application-flow"),
-                displayHeight: layout.sankeyHeight,
-                exportHeight: WeeklyAdaptiveLayout.designSankeyHeight,
-                watermarkPlacement: .bottomLeading
-              ) { width in
-                WeeklySankeySection(
-                  snapshot: dashboardSnapshot.sankey,
-                  showsControls: false,
-                  width: width
-                )
-              }
-
-              WeeklyExportableGraphic(
-                layout: layout,
                 title: "Focus heatmap",
                 fileName: exportFileName("focus-heatmap"),
                 displayHeight: WeeklyAdaptiveLayout.heatmapHeight,
@@ -158,13 +127,28 @@ struct WeeklyView: View {
 
               WeeklyExportableGraphic(
                 layout: layout,
-                title: "Context charts",
-                fileName: exportFileName("context-charts"),
-                displayHeight: WeeklyAdaptiveLayout.contextChartsHeight,
-                exportHeight: WeeklyAdaptiveLayout.contextChartsHeight,
+                title: "Focus breakdown",
+                fileName: exportFileName("focus-breakdown"),
+                displayHeight: WeeklyAdaptiveLayout.treemapHeight,
+                exportHeight: WeeklyAdaptiveLayout.treemapHeight,
                 watermarkPlacement: .bottomTrailing
               ) { width in
-                WeeklyContextChartsSection(snapshot: dashboardSnapshot.contextCharts, width: width)
+                WeeklyTreemapSection(snapshot: dashboardSnapshot.treemap, width: width)
+              }
+
+              WeeklyExportableGraphic(
+                layout: layout,
+                title: "Weekly breakdown",
+                fileName: exportFileName("weekly-breakdown"),
+                displayHeight: layout.sankeyHeight,
+                exportHeight: WeeklyAdaptiveLayout.designSankeyHeight,
+                watermarkPlacement: .bottomLeading
+              ) { width in
+                WeeklySankeySection(
+                  snapshot: dashboardSnapshot.sankey,
+                  showsControls: false,
+                  width: width
+                )
               }
             }
           }
@@ -181,18 +165,56 @@ struct WeeklyView: View {
 
   @ViewBuilder
   private func topSummarySection(layout: WeeklyAdaptiveLayout) -> some View {
-    WeeklyExportableGraphic(
-      layout: layout,
+    if layout.usesTopRowColumns {
+      HStack(alignment: .top, spacing: WeeklyAdaptiveLayout.topRowSpacing) {
+        weeklyDistributionCard(layout: layout, width: layout.donutCardWidth)
+        weeklyContextChartCard(layout: layout, width: layout.contextCardWidth)
+      }
+      .frame(width: layout.contentWidth, alignment: .topLeading)
+    } else {
+      VStack(spacing: layout.compactTopRowSpacing) {
+        weeklyDistributionCard(layout: layout, width: layout.contentWidth)
+        weeklyContextChartCard(layout: layout, width: layout.contentWidth)
+      }
+      .frame(width: layout.contentWidth, alignment: .topLeading)
+    }
+  }
+
+  private func weeklyDistributionCard(
+    layout: WeeklyAdaptiveLayout,
+    width: CGFloat
+  ) -> some View {
+    WeeklyExportableFixedGraphic(
+      availableWidth: width,
       title: "Weekly distribution",
       fileName: exportFileName("weekly-distribution"),
-      displayHeight: WeeklyAdaptiveLayout.topRowHeight,
-      exportHeight: WeeklyAdaptiveLayout.topRowHeight,
+      designWidth: WeeklyAdaptiveLayout.donutCardWidth,
+      designHeight: WeeklyAdaptiveLayout.topRowHeight,
       watermarkPlacement: .bottomTrailing
-    ) { width in
+    ) { cardWidth in
       WeeklyDonutSection(
         snapshot: dashboardSnapshot.donut,
         isLoading: isLoading,
-        width: width
+        width: cardWidth
+      )
+    }
+  }
+
+  private func weeklyContextChartCard(
+    layout: WeeklyAdaptiveLayout,
+    width: CGFloat
+  ) -> some View {
+    WeeklyExportableFixedGraphic(
+      availableWidth: width,
+      title: "Context charts",
+      fileName: exportFileName("context-charts"),
+      designWidth: WeeklyAdaptiveLayout.designContentWidth,
+      designHeight: WeeklyAdaptiveLayout.topRowHeight,
+      watermarkPlacement: .bottomTrailing
+    ) { cardWidth in
+      WeeklyContextChartsSection(
+        snapshot: dashboardSnapshot.contextCharts,
+        width: cardWidth
       )
     }
   }
@@ -505,45 +527,15 @@ private struct WeeklyDataRequirementProgressBar: View {
   }
 }
 
-private struct WeeklyAccessLockButton: View {
-  let action: () -> Void
-
-  var body: some View {
-    Button(action: action) {
-      Image(systemName: "lock.fill")
-        .font(.system(size: 12, weight: .semibold))
-        .foregroundStyle(Color(hex: "B46531"))
-        .frame(width: 32, height: 32)
-        .background(
-          Circle()
-            .fill(Color.white.opacity(0.92))
-        )
-        .overlay(
-          Circle()
-            .stroke(Color(hex: "EBD8C8"), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.06), radius: 5, y: 2)
-    }
-    .buttonStyle(.plain)
-    .help("Lock Weekly")
-    .accessibilityLabel("Lock Weekly")
-    .hoverScaleEffect(scale: 1.03)
-    .pointingHandCursorOnHover(reassertOnPressEnd: true)
-  }
-}
-
 private struct WeeklyAdaptiveLayout {
   static let designContentWidth: CGFloat = 958
   static let donutCardWidth: CGFloat = 461
-  static let highlightsCardWidth: CGFloat = 470
-  static let highlightsCardHeight: CGFloat = 298
   static let topRowHeight: CGFloat = 300
   static let topRowSpacing: CGFloat = 27
   static let workflowHeight: CGFloat = 292
   static let suggestionsHeight: CGFloat = 328
   static let treemapHeight: CGFloat = 549
   static let heatmapHeight: CGFloat = 238
-  static let contextChartsHeight: CGFloat = 427
   static let dataGateHeight: CGFloat = 360
   static let designSankeyHeight: CGFloat = designContentWidth * 933 / 1748
   static let maximumContentWidth: CGFloat = 1500
@@ -567,7 +559,7 @@ private struct WeeklyAdaptiveLayout {
     return min(620, max(Self.donutCardWidth, idealWidth))
   }
 
-  var highlightsCardWidth: CGFloat {
+  var contextCardWidth: CGFloat {
     max(1, contentWidth - Self.topRowSpacing - donutCardWidth)
   }
 
@@ -628,31 +620,17 @@ private struct WeeklyExportableGraphic<Content: View>: View {
   }
 
   var body: some View {
-    ZStack(alignment: .topTrailing) {
-      content(layout.contentWidth)
-        .frame(
-          width: layout.contentWidth,
-          height: displayHeight,
-          alignment: .topLeading
-        )
-
-      WeeklyGraphicDownloadButton(title: title) {
-        WeeklyGraphicExporter.savePNG(
-          fileName: fileName,
-          size: CGSize(width: WeeklyAdaptiveLayout.designContentWidth, height: exportHeight),
-          watermarkPlacement: watermarkPlacement
-        ) {
-          content(WeeklyAdaptiveLayout.designContentWidth)
-        }
-      }
-      .padding(.top, 10)
-      .padding(.trailing, 10)
-    }
-    .frame(
-      width: layout.contentWidth,
-      height: displayHeight,
-      alignment: .topLeading
-    )
+    content(layout.contentWidth)
+      .frame(
+        width: layout.contentWidth,
+        height: displayHeight,
+        alignment: .topLeading
+      )
+      .frame(
+        width: layout.contentWidth,
+        height: displayHeight,
+        alignment: .topLeading
+      )
   }
 }
 
@@ -684,27 +662,13 @@ private struct WeeklyExportableFixedGraphic<Content: View>: View {
   }
 
   var body: some View {
-    ZStack(alignment: .topTrailing) {
-      content(availableWidth)
-        .frame(width: availableWidth, height: designHeight, alignment: .topLeading)
-
-      WeeklyGraphicDownloadButton(title: title) {
-        WeeklyGraphicExporter.savePNG(
-          fileName: fileName,
-          size: CGSize(width: designWidth, height: designHeight),
-          watermarkPlacement: watermarkPlacement
-        ) {
-          content(designWidth)
-        }
-      }
-      .padding(.top, 10)
-      .padding(.trailing, 10)
-    }
-    .frame(
-      width: availableWidth,
-      height: designHeight,
-      alignment: .topLeading
-    )
+    content(availableWidth)
+      .frame(width: availableWidth, height: designHeight, alignment: .topLeading)
+      .frame(
+        width: availableWidth,
+        height: designHeight,
+        alignment: .topLeading
+      )
   }
 }
 
@@ -714,19 +678,11 @@ private struct WeeklyGraphicDownloadButton: View {
 
   var body: some View {
     Button(action: action) {
-      Image(systemName: "arrow.down.to.line")
-        .font(.system(size: 12, weight: .semibold))
+      Image(systemName: "arrow.down.circle")
+        .font(.system(size: 20, weight: .regular))
         .foregroundStyle(Color(hex: "B46531"))
-        .frame(width: 28, height: 28)
-        .background(
-          Circle()
-            .fill(Color.white.opacity(0.92))
-        )
-        .overlay(
-          Circle()
-            .stroke(Color(hex: "EBE6E3"), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.06), radius: 5, y: 2)
+        .frame(width: 30, height: 30)
+        .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .help("Download \(title) as a full-resolution PNG")
