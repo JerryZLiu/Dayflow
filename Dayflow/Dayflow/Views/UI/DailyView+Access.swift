@@ -12,6 +12,8 @@ extension DailyView {
         if accessFlowStep == .intro {
           DailyAccessIntroView(
             betaNoticeCopy: betaNoticeCopy,
+            progressText: dailyAccessProgressText,
+            canRequestAccess: hasDailyMinimumAccess,
             onRequestAccess: startDailyAccessFlow,
             onConfettiStart: triggerLockScreenConfetti
           )
@@ -198,6 +200,9 @@ extension DailyView {
     lockScreenConfettiTrigger += 1
   }
   func startDailyAccessFlow() {
+    refreshDailyAccessProgress()
+    guard hasDailyMinimumAccess else { return }
+
     AnalyticsService.shared.capture(
       "daily_access_requested",
       ["source": "daily_intro"]

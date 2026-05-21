@@ -13,6 +13,7 @@ struct DailyView: View {
   @State var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
   @State var isCheckingNotificationAuthorization: Bool = false
   @State var isRequestingNotificationPermission: Bool = false
+  @State var completedAccessBatchCount: Int = 0
   @State var workflowRows: [DailyWorkflowGridRow] = []
   @State var workflowTotals: [DailyWorkflowTotalItem] = []
   @State var workflowStats: [DailyWorkflowStatChip] = DailyWorkflowStatChip.placeholder
@@ -53,7 +54,7 @@ struct DailyView: View {
 
   var body: some View {
     ZStack {
-      if isUnlocked {
+      if hasDailyMinimumAccess && isUnlocked {
         unlockedContent
           .transition(.opacity)
       } else {
@@ -64,9 +65,13 @@ struct DailyView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     .environment(\.colorScheme, .light)
     .onAppear {
+      refreshDailyAccessProgress()
       dailyRecapProvider = DailyRecapGenerator.shared.selectedProvider()
       refreshProviderAvailability()
       checkNotificationAuthorizationForUnlock()
+    }
+    .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
+      refreshDailyAccessProgress()
     }
     .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification))
     { _ in
@@ -79,6 +84,23 @@ struct DailyView: View {
     }
   }
 
+  var hasDailyMinimumAccess: Bool {
+    FeatureAccessRequirements.hasRequiredBatches(
+      completedAccessBatchCount,
+      requiredBatchCount: FeatureAccessRequirements.dailyRequiredBatchCount
+    )
+  }
+
+  var dailyAccessProgressText: String {
+    FeatureAccessRequirements.progressText(
+      completedBatchCount: completedAccessBatchCount,
+      requiredHours: FeatureAccessRequirements.dailyRequiredHours
+    )
+  }
+
+  func refreshDailyAccessProgress() {
+    completedAccessBatchCount = FeatureAccessRequirements.completedBatchCount()
+  }
 }
 
 struct DailyView_Previews: PreviewProvider {

@@ -2,6 +2,8 @@ import SwiftUI
 
 struct DailyAccessIntroView: View {
   let betaNoticeCopy: String
+  let progressText: String
+  let canRequestAccess: Bool
   let onRequestAccess: () -> Void
   let onConfettiStart: () -> Void
 
@@ -28,9 +30,17 @@ struct DailyAccessIntroView: View {
         .frame(maxWidth: 480)
         .padding(.horizontal, 24)
 
+      Text("Daily unlocks after 5 hours of analyzed timeline data. \(progressText)")
+        .font(.custom("Figtree-SemiBold", size: 13))
+        .foregroundColor(Color(red: 0.35, green: 0.22, blue: 0.12).opacity(0.76))
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 460)
+        .padding(.horizontal, 24)
+
       DailyAnimatedRequestAccessButton(
         requestState: requestState,
         showsSuccessRing: showsSuccessRing,
+        isEnabled: canRequestAccess,
         stateChangeAnimation: stateChangeAnimation,
         successRingAnimation: successRingAnimation,
         onTap: animateRequestGranted
@@ -44,6 +54,7 @@ struct DailyAccessIntroView: View {
   }
 
   private func animateRequestGranted() {
+    guard canRequestAccess else { return }
     guard requestState == .idle else { return }
 
     withAnimation(stateChangeAnimation) {
@@ -258,11 +269,16 @@ private enum DailyAccessRequestState {
 private struct DailyAnimatedRequestAccessButton: View {
   let requestState: DailyAccessRequestState
   let showsSuccessRing: Bool
+  let isEnabled: Bool
   let stateChangeAnimation: Animation
   let successRingAnimation: Animation
   let onTap: () -> Void
 
   private var backgroundColor: Color {
+    guard isEnabled else {
+      return Color(red: 0.68, green: 0.62, blue: 0.56)
+    }
+
     switch requestState {
     case .idle:
       return Color(red: 0.25, green: 0.17, blue: 0)
@@ -321,8 +337,8 @@ private struct DailyAnimatedRequestAccessButton: View {
       .animation(successRingAnimation, value: showsSuccessRing)
     }
     .buttonStyle(.plain)
-    .disabled(requestState == .granted)
-    .pointingHandCursor(enabled: requestState == .idle)
+    .disabled(requestState == .granted || !isEnabled)
+    .pointingHandCursor(enabled: requestState == .idle && isEnabled)
   }
 }
 
