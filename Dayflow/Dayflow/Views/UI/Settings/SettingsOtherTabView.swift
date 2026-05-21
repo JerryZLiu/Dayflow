@@ -8,6 +8,7 @@ struct SettingsOtherTabView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: SettingsStyle.sectionSpacing) {
       appPreferencesSection
+      featureAccessSection
       outputLanguageSection
     }
   }
@@ -66,6 +67,52 @@ struct SettingsOtherTabView: View {
           showsDivider: false
         ) {
           SettingsToggle(isOn: $viewModel.saveAllTimelapsesToDisk)
+        }
+      }
+    }
+  }
+
+  // MARK: - Feature access
+
+  private var featureAccessSection: some View {
+    SettingsSection(
+      title: "Feature access",
+      subtitle:
+        "Lock a feature to test its access screen again. This does not bypass the minimum timeline requirements."
+    ) {
+      VStack(alignment: .leading, spacing: 0) {
+        SettingsRow(
+          label: "Daily",
+          subtitle: "Locks Daily so the 5-hour access flow appears again."
+        ) {
+          SettingsSecondaryButton(
+            title: "Lock",
+            systemImage: "lock",
+            action: viewModel.lockDailyAccess
+          )
+        }
+
+        SettingsRow(
+          label: "Weekly",
+          subtitle: "Locks Weekly so the 30-hour access screen appears again."
+        ) {
+          SettingsSecondaryButton(
+            title: "Lock",
+            systemImage: "lock",
+            action: viewModel.lockWeeklyAccess
+          )
+        }
+
+        SettingsRow(
+          label: "Chat",
+          subtitle: "Locks Chat so the 10-hour beta access screen appears again.",
+          showsDivider: false
+        ) {
+          SettingsSecondaryButton(
+            title: "Lock",
+            systemImage: "lock",
+            action: viewModel.lockChatAccess
+          )
         }
       }
     }
