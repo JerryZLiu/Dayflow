@@ -875,8 +875,12 @@ enum WeeklyDashboardBuilder {
         categories: sortedBuckets, visibleKeys: Set(sortedBuckets.map(\.key)))
     }
 
-    let visible = Array(sortedBuckets.prefix(maxVisible - 1))
-    let otherMinutes = sortedBuckets.dropFirst(maxVisible - 1).reduce(0) { $0 + $1.minutes }
+    var visible = Array(sortedBuckets.prefix(maxVisible - 1))
+    var otherMinutes = sortedBuckets.dropFirst(maxVisible - 1).reduce(0) { $0 + $1.minutes }
+    // Coalesce any pre-existing "other" bucket so the synthesised overflow doesn't duplicate its key.
+    if let collidingIndex = visible.firstIndex(where: { $0.key == otherKey }) {
+      otherMinutes += visible.remove(at: collidingIndex).minutes
+    }
     let categories =
       visible + [
         WeeklyBucket(key: otherKey, name: "Other", colorHex: otherColorHex, minutes: otherMinutes)
