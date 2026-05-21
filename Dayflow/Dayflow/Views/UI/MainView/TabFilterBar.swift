@@ -107,7 +107,7 @@ struct TabFilterBar: View {
         CategoryChip(category: idleCategory, isIdle: true)
       }
     }
-    .padding(.leading, 1)
+    .padding(.leading, 2)
   }
 
   private var editButton: some View {
