@@ -21,7 +21,8 @@ struct WeeklyTreemapSection: View {
     static let borderColor = Color(hex: "EBE6E3")
     static let background = Color.white.opacity(0.6)
     static let titleOrigin = CGPoint(x: 40, y: 34)
-    static let contentOrigin = CGPoint(x: 77, y: 86)
+    static let contentOrigin = CGPoint(x: 40, y: 86)
+    static let contentTrailingInset: CGFloat = 40
     static let contentSize = CGSize(width: 797, height: 400)
     static let categoryGap: CGFloat = 6
     static let hoverCardSize = CGSize(width: 176, height: 92)
@@ -29,7 +30,7 @@ struct WeeklyTreemapSection: View {
   }
 
   private var contentWidth: CGFloat {
-    max(Design.contentSize.width, width - (Design.contentOrigin.x * 2))
+    max(Design.contentSize.width, width - Design.contentOrigin.x - Design.contentTrailingInset)
   }
 
   var body: some View {
