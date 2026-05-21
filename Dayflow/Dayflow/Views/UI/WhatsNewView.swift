@@ -44,8 +44,7 @@ enum WhatsNewTaskOption: String, CaseIterable, Identifiable {
   var title: String {
     switch self {
     case .manualPlan:
-      return
-        "Let me write down what I want to get done, then automatically track progress from my day"
+      return "Let me write down what I want to get done, then auto-detect progress from my day"
     case .importedTasks:
       return "Pull tasks from tools I already use, like Linear, Notion, Todoist, or my calendar"
     case .progressReview:
@@ -64,7 +63,7 @@ enum WhatsNewConfiguration {
   private static let seenKey = "lastSeenWhatsNewVersion"
 
   /// Override with the specific release number you want to show.
-  private static let versionOverride: String? = "1.11.0"
+  private static let versionOverride: String? = "1.12.0"
 
   /// Update this content before shipping each release. Return nil to disable the modal entirely.
   static var configuredRelease: ReleaseNote? {
@@ -269,7 +268,7 @@ struct WhatsNewView: View {
   private var surveySection: some View {
     VStack(alignment: .leading, spacing: 12) {
       Text(
-        "We're exploring a Dayflow Pro plan that handles the AI side for you: no setup, fewer rate-limit headaches, and maximum access to the strongest models we can support."
+        "What should Dayflow do with your tasks?"
       )
       .font(.custom("Figtree", size: 15))
       .fontWeight(.semibold)
@@ -277,78 +276,16 @@ struct WhatsNewView: View {
       .fixedSize(horizontal: false, vertical: true)
 
       Text(
-        "Frontier AI models are expensive to run, so we're trying to understand what kind of Pro plan would feel genuinely worth it."
+        "We're thinking about ways to connect what you intend to do with what Dayflow can see you actually worked on."
       )
       .font(.custom("Figtree", size: 13))
       .foregroundColor(.black.opacity(0.62))
       .fixedSize(horizontal: false, vertical: true)
 
-      Text(
-        "Would you pay for a Dayflow Pro plan that handles everything and gives you the best available intelligence without rate-limit headaches?"
-      )
-      .font(.custom("Figtree", size: 14))
-      .fontWeight(.semibold)
-      .foregroundColor(.black.opacity(0.82))
-      .fixedSize(horizontal: false, vertical: true)
-
       VStack(spacing: 10) {
-        ForEach(WhatsNewProInterestOption.allCases) { option in
-          proInterestOptionRow(option)
+        ForEach(WhatsNewTaskOption.allCases) { option in
+          taskOptionRow(option)
         }
-      }
-
-      VStack(alignment: .leading, spacing: 8) {
-        Text(
-          "At what monthly price would Dayflow Pro start to feel expensive, but you'd still buy it?"
-        )
-        .font(.custom("Figtree", size: 14))
-        .fontWeight(.semibold)
-        .foregroundColor(.black.opacity(0.82))
-
-        ZStack {
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(Color.white)
-
-          WhatsNewSurveyTextEditor(
-            text: $proPriceResponse,
-            placeholder: "",
-            isEditable: !hasSubmittedProPrice
-          )
-          .frame(height: 64)
-          .onChange(of: proPriceResponse) {
-            persistProPriceResponse()
-          }
-          .environment(\.colorScheme, .light)
-          .preferredColorScheme(.light)
-        }
-        .overlay(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .stroke(Color.black.opacity(0.1), lineWidth: 1)
-        )
-        .opacity(hasSubmittedProPrice ? 0.72 : 1)
-      }
-
-      HStack {
-        Spacer()
-        DayflowSurfaceButton(
-          action: submitProPrice,
-          content: {
-            Text(isSubmittingProPrice ? "Submitting..." : "Submit")
-              .font(.custom("Figtree", size: 15))
-              .fontWeight(.semibold)
-          },
-          background: canSubmitProPrice
-            ? Color(red: 0.25, green: 0.17, blue: 0) : Color.black.opacity(0.08),
-          foreground: .white.opacity(canSubmitProPrice ? 1 : 0.7),
-          borderColor: .clear,
-          cornerRadius: 8,
-          horizontalPadding: 34,
-          verticalPadding: 12,
-          minWidth: 160,
-          showOverlayStroke: true
-        )
-        .disabled(!canSubmitProPrice)
-        .opacity(canSubmitProPrice ? 1 : 0.8)
       }
 
       if let surveyErrorText {
@@ -358,8 +295,12 @@ struct WhatsNewView: View {
           .fixedSize(horizontal: false, vertical: true)
       }
 
-      if hasSubmittedProPrice {
-        Label("Thanks for sharing your interest.", systemImage: "checkmark.circle.fill")
+      if isSubmittingTaskOptions {
+        Label("Saving...", systemImage: "arrow.triangle.2.circlepath")
+          .font(.custom("Figtree", size: 14))
+          .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0).opacity(0.72))
+      } else if hasSubmittedTaskOptions {
+        Label("Saved.", systemImage: "checkmark.circle.fill")
           .font(.custom("Figtree", size: 14))
           .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
       }
@@ -369,15 +310,15 @@ struct WhatsNewView: View {
     .preferredColorScheme(.light)
   }
 
-  private func proInterestOptionRow(_ option: WhatsNewProInterestOption) -> some View {
-    let isSelected = selectedProInterestOption == option
+  private func taskOptionRow(_ option: WhatsNewTaskOption) -> some View {
+    let isSelected = selectedTaskOptionIDs.contains(option.rawValue)
 
     return Button(action: {
-      selectProInterestOption(option)
+      toggleTaskOption(option)
     }) {
       HStack(spacing: 12) {
         ZStack {
-          Circle()
+          RoundedRectangle(cornerRadius: 5, style: .continuous)
             .stroke(
               isSelected ? Color(red: 0.25, green: 0.17, blue: 0) : Color.black.opacity(0.16),
               lineWidth: 1.5
@@ -385,13 +326,13 @@ struct WhatsNewView: View {
             .frame(width: 18, height: 18)
 
           if isSelected {
-            Circle()
-              .fill(Color(red: 0.25, green: 0.17, blue: 0))
-              .frame(width: 8, height: 8)
+            Image(systemName: "checkmark")
+              .font(.system(size: 11, weight: .bold))
+              .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
           }
         }
 
-        Text(option.rawValue)
+        Text(option.title)
           .font(.custom("Figtree", size: 14))
           .foregroundColor(.black.opacity(0.82))
           .fixedSize(horizontal: false, vertical: true)
@@ -420,7 +361,6 @@ struct WhatsNewView: View {
     }
     .buttonStyle(.plain)
     .pointingHandCursor()
-    .disabled(isSubmittingProInterest)
   }
 
   private func ctaSection(_ cta: ReleaseNoteCTA) -> some View {
@@ -472,90 +412,68 @@ struct WhatsNewView: View {
     openURL(url)
   }
 
-  private var hasSubmittedProInterest: Bool {
-    submittedProInterestVersion == releaseNote.version
+  private var hasSubmittedTaskOptions: Bool {
+    submittedTaskOptionsVersion == releaseNote.version
   }
 
-  private var hasSubmittedProPrice: Bool {
-    submittedProPriceVersion == releaseNote.version
+  private var selectedTaskOptionsPayload: String {
+    WhatsNewTaskOption.allCases
+      .map(\.rawValue)
+      .filter { selectedTaskOptionIDs.contains($0) }
+      .joined(separator: ",")
   }
 
-  private var selectedProInterestOption: WhatsNewProInterestOption? {
-    WhatsNewProInterestOption(rawValue: selectedProInterestOptionID)
-  }
+  private func toggleTaskOption(_ option: WhatsNewTaskOption) {
+    let previousSelection = selectedTaskOptionIDs
 
-  private var proPriceResponseTrimmed: String {
-    proPriceResponse.trimmingCharacters(in: .whitespacesAndNewlines)
-  }
+    if selectedTaskOptionIDs.contains(option.rawValue) {
+      selectedTaskOptionIDs.remove(option.rawValue)
+    } else if option == .timeTrackingOnly {
+      selectedTaskOptionIDs = [option.rawValue]
+    } else {
+      selectedTaskOptionIDs.insert(option.rawValue)
+      selectedTaskOptionIDs.remove(WhatsNewTaskOption.timeTrackingOnly.rawValue)
+    }
 
-  private var canSubmitProPrice: Bool {
-    hasSubmittedProInterest && !hasSubmittedProPrice && !isSubmittingProPrice
-      && !proPriceResponseTrimmed.isEmpty
-  }
-
-  private func selectProInterestOption(_ option: WhatsNewProInterestOption) {
-    guard !isSubmittingProInterest else { return }
+    persistSelectedTaskOptions()
     surveyErrorText = nil
 
+    let selectedOptions = selectedTaskOptionsPayload
+    guard !selectedOptions.isEmpty else {
+      submittedTaskOptionsVersion = ""
+      return
+    }
+
     Task {
-      if await submitReleaseSurvey(proInterest: option.rawValue, proPrice: nil) {
-        selectedProInterestOptionID = option.rawValue
-        persistSelectedProInterestOption()
-        submittedProInterestVersion = releaseNote.version
+      if await submitReleaseSurvey(selectedOptions: selectedOptions) {
+        submittedTaskOptionsVersion = releaseNote.version
+      } else {
+        selectedTaskOptionIDs = previousSelection
+        persistSelectedTaskOptions()
       }
     }
   }
 
-  private func submitProPrice() {
-    guard hasSubmittedProInterest else { return }
-    guard !hasSubmittedProPrice else { return }
-
-    let proPrice = String(proPriceResponseTrimmed.prefix(200))
-    guard !proPrice.isEmpty else { return }
-
-    surveyErrorText = nil
-
-    Task {
-      if await submitReleaseSurvey(
-        proInterest: selectedProInterestOption?.rawValue,
-        proPrice: proPrice
-      ) {
-        submittedProPriceVersion = releaseNote.version
-        proPriceResponse = proPrice
-        persistProPriceResponse()
-      }
-    }
-  }
-
-  private func persistSelectedProInterestOption() {
-    UserDefaults.standard.set(
-      selectedProInterestOptionID,
-      forKey: selectedProInterestOptionStorageKey
-    )
-  }
-
-  private func persistProPriceResponse() {
-    UserDefaults.standard.set(proPriceResponse, forKey: proPriceResponseStorageKey)
+  private func persistSelectedTaskOptions() {
+    let selectedOptions = WhatsNewTaskOption.allCases
+      .map(\.rawValue)
+      .filter { selectedTaskOptionIDs.contains($0) }
+    UserDefaults.standard.set(selectedOptions, forKey: selectedTaskOptionsStorageKey)
   }
 
   private func hydrateSurveyStateIfNeeded() {
-    selectedProInterestOptionID =
-      UserDefaults.standard.string(forKey: selectedProInterestOptionStorageKey) ?? ""
-    proPriceResponse =
-      UserDefaults.standard.string(forKey: proPriceResponseStorageKey) ?? ""
+    let storedOptions =
+      UserDefaults.standard.stringArray(forKey: selectedTaskOptionsStorageKey) ?? []
+    selectedTaskOptionIDs = Set(storedOptions)
     releaseSurveyResponseID = loadReleaseSurveyResponseID()
   }
 
-  private var selectedProInterestOptionStorageKey: String {
-    "whatsNewProInterestOption_\(releaseNote.version)"
-  }
-
-  private var proPriceResponseStorageKey: String {
-    "whatsNewProPriceResponse_\(releaseNote.version)"
+  private var selectedTaskOptionsStorageKey: String {
+    "whatsNewTaskOptions_\(releaseSurveyKey)_\(releaseNote.version)"
   }
 
   private var releaseSurveyResponseIDStorageKey: String {
-    "whatsNewReleaseSurveyResponseID_\(releaseNote.version)"
+    "whatsNewReleaseSurveyResponseID_\(releaseSurveyKey)_\(releaseNote.version)"
   }
 
   private func loadReleaseSurveyResponseID() -> String {
@@ -571,20 +489,11 @@ struct WhatsNewView: View {
     return generated
   }
 
-  private func submitReleaseSurvey(proInterest: String?, proPrice: String?) async -> Bool {
-    let submittingPrice = proPrice != nil
-    if submittingPrice {
-      isSubmittingProPrice = true
-    } else {
-      isSubmittingProInterest = true
-    }
+  private func submitReleaseSurvey(selectedOptions: String) async -> Bool {
+    isSubmittingTaskOptions = true
 
     defer {
-      if submittingPrice {
-        isSubmittingProPrice = false
-      } else {
-        isSubmittingProInterest = false
-      }
+      isSubmittingTaskOptions = false
     }
 
     do {
@@ -597,8 +506,8 @@ struct WhatsNewView: View {
           responseID: responseID,
           surveyKey: releaseSurveyKey,
           version: releaseNote.version,
-          proInterest: proInterest,
-          proPrice: proPrice,
+          proInterest: selectedOptions,
+          proPrice: nil,
           appVersion: appVersion,
           analyticsOptIn: AnalyticsService.shared.isOptedIn,
           providerLabel: currentProviderLabel
