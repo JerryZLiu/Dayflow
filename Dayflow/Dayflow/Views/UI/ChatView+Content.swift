@@ -420,14 +420,31 @@ extension ChatView {
         // Runtime requirement section
         VStack(spacing: 12) {
           Image(
-            systemName: anyRuntimeAvailable ? "checkmark.circle.fill" : "bolt.horizontal.circle"
+            systemName: hasChatMinimumAccess && anyRuntimeAvailable
+              ? "checkmark.circle.fill"
+              : "bolt.horizontal.circle"
           )
           .font(.system(size: 32))
-          .foregroundColor(anyRuntimeAvailable ? Color(hex: "34C759") : Color(hex: "F98D3D"))
+          .foregroundColor(
+            hasChatMinimumAccess && anyRuntimeAvailable
+              ? Color(hex: "34C759") : Color(hex: "F98D3D")
+          )
           .contentTransition(.symbolEffect(.replace))
           .animation(.easeOut(duration: 0.2), value: anyRuntimeAvailable)
+          .animation(.easeOut(duration: 0.2), value: hasChatMinimumAccess)
 
-          if anyRuntimeAvailable {
+          if !hasChatMinimumAccess {
+            Text("10 hours of timeline data required")
+              .font(.custom("Figtree-SemiBold", size: 15))
+              .foregroundColor(Color(hex: "593D2A"))
+
+            Text(
+              "Chat unlocks after Dayflow has analyzed enough activity. \(chatAccessProgressText)"
+            )
+            .font(.custom("Figtree-Regular", size: 13))
+            .foregroundColor(Color(hex: "593D2A").opacity(0.8))
+            .multilineTextAlignment(.center)
+          } else if anyRuntimeAvailable {
             Text("Gemini key or CLI runtime detected")
               .font(.custom("Figtree-SemiBold", size: 15))
               .foregroundColor(Color(hex: "34C759"))
@@ -446,22 +463,30 @@ extension ChatView {
           }
         }
         .animation(.easeOut(duration: 0.25), value: anyRuntimeAvailable)
+        .animation(.easeOut(duration: 0.25), value: hasChatMinimumAccess)
 
         // Continue button
         Button(action: {
+          refreshChatAccessProgress()
+          guard hasChatMinimumAccess && anyRuntimeAvailable else { return }
+
           withAnimation(.easeOut(duration: 0.25)) {
             hasBetaAccepted = true
           }
         }) {
-          Text(anyRuntimeAvailable ? "Unlock Beta" : "Configure a runtime to continue")
+          Text(chatUnlockButtonTitle)
             .font(.custom("Figtree-SemiBold", size: 15))
-            .foregroundColor(anyRuntimeAvailable ? Color(hex: "593D2A") : Color(hex: "999999"))
+            .foregroundColor(
+              hasChatMinimumAccess && anyRuntimeAvailable
+                ? Color(hex: "593D2A")
+                : Color(hex: "999999")
+            )
             .padding(.horizontal, 28)
             .padding(.vertical, 12)
             .background(
               Capsule()
                 .fill(
-                  anyRuntimeAvailable
+                  hasChatMinimumAccess && anyRuntimeAvailable
                     ? LinearGradient(
                       colors: [
                         Color(hex: "FFF4E9"),
@@ -482,14 +507,16 @@ extension ChatView {
                 .overlay(
                   Capsule()
                     .stroke(
-                      anyRuntimeAvailable ? Color(hex: "E8C9A8") : Color(hex: "D0D0D0"),
+                      hasChatMinimumAccess && anyRuntimeAvailable
+                        ? Color(hex: "E8C9A8")
+                        : Color(hex: "D0D0D0"),
                       lineWidth: 1
                     )
                 )
             )
         }
-        .buttonStyle(BetaButtonStyle(isEnabled: anyRuntimeAvailable))
-        .disabled(!anyRuntimeAvailable)
+        .buttonStyle(BetaButtonStyle(isEnabled: hasChatMinimumAccess && anyRuntimeAvailable))
+        .disabled(!hasChatMinimumAccess || !anyRuntimeAvailable)
       }
       .padding(20)
       .background(
@@ -521,6 +548,18 @@ extension ChatView {
     .padding(.vertical, 12)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Color(hex: "FFFAF5"))
+  }
+
+  var chatUnlockButtonTitle: String {
+    if !hasChatMinimumAccess {
+      return "Keep recording to unlock"
+    }
+
+    if !anyRuntimeAvailable {
+      return "Configure a runtime to continue"
+    }
+
+    return "Unlock Beta"
   }
 
   // MARK: - Input Area

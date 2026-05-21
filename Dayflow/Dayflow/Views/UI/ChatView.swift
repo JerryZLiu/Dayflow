@@ -34,6 +34,7 @@ struct ChatView: View {
   @State var geminiConfigured = false
   @State var codexDetected = false
   @State var claudeDetected = false
+  @State var completedAccessBatchCount = 0
   @State var cliDetectionTask: Task<Void, Never>?
   @State var didCheckCLI = false
   @State var showToolSwitchConfirm = false
@@ -92,11 +93,16 @@ struct ChatView: View {
     .task {
       guard !didCheckCLI else { return }
       didCheckCLI = true
+      refreshChatAccessProgress()
       await refreshRuntimeAvailability()
     }
     .onAppear {
+      refreshChatAccessProgress()
       loadMemoryFromStore(resetDraft: true)
       Task { await refreshRuntimeAvailability() }
+    }
+    .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
+      refreshChatAccessProgress()
     }
     .onDisappear {
       cliDetectionTask?.cancel()

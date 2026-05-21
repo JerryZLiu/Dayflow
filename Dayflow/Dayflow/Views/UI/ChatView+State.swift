@@ -8,11 +8,25 @@ extension ChatView {
   }
 
   var isUnlocked: Bool {
-    hasBetaAccepted
+    hasBetaAccepted && hasChatMinimumAccess
   }
 
   var anyRuntimeAvailable: Bool {
     geminiConfigured || codexDetected || claudeDetected
+  }
+
+  var hasChatMinimumAccess: Bool {
+    FeatureAccessRequirements.hasRequiredBatches(
+      completedAccessBatchCount,
+      requiredBatchCount: FeatureAccessRequirements.chatRequiredBatchCount
+    )
+  }
+
+  var chatAccessProgressText: String {
+    FeatureAccessRequirements.progressText(
+      completedBatchCount: completedAccessBatchCount,
+      requiredHours: FeatureAccessRequirements.chatRequiredHours
+    )
   }
 
   var selectedProviderAvailable: Bool {

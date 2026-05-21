@@ -5,6 +5,10 @@ import SwiftUI
 extension ChatView {
   // MARK: - Actions
 
+  func refreshChatAccessProgress() {
+    completedAccessBatchCount = FeatureAccessRequirements.completedBatchCount()
+  }
+
   func submitCurrentInputIfAllowed() {
     guard canSubmitCurrentInput else { return }
     sendMessage(trimmedInputText)
