@@ -23,8 +23,9 @@ struct WeeklyWorkflowSection: View {
     static let emptyCellColor = Color(red: 0.95, green: 0.93, blue: 0.92)
     static let axisColor = Color(hex: "E0D9D5")
 
-    static let titleSpacing: CGFloat = 8
-    static let gridPadding = EdgeInsets(top: 25, leading: 36, bottom: 6, trailing: 52)
+    static let titleTopPadding: CGFloat = 16
+    static let titleLeadingPadding: CGFloat = gridPadding.leading + labelWidth + labelToGridSpacing
+    static let gridPadding = EdgeInsets(top: 53, leading: 36, bottom: 6, trailing: 52)
     static let footerPadding = EdgeInsets(top: 14, leading: 16, bottom: 12, trailing: 16)
     static let labelWidth: CGFloat = 30
     static let labelToGridSpacing: CGFloat = 13
@@ -54,36 +55,41 @@ struct WeeklyWorkflowSection: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: Design.titleSpacing) {
-      Text(snapshot.title)
-        .font(.custom("InstrumentSerif-Regular", size: 24))
-        .foregroundStyle(Design.titleColor)
+    VStack(spacing: 0) {
+      gridPanel
 
-      VStack(spacing: 0) {
-        gridPanel
+      Divider()
+        .overlay(Design.dividerColor)
 
-        Divider()
-          .overlay(Design.dividerColor)
-
-        footerPanel
-      }
-      .background(
-        RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
-          .fill(Design.backgroundColor)
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
-          .stroke(Design.borderColor, lineWidth: 1)
-          .allowsHitTesting(false)
-      )
+      footerPanel
     }
-    .frame(width: width, alignment: .leading)
+    .background(
+      RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
+        .fill(Design.backgroundColor)
+    )
+    .overlay(alignment: .topLeading) {
+      Text(snapshot.title)
+        .font(.custom("InstrumentSerif-Regular", size: 20))
+        .foregroundStyle(Design.titleColor)
+        .padding(.top, Design.titleTopPadding)
+        .padding(.leading, Design.titleLeadingPadding)
+    }
+    .overlay(
+      RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
+        .stroke(Design.borderColor, lineWidth: 1)
+        .allowsHitTesting(false)
+    )
+    .frame(width: width, alignment: .topLeading)
   }
 
   private var gridPanel: some View {
     HStack(alignment: .top, spacing: Design.labelToGridSpacing) {
       dayLabels
-      gridAndAxis
+
+      ScrollView(.horizontal, showsIndicators: false) {
+        gridAndAxis
+      }
+      .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
     }
     .padding(Design.gridPadding)
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -136,6 +142,15 @@ struct WeeklyWorkflowSection: View {
   }
 
   private var footerPanel: some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      footerContent
+        .padding(Design.footerPadding)
+    }
+    .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private var footerContent: some View {
     HStack(spacing: 8) {
       if snapshot.totals.isEmpty {
         Text(
@@ -153,10 +168,8 @@ struct WeeklyWorkflowSection: View {
         }
       }
     }
-    .padding(Design.footerPadding)
-    .frame(maxWidth: .infinity, alignment: .leading)
+    .fixedSize(horizontal: true, vertical: false)
     .lineLimit(1)
-    .minimumScaleFactor(0.7)
   }
 
   private func totalItem(_ total: WeeklyWorkflowTotalItem) -> some View {
