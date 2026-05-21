@@ -32,27 +32,21 @@ struct ReleaseNote: Identifiable {
   }
 }
 
-enum WhatsNewTaskOption: String, CaseIterable, Identifiable {
-  case manualPlan = "manual_plan"
-  case importedTasks = "imported_tasks"
-  case progressReview = "progress_review"
-  case tomorrowPriorities = "tomorrow_priorities"
-  case timeTrackingOnly = "time_tracking_only"
+enum WhatsNewGoalHelpfulness: String, CaseIterable, Identifiable {
+  case helpful
+  case notSureYet = "not_sure_yet"
+  case notHelpful = "not_helpful"
 
   var id: String { rawValue }
 
   var title: String {
     switch self {
-    case .manualPlan:
-      return "Let me write down what I want to get done, then auto-detect progress from my day"
-    case .importedTasks:
-      return "Pull tasks from tools I already use, like Linear, Notion, Todoist, or my calendar"
-    case .progressReview:
-      return "Show me which planned tasks I actually made progress on"
-    case .tomorrowPriorities:
-      return "Carry unfinished work into tomorrow's priorities"
-    case .timeTrackingOnly:
-      return "Nothing; I want Dayflow to track my time, not manage my tasks"
+    case .helpful:
+      return "Helpful"
+    case .notSureYet:
+      return "Not sure yet"
+    case .notHelpful:
+      return "Not helpful"
     }
   }
 }
@@ -69,12 +63,11 @@ enum WhatsNewConfiguration {
   static var configuredRelease: ReleaseNote? {
     ReleaseNote(
       version: targetVersion,
-      title: "Set goals for your day",
+      title: "New Weekly View Now Available",
       highlights: [
-        "Dayflow is evolving from helping you understand your time to helping you improve how you spend it.",
-        "We're starting with daily focus targets: choose what counts as focus, set a distraction limit, and track your progress as the day unfolds.",
-        "Dayflow also has a cleaner visual system, with more readable text and a calmer, more consistent feel throughout the app.",
-        "Daily goal reminders can be turned off anytime in Settings.",
+        "We're experimenting with a new Weekly view that helps you understand your time at a higher level.",
+        "We haven't tested it with a huge variety of data, so please send in reports if something looks weird or off.",
+        "Lastly, it would be immensely helpful if you could offer some feedback on the new goals feature.",
       ],
       previewIntro: nil,
       previewImageNames: [],
@@ -137,16 +130,17 @@ struct WhatsNewView: View {
   let onDismiss: () -> Void
 
   @Environment(\.openURL) private var openURL
-  @AppStorage("whatsNewTaskOptionsSubmittedVersion") private var submittedTaskOptionsVersion:
-    String = ""
-  @State private var selectedTaskOptionIDs: Set<String> = []
+  @AppStorage("whatsNewGoalSurveySubmittedVersion") private var submittedGoalSurveyVersion: String =
+    ""
+  @State private var selectedGoalHelpfulness: WhatsNewGoalHelpfulness?
+  @State private var goalImprovementText = ""
   @State private var releaseSurveyResponseID = ""
-  @State private var isSubmittingTaskOptions = false
+  @State private var isSubmittingGoalSurvey = false
   @State private var surveyErrorText: String?
   @State private var didHydrateSurveyState = false
 
   private let bottomAnchorID = "whats_new_bottom_anchor"
-  private let releaseSurveyKey = "task_planning"
+  private let releaseSurveyKey = "goal_feedback"
 
   var body: some View {
     ScrollView {
@@ -267,26 +261,46 @@ struct WhatsNewView: View {
 
   private var surveySection: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text(
-        "What should Dayflow do with your tasks?"
-      )
-      .font(.custom("Figtree", size: 15))
-      .fontWeight(.semibold)
-      .foregroundColor(.black.opacity(0.85))
-      .fixedSize(horizontal: false, vertical: true)
+      Text("Has setting a daily goal been helpful?")
+        .font(.custom("Figtree", size: 15))
+        .fontWeight(.semibold)
+        .foregroundColor(.black.opacity(0.85))
+        .fixedSize(horizontal: false, vertical: true)
 
       Text(
-        "We're thinking about ways to connect what you intend to do with what Dayflow can see you actually worked on."
+        "A quick answer helps shape where goals go next."
       )
       .font(.custom("Figtree", size: 13))
       .foregroundColor(.black.opacity(0.62))
       .fixedSize(horizontal: false, vertical: true)
 
-      VStack(spacing: 10) {
-        ForEach(WhatsNewTaskOption.allCases) { option in
-          taskOptionRow(option)
+      HStack(spacing: 10) {
+        ForEach(WhatsNewGoalHelpfulness.allCases) { option in
+          goalHelpfulnessButton(option)
         }
       }
+
+      VStack(alignment: .leading, spacing: 8) {
+        Text("What would make goals better?")
+          .font(.custom("Figtree", size: 15))
+          .fontWeight(.semibold)
+          .foregroundColor(.black.opacity(0.85))
+
+        WhatsNewSurveyTextEditor(
+          text: $goalImprovementText,
+          placeholder: "More control, better reminders, clearer progress, something else..."
+        )
+        .frame(minHeight: 78)
+        .background(
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(Color.white)
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .stroke(Color.black.opacity(0.1), lineWidth: 1)
+        )
+      }
+      .padding(.top, 4)
 
       if let surveyErrorText {
         Text(surveyErrorText)
@@ -295,14 +309,35 @@ struct WhatsNewView: View {
           .fixedSize(horizontal: false, vertical: true)
       }
 
-      if isSubmittingTaskOptions {
-        Label("Saving...", systemImage: "arrow.triangle.2.circlepath")
-          .font(.custom("Figtree", size: 14))
-          .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0).opacity(0.72))
-      } else if hasSubmittedTaskOptions {
-        Label("Saved.", systemImage: "checkmark.circle.fill")
-          .font(.custom("Figtree", size: 14))
-          .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
+      HStack(spacing: 12) {
+        DayflowSurfaceButton(
+          action: submitGoalSurveyFromButton,
+          content: {
+            HStack(spacing: 8) {
+              Image(systemName: "paperplane.fill")
+                .font(.system(size: 12, weight: .semibold))
+              Text(isSubmittingGoalSurvey ? "Saving..." : "Send feedback")
+                .font(.custom("Figtree", size: 14))
+                .fontWeight(.semibold)
+            }
+          },
+          background: Color(red: 0.25, green: 0.17, blue: 0),
+          foreground: .white,
+          borderColor: .clear,
+          cornerRadius: 8,
+          horizontalPadding: 14,
+          verticalPadding: 9,
+          showOverlayStroke: true
+        )
+        .disabled(isSubmittingGoalSurvey)
+        .opacity(isSubmittingGoalSurvey ? 0.72 : 1)
+        .pointingHandCursor()
+
+        if hasSubmittedGoalSurvey {
+          Label("Saved.", systemImage: "checkmark.circle.fill")
+            .font(.custom("Figtree", size: 14))
+            .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
+        }
       }
     }
     .padding(.top, 10)
@@ -310,37 +345,22 @@ struct WhatsNewView: View {
     .preferredColorScheme(.light)
   }
 
-  private func taskOptionRow(_ option: WhatsNewTaskOption) -> some View {
-    let isSelected = selectedTaskOptionIDs.contains(option.rawValue)
+  private func goalHelpfulnessButton(_ option: WhatsNewGoalHelpfulness) -> some View {
+    let isSelected = selectedGoalHelpfulness == option
 
     return Button(action: {
-      toggleTaskOption(option)
+      selectGoalHelpfulness(option)
     }) {
-      HStack(spacing: 12) {
-        ZStack {
-          RoundedRectangle(cornerRadius: 5, style: .continuous)
-            .stroke(
-              isSelected ? Color(red: 0.25, green: 0.17, blue: 0) : Color.black.opacity(0.16),
-              lineWidth: 1.5
-            )
-            .frame(width: 18, height: 18)
-
-          if isSelected {
-            Image(systemName: "checkmark")
-              .font(.system(size: 11, weight: .bold))
-              .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
-          }
-        }
-
+      HStack(spacing: 8) {
         Text(option.title)
           .font(.custom("Figtree", size: 14))
+          .fontWeight(isSelected ? .semibold : .regular)
           .foregroundColor(.black.opacity(0.82))
           .fixedSize(horizontal: false, vertical: true)
-
-        Spacer(minLength: 0)
       }
-      .padding(.horizontal, 14)
-      .padding(.vertical, 12)
+      .frame(maxWidth: .infinity)
+      .padding(.horizontal, 12)
+      .padding(.vertical, 10)
       .background(
         RoundedRectangle(cornerRadius: 10, style: .continuous)
           .fill(
@@ -360,6 +380,7 @@ struct WhatsNewView: View {
       )
     }
     .buttonStyle(.plain)
+    .disabled(isSubmittingGoalSurvey)
     .pointingHandCursor()
   }
 
@@ -412,64 +433,62 @@ struct WhatsNewView: View {
     openURL(url)
   }
 
-  private var hasSubmittedTaskOptions: Bool {
-    submittedTaskOptionsVersion == releaseNote.version
+  private var hasSubmittedGoalSurvey: Bool {
+    submittedGoalSurveyVersion == releaseNote.version
   }
 
-  private var selectedTaskOptionsPayload: String {
-    WhatsNewTaskOption.allCases
-      .map(\.rawValue)
-      .filter { selectedTaskOptionIDs.contains($0) }
-      .joined(separator: ",")
-  }
-
-  private func toggleTaskOption(_ option: WhatsNewTaskOption) {
-    let previousSelection = selectedTaskOptionIDs
-
-    if selectedTaskOptionIDs.contains(option.rawValue) {
-      selectedTaskOptionIDs.remove(option.rawValue)
-    } else if option == .timeTrackingOnly {
-      selectedTaskOptionIDs = [option.rawValue]
-    } else {
-      selectedTaskOptionIDs.insert(option.rawValue)
-      selectedTaskOptionIDs.remove(WhatsNewTaskOption.timeTrackingOnly.rawValue)
-    }
-
-    persistSelectedTaskOptions()
+  private func selectGoalHelpfulness(_ option: WhatsNewGoalHelpfulness) {
+    let previousSelection = selectedGoalHelpfulness
+    selectedGoalHelpfulness = option
+    persistGoalSurveyState()
     surveyErrorText = nil
 
-    let selectedOptions = selectedTaskOptionsPayload
-    guard !selectedOptions.isEmpty else {
-      submittedTaskOptionsVersion = ""
-      return
-    }
-
     Task {
-      if await submitReleaseSurvey(selectedOptions: selectedOptions) {
-        submittedTaskOptionsVersion = releaseNote.version
+      if await submitReleaseSurvey() {
+        submittedGoalSurveyVersion = releaseNote.version
       } else {
-        selectedTaskOptionIDs = previousSelection
-        persistSelectedTaskOptions()
+        selectedGoalHelpfulness = previousSelection
+        persistGoalSurveyState()
       }
     }
   }
 
-  private func persistSelectedTaskOptions() {
-    let selectedOptions = WhatsNewTaskOption.allCases
-      .map(\.rawValue)
-      .filter { selectedTaskOptionIDs.contains($0) }
-    UserDefaults.standard.set(selectedOptions, forKey: selectedTaskOptionsStorageKey)
+  private func submitGoalSurveyFromButton() {
+    persistGoalSurveyState()
+    surveyErrorText = nil
+
+    Task {
+      if await submitReleaseSurvey() {
+        submittedGoalSurveyVersion = releaseNote.version
+      }
+    }
+  }
+
+  private func persistGoalSurveyState() {
+    if let selectedGoalHelpfulness {
+      UserDefaults.standard.set(
+        selectedGoalHelpfulness.rawValue, forKey: selectedHelpfulnessStorageKey)
+    } else {
+      UserDefaults.standard.removeObject(forKey: selectedHelpfulnessStorageKey)
+    }
+
+    UserDefaults.standard.set(goalImprovementText, forKey: goalImprovementStorageKey)
   }
 
   private func hydrateSurveyStateIfNeeded() {
-    let storedOptions =
-      UserDefaults.standard.stringArray(forKey: selectedTaskOptionsStorageKey) ?? []
-    selectedTaskOptionIDs = Set(storedOptions)
+    if let storedHelpfulness = UserDefaults.standard.string(forKey: selectedHelpfulnessStorageKey) {
+      selectedGoalHelpfulness = WhatsNewGoalHelpfulness(rawValue: storedHelpfulness)
+    }
+    goalImprovementText = UserDefaults.standard.string(forKey: goalImprovementStorageKey) ?? ""
     releaseSurveyResponseID = loadReleaseSurveyResponseID()
   }
 
-  private var selectedTaskOptionsStorageKey: String {
-    "whatsNewTaskOptions_\(releaseSurveyKey)_\(releaseNote.version)"
+  private var selectedHelpfulnessStorageKey: String {
+    "whatsNewGoalHelpfulness_\(releaseSurveyKey)_\(releaseNote.version)"
+  }
+
+  private var goalImprovementStorageKey: String {
+    "whatsNewGoalImprovement_\(releaseSurveyKey)_\(releaseNote.version)"
   }
 
   private var releaseSurveyResponseIDStorageKey: String {
@@ -489,11 +508,11 @@ struct WhatsNewView: View {
     return generated
   }
 
-  private func submitReleaseSurvey(selectedOptions: String) async -> Bool {
-    isSubmittingTaskOptions = true
+  private func submitReleaseSurvey() async -> Bool {
+    isSubmittingGoalSurvey = true
 
     defer {
-      isSubmittingTaskOptions = false
+      isSubmittingGoalSurvey = false
     }
 
     do {
@@ -501,13 +520,14 @@ struct WhatsNewView: View {
         releaseSurveyResponseID.isEmpty
         ? loadReleaseSurveyResponseID() : releaseSurveyResponseID
       releaseSurveyResponseID = responseID
+      let trimmedImprovement = goalImprovementText.trimmingCharacters(in: .whitespacesAndNewlines)
       try await ReleaseSurveyClient.submit(
         ReleaseSurveyPayload(
           responseID: responseID,
           surveyKey: releaseSurveyKey,
           version: releaseNote.version,
-          proInterest: selectedOptions,
-          proPrice: nil,
+          proInterest: selectedGoalHelpfulness?.rawValue,
+          proPrice: trimmedImprovement.isEmpty ? nil : trimmedImprovement,
           appVersion: appVersion,
           analyticsOptIn: AnalyticsService.shared.isOptedIn,
           providerLabel: currentProviderLabel
