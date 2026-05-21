@@ -129,10 +129,13 @@ struct WeeklyFocusHeatmapSection: View {
   private var heatmap: some View {
     HStack(alignment: .top, spacing: Design.labelsToGridSpacing) {
       dayLabels
-      gridAndAxis
+
+      ScrollView(.horizontal, showsIndicators: false) {
+        gridAndAxis
+      }
+      .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .clipped()
   }
 
   private var dayLabels: some View {
