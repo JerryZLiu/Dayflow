@@ -1284,24 +1284,20 @@ enum WeeklyDashboardBuilder {
     startMinute: Double,
     endMinute: Double
   ) -> [WeeklyWorkflowTimeLabel] {
-    let startLabel = WeeklyWorkflowTimeLabel(
-      id: "time-\(Int(startMinute))",
-      label: workflowClockLabel(from: startMinute),
-      minute: startMinute
-    )
+    let firstHour = ceil(startMinute / 60.0) * 60.0
+    let lastHour = floor(endMinute / 60.0) * 60.0
 
-    guard startMinute != endMinute else {
-      return [startLabel]
+    guard firstHour <= lastHour else {
+      return []
     }
 
-    return [
-      startLabel,
+    return stride(from: firstHour, through: lastHour, by: 60.0).map { minute in
       WeeklyWorkflowTimeLabel(
-        id: "time-\(Int(endMinute))",
-        label: workflowClockLabel(from: endMinute),
-        minute: endMinute
-      ),
-    ]
+        id: "time-\(Int(minute))",
+        label: workflowClockLabel(from: minute),
+        minute: minute
+      )
+    }
   }
 
   private static func workflowClockLabel(from minute: Double) -> String {
