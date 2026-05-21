@@ -11,15 +11,16 @@ struct WeeklyContextChartsSection: View {
   }
 
   private enum Design {
-    static let height: CGFloat = 427
+    static let height: CGFloat = 300
     static let footerHeight: CGFloat = 58
     static let cornerRadius: CGFloat = 6
     static let horizontalPadding: CGFloat = 24
-    static let topPadding: CGFloat = 28
+    static let topPadding: CGFloat = 16
     static let legendSpacing: CGFloat = 34
-    static let chartHeight: CGFloat = 220
-    static let chartTopSpacing: CGFloat = 36
-    static let xAxisTopSpacing: CGFloat = 12
+    static let chartHeight: CGFloat = 104
+    static let titleSpacing: CGFloat = 14
+    static let chartTopSpacing: CGFloat = 12
+    static let xAxisTopSpacing: CGFloat = 8
     static let lineWidth: CGFloat = 2
     static let pointSize: CGFloat = 42
     static let borderColor = Color(hex: "EBE6E3")
@@ -58,6 +59,13 @@ struct WeeklyContextChartsSection: View {
   var body: some View {
     VStack(spacing: 0) {
       VStack(alignment: .leading, spacing: Design.chartTopSpacing) {
+        Text("Context shift and distractions comparison")
+          .font(.custom("InstrumentSerif-Regular", size: 20))
+          .foregroundStyle(Color(hex: "B46531"))
+          .lineLimit(1)
+          .minimumScaleFactor(0.82)
+          .padding(.bottom, Design.titleSpacing - Design.chartTopSpacing)
+
         legend
         chartColumn
       }
