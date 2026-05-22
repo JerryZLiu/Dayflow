@@ -10,7 +10,7 @@ final class GeminiDirectProvider {
   let fileEndpoint = "https://generativelanguage.googleapis.com/upload/v1beta/files"
   let modelPreference: GeminiModelPreference
 
-  static let capacityErrorCodes: Set<Int> = [403, 429, 503]
+  static let capacityErrorCodes: Set<Int> = [403, 404, 429, 503]
 
   struct ModelRunState {
     let models: [GeminiModel]
