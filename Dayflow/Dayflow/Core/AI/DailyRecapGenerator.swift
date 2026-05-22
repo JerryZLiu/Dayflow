@@ -352,7 +352,7 @@ final class DailyRecapGenerator {
 
     let provider = GeminiDirectProvider(
       apiKey: apiKey,
-      preference: GeminiModelPreference(primary: .flashLite31Preview)
+      preference: GeminiModelPreference(primary: .flash35)
     )
     let prompt = Self.makeLocalPrompt(day: context.sourceDayString, cards: context.cards)
     let (rawText, _) = try await provider.generateText(

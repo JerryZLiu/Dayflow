@@ -80,7 +80,7 @@ enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
     case .local:
       return "Local"
     case .gemini:
-      return "Gemini 3.1 Flash-Lite"
+      return "Gemini 3.5 Flash"
     case .chatgpt:
       return "GPT-5.4"
     case .claude:
@@ -97,7 +97,7 @@ enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
     case .local:
       return "Uses Ollama, LM Studio, or another local-compatible server on this Mac."
     case .gemini:
-      return "Gemini 3.1 Flash-Lite"
+      return "Gemini 3.5 Flash"
     case .chatgpt:
       return "GPT-5.4"
     case .claude:
@@ -129,7 +129,7 @@ enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
     case .local:
       return Self.currentLocalModelID()
     case .gemini:
-      return GeminiModel.flashLite31Preview.rawValue
+      return GeminiModel.flash35.rawValue
     case .chatgpt:
       return "gpt-5.4"
     case .claude:
@@ -200,7 +200,7 @@ struct DailyStandupGenerationMetadata: Codable, Equatable, Sendable {
     case .local:
       return modelOrTool ?? "Local"
     case .gemini:
-      return "Gemini 3.1 Flash-Lite"
+      return "Gemini 3.5 Flash"
     case .chatgpt:
       return "GPT-5.4"
     case .claude:

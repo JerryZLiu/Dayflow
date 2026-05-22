@@ -6,51 +6,45 @@
 import Foundation
 
 enum GeminiModel: String, Codable, CaseIterable {
-  case flashLite31Preview = "gemini-3.1-flash-lite-preview"
-  case flash3Preview = "gemini-3-flash-preview"
-  case flash25 = "gemini-2.5-flash"
+  case flash35 = "gemini-3.5-flash"
+  case flashLite31 = "gemini-3.1-flash-lite"
 
   var displayName: String {
     switch self {
-    case .flashLite31Preview: return "Gemini 3.1 Flash-Lite Preview"
-    case .flash3Preview: return "Gemini 3 Flash"
-    case .flash25: return "Gemini 2.5 Flash"
+    case .flash35: return "Gemini 3.5 Flash"
+    case .flashLite31: return "Gemini 3.1 Flash-Lite"
     }
   }
 
   var shortLabel: String {
     switch self {
-    case .flashLite31Preview: return "3.1 Flash-Lite"
-    case .flash3Preview: return "3 Flash"
-    case .flash25: return "2.5 Flash"
+    case .flash35: return "3.5 Flash"
+    case .flashLite31: return "3.1 Flash-Lite"
     }
   }
 }
 
 struct GeminiModelPreference: Codable {
   // Key bump intentionally hard-resets existing users to the new ordering.
-  private static let storageKey = "geminiSelectedModel_v2"
+  private static let storageKey = "geminiSelectedModel_v3"
 
   let primary: GeminiModel
 
-  static let `default` = GeminiModelPreference(primary: .flashLite31Preview)
+  static let `default` = GeminiModelPreference(primary: .flash35)
 
   var orderedModels: [GeminiModel] {
     switch primary {
-    case .flashLite31Preview: return [.flashLite31Preview, .flash3Preview, .flash25]
-    case .flash3Preview: return [.flash3Preview, .flash25]
-    case .flash25: return [.flash25]
+    case .flash35: return [.flash35, .flashLite31]
+    case .flashLite31: return [.flashLite31]
     }
   }
 
   var fallbackSummary: String {
     switch primary {
-    case .flashLite31Preview:
-      return "Falls back to 3 Flash, then 2.5 Flash if needed"
-    case .flash3Preview:
-      return "Falls back to 2.5 Flash if 3 Flash is unavailable"
-    case .flash25:
-      return "Always uses 2.5 Flash"
+    case .flash35:
+      return "Falls back to 3.1 Flash-Lite if needed"
+    case .flashLite31:
+      return "Always uses 3.1 Flash-Lite"
     }
   }
 

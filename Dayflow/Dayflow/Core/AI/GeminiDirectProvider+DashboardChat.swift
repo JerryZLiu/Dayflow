@@ -3,7 +3,7 @@ import Foundation
 extension GeminiDirectProvider {
   // MARK: - Dashboard Chat (Gemini function calling)
 
-  static let dashboardChatModel = "gemini-3.1-flash-lite-preview"
+  static let dashboardChatModel = GeminiModel.flashLite31.rawValue
   static let dashboardChatMaxToolRounds = 20
   static let dashboardChatTimelinePayloadSoftLimitBytes = 800_000
   var dashboardGenerateEndpoint: String {
