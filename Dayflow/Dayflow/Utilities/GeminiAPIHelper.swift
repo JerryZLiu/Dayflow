@@ -12,7 +12,7 @@ class GeminiAPIHelper {
   private init() {}
 
   private let baseURL =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent"
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
 
   enum APIError: Error, LocalizedError {
     case invalidAPIKey
