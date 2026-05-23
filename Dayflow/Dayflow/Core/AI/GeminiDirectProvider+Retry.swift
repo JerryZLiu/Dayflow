@@ -15,6 +15,8 @@ extension GeminiDirectProvider {
     switch code {
     case 429:
       return "rate_limit_429"
+    case 404:
+      return "model_unavailable_404"
     case 503:
       return "service_unavailable_503"
     case 403:
