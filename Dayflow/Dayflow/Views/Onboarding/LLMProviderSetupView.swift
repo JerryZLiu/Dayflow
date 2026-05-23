@@ -362,7 +362,7 @@ struct LLMProviderSetupView: View {
 
         VStack(alignment: .leading, spacing: 12) {
           Text(
-            "Choose your Gemini model. We recommend 3.1 Flash-Lite Preview for the best speed/cost balance, with 3 Flash and 2.5 Flash available as fallbacks."
+            "Choose your Gemini model. We recommend 3.5 Flash, with 3.1 Flash-Lite available as a fallback."
           )
           .font(.custom("Figtree", size: 16))
           .fontWeight(.semibold)
