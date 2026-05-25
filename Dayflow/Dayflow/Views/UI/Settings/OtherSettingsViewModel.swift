@@ -82,18 +82,6 @@ final class OtherSettingsViewModel: ObservableObject {
     isOutputLanguageOverrideSaved = true
   }
 
-  func lockDailyAccess() {
-    UserDefaults.standard.set(false, forKey: "isDailyUnlocked")
-  }
-
-  func lockWeeklyAccess() {
-    UserDefaults.standard.set(true, forKey: "weeklyAccessManuallyLocked")
-  }
-
-  func lockChatAccess() {
-    UserDefaults.standard.set(false, forKey: "hasChatBetaAccepted")
-  }
-
   func refreshAnalyticsState() {
     analyticsEnabled = AnalyticsService.shared.isOptedIn
   }
