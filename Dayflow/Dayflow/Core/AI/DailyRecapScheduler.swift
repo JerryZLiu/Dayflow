@@ -489,18 +489,16 @@ final class DailyRecapScheduler: @unchecked Sendable {
   private static func normalizedUniqueLines(from values: [String]) -> [String] {
     var seen: Set<String> = []
     return values.compactMap { raw in
-      let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-      guard !trimmed.isEmpty else { return nil }
-      guard seen.insert(trimmed).inserted else { return nil }
-      return trimmed
+      guard let cleaned = DailyStandupMarkdownCleaner.clean(raw) else { return nil }
+      guard seen.insert(cleaned).inserted else { return nil }
+      return cleaned
     }
   }
 
   private static func normalizedBlockersText(from values: [String]) -> String {
     values
       .compactMap { value -> String? in
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        DailyStandupMarkdownCleaner.clean(value)
       }
       .joined(separator: "\n")
   }

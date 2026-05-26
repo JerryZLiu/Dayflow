@@ -269,4 +269,19 @@ struct DailyStandupDraft: Codable, Equatable, Sendable {
     guard let data = try? JSONEncoder().encode(self) else { return nil }
     return String(data: data, encoding: .utf8)
   }
+
+  mutating func cleanGeneratedMarkdown() {
+    highlightsTitle = DailyStandupMarkdownCleaner.clean(highlightsTitle) ?? highlightsTitle
+    highlights = highlights.compactMap { item in
+      guard let text = DailyStandupMarkdownCleaner.clean(item.text) else { return nil }
+      return DailyBulletItem(id: item.id, text: text)
+    }
+    tasksTitle = DailyStandupMarkdownCleaner.clean(tasksTitle) ?? tasksTitle
+    tasks = tasks.compactMap { item in
+      guard let text = DailyStandupMarkdownCleaner.clean(item.text) else { return nil }
+      return DailyBulletItem(id: item.id, text: text)
+    }
+    blockersTitle = DailyStandupMarkdownCleaner.clean(blockersTitle) ?? blockersTitle
+    blockersBody = DailyStandupMarkdownCleaner.clean(blockersBody) ?? blockersBody
+  }
 }
