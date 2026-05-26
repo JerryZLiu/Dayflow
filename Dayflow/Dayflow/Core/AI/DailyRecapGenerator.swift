@@ -24,6 +24,7 @@ enum DailyRecapGeneratorError: LocalizedError {
   case missingGeminiAPIKey
   case missingCodexCLI
   case missingClaudeCLI
+  case emptyGeneratedContent(day: String)
   case invalidJSONResponse(rawResponse: String)
   case invalidResponseShape(rawResponse: String)
 
@@ -45,6 +46,8 @@ enum DailyRecapGeneratorError: LocalizedError {
       return "Codex CLI is not installed."
     case .missingClaudeCLI:
       return "Claude Code is not installed."
+    case .emptyGeneratedContent(let day):
+      return "Daily generation returned no usable items for \(day)."
     case .invalidJSONResponse(let rawResponse):
       return "The model did not return valid JSON.\n\nRAW OUTPUT:\n\(rawResponse)"
     case .invalidResponseShape(let rawResponse):
@@ -197,7 +200,10 @@ final class DailyRecapGenerator {
     }
 
     let provider = selectedProvider()
-    let metadata = DailyStandupGenerationMetadata(provider: provider)
+    let metadata = DailyStandupGenerationMetadata(
+      provider: provider,
+      sourceDay: context.sourceDayString
+    )
 
     switch provider {
     case .dayflow:
@@ -327,7 +333,12 @@ final class DailyRecapGenerator {
     )
 
     let response = try await provider.generateDaily(request)
-    return DailyStandupDraft(
+    guard !response.highlights.isEmpty || !response.unfinished.isEmpty || !response.blockers.isEmpty
+    else {
+      throw DailyRecapGeneratorError.emptyGeneratedContent(day: context.sourceDayString)
+    }
+
+    let draft = DailyStandupDraft(
       highlightsTitle: context.highlightsTitle,
       highlights: Self.normalizedBulletItems(from: response.highlights),
       tasksTitle: context.tasksTitle,
@@ -336,6 +347,10 @@ final class DailyRecapGenerator {
       blockersBody: Self.normalizedBlockersText(from: response.blockers),
       generation: metadata
     )
+    guard draft.hasGeneratedContent else {
+      throw DailyRecapGeneratorError.emptyGeneratedContent(day: context.sourceDayString)
+    }
+    return draft
   }
 
   private func generateWithGemini(
@@ -360,7 +375,7 @@ final class DailyRecapGenerator {
       maxOutputTokens: Self.localRecapMaxOutputTokens
     )
     let parsed = try Self.parseLocalResponse(rawText)
-    return makeDraft(from: parsed, context: context, metadata: metadata)
+    return try makeDraft(from: parsed, context: context, metadata: metadata)
   }
 
   private func generateWithLocal(
@@ -377,7 +392,7 @@ final class DailyRecapGenerator {
       maxTokens: Self.localRecapMaxOutputTokens
     )
     let parsed = try Self.parseLocalResponse(rawText)
-    return makeDraft(from: parsed, context: context, metadata: metadata)
+    return try makeDraft(from: parsed, context: context, metadata: metadata)
   }
 
   private func generateWithChatGPT(
@@ -397,7 +412,7 @@ final class DailyRecapGenerator {
       disableTools: true
     )
     let parsed = try Self.parseLocalResponse(rawText)
-    return makeDraft(from: parsed, context: context, metadata: metadata)
+    return try makeDraft(from: parsed, context: context, metadata: metadata)
   }
 
   private func generateWithClaude(
@@ -417,7 +432,7 @@ final class DailyRecapGenerator {
       disableTools: true
     )
     let parsed = try Self.parseLocalResponse(rawText)
-    return makeDraft(from: parsed, context: context, metadata: metadata)
+    return try makeDraft(from: parsed, context: context, metadata: metadata)
   }
 
   private func makeDayflowProvider() -> DayflowBackendProvider? {
@@ -494,10 +509,10 @@ final class DailyRecapGenerator {
     from parsed: ParsedDailyRecapResponse,
     context: DailyRecapGenerationContext,
     metadata: DailyStandupGenerationMetadata
-  ) -> DailyStandupDraft {
+  ) throws -> DailyStandupDraft {
     let tasks = parsed.next.map { [DailyBulletItem(text: $0)] } ?? []
 
-    return DailyStandupDraft(
+    let draft = DailyStandupDraft(
       highlightsTitle: context.highlightsTitle,
       highlights: Self.normalizedBulletItems(from: parsed.done),
       tasksTitle: context.tasksTitle,
@@ -506,6 +521,10 @@ final class DailyRecapGenerator {
       blockersBody: "",
       generation: metadata
     )
+    guard draft.hasGeneratedContent else {
+      throw DailyRecapGeneratorError.emptyGeneratedContent(day: context.sourceDayString)
+    }
+    return draft
   }
 
   static func makeLocalPrompt(day: String, cards: [TimelineCard]) -> String {
