@@ -694,10 +694,9 @@ final class DailyRecapGenerator {
       return nil
     }
 
-    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return nil }
-    guard trimmed.lowercased() != "null" else { return nil }
-    return trimmed
+    guard let cleaned = DailyStandupMarkdownCleaner.clean(raw) else { return nil }
+    guard cleaned.lowercased() != "null" else { return nil }
+    return cleaned
   }
 
   private static func normalizedBulletItems(from values: [String]) -> [DailyBulletItem] {
