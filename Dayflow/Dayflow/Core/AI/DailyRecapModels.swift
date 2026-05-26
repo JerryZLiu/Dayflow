@@ -174,17 +174,20 @@ struct DailyStandupGenerationMetadata: Codable, Equatable, Sendable {
   var provider: DailyRecapProvider
   var runtime: String
   var modelOrTool: String?
+  var sourceDay: String?
   var generatedAt: Date?
 
   init(
     provider: DailyRecapProvider,
     runtime: String? = nil,
     modelOrTool: String? = nil,
+    sourceDay: String? = nil,
     generatedAt: Date? = Date()
   ) {
     self.provider = provider
     self.runtime = runtime ?? provider.runtimeLabel
     self.modelOrTool = modelOrTool ?? provider.modelOrTool
+    self.sourceDay = sourceDay
     self.generatedAt = generatedAt
   }
 
@@ -268,5 +271,68 @@ struct DailyStandupDraft: Codable, Equatable, Sendable {
   func encodedJSONString() -> String? {
     guard let data = try? JSONEncoder().encode(self) else { return nil }
     return String(data: data, encoding: .utf8)
+  }
+
+  var hasGeneratedContent: Bool {
+    !highlights.isEmpty || !tasks.isEmpty
+      || !blockersBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+}
+
+struct DailyRecapSourceDayCandidate: Equatable, Sendable {
+  let dayString: String
+  let startOfDay: Date
+  let endOfDay: Date
+}
+
+enum DailyRecapSourceDayResolver {
+  static func consumedSourceDays(from entries: [DailyStandupEntry]) -> Set<String> {
+    entries.reduce(into: Set<String>()) { result, entry in
+      guard
+        let data = entry.payloadJSON.data(using: .utf8),
+        let draft = try? JSONDecoder().decode(DailyStandupDraft.self, from: data),
+        let sourceDay = draft.generation?.sourceDay?
+          .trimmingCharacters(in: .whitespacesAndNewlines),
+        !sourceDay.isEmpty
+      else {
+        return
+      }
+
+      result.insert(sourceDay)
+    }
+  }
+
+  static func sourceDay(
+    before targetStart: Date,
+    lookbackWindowDays: Int,
+    consumedSourceDays: Set<String>,
+    hasMinimumActivity: (String) -> Bool
+  ) -> DailyRecapSourceDayCandidate? {
+    guard lookbackWindowDays > 0 else { return nil }
+
+    let calendar = Calendar.current
+    for offset in 1...lookbackWindowDays {
+      guard
+        let sourceStart = calendar.date(byAdding: .day, value: -offset, to: targetStart)
+      else {
+        continue
+      }
+
+      let dayString = DateFormatter.yyyyMMdd.string(from: sourceStart)
+      guard !consumedSourceDays.contains(dayString),
+        hasMinimumActivity(dayString),
+        let sourceEnd = calendar.date(byAdding: .day, value: 1, to: sourceStart)
+      else {
+        continue
+      }
+
+      return DailyRecapSourceDayCandidate(
+        dayString: dayString,
+        startOfDay: sourceStart,
+        endOfDay: sourceEnd
+      )
+    }
+
+    return nil
   }
 }
