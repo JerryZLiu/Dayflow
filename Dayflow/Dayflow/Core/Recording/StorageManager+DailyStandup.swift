@@ -98,6 +98,40 @@ extension StorageManager {
       }) ?? []
   }
 
+  func fetchAllDailyStandups(excludingDay: String? = nil) -> [DailyStandupEntry] {
+    return
+      (try? timedRead("fetchAllDailyStandups") { db in
+        let rows: [Row]
+        if let excludingDay, !excludingDay.isEmpty {
+          rows = try Row.fetchAll(
+            db,
+            sql: """
+                  SELECT standup_day, payload_json, created_at, updated_at
+                  FROM daily_standup_entries
+                  WHERE standup_day != ?
+                  ORDER BY standup_day DESC
+              """, arguments: [excludingDay])
+        } else {
+          rows = try Row.fetchAll(
+            db,
+            sql: """
+                  SELECT standup_day, payload_json, created_at, updated_at
+                  FROM daily_standup_entries
+                  ORDER BY standup_day DESC
+              """)
+        }
+
+        return rows.map { row in
+          DailyStandupEntry(
+            standupDay: row["standup_day"],
+            payloadJSON: row["payload_json"],
+            createdAt: row["created_at"],
+            updatedAt: row["updated_at"]
+          )
+        }
+      }) ?? []
+  }
+
   func saveDailyStandup(forDay standupDay: String, payloadJSON: String) {
     try? timedWrite("saveDailyStandup") { db in
       try db.execute(
