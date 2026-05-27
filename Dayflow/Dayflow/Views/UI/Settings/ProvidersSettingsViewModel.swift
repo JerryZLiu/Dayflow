@@ -336,6 +336,10 @@ final class ProvidersSettingsViewModel: ObservableObject {
   func handleProviderSetupCompletion(_ providerId: String) {
     recordProviderSetupCompleted(providerId)
 
+    if canonicalProviderId(for: providerId) == "ollama" {
+      reloadLocalProviderSettings()
+    }
+
     let role = pendingSetupRole ?? .setupOnly
     let displayProviderId =
       pendingSetupDisplayProviderId
