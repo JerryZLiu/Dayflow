@@ -358,36 +358,30 @@ extension DailyView {
     )
   }
   func resolveStandupSourceDay(for targetDay: DailyStandupDayInfo) -> DailyStandupDayInfo? {
-    let calendar = Calendar.current
     let minimumMinutes = 120
-
-    for offset in 1...3 {
-      guard
-        let sourceStart = calendar.date(byAdding: .day, value: -offset, to: targetDay.startOfDay)
-      else {
-        continue
-      }
-
-      let sourceDayString = DateFormatter.yyyyMMdd.string(from: sourceStart)
-      let hasEnoughActivity = StorageManager.shared.hasMinimumTimelineActivity(
-        forDay: sourceDayString,
-        minimumMinutes: minimumMinutes
-      )
-
-      guard hasEnoughActivity,
-        let sourceEnd = calendar.date(byAdding: .day, value: 1, to: sourceStart)
-      else {
-        continue
-      }
-
-      return DailyStandupDayInfo(
-        dayString: sourceDayString,
-        startOfDay: sourceStart,
-        endOfDay: sourceEnd
-      )
+    let consumedSourceDays = DailyRecapSourceDayResolver.consumedSourceDays(
+      from: StorageManager.shared.fetchAllDailyStandups(excludingDay: targetDay.dayString)
+    )
+    guard
+      let candidate = DailyRecapSourceDayResolver.sourceDay(
+        before: targetDay.startOfDay,
+        lookbackWindowDays: 3,
+        consumedSourceDays: consumedSourceDays,
+        hasMinimumActivity: { dayString in
+          StorageManager.shared.hasMinimumTimelineActivity(
+            forDay: dayString,
+            minimumMinutes: minimumMinutes
+          )
+        })
+    else {
+      return nil
     }
 
-    return nil
+    return DailyStandupDayInfo(
+      dayString: candidate.dayString,
+      startOfDay: candidate.startOfDay,
+      endOfDay: candidate.endOfDay
+    )
   }
   func shiftDate(by days: Int) {
     let shifted =
