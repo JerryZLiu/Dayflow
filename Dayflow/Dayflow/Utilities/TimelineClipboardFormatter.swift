@@ -105,6 +105,38 @@ struct TimelineClipboardFormatter {
     return ([header, ""] + entries).joined(separator: "\n\n")
   }
 
+  static func makeMarkdown(
+    for weekRange: TimelineWeekRange,
+    cards: [TimelineCard],
+    now: Date = Date()
+  ) -> String {
+    let header = "# Dayflow timeline · \(weekRange.title)"
+
+    guard !cards.isEmpty else {
+      return """
+        \(header)
+
+        _No timeline activities were recorded for this week._
+        """
+    }
+
+    let cardsByDay = Dictionary(grouping: cards, by: \.day)
+    let sections = weekRange.days.compactMap { day -> String? in
+      guard let dayCards = cardsByDay[day.dayString], !dayCards.isEmpty else { return nil }
+      return makeMarkdown(for: day.date, cards: dayCards.sorted(by: cardSort), now: now)
+    }
+
+    guard !sections.isEmpty else {
+      return """
+        \(header)
+
+        _No timeline activities were recorded for this week._
+        """
+    }
+
+    return ([header, ""] + sections).joined(separator: "\n\n")
+  }
+
   private static func formattedRange(start: String, end: String) -> String {
     let trimmedStart = start.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedEnd = end.trimmingCharacters(in: .whitespacesAndNewlines)
