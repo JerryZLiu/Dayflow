@@ -41,6 +41,7 @@ enum WeeklyDonutBuilder {
   }()
 
   private static let systemCategoryKey = "system"
+  private static let idleCategoryKey = "idle"
   private static let otherCategoryKey = "other"
   private static let otherColorHex = "BFB6AE"
   private static let maxVisibleItems = 5
@@ -53,7 +54,6 @@ enum WeeklyDonutBuilder {
     let orderedCategories =
       categories
       .sorted { $0.order < $1.order }
-      .filter { !$0.isSystem }
 
     let categoryLookup = firstCategoryLookup(
       from: orderedCategories,
@@ -70,7 +70,9 @@ enum WeeklyDonutBuilder {
 
     for card in weeklyCards {
       let key = normalizedCategoryKey(displayName(for: card.category))
-      guard key != systemCategoryKey else { continue }
+      let category = categoryLookup[key]
+      guard key != systemCategoryKey, key != idleCategoryKey else { continue }
+      guard category?.isSystem != true, category?.isIdle != true else { continue }
 
       let minutes = totalMinutes(for: card)
       guard minutes > 0 else { continue }
