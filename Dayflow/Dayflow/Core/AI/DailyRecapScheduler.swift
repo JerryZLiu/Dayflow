@@ -91,6 +91,7 @@ final class DailyRecapScheduler: @unchecked Sendable {
     guard
       let sourceDay = recapSourceDay(
         before: currentDay.startOfDay,
+        targetDayString: targetDay,
         minimumActivityMinutes: minimumActivityMinutes
       )
     else {
@@ -290,32 +291,32 @@ final class DailyRecapScheduler: @unchecked Sendable {
 
   private func recapSourceDay(
     before targetStart: Date,
+    targetDayString: String,
     minimumActivityMinutes: Int
   ) -> (dayString: String, startOfDay: Date, endOfDay: Date)? {
-    let calendar = Calendar.current
-    guard sourceLookbackWindowDays > 0 else { return nil }
-
-    for offset in 1...sourceLookbackWindowDays {
-      guard
-        let sourceStart = calendar.date(byAdding: .day, value: -offset, to: targetStart)
-      else {
-        continue
-      }
-
-      let dayString = DateFormatter.yyyyMMdd.string(from: sourceStart)
-      let hasMinimumActivity = StorageManager.shared.hasMinimumTimelineActivity(
-        forDay: dayString,
-        minimumMinutes: minimumActivityMinutes
-      )
-
-      if hasMinimumActivity,
-        let sourceEnd = calendar.date(byAdding: .day, value: 1, to: sourceStart)
-      {
-        return (dayString: dayString, startOfDay: sourceStart, endOfDay: sourceEnd)
-      }
+    let consumedSourceDays = DailyRecapSourceDayResolver.consumedSourceDays(
+      from: StorageManager.shared.fetchAllDailyStandups(excludingDay: targetDayString)
+    )
+    guard
+      let candidate = DailyRecapSourceDayResolver.sourceDay(
+        before: targetStart,
+        lookbackWindowDays: sourceLookbackWindowDays,
+        consumedSourceDays: consumedSourceDays,
+        hasMinimumActivity: { dayString in
+          StorageManager.shared.hasMinimumTimelineActivity(
+            forDay: dayString,
+            minimumMinutes: minimumActivityMinutes
+          )
+        })
+    else {
+      return nil
     }
 
-    return nil
+    return (
+      dayString: candidate.dayString,
+      startOfDay: candidate.startOfDay,
+      endOfDay: candidate.endOfDay
+    )
   }
 
   private static func resolvedDayflowEndpoint(
