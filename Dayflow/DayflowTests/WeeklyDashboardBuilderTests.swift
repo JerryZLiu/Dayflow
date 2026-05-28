@@ -3,6 +3,29 @@ import XCTest
 @testable import Dayflow
 
 final class WeeklyDashboardBuilderTests: XCTestCase {
+  func testWeeklyDistributionExcludesIdleFromDonutTotal() {
+    let weekRange = WeeklyDateRange.containing(Date(timeIntervalSince1970: 1_770_000_000))
+    let day = DateFormatter.yyyyMMdd.string(from: weekRange.weekStart)
+    let categories = [
+      TimelineCategory(name: "Focus", colorHex: "4F8EF7", order: 0),
+      TimelineCategory(name: "Idle", colorHex: "C7BDB5", order: 1, isIdle: true),
+    ]
+    let cards = [
+      card(day: day, category: "Focus", appName: "Xcode", minutes: 60),
+      card(day: day, category: "Idle", appName: "Idle", minutes: 120),
+    ]
+
+    let snapshot = WeeklyDashboardBuilder.build(
+      cards: cards,
+      previousWeekCards: [],
+      categories: categories,
+      weekRange: weekRange
+    )
+
+    XCTAssertEqual(snapshot.donut.totalMinutes, 60)
+    XCTAssertEqual(snapshot.donut.items.map(\.name), ["Focus"])
+  }
+
   func testSankeyCoalescesRealOtherAppWithOverflowBucket() {
     let weekRange = WeeklyDateRange.containing(Date(timeIntervalSince1970: 1_770_000_000))
     let day = DateFormatter.yyyyMMdd.string(from: weekRange.weekStart)
@@ -33,13 +56,18 @@ final class WeeklyDashboardBuilderTests: XCTestCase {
     XCTAssertEqual(Set(snapshot.sankey.apps.map(\.id)).count, snapshot.sankey.apps.count)
   }
 
-  private func card(day: String, appName: String, minutes: Int) -> TimelineCard {
+  private func card(
+    day: String,
+    category: String = "Focus",
+    appName: String,
+    minutes: Int
+  ) -> TimelineCard {
     TimelineCard(
       recordId: nil,
       batchId: nil,
       startTimestamp: "09:00 AM",
       endTimestamp: endTime(minutesAfterNine: minutes),
-      category: "Focus",
+      category: category,
       subcategory: "Work",
       title: "\(appName) work",
       summary: "Worked in \(appName)",
