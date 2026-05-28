@@ -106,6 +106,8 @@ struct WeeklyView: View {
               WeeklyExportableGraphic(
                 layout: layout,
                 title: "Weekly workflow",
+                headerTitle: dashboardSnapshot.workflow.title,
+                downloadButtonOrigin: CGPoint(x: 79, y: 16),
                 fileName: exportFileName("weekly-workflow"),
                 displayHeight: WeeklyAdaptiveLayout.workflowHeight,
                 exportHeight: WeeklyAdaptiveLayout.workflowHeight,
@@ -117,6 +119,8 @@ struct WeeklyView: View {
               WeeklyExportableGraphic(
                 layout: layout,
                 title: "Focus heatmap",
+                headerTitle: dashboardSnapshot.heatmap.title,
+                downloadButtonOrigin: CGPoint(x: 44, y: 34),
                 fileName: exportFileName("focus-heatmap"),
                 displayHeight: WeeklyAdaptiveLayout.heatmapHeight,
                 exportHeight: WeeklyAdaptiveLayout.heatmapHeight,
@@ -128,6 +132,8 @@ struct WeeklyView: View {
               WeeklyExportableGraphic(
                 layout: layout,
                 title: "Focus breakdown",
+                headerTitle: dashboardSnapshot.treemap.title,
+                downloadButtonOrigin: CGPoint(x: 40, y: 34),
                 fileName: exportFileName("focus-breakdown"),
                 displayHeight: WeeklyAdaptiveLayout.treemapHeight,
                 exportHeight: WeeklyAdaptiveLayout.treemapHeight,
@@ -139,6 +145,10 @@ struct WeeklyView: View {
               WeeklyExportableGraphic(
                 layout: layout,
                 title: "Weekly breakdown",
+                downloadButtonOrigin: CGPoint(
+                  x: layout.contentWidth * 72 / 1748,
+                  y: layout.contentWidth * 64 / 1748
+                ),
                 fileName: exportFileName("weekly-breakdown"),
                 displayHeight: layout.sankeyHeight,
                 exportHeight: WeeklyAdaptiveLayout.designSankeyHeight,
@@ -187,6 +197,7 @@ struct WeeklyView: View {
     WeeklyExportableFixedGraphic(
       availableWidth: width,
       title: "Weekly distribution",
+      downloadButtonOrigin: CGPoint(x: 18, y: 16),
       fileName: exportFileName("weekly-distribution"),
       designWidth: WeeklyAdaptiveLayout.donutCardWidth,
       designHeight: WeeklyAdaptiveLayout.topRowHeight,
@@ -207,6 +218,8 @@ struct WeeklyView: View {
     WeeklyExportableFixedGraphic(
       availableWidth: width,
       title: "Context charts",
+      headerTitle: "Context shift and distractions comparison",
+      downloadButtonOrigin: CGPoint(x: 24, y: 16),
       fileName: exportFileName("context-charts"),
       designWidth: WeeklyAdaptiveLayout.designContentWidth,
       designHeight: WeeklyAdaptiveLayout.topRowHeight,
@@ -377,6 +390,12 @@ struct WeeklyView: View {
       from: previousRange.weekStart,
       to: previousRange.weekEnd
     )
+    let recordedMinutes = Int(
+      StorageManager.shared.fetchTotalMinutesTracked(
+        from: range.weekStart,
+        to: range.weekEnd
+      ).rounded(.down)
+    )
     let snapshot = WeeklyDashboardBuilder.build(
       cards: cards,
       previousWeekCards: previousCards,
@@ -386,7 +405,7 @@ struct WeeklyView: View {
 
     guard range == weekRange else { return }
     dashboardSnapshot = snapshot
-    selectedWeekRecordedMinutes = snapshot.donut.totalMinutes
+    selectedWeekRecordedMinutes = recordedMinutes
     isLoading = false
   }
 }
@@ -595,15 +614,21 @@ private struct WeeklyAdaptiveLayout {
 private struct WeeklyExportableGraphic<Content: View>: View {
   let layout: WeeklyAdaptiveLayout
   let title: String
+  let headerTitle: String
+  let downloadButtonOrigin: CGPoint
   let fileName: String
   let displayHeight: CGFloat
   let exportHeight: CGFloat
   let watermarkPlacement: WeeklyExportWatermarkPlacement
   let content: (CGFloat) -> Content
 
+  @State private var isHovering = false
+
   init(
     layout: WeeklyAdaptiveLayout,
     title: String,
+    headerTitle: String? = nil,
+    downloadButtonOrigin: CGPoint,
     fileName: String,
     displayHeight: CGFloat,
     exportHeight: CGFloat,
@@ -612,6 +637,8 @@ private struct WeeklyExportableGraphic<Content: View>: View {
   ) {
     self.layout = layout
     self.title = title
+    self.headerTitle = headerTitle ?? title
+    self.downloadButtonOrigin = downloadButtonOrigin
     self.fileName = fileName
     self.displayHeight = displayHeight
     self.exportHeight = exportHeight
@@ -631,21 +658,51 @@ private struct WeeklyExportableGraphic<Content: View>: View {
         height: displayHeight,
         alignment: .topLeading
       )
+      .overlay(alignment: .topLeading) {
+        WeeklyGraphicDownloadOverlay(
+          title: title,
+          headerTitle: headerTitle,
+          origin: downloadButtonOrigin,
+          isVisible: isHovering
+        ) {
+          WeeklyGraphicExporter.savePNG(
+            fileName: fileName,
+            size: CGSize(
+              width: WeeklyAdaptiveLayout.designContentWidth,
+              height: exportHeight
+            ),
+            watermarkPlacement: watermarkPlacement
+          ) {
+            content(WeeklyAdaptiveLayout.designContentWidth)
+          }
+        }
+      }
+      .onHover { hovering in
+        withAnimation(.easeInOut(duration: 0.12)) {
+          isHovering = hovering
+        }
+      }
   }
 }
 
 private struct WeeklyExportableFixedGraphic<Content: View>: View {
   let availableWidth: CGFloat
   let title: String
+  let headerTitle: String
+  let downloadButtonOrigin: CGPoint
   let fileName: String
   let designWidth: CGFloat
   let designHeight: CGFloat
   let watermarkPlacement: WeeklyExportWatermarkPlacement
   let content: (CGFloat) -> Content
 
+  @State private var isHovering = false
+
   init(
     availableWidth: CGFloat,
     title: String,
+    headerTitle: String? = nil,
+    downloadButtonOrigin: CGPoint,
     fileName: String,
     designWidth: CGFloat,
     designHeight: CGFloat,
@@ -654,6 +711,8 @@ private struct WeeklyExportableFixedGraphic<Content: View>: View {
   ) {
     self.availableWidth = availableWidth
     self.title = title
+    self.headerTitle = headerTitle ?? title
+    self.downloadButtonOrigin = downloadButtonOrigin
     self.fileName = fileName
     self.designWidth = designWidth
     self.designHeight = designHeight
@@ -669,6 +728,51 @@ private struct WeeklyExportableFixedGraphic<Content: View>: View {
         height: designHeight,
         alignment: .topLeading
       )
+      .overlay(alignment: .topLeading) {
+        WeeklyGraphicDownloadOverlay(
+          title: title,
+          headerTitle: headerTitle,
+          origin: downloadButtonOrigin,
+          isVisible: isHovering
+        ) {
+          WeeklyGraphicExporter.savePNG(
+            fileName: fileName,
+            size: CGSize(width: designWidth, height: designHeight),
+            watermarkPlacement: watermarkPlacement
+          ) {
+            content(designWidth)
+          }
+        }
+      }
+      .onHover { hovering in
+        withAnimation(.easeInOut(duration: 0.12)) {
+          isHovering = hovering
+        }
+      }
+  }
+}
+
+private struct WeeklyGraphicDownloadOverlay: View {
+  let title: String
+  let headerTitle: String
+  let origin: CGPoint
+  let isVisible: Bool
+  let action: () -> Void
+
+  var body: some View {
+    HStack(spacing: 8) {
+      Text(headerTitle)
+        .font(.custom("InstrumentSerif-Regular", size: 20))
+        .lineLimit(1)
+        .fixedSize()
+        .opacity(0)
+        .allowsHitTesting(false)
+
+      WeeklyGraphicDownloadButton(title: title, action: action)
+    }
+    .offset(x: origin.x, y: origin.y)
+    .opacity(isVisible ? 1 : 0)
+    .allowsHitTesting(isVisible)
   }
 }
 
@@ -678,15 +782,22 @@ private struct WeeklyGraphicDownloadButton: View {
 
   var body: some View {
     Button(action: action) {
-      Image(systemName: "arrow.down.circle")
-        .font(.system(size: 20, weight: .regular))
-        .foregroundStyle(Color(hex: "B46531"))
-        .frame(width: 30, height: 30)
-        .contentShape(Rectangle())
+      Image(systemName: "arrow.down.to.line")
+        .font(.system(size: 10, weight: .medium))
+        .foregroundStyle(Color(hex: "DF8351"))
+        .frame(width: 12, height: 12)
+        .frame(width: 24, height: 20)
+        .background(Color(hex: "FFF5EA"))
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay(
+          RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .stroke(Color(hex: "F7E4CE"), lineWidth: 0.75)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
     .buttonStyle(.plain)
     .help("Download \(title) as a full-resolution PNG")
-    .hoverScaleEffect(scale: 1.03)
+    .hoverScaleEffect(scale: 1.04)
     .pointingHandCursorOnHover(reassertOnPressEnd: true)
   }
 }
