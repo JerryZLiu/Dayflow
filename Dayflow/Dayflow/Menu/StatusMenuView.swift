@@ -23,7 +23,7 @@ struct StatusMenuView: View {
 
       MenuDivider()
 
-      MenuRow(title: "Open Dayflow", systemImage: "macwindow", action: openDayflow)
+      MenuRow(title: "Open Dayflow", assetImage: "DayflowLogo", action: openDayflow)
       MenuRow(title: "Open Recordings", action: openRecordingsFolder)
       MenuRow(title: "Check for Updates", action: checkForUpdates)
 
@@ -236,6 +236,7 @@ private struct CountdownBadge: View {
 private struct MenuRow: View {
   let title: String
   var systemImage: String? = nil
+  var assetImage: String? = nil
   var accent: Color = .primary
   var keepsMenuOpen: Bool = false
   var action: () -> Void
@@ -249,6 +250,12 @@ private struct MenuRow: View {
           Image(systemName: systemImage)
             .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(accent)
+            .frame(width: 17)
+        } else if let assetImage {
+          Image(assetImage)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 16, height: 16)
             .frame(width: 17)
         } else {
           // Empty spacer to align text with rows that have icons
