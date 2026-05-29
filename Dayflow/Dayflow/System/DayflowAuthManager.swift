@@ -38,11 +38,216 @@ struct DayflowEntitlement: Codable, Equatable {
   }
 }
 
+struct DayflowReferralInvite: Codable, Identifiable, Equatable {
+  let id: String
+  let email: String
+  let status: String
+  let usageHours: Double
+  let createdAt: String
+  let claimedAt: String?
+  let unlockedAt: String?
+
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case email
+    case status
+    case usageHours = "usage_hours"
+    case createdAt = "created_at"
+    case claimedAt = "claimed_at"
+    case unlockedAt = "unlocked_at"
+  }
+}
+
+struct DayflowReferralReward: Codable, Identifiable, Equatable {
+  let id: String
+  let rewardType: String
+  let days: Int
+  let status: String
+  let startsAt: String?
+  let expiresAt: String?
+  let stripeTrialEndAt: String?
+  let createdAt: String
+  let appliedAt: String?
+
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case rewardType = "reward_type"
+    case days
+    case status
+    case startsAt = "starts_at"
+    case expiresAt = "expires_at"
+    case stripeTrialEndAt = "stripe_trial_end_at"
+    case createdAt = "created_at"
+    case appliedAt = "applied_at"
+  }
+}
+
+struct DayflowReferralSummary: Codable, Equatable {
+  let code: String
+  let inviteURL: String
+  let rewardDays: Int
+  let pendingInvites: Int
+  let earnedInvites: Int
+  let unlockHoursRequired: Int
+  let invites: [DayflowReferralInvite]
+  let rewards: [DayflowReferralReward]
+
+  private enum CodingKeys: String, CodingKey {
+    case code
+    case inviteURL = "invite_url"
+    case rewardDays = "reward_days"
+    case pendingInvites = "pending_invites"
+    case earnedInvites = "earned_invites"
+    case unlockHoursRequired = "unlock_hours_required"
+    case invites
+    case rewards
+  }
+}
+
 enum DayflowBillingInterval: String, CaseIterable, Identifiable, Codable {
   case monthly
   case yearly
 
   var id: String { rawValue }
+}
+
+struct DayflowAuthActionResult: Equatable {
+  let succeeded: Bool
+  let endpoint: String?
+  let httpStatus: Int?
+  let errorType: String?
+  let backendDetailBucket: String?
+
+  var analyticsProps: [String: Any] {
+    var props: [String: Any] = [
+      "outcome": succeeded ? "success" : "failure"
+    ]
+    if let endpoint {
+      props["endpoint"] = endpoint
+    }
+    if let httpStatus {
+      props["http_status"] = httpStatus
+    }
+    if let errorType {
+      props["error_type"] = errorType
+    }
+    if let backendDetailBucket {
+      props["backend_detail_bucket"] = backendDetailBucket
+    }
+    return props
+  }
+
+  static func success(endpoint: String) -> DayflowAuthActionResult {
+    DayflowAuthActionResult(
+      succeeded: true,
+      endpoint: endpoint,
+      httpStatus: nil,
+      errorType: nil,
+      backendDetailBucket: nil
+    )
+  }
+
+  static func localFailure(
+    errorType: String,
+    endpoint: String? = nil
+  ) -> DayflowAuthActionResult {
+    DayflowAuthActionResult(
+      succeeded: false,
+      endpoint: endpoint,
+      httpStatus: nil,
+      errorType: errorType,
+      backendDetailBucket: nil
+    )
+  }
+
+  static func failure(
+    _ error: Error,
+    endpoint fallbackEndpoint: String? = nil
+  ) -> DayflowAuthActionResult {
+    DayflowAuthActionResult(
+      succeeded: false,
+      endpoint: endpoint(from: error) ?? fallbackEndpoint,
+      httpStatus: httpStatus(from: error),
+      errorType: errorType(from: error),
+      backendDetailBucket: backendDetailBucket(from: error)
+    )
+  }
+
+  private static func endpoint(from error: Error) -> String? {
+    switch error {
+    case DayflowAuthError.backend(_, _, let path):
+      return path
+    case DayflowAuthError.nonHTTP(let path):
+      return path
+    default:
+      return nil
+    }
+  }
+
+  private static func httpStatus(from error: Error) -> Int? {
+    guard case DayflowAuthError.backend(let statusCode, _, _) = error else { return nil }
+    return statusCode
+  }
+
+  private static func errorType(from error: Error) -> String {
+    if let urlError = error as? URLError {
+      return urlError.code == .timedOut ? "timeout" : "network_error"
+    }
+
+    guard let authError = error as? DayflowAuthError else {
+      return "unknown_error"
+    }
+
+    switch authError {
+    case .backend(let statusCode, _, _):
+      switch statusCode {
+      case 400:
+        return "bad_request"
+      case 401, 403:
+        return "unauthorized"
+      case 404:
+        return "endpoint_not_found"
+      case 409:
+        return "conflict"
+      case 500...599:
+        return "server_error"
+      default:
+        return "http_error"
+      }
+    case .busy:
+      return "request_in_progress"
+    case .message:
+      return "client_error"
+    case .nonHTTP:
+      return "non_http_response"
+    case .unauthorized:
+      return "unauthorized"
+    }
+  }
+
+  private static func backendDetailBucket(from error: Error) -> String? {
+    guard case DayflowAuthError.backend(_, let detail, _) = error,
+      let detail = detail?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !detail.isEmpty
+    else {
+      return nil
+    }
+
+    switch detail.lowercased() {
+    case "not found":
+      return "not_found"
+    case "referral code not found":
+      return "referral_code_not_found"
+    case "you cannot use your own referral code":
+      return "own_referral_code"
+    case "this account has already used a referral code":
+      return "referral_already_used"
+    case "this account has already used its free trial":
+      return "trial_already_used"
+    default:
+      return "other_backend_error"
+    }
+  }
 }
 
 @MainActor
@@ -52,6 +257,7 @@ final class DayflowAuthManager: ObservableObject {
   nonisolated private static let sessionService = "com.teleportlabs.dayflow.auth"
   nonisolated private static let sessionAccount = "session_token"
   private static let rememberedEmailKey = "dayflowAccountEmail"
+  private static let pendingReferralCodeKey = "dayflowPendingReferralCode"
   private static let defaultEndpoint = "https://web-production-f3361.up.railway.app"
 
   @Published private(set) var user: DayflowAuthUser?
@@ -62,12 +268,15 @@ final class DayflowAuthManager: ObservableObject {
   @Published private(set) var errorText: String?
   @Published private(set) var isBusy = false
   @Published private(set) var hasLoadedStoredSession = false
+  @Published private(set) var referralSummary: DayflowReferralSummary?
+  @Published private(set) var pendingReferralCode: String?
 
   private let endpoint: String
 
   private init() {
     self.endpoint = Self.defaultEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
       .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    self.pendingReferralCode = UserDefaults.standard.string(forKey: Self.pendingReferralCodeKey)
   }
 
   var isSignedIn: Bool {
@@ -100,16 +309,18 @@ final class DayflowAuthManager: ObservableObject {
     Task { await refreshAccount() }
   }
 
-  func sendCode(to emailAddress: String) async {
+  @discardableResult
+  func sendCode(to emailAddress: String) async -> DayflowAuthActionResult {
+    let endpoint = "/v1/auth/code/start"
     let email = normalizedEmail(emailAddress)
     guard isLikelyEmail(email) else {
       errorText = "Enter a valid email address."
-      return
+      return .localFailure(errorType: "invalid_email", endpoint: endpoint)
     }
 
-    await perform {
+    let failure = await perform {
       let request = AuthStartRequest(email: email)
-      var urlRequest = try makeRequest(path: "/v1/auth/code/start", method: "POST")
+      var urlRequest = try makeRequest(path: endpoint, method: "POST")
       urlRequest.httpBody = try JSONEncoder().encode(request)
 
       let response: AuthStartResponse = try await send(urlRequest)
@@ -118,31 +329,38 @@ final class DayflowAuthManager: ObservableObject {
       statusText = "Code sent to \(email)."
       errorText = nil
     }
+    if let failure {
+      return .failure(failure, endpoint: endpoint)
+    }
+    return .success(endpoint: endpoint)
   }
 
-  func verifyCode(_ code: String, for emailAddress: String? = nil) async {
+  @discardableResult
+  func verifyCode(_ code: String, for emailAddress: String? = nil) async -> DayflowAuthActionResult
+  {
+    let endpoint = "/v1/auth/code/verify"
     let digits = code.filter(\.isNumber)
     guard digits.count == 6 else {
       errorText = "Enter the 6 digit code."
-      return
+      return .localFailure(errorType: "invalid_code", endpoint: endpoint)
     }
     let explicitEmail = emailAddress.map(normalizedEmail)
     guard let email = explicitEmail ?? pendingEmail else {
       errorText = "Start with your email first."
-      return
+      return .localFailure(errorType: "missing_email", endpoint: endpoint)
     }
     guard isLikelyEmail(email) else {
       errorText = "Enter a valid email address."
-      return
+      return .localFailure(errorType: "invalid_email", endpoint: endpoint)
     }
 
-    await perform {
+    let failure = await perform {
       let request = AuthVerifyRequest(
         email: email,
         code: digits,
         deviceName: Host.current().localizedName ?? ProcessInfo.processInfo.hostName
       )
-      var urlRequest = try makeRequest(path: "/v1/auth/code/verify", method: "POST")
+      var urlRequest = try makeRequest(path: endpoint, method: "POST")
       urlRequest.httpBody = try JSONEncoder().encode(request)
 
       let response: AuthVerifyResponse = try await send(urlRequest)
@@ -157,7 +375,28 @@ final class DayflowAuthManager: ObservableObject {
       statusText = "Signed in."
       errorText = nil
       UserDefaults.standard.set(response.user.email, forKey: Self.rememberedEmailKey)
+
+      if let pendingReferralCode {
+        do {
+          let claim = try await sendReferralClaim(
+            code: pendingReferralCode, token: response.sessionToken)
+          entitlements = claim.entitlements
+          referralSummary = claim.referral
+          clearPendingReferralCode()
+          statusText = claim.message
+        } catch {
+          referralSummary = try? await fetchReferralSummary(token: response.sessionToken)
+          errorText = error.localizedDescription
+          statusText = "Signed in. Referral code was not applied."
+        }
+      } else {
+        referralSummary = try? await fetchReferralSummary(token: response.sessionToken)
+      }
     }
+    if let failure {
+      return .failure(failure, endpoint: endpoint)
+    }
+    return .success(endpoint: endpoint)
   }
 
   func resendCode() async {
@@ -185,6 +424,7 @@ final class DayflowAuthManager: ObservableObject {
       let response: MeResponse = try await send(request)
       user = response.user
       entitlements = response.entitlements
+      referralSummary = try? await fetchReferralSummary(token: token)
       statusText = "Signed in."
       errorText = nil
       UserDefaults.standard.set(response.user.email, forKey: Self.rememberedEmailKey)
@@ -214,6 +454,34 @@ final class DayflowAuthManager: ObservableObject {
       statusText = "Opened Stripe checkout in your browser."
       errorText = nil
     }
+  }
+
+  @discardableResult
+  func startNoCardTrial() async -> DayflowAuthActionResult {
+    let endpoint = "/v1/billing/no-card-trial"
+    guard let token = retrieveSessionToken() else {
+      errorText = "Sign in first."
+      return .localFailure(errorType: "not_signed_in", endpoint: endpoint)
+    }
+
+    let failure = await perform {
+      var request = try makeRequest(path: endpoint, method: "POST")
+      request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+      let response: BillingTrialResponse = try await send(request)
+      entitlements = response.entitlements
+      referralSummary = response.referral
+      statusText = response.message
+      errorText = nil
+    } onAuthFailure: {
+      self.deleteSessionToken()
+      self.referralSummary = nil
+      self.resetSignedOutState(status: "Session expired. Sign in again.")
+    }
+    if let failure {
+      return .failure(failure, endpoint: endpoint)
+    }
+    return .success(endpoint: endpoint)
   }
 
   func openBillingPortal() async {
@@ -248,10 +516,117 @@ final class DayflowAuthManager: ObservableObject {
       }
 
       deleteSessionToken()
+      referralSummary = nil
       resetSignedOutState(status: "Signed out.")
     } onAuthFailure: {
       self.deleteSessionToken()
+      self.referralSummary = nil
       self.resetSignedOutState(status: "Signed out.")
+    }
+  }
+
+  func setPendingReferralCode(_ code: String) {
+    guard let normalized = normalizedReferralCode(code) else {
+      errorText = "Enter a valid 6-character referral code."
+      return
+    }
+    pendingReferralCode = normalized
+    UserDefaults.standard.set(normalized, forKey: Self.pendingReferralCodeKey)
+    statusText =
+      isSignedIn ? "Referral code ready to claim." : "Referral code saved. Sign in to claim it."
+  }
+
+  func clearPendingReferralCode() {
+    pendingReferralCode = nil
+    UserDefaults.standard.removeObject(forKey: Self.pendingReferralCodeKey)
+  }
+
+  func refreshReferrals() async {
+    guard let token = retrieveSessionToken() else {
+      referralSummary = nil
+      return
+    }
+
+    await perform {
+      referralSummary = try await fetchReferralSummary(token: token)
+    } onAuthFailure: {
+      self.deleteSessionToken()
+      self.referralSummary = nil
+      self.resetSignedOutState(status: "Session expired. Sign in again.")
+    }
+  }
+
+  @discardableResult
+  func claimReferralCode(_ code: String) async -> DayflowAuthActionResult {
+    let endpoint = "/v1/referrals/claim"
+    guard let token = retrieveSessionToken() else {
+      setPendingReferralCode(code)
+      errorText = "Sign in to claim this referral code."
+      return .localFailure(errorType: "not_signed_in", endpoint: endpoint)
+    }
+    guard let normalized = normalizedReferralCode(code) else {
+      errorText = "Enter a valid 6-character referral code."
+      return .localFailure(errorType: "invalid_referral_code", endpoint: endpoint)
+    }
+
+    let failure = await perform {
+      let response = try await sendReferralClaim(code: normalized, token: token)
+      entitlements = response.entitlements
+      referralSummary = response.referral
+      clearPendingReferralCode()
+      statusText = response.message
+      errorText = nil
+    } onAuthFailure: {
+      self.deleteSessionToken()
+      self.referralSummary = nil
+      self.resetSignedOutState(status: "Session expired. Sign in again.")
+    }
+    if let failure {
+      return .failure(failure, endpoint: endpoint)
+    }
+    return .success(endpoint: endpoint)
+  }
+
+  func sendReferralInvite(to emailAddress: String) async {
+    guard let token = retrieveSessionToken() else {
+      errorText = "Sign in first."
+      return
+    }
+    let email = normalizedEmail(emailAddress)
+    guard isLikelyEmail(email) else {
+      errorText = "Enter a valid email address."
+      return
+    }
+
+    await perform {
+      let request = ReferralInviteRequest(email: email)
+      var urlRequest = try makeRequest(path: "/v1/referrals/invites", method: "POST")
+      urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+      urlRequest.httpBody = try JSONEncoder().encode(request)
+
+      let _: ReferralInviteResponse = try await send(urlRequest)
+      referralSummary = try await fetchReferralSummary(token: token)
+      statusText = "Invite sent."
+      errorText = nil
+    } onAuthFailure: {
+      self.deleteSessionToken()
+      self.referralSummary = nil
+      self.resetSignedOutState(status: "Session expired. Sign in again.")
+    }
+  }
+
+  func reportReferralUsage(seconds: Int, idempotencyKey: String) async {
+    guard seconds > 0, let token = retrieveSessionToken() else { return }
+
+    do {
+      let request = ReferralUsageRequest(seconds: seconds, idempotencyKey: idempotencyKey)
+      var urlRequest = try makeRequest(path: "/v1/referrals/usage", method: "POST")
+      urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+      urlRequest.httpBody = try JSONEncoder().encode(request)
+
+      let _: ReferralUsageResponse = try await send(urlRequest)
+    } catch {
+      print("Referral usage report failed: \(error.localizedDescription)")
     }
   }
 
@@ -314,33 +689,38 @@ final class DayflowAuthManager: ObservableObject {
     )
   }
 
+  @discardableResult
   private func perform(
     _ operation: () async throws -> Void,
     onAuthFailure: (() -> Void)? = nil
-  ) async {
-    guard !isBusy else { return }
+  ) async -> Error? {
+    guard !isBusy else { return DayflowAuthError.busy }
     isBusy = true
     errorText = nil
     defer { isBusy = false }
 
     do {
       try await operation()
+      return nil
     } catch DayflowAuthError.unauthorized {
       onAuthFailure?()
       if onAuthFailure == nil {
         errorText = "Your session could not be verified."
       }
+      return DayflowAuthError.unauthorized
     } catch {
       errorText = error.localizedDescription
       if statusText.isEmpty {
         statusText = "Something went wrong."
       }
+      return error
     }
   }
 
   private func resetSignedOutState(status: String) {
     user = nil
     entitlements = .free
+    referralSummary = nil
     pendingEmail = nil
     codeExpiresAt = nil
     statusText = status
@@ -352,6 +732,34 @@ final class DayflowAuthManager: ObservableObject {
 
   private func isLikelyEmail(_ email: String) -> Bool {
     email.contains("@") && email.contains(".") && !email.contains(" ")
+  }
+
+  private func normalizedReferralCode(_ code: String) -> String? {
+    let allowed = CharacterSet.alphanumerics
+    let normalized =
+      code
+      .uppercased()
+      .unicodeScalars
+      .filter { allowed.contains($0) }
+      .map(String.init)
+      .joined()
+
+    return normalized.count == 6 ? normalized : nil
+  }
+
+  private func fetchReferralSummary(token: String) async throws -> DayflowReferralSummary {
+    var request = try makeRequest(path: "/v1/referrals/me", method: "GET")
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    return try await send(request)
+  }
+
+  private func sendReferralClaim(code: String, token: String) async throws -> ReferralClaimResponse
+  {
+    let request = ReferralClaimRequest(code: code)
+    var urlRequest = try makeRequest(path: "/v1/referrals/claim", method: "POST")
+    urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    urlRequest.httpBody = try JSONEncoder().encode(request)
+    return try await send(urlRequest)
   }
 
   private func makeRequest(path: String, method: String) throws -> URLRequest {
@@ -369,8 +777,9 @@ final class DayflowAuthManager: ObservableObject {
 
   private func send<Response: Decodable>(_ request: URLRequest) async throws -> Response {
     let (data, response) = try await URLSession.shared.data(for: request)
+    let path = request.url?.path
     guard let httpResponse = response as? HTTPURLResponse else {
-      throw DayflowAuthError.message("Dayflow returned a non-HTTP response.")
+      throw DayflowAuthError.nonHTTP(path: path)
     }
 
     guard (200...299).contains(httpResponse.statusCode) else {
@@ -382,10 +791,18 @@ final class DayflowAuthManager: ObservableObject {
         let detail = error.detail,
         !detail.isEmpty
       {
-        throw DayflowAuthError.message(detail)
+        throw DayflowAuthError.backend(
+          statusCode: httpResponse.statusCode,
+          detail: detail,
+          path: path
+        )
       }
 
-      throw DayflowAuthError.message("Dayflow sign-in failed (\(httpResponse.statusCode)).")
+      throw DayflowAuthError.backend(
+        statusCode: httpResponse.statusCode,
+        detail: nil,
+        path: path
+      )
     }
 
     return try JSONDecoder().decode(Response.self, from: data)
@@ -470,6 +887,13 @@ private struct BillingCheckoutResponse: Codable {
   let url: String
 }
 
+private struct BillingTrialResponse: Codable {
+  let ok: Bool
+  let message: String
+  let entitlements: DayflowEntitlement
+  let referral: DayflowReferralSummary?
+}
+
 private struct BillingCheckoutRequest: Codable {
   let interval: DayflowBillingInterval
 }
@@ -478,18 +902,72 @@ private struct BillingPortalResponse: Codable {
   let url: String
 }
 
+private struct ReferralClaimRequest: Codable {
+  let code: String
+}
+
+private struct ReferralClaimResponse: Codable {
+  let ok: Bool
+  let message: String
+  let entitlements: DayflowEntitlement
+  let referral: DayflowReferralSummary?
+}
+
+private struct ReferralInviteRequest: Codable {
+  let email: String
+}
+
+private struct ReferralInviteResponse: Codable {
+  let ok: Bool
+  let invite: DayflowReferralInvite
+}
+
+private struct ReferralUsageRequest: Codable {
+  let seconds: Int
+  let idempotencyKey: String
+
+  private enum CodingKeys: String, CodingKey {
+    case seconds
+    case idempotencyKey = "idempotency_key"
+  }
+}
+
+private struct ReferralUsageResponse: Codable {
+  let ok: Bool
+  let usageHours: Double
+  let unlocked: Bool
+
+  private enum CodingKeys: String, CodingKey {
+    case ok
+    case usageHours = "usage_hours"
+    case unlocked
+  }
+}
+
 private struct BackendErrorResponse: Codable {
   let detail: String?
 }
 
 private enum DayflowAuthError: LocalizedError {
+  case backend(statusCode: Int, detail: String?, path: String?)
+  case busy
   case message(String)
+  case nonHTTP(path: String?)
   case unauthorized
 
   var errorDescription: String? {
     switch self {
+    case .backend(let statusCode, let detail, _):
+      if let detail, !detail.isEmpty {
+        return detail
+      }
+      return "Dayflow sign-in failed (\(statusCode))."
+    case .busy:
+      return "Another Dayflow account request is already running."
     case .message(let message):
       return message
+    case .nonHTTP:
+      return "Dayflow returned a non-HTTP response."
     case .unauthorized:
       return "Your session could not be verified."
     }
