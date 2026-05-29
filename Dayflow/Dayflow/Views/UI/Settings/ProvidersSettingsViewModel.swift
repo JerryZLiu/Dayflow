@@ -553,7 +553,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
     // Dayflow Pro is a server-side entitlement, not local config.
     guard canonical != "dayflow" else { return false }
     guard isProviderConfigured(providerId) else { return false }
-    guard primaryRoutingProviderId != providerId else { return false }
+    guard canonicalProviderId(for: primaryRoutingProviderId) != canonical else { return false }
     return true
   }
 
@@ -565,7 +565,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
     guard canRemoveProviderConfig(providerId) else { return }
     let canonical = canonicalProviderId(for: providerId)
 
-    if isBackupProvider(providerId) {
+    if let backupProvider, backupProvider == canonical {
       clearBackupProvider()
     }
 
