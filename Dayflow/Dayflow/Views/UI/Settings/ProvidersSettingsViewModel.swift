@@ -24,6 +24,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
   @Published var localEngine: LocalEngine {
     didSet {
       guard oldValue != localEngine else { return }
+      guard !suppressLocalSettingsPersistence else { return }
       UserDefaults.standard.set(localEngine.rawValue, forKey: "llmLocalEngine")
       LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
       refreshUpgradeBannerState()
@@ -32,12 +33,14 @@ final class ProvidersSettingsViewModel: ObservableObject {
   @Published var localBaseURL: String {
     didSet {
       guard oldValue != localBaseURL else { return }
+      guard !suppressLocalSettingsPersistence else { return }
       UserDefaults.standard.set(localBaseURL, forKey: "llmLocalBaseURL")
     }
   }
   @Published var localModelId: String {
     didSet {
       guard oldValue != localModelId else { return }
+      guard !suppressLocalSettingsPersistence else { return }
       UserDefaults.standard.set(localModelId, forKey: "llmLocalModelId")
       LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
       refreshUpgradeBannerState()
@@ -46,6 +49,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
   @Published var localAPIKey: String {
     didSet {
       guard oldValue != localAPIKey else { return }
+      guard !suppressLocalSettingsPersistence else { return }
       persistLocalAPIKey(localAPIKey)
     }
   }
@@ -115,6 +119,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
   private var savedGeminiModel: GeminiModel
   private var pendingSetupRole: ProviderRoutingRole?
   private var pendingSetupDisplayProviderId: String?
+  private var suppressLocalSettingsPersistence = false
 
   init() {
     let preference = GeminiModelPreference.load()
@@ -580,9 +585,8 @@ final class ProvidersSettingsViewModel: ObservableObject {
       UserDefaults.standard.removeObject(forKey: "llmLocalModelId")
       UserDefaults.standard.removeObject(forKey: "llmLocalEngine")
       UserDefaults.standard.removeObject(forKey: "llmLocalAPIKey")
-      localBaseURL = ""
-      localModelId = ""
-      localAPIKey = ""
+      LocalModelPreferences.clearPreset()
+      resetLocalProviderFieldsAfterRemoval()
     case "chatgpt_claude":
       UserDefaults.standard.removeObject(forKey: "chatgpt_claudeSetupComplete")
       UserDefaults.standard.removeObject(forKey: "chatCLIPreferredTool")
@@ -598,6 +602,17 @@ final class ProvidersSettingsViewModel: ObservableObject {
         "underlying_provider": canonical,
       ])
     objectWillChange.send()
+  }
+
+  private func resetLocalProviderFieldsAfterRemoval() {
+    suppressLocalSettingsPersistence = true
+    defer { suppressLocalSettingsPersistence = false }
+
+    localEngine = .ollama
+    localBaseURL = LocalEngine.ollama.defaultBaseURL
+    localModelId = LocalModelPreferences.defaultModelId(for: .ollama)
+    localAPIKey = ""
+    showLocalModelUpgradeBanner = false
   }
 
   var backupProviderDisplayName: String {
