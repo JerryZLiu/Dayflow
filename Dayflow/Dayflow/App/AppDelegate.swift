@@ -35,6 +35,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   private var heartbeatTimer: Timer?
   private var appLaunchDate: Date?
   private var foregroundStartTime: Date?
+  private var referralUsageStartedAt: Date?
 
   override init() {
     UserDefaultsMigrator.migrateIfNeeded()
@@ -163,11 +164,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       .removeDuplicates()
       .sink { enabled in
         let reason = AppState.shared.consumePendingRecordingAnalyticsReason() ?? "unknown"
+        self.trackReferralUsageRecordingChange(enabled: enabled)
         guard reason != "auto" else { return }
         AnalyticsService.shared.capture(
           "recording_toggled", ["enabled": enabled, "reason": reason])
         AnalyticsService.shared.setPersonProperties(["recording_enabled": enabled])
       }
+    if AppState.shared.isRecording {
+      referralUsageStartedAt = Date()
+    }
 
     powerObserver = NSWorkspace.shared.notificationCenter.addObserver(
       forName: NSWorkspace.willPowerOffNotification,
@@ -297,6 +302,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       analyticsPreferenceObserver = nil
     }
     DailyRecapScheduler.shared.stop()
+    flushReferralUsage(reason: "terminate")
     // If onboarding not completed, mark abandoned with last step
     let didOnboard = UserDefaults.standard.bool(forKey: "didOnboard")
     if !didOnboard {
@@ -355,6 +361,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       }
     }
     AnalyticsService.shared.capture("app_heartbeat", props)
+    flushReferralUsage(reason: "heartbeat")
+  }
+
+  private func trackReferralUsageRecordingChange(enabled: Bool) {
+    if enabled {
+      referralUsageStartedAt = Date()
+    } else {
+      flushReferralUsage(reason: "recording_stopped")
+    }
+  }
+
+  private func flushReferralUsage(reason: String) {
+    guard AppState.shared.isRecording || reason != "heartbeat" else { return }
+    guard let startedAt = referralUsageStartedAt else {
+      if AppState.shared.isRecording {
+        referralUsageStartedAt = Date()
+      }
+      return
+    }
+
+    let seconds = Int(Date().timeIntervalSince(startedAt).rounded())
+    guard seconds >= 60 else { return }
+
+    referralUsageStartedAt = AppState.shared.isRecording ? Date() : nil
+    let idempotencyKey = "mac-\(reason)-\(Int(startedAt.timeIntervalSince1970))-\(seconds)"
+    Task {
+      await DayflowAuthManager.shared.reportReferralUsage(
+        seconds: seconds,
+        idempotencyKey: idempotencyKey
+      )
+    }
   }
 
   private func updateCPUMonitoring(analyticsEnabled: Bool) {
