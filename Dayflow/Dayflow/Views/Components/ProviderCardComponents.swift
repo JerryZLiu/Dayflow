@@ -453,6 +453,14 @@ struct ProviderIconView: View {
   @ViewBuilder
   private var iconContent: some View {
     switch icon {
+    case "dayflow_asset":
+      Image("DayflowLogo")
+        .resizable()
+        .renderingMode(.original)
+        .interpolation(.high)
+        .antialiased(true)
+        .scaledToFit()
+        .frame(width: 40 * scale, height: 40 * scale)
     case "gemini_asset":
       logoBox(name: "GeminiLogo")
     case "chatgpt_claude_asset":
