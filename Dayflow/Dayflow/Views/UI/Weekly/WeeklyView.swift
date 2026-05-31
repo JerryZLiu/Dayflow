@@ -368,25 +368,29 @@ struct WeeklyView: View {
     isLoading = true
     selectedWeekRecordedMinutes = nil
 
-    let previousRange = range.shifted(byWeeks: -1)
-    let cards = StorageManager.shared.fetchTimelineCardsByTimeRange(
-      from: range.weekStart,
-      to: range.weekEnd
-    )
-    let previousCards = StorageManager.shared.fetchTimelineCardsByTimeRange(
-      from: previousRange.weekStart,
-      to: previousRange.weekEnd
-    )
-    let snapshot = WeeklyDashboardBuilder.build(
-      cards: cards,
-      previousWeekCards: previousCards,
-      categories: categories,
-      weekRange: range
-    )
+    let loadResult = await Task.detached(priority: .userInitiated) {
+      let previousRange = range.shifted(byWeeks: -1)
+      let cards = StorageManager.shared.fetchTimelineCardsByTimeRange(
+        from: range.weekStart,
+        to: range.weekEnd
+      )
+      let previousCards = StorageManager.shared.fetchTimelineCardsByTimeRange(
+        from: previousRange.weekStart,
+        to: previousRange.weekEnd
+      )
+      let snapshot = WeeklyDashboardBuilder.build(
+        cards: cards,
+        previousWeekCards: previousCards,
+        categories: categories,
+        weekRange: range
+      )
 
-    guard range == weekRange else { return }
-    dashboardSnapshot = snapshot
-    selectedWeekRecordedMinutes = snapshot.donut.totalMinutes
+      return (snapshot: snapshot, selectedWeekRecordedMinutes: snapshot.donut.totalMinutes)
+    }.value
+
+    guard !Task.isCancelled, range == weekRange else { return }
+    dashboardSnapshot = loadResult.snapshot
+    selectedWeekRecordedMinutes = loadResult.selectedWeekRecordedMinutes
     isLoading = false
   }
 }
