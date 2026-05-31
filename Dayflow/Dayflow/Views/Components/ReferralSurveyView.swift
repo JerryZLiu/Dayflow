@@ -10,6 +10,7 @@ struct ReferralSurveyView: View {
 
   @State private var internalSelectedReferral: ReferralOption? = nil
   @State private var internalCustomReferral: String = ""
+  @State private var randomizedOptions = ReferralOption.randomizedConcreteOptions()
   @State private var hasSubmitted = false
 
   @Binding private var selectedReferral: ReferralOption?
@@ -101,11 +102,7 @@ struct ReferralSurveyView: View {
   }
 
   private var referralRows: [[ReferralOption]] {
-    [
-      [.hackerNews, .x],
-      [.friend, .youtube],
-      [.newsletterBlog, .other],
-    ]
+    (randomizedOptions + [.other]).chunked(into: 2)
   }
 
   var canSubmit: Bool {
@@ -199,9 +196,14 @@ enum ReferralOption: CaseIterable, Identifiable, Hashable {
   case friend
   case youtube
   case newsletterBlog
+  case chatGPTClaudeAI
   case other
 
   var id: String { analyticsValue }
+
+  static func randomizedConcreteOptions() -> [ReferralOption] {
+    allCases.filter { $0 != .other }.shuffled()
+  }
 
   var displayName: String {
     switch self {
@@ -210,7 +212,8 @@ enum ReferralOption: CaseIterable, Identifiable, Hashable {
     case .friend: return "Friend or colleague"
     case .youtube: return "YouTube"
     case .newsletterBlog: return "Newsletter or blog (which one?)"
-    case .other: return "Something else"
+    case .chatGPTClaudeAI: return "ChatGPT / Claude / AI"
+    case .other: return "Other (please specify)"
     }
   }
 
@@ -221,6 +224,7 @@ enum ReferralOption: CaseIterable, Identifiable, Hashable {
     case .friend: return "friend"
     case .youtube: return "youtube"
     case .newsletterBlog: return "newsletter_blog"
+    case .chatGPTClaudeAI: return "chatgpt_claude_ai"
     case .other: return "other"
     }
   }
@@ -241,9 +245,17 @@ enum ReferralOption: CaseIterable, Identifiable, Hashable {
     case .youtube:
       return "Which channel?"
     case .other:
-      return "Tell me more"
+      return "Where did you hear about Dayflow?"
     default:
       return ""
+    }
+  }
+}
+
+extension Array {
+  fileprivate func chunked(into size: Int) -> [[Element]] {
+    stride(from: 0, to: count, by: size).map { startIndex in
+      Array(self[startIndex..<Swift.min(startIndex + size, count)])
     }
   }
 }
