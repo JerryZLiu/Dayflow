@@ -31,11 +31,26 @@ This document lists manual events, properties, and code locations. All events re
 - onboarding_started
   - file: Views/Onboarding/OnboardingFlow.swift (intro video appear)
 - onboarding_step_completed
-  - props: `step: intro_video|role_selection|referral|preferences|llm_selection|llm_setup|categories|category_colors|screen_recording|completion`
+  - props: `step: intro_video|role_selection|download_reason|referral|preferences|llm_selection|llm_setup|categories|category_colors|screen_recording|completion`
+  - file: Views/Onboarding/OnboardingFlow.swift
+- onboarding_download_reason
+  - props: `reasons: string[] (automatic_log|proof_of_work|cut_distractions|productive_focused|automated_manual_tracking|open_source_private|other)`, `surface: onboarding_download_reason`, `other_detail?: string`
+  - file: Views/Onboarding/OnboardingFlow.swift
+- onboarding_referral
+  - props: `source: hacker_news|x|friend|youtube|newsletter_blog|chatgpt_claude_ai|other`, `surface: onboarding_referral`, `detail?: string`
   - file: Views/Onboarding/OnboardingFlow.swift
 - llm_provider_selected
-  - props: `provider: chatgpt_claude|gemini|ollama`, `local_engine?: ollama|lmstudio|custom`
+  - props: `provider: dayflow|chatgpt_claude|gemini|ollama`, `local_engine?: ollama|lmstudio|custom`
   - file: Views/Onboarding/OnboardingFlow.swift
+- dayflow_pro_selected
+  - props: `surface: onboarding_dayflow_pro`, `flow_id: string`, `flow_variant: string`, `has_paid_ai: bool`, `selection_stage: started_sign_in|continued`
+  - file: Views/Onboarding/Prototype/OnboardingPrototypeFlow.swift
+- dayflow_pro_onboarding_step_viewed
+  - props: `surface: onboarding_dayflow_pro`, `flow_id: string`, `flow_variant: string`, `has_paid_ai: bool`, `dayflow_pro_step: email|code|referral_code|free_month_active|trial_offer|trial_active`
+  - file: Views/Onboarding/Prototype/OnboardingPrototypeFlow.swift
+- dayflow_pro_auth_code_requested / dayflow_pro_auth_code_verified / dayflow_pro_referral_code_submitted / dayflow_pro_trial_started
+  - props: `surface: onboarding_dayflow_pro`, `flow_id: string`, `flow_variant: string`, `has_paid_ai: bool`, `dayflow_pro_step: string`, `action: auth_code_request|auth_code_verify|referral_code_submit|trial_start`, `outcome: success|failure`, `endpoint?: string`, `http_status?: int`, `error_type?: invalid_email|invalid_code|missing_email|invalid_referral_code|not_signed_in|endpoint_not_found|bad_request|unauthorized|conflict|server_error|http_error|timeout|network_error|non_http_response|request_in_progress|client_error|unknown_error`, `backend_detail_bucket?: not_found|referral_code_not_found|own_referral_code|referral_already_used|trial_already_used|other_backend_error`
+  - file: Views/Onboarding/Prototype/OnboardingPrototypeFlow.swift, System/DayflowAuthManager.swift
 - screen_permission_granted / screen_permission_denied
   - file: Views/Onboarding/ScreenRecordingPermissionView.swift
 - connection_test_started / connection_test_succeeded / connection_test_failed
