@@ -38,7 +38,7 @@ final class GeminiDirectProvider {
   }
 
   init(apiKey: String, preference: GeminiModelPreference = .default) {
-    self.apiKey = apiKey
+    self.apiKey = apiKey.components(separatedBy: .whitespacesAndNewlines).joined()
     self.modelPreference = preference
   }
 }
