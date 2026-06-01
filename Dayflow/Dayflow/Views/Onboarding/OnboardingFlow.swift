@@ -17,19 +17,21 @@ struct OnboardingFlow: View {
   @AppStorage("onboardingHasPaidAI") private var savedHasPaidAISelection = ""
   @EnvironmentObject private var categoryStore: CategoryStore
   @State private var userHasPaidAI: Bool? = OnboardingFlow.loadSavedHasPaidAISelection()
+  @State private var flowID = UUID().uuidString.lowercased()
 
   private var onboardingFilledSegments: Int {
     switch step {
     case .introVideo: return 0
     case .roleSelection: return 0
-    case .referral: return 1
-    case .preferences: return 2
-    case .llmSelection: return 3
-    case .llmSetup: return 4
-    case .categories: return 5
-    case .categoryColors: return 6
-    case .screen: return 7
-    case .completion: return 8
+    case .downloadReason: return 1
+    case .referral: return 2
+    case .preferences: return 3
+    case .llmSelection: return 4
+    case .llmSetup: return 5
+    case .categories: return 6
+    case .categoryColors: return 7
+    case .screen: return 8
+    case .completion: return 9
     }
   }
 
@@ -79,6 +81,27 @@ struct OnboardingFlow: View {
           AnalyticsService.shared.screen("onboarding_role_selection")
         }
 
+      case .downloadReason:
+        OnboardingPrototypeDownloadReasonStep(
+          onContinue: { reasons, otherDetail in
+            var payload: [String: Any] = [
+              "reasons": reasons.map(\.analyticsValue),
+              "surface": "onboarding_download_reason",
+            ]
+
+            if let otherDetail, !otherDetail.isEmpty {
+              payload["other_detail"] = otherDetail
+            }
+
+            AnalyticsService.shared.capture("onboarding_download_reason", payload)
+            advance(extraProps: payload)
+          }
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+          AnalyticsService.shared.screen("onboarding_download_reason")
+        }
+
       case .referral:
         OnboardingPrototypeReferralStep(
           onContinue: { option, detail in
@@ -117,16 +140,22 @@ struct OnboardingFlow: View {
       case .llmSelection:
         OnboardingPrototypeChooseProviderStep(
           hasPaidAI: userHasPaidAI ?? false,
+          flowID: flowID,
+          flowVariant: "production_onboarding",
           onSelect: { providerTitle in
             // Map display title → internal provider ID
             let providerID: String
             switch providerTitle {
+            case "Dayflow Pro": providerID = "dayflow"
             case "ChatGPT or Claude": providerID = "chatgpt_claude"
             case "Google Gemini": providerID = "gemini"
             case "Local AI": providerID = "ollama"
             default: providerID = "gemini"
             }
             selectedProvider = providerID
+            if providerID == "dayflow" {
+              LLMProviderType.dayflowBackend().persist()
+            }
 
             var props: [String: Any] = ["provider": providerID]
             if providerID == "ollama" {
@@ -223,7 +252,7 @@ struct OnboardingFlow: View {
       }
 
       // Progress ring — bottom-left, always in tree (opacity toggle preserves @State)
-      ProgressRingView(totalSegments: 8, filledSegments: onboardingFilledSegments)
+      ProgressRingView(totalSegments: 9, filledSegments: onboardingFilledSegments)
         .opacity(showsProgressRing ? 1 : 0)
         .animation(.easeInOut(duration: 0.3), value: showsProgressRing)
         .padding(.leading, 0)
@@ -293,6 +322,10 @@ struct OnboardingFlow: View {
       savedStepRawValue = step.rawValue
     case .roleSelection:
       let extraProps = selectedRole.map { ["role": $0] } ?? [:]
+      markStepCompleted(step, extraProps: extraProps)
+      step.next()
+      savedStepRawValue = step.rawValue
+    case .downloadReason:
       markStepCompleted(step, extraProps: extraProps)
       step.next()
       savedStepRawValue = step.rawValue
@@ -366,8 +399,8 @@ struct OnboardingFlow: View {
 
 /// Wizard step order
 enum OnboardingStep: Int, CaseIterable {
-  case introVideo, roleSelection, referral, preferences, llmSelection, llmSetup, categories,
-    categoryColors, screen, completion
+  case introVideo, roleSelection, downloadReason, referral, preferences, llmSelection, llmSetup,
+    categories, categoryColors, screen, completion
 
   var analyticsName: String {
     switch self {
@@ -375,6 +408,8 @@ enum OnboardingStep: Int, CaseIterable {
       return "intro_video"
     case .roleSelection:
       return "role_selection"
+    case .downloadReason:
+      return "download_reason"
     case .referral:
       return "referral"
     case .preferences:
@@ -405,7 +440,7 @@ enum OnboardingStep: Int, CaseIterable {
 enum OnboardingStepMigration {
   static let schemaVersionKey = "onboardingStepSchemaVersion"
   private static let onboardingStepKey = "onboardingStep"
-  static let currentVersion = 4
+  static let currentVersion = 5
 
   @discardableResult
   static func migrateIfNeeded(defaults: UserDefaults = .standard) -> Int {
@@ -441,6 +476,13 @@ enum OnboardingStepMigration {
     // New v4: introVideo=0, roleSelection=1, referral=2, preferences=3, llmSelection=4, llmSetup=5, categories=6, categoryColors=7, screen=8, completion=9
     if storedVersion < 4 {
       migratedValue = migrateV3toV4(migratedValue)
+    }
+
+    // v4 → v5: insert downloadReason after roleSelection
+    // Old v4: introVideo=0, roleSelection=1, referral=2, preferences=3, llmSelection=4, llmSetup=5, categories=6, categoryColors=7, screen=8, completion=9
+    // New v5: introVideo=0, roleSelection=1, downloadReason=2, referral=3, preferences=4, llmSelection=5, llmSetup=6, categories=7, categoryColors=8, screen=9, completion=10
+    if storedVersion < 5 {
+      migratedValue = migrateV4toV5(migratedValue)
     }
 
     defaults.set(migratedValue, forKey: onboardingStepKey)
@@ -501,9 +543,17 @@ enum OnboardingStepMigration {
     }
   }
 
+  static func migrateV4toV5(_ rawValue: Int) -> Int {
+    switch rawValue {
+    case 0...1: return rawValue  // unchanged through roleSelection
+    case 2...9: return rawValue + 1  // steps after roleSelection shift forward
+    default: return 0
+    }
+  }
+
   // Keep for testing compatibility
   static func migrateRawValue(_ rawValue: Int) -> Int {
-    migrateV3toV4(migrateV2toV3(migrateV1toV2(migrateV0toV1(rawValue))))
+    migrateV4toV5(migrateV3toV4(migrateV2toV3(migrateV1toV2(migrateV0toV1(rawValue)))))
   }
 }
 
@@ -604,6 +654,221 @@ struct OnboardingCategoryColorStepView: View {
     .padding(.horizontal, 40)
     .padding(.vertical, 60)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+}
+
+struct OnboardingPrototypeDownloadReasonStep: View {
+  let onContinue: ([DownloadReasonOption], String?) -> Void
+
+  @State private var shuffledReasons = DownloadReasonOption.randomizedConcreteOptions()
+  @State private var selectedReasons: Set<DownloadReasonOption> = []
+  @State private var otherText = ""
+
+  private var options: [DownloadReasonOption] {
+    shuffledReasons + [.other]
+  }
+
+  private var trimmedOtherText: String {
+    otherText.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private var canContinue: Bool {
+    guard !selectedReasons.isEmpty else { return false }
+    if selectedReasons.contains(.other) {
+      return !trimmedOtherText.isEmpty
+    }
+    return true
+  }
+
+  var body: some View {
+    VStack(spacing: 0) {
+      Spacer()
+        .frame(height: 126)
+
+      VStack(spacing: 22) {
+        VStack(spacing: 4) {
+          Text("What are you hoping to get out of Dayflow?")
+            .font(.custom("Figtree", size: 20))
+            .foregroundColor(Color(hex: "89380E"))
+
+          Text("This helps personalize the experience for you.")
+            .font(.custom("Figtree", size: 16))
+            .foregroundColor(Color(hex: "89380E").opacity(0.78))
+        }
+        .multilineTextAlignment(.center)
+
+        VStack(spacing: 8) {
+          ForEach(options) { option in
+            downloadReasonRow(option)
+          }
+        }
+
+        otherField
+      }
+      .frame(maxWidth: 760)
+      .padding(.horizontal, 24)
+
+      Spacer()
+
+      DayflowSurfaceButton(
+        action: {
+          let selectedInDisplayOrder = options.filter { selectedReasons.contains($0) }
+          let detail = selectedReasons.contains(.other) ? trimmedOtherText : nil
+          onContinue(selectedInDisplayOrder, detail)
+        },
+        content: {
+          Text("Continue")
+            .font(.custom("Figtree", size: 14))
+            .fontWeight(.semibold)
+        },
+        background: Color(hex: "402C00"),
+        foreground: .white,
+        borderColor: .clear,
+        cornerRadius: 8,
+        horizontalPadding: 59,
+        verticalPadding: 12,
+        minWidth: 234,
+        showOverlayStroke: true
+      )
+      .opacity(canContinue ? 1.0 : 0.4)
+      .allowsHitTesting(canContinue)
+      .animation(.easeInOut(duration: 0.2), value: canContinue)
+
+      Spacer()
+        .frame(height: 60)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .animation(.easeInOut(duration: 0.2), value: selectedReasons)
+  }
+
+  private func downloadReasonRow(_ option: DownloadReasonOption) -> some View {
+    let isSelected = selectedReasons.contains(option)
+
+    return Button {
+      toggle(option)
+    } label: {
+      HStack(spacing: 10) {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+          .font(.system(size: 17, weight: .semibold))
+          .foregroundColor(Color(hex: "402C00"))
+
+        Text(option.displayName)
+          .font(.custom("Figtree", size: 15))
+          .foregroundColor(Color(hex: "492304"))
+          .fixedSize(horizontal: false, vertical: true)
+
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, 14)
+      .padding(.vertical, 10)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .fill(isSelected ? Color(hex: "FFE5CF").opacity(0.48) : Color.white.opacity(0.42))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .stroke(isSelected ? Color(hex: "FFCCA7") : Color(hex: "E4D3C2"), lineWidth: 1)
+      )
+      .shadow(
+        color: isSelected
+          ? Color(red: 1, green: 0.416, blue: 0).opacity(0.22)
+          : Color(hex: "AF7246").opacity(0.12),
+        radius: isSelected ? 3 : 2,
+        x: 0,
+        y: 0
+      )
+    }
+    .buttonStyle(.plain)
+    .pointingHandCursor()
+  }
+
+  private var otherField: some View {
+    TextField("Tell me more", text: $otherText)
+      .font(.custom("Figtree", size: 16))
+      .foregroundColor(Color(hex: "492304"))
+      .textFieldStyle(.plain)
+      .padding(.horizontal, 12)
+      .frame(height: 36)
+      .background(Color.white.opacity(0.42))
+      .cornerRadius(5)
+      .overlay(
+        RoundedRectangle(cornerRadius: 5)
+          .stroke(Color(hex: "E4D3C2"), lineWidth: 1)
+      )
+      .shadow(
+        color: Color(hex: "AF7246").opacity(0.15),
+        radius: 2, x: 0, y: 0
+      )
+      .opacity(selectedReasons.contains(.other) ? 1 : 0)
+      .disabled(!selectedReasons.contains(.other))
+      .allowsHitTesting(selectedReasons.contains(.other))
+      .frame(maxWidth: .infinity)
+  }
+
+  private func toggle(_ option: DownloadReasonOption) {
+    if selectedReasons.contains(option) {
+      selectedReasons.remove(option)
+      if option == .other {
+        otherText = ""
+      }
+    } else {
+      selectedReasons.insert(option)
+    }
+  }
+}
+
+enum DownloadReasonOption: CaseIterable, Identifiable, Hashable {
+  case automaticLog
+  case proofOfWork
+  case cutDistractions
+  case productiveFocused
+  case automatedManualTracking
+  case openSourcePrivate
+  case other
+
+  var id: String { analyticsValue }
+
+  static func randomizedConcreteOptions() -> [DownloadReasonOption] {
+    allCases.filter { $0 != .other }.shuffled()
+  }
+
+  var displayName: String {
+    switch self {
+    case .automaticLog:
+      return "To keep an automatic log of what I worked on"
+    case .proofOfWork:
+      return "To have something to show for my work (standups, reviews, clients)"
+    case .cutDistractions:
+      return "To find and cut distractions"
+    case .productiveFocused:
+      return "To be more productive or focused"
+    case .automatedManualTracking:
+      return "I was already tracking this manually and wanted it automated"
+    case .openSourcePrivate:
+      return "I wanted a tracker that's open source and keeps my data private"
+    case .other:
+      return "Other"
+    }
+  }
+
+  var analyticsValue: String {
+    switch self {
+    case .automaticLog:
+      return "automatic_log"
+    case .proofOfWork:
+      return "proof_of_work"
+    case .cutDistractions:
+      return "cut_distractions"
+    case .productiveFocused:
+      return "productive_focused"
+    case .automatedManualTracking:
+      return "automated_manual_tracking"
+    case .openSourcePrivate:
+      return "open_source_private"
+    case .other:
+      return "other"
+    }
   }
 }
 
