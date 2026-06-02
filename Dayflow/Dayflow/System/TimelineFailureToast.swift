@@ -2,6 +2,9 @@ import Foundation
 
 struct TimelineFailureToastPayload {
   let message: String
+  let title: String?
+  let destination: TimelineFailureToastDestination
+  let failureKind: String
   let operation: String
   let primaryProvider: String
   let primaryProviderLabel: String
@@ -16,6 +19,8 @@ struct TimelineFailureToastPayload {
   var notificationUserInfo: [String: Any] {
     var userInfo: [String: Any] = [
       "message": message,
+      "destination": destination.rawValue,
+      "failure_kind": failureKind,
       "operation": operation,
       "primary_provider": primaryProvider,
       "primary_provider_label": primaryProviderLabel,
@@ -24,6 +29,9 @@ struct TimelineFailureToastPayload {
       "error_domain": errorDomain,
       "error_code": errorCode,
     ]
+    if let title {
+      userInfo["title"] = title
+    }
     if let backupProvider {
       userInfo["backup_provider"] = backupProvider
     }
@@ -42,6 +50,9 @@ struct TimelineFailureToastPayload {
 
   init(
     message: String,
+    title: String?,
+    destination: TimelineFailureToastDestination,
+    failureKind: String,
     operation: String,
     primaryProvider: String,
     primaryProviderLabel: String,
@@ -54,6 +65,9 @@ struct TimelineFailureToastPayload {
     batchId: Int64?
   ) {
     self.message = message
+    self.title = title
+    self.destination = destination
+    self.failureKind = failureKind
     self.operation = operation
     self.primaryProvider = primaryProvider
     self.primaryProviderLabel = primaryProviderLabel
@@ -77,6 +91,11 @@ struct TimelineFailureToastPayload {
       return nil
     }
 
+    let title = userInfo["title"] as? String
+    let destination =
+      (userInfo["destination"] as? String)
+      .flatMap(TimelineFailureToastDestination.init(rawValue:)) ?? .providers
+    let failureKind = userInfo["failure_kind"] as? String ?? TimelineFailureKind.unknown.rawValue
     let primaryProviderLabel = (userInfo["primary_provider_label"] as? String) ?? primaryProvider
     let backupProvider = userInfo["backup_provider"] as? String
     let backupProviderLabel = userInfo["backup_provider_label"] as? String
@@ -103,6 +122,9 @@ struct TimelineFailureToastPayload {
 
     self.init(
       message: message,
+      title: title,
+      destination: destination,
+      failureKind: failureKind,
       operation: operation,
       primaryProvider: primaryProvider,
       primaryProviderLabel: primaryProviderLabel,
