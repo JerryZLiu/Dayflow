@@ -13,7 +13,7 @@ final class GemmaBackupProvider {
   let baseURL = "https://generativelanguage.googleapis.com/v1beta/models"
 
   init(apiKey: String, model: String = "gemma-4-31b-it") {
-    self.apiKey = apiKey
+    self.apiKey = apiKey.components(separatedBy: .whitespacesAndNewlines).joined()
     self.model = model
   }
 
