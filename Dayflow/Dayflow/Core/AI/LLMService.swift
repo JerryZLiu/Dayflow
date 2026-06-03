@@ -35,8 +35,8 @@ protocol LLMServicing {
 
 final class LLMService: LLMServicing {
   static let shared: LLMServicing = LLMService()
-  private static let timelineFailureToastLastShownDayDefaultsKey =
-    "timelineFailureToastLastShownDay"
+  private static let timelineFailureToastLastShownDayByKindDefaultsKey =
+    "timelineFailureToastLastShownDayByKind"
   private static let timelineFailureToastThrottleQueue = DispatchQueue(
     label: "com.dayflow.timelineFailureToastThrottle"
   )
@@ -448,6 +448,7 @@ final class LLMService: LLMServicing {
   }
 
   private func emitTimelineFailureToast(
+    classification: TimelineFailureClassification,
     operation: LLMProcessingStep?,
     error: Error,
     primaryProvider: String,
@@ -457,13 +458,23 @@ final class LLMService: LLMServicing {
     backupConfigured: Bool,
     batchId: Int64?
   ) {
-    guard shouldEmitTimelineFailureToast() else { return }
+    let content = classification.toastContent(fallbackProviderLabel: primaryProviderLabel)
+
+    // Non-actionable failures resolve on their own; the only reason to
+    // surface one is to pitch a backup provider, so skip when one exists.
+    if content == nil && backupConfigured { return }
+
+    guard shouldEmitTimelineFailureToast(kind: classification.kind) else { return }
 
     let nsError = error as NSError
     let rateLimited = isRateLimitError(error)
     let payload = TimelineFailureToastPayload(
-      message: buildFailureToastMessage(
-        operation: operation, error: error, backupConfigured: backupConfigured),
+      message: content?.body
+        ?? buildFailureToastMessage(
+          operation: operation, error: error, backupConfigured: backupConfigured),
+      title: content?.title,
+      destination: content?.destination ?? .providers,
+      failureKind: classification.kind.rawValue,
       operation: operationName(for: operation),
       primaryProvider: primaryProvider,
       primaryProviderLabel: primaryProviderLabel,
@@ -479,15 +490,21 @@ final class LLMService: LLMServicing {
     TimelineFailureToastCenter.post(payload)
   }
 
-  private func shouldEmitTimelineFailureToast(now: Date = Date()) -> Bool {
+  private func shouldEmitTimelineFailureToast(
+    kind: TimelineFailureKind, now: Date = Date()
+  ) -> Bool {
     let logicalDay = now.getDayInfoFor4AMBoundary().dayString
     return Self.timelineFailureToastThrottleQueue.sync {
       let defaults = UserDefaults.standard
-      let lastShownDay = defaults.string(forKey: Self.timelineFailureToastLastShownDayDefaultsKey)
-      guard lastShownDay != logicalDay else {
+      var lastShownDayByKind =
+        defaults.dictionary(forKey: Self.timelineFailureToastLastShownDayByKindDefaultsKey)
+        as? [String: String] ?? [:]
+      guard lastShownDayByKind[kind.rawValue] != logicalDay else {
         return false
       }
-      defaults.set(logicalDay, forKey: Self.timelineFailureToastLastShownDayDefaultsKey)
+      lastShownDayByKind[kind.rawValue] = logicalDay
+      defaults.set(
+        lastShownDayByKind, forKey: Self.timelineFailureToastLastShownDayByKindDefaultsKey)
       return true
     }
   }
@@ -834,12 +851,15 @@ final class LLMService: LLMServicing {
           print("🔎 GEMINI DEBUG: NSError.userInfo=\(ns.userInfo)")
         }
 
+        let failureClassification = TimelineFailureClassifier.classify(error)
+
         // Track analysis batch failed
         AnalyticsService.shared.capture(
           "analysis_batch_failed",
           [
             "batch_id": batchId,
             "error_message": error.localizedDescription,
+            "failure_kind": failureClassification.kind.rawValue,
             "processing_duration_seconds": Int(Date().timeIntervalSince(processingStartTime)),
             "llm_provider": primaryProviderID.analyticsName,
             "llm_provider_label": primaryProviderLabel,
@@ -849,6 +869,7 @@ final class LLMService: LLMServicing {
           ])
 
         emitTimelineFailureToast(
+          classification: failureClassification,
           operation: lastProcessingStep,
           error: error,
           primaryProvider: primaryProviderID.analyticsName,
