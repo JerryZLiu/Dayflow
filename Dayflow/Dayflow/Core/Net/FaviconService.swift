@@ -26,6 +26,8 @@ final class FaviconService {
     ("claude", "ClaudeLogo"),
     ("anthropic", "ClaudeLogo"),
     ("gemini", "GeminiLogo"),
+    ("github", "GithubIcon"),
+    ("discord", "DiscordGlyph"),
 
     // Common web apps
     ("youtube", "YouTubeFavicon"),
@@ -35,6 +37,8 @@ final class FaviconService {
     ("x.com", "XFavicon"),
     ("leagueoflegends", "LeagueOfLegendsFavicon"),
     ("league of legends", "LeagueOfLegendsFavicon"),
+    ("meet.google", "GoogleFavicon"),
+    ("google meet", "GoogleFavicon"),
 
     // Apple services - specific patterns first
     ("imessage", "iMessageFavicon"),
@@ -136,6 +140,19 @@ final class FaviconService {
     if let host = primaryHost, let img = await fetchHost(host) { return img }
     if let img = resolveRawFavicon(secondaryRaw) { return img }
     if let host = secondaryHost, let img = await fetchHost(host) { return img }
+    return nil
+  }
+
+  func cachedOrRawFavicon(
+    primaryRaw: String?,
+    secondaryRaw: String?,
+    primaryHost: String?,
+    secondaryHost: String?
+  ) -> NSImage? {
+    if let img = resolveRawFavicon(primaryRaw) { return img }
+    if let host = primaryHost, let img = cachedHostFavicon(host) { return img }
+    if let img = resolveRawFavicon(secondaryRaw) { return img }
+    if let host = secondaryHost, let img = cachedHostFavicon(host) { return img }
     return nil
   }
 
@@ -308,6 +325,11 @@ final class FaviconService {
     return task
   }
 
+  private func cachedHostFavicon(_ host: String) -> NSImage? {
+    let resolvedHost = resolvedHostAlias(for: host)
+    return cache.object(forKey: resolvedHost as NSString)
+  }
+
   private func storeTask(_ task: Task<NSImage?, Never>, for host: String) {
     inFlightLock.lock()
     inFlight[host] = task
@@ -348,6 +370,14 @@ struct FaviconImageView: View {
     self.fallbackRaw = fallbackRaw
     self.size = size
     self.cornerRadius = cornerRadius
+    self._image = State(
+      initialValue: FaviconService.shared.cachedOrRawFavicon(
+        primaryRaw: Self.effectivePrimaryRaw(primaryRaw: primaryRaw, fallbackRaw: fallbackRaw),
+        secondaryRaw: secondaryRaw,
+        primaryHost: primaryHost,
+        secondaryHost: secondaryHost
+      )
+    )
   }
 
   var body: some View {
@@ -364,14 +394,21 @@ struct FaviconImageView: View {
     }
     .frame(width: size, height: size)
     .task(id: requestKey) {
-      image = nil
-      guard hasLookupSource else { return }
-      image = await FaviconService.shared.fetchFavicon(
+      let initialImage = FaviconService.shared.cachedOrRawFavicon(
         primaryRaw: effectivePrimaryRaw,
         secondaryRaw: secondaryRaw,
         primaryHost: primaryHost,
         secondaryHost: secondaryHost
       )
+      image = initialImage
+      guard hasLookupSource else { return }
+      image =
+        await FaviconService.shared.fetchFavicon(
+          primaryRaw: effectivePrimaryRaw,
+          secondaryRaw: secondaryRaw,
+          primaryHost: primaryHost,
+          secondaryHost: secondaryHost
+        ) ?? initialImage
     }
   }
 
@@ -396,6 +433,14 @@ struct FaviconImageView: View {
   }
 
   private func nonEmpty(_ value: String?) -> String? {
+    Self.nonEmpty(value)
+  }
+
+  private static func effectivePrimaryRaw(primaryRaw: String?, fallbackRaw: String?) -> String? {
+    nonEmpty(primaryRaw) ?? nonEmpty(fallbackRaw)
+  }
+
+  private static func nonEmpty(_ value: String?) -> String? {
     guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
       !trimmed.isEmpty
     else {
