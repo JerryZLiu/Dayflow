@@ -328,10 +328,9 @@ struct LLMProviderSetupView: View {
           apiKey: $setupState.apiKey,
           title: "Enter your API key:",
           subtitle: "Paste your Gemini API key below",
-          placeholder: "AIza...",
+          placeholder: "AQ...",
           onValidate: { key in
-            // Basic validation for now
-            return key.hasPrefix("AIza") && key.count > 30
+            key.components(separatedBy: .whitespacesAndNewlines).joined().count > 10
           }
         )
         .onChange(of: setupState.apiKey) { _, _ in
@@ -637,7 +636,8 @@ struct LLMProviderSetupView: View {
   func saveConfiguration() {
     // Save API key to keychain for Gemini
     if activeProviderType == "gemini" && !setupState.apiKey.isEmpty {
-      KeychainManager.shared.store(setupState.apiKey, for: "gemini")
+      let cleanedKey = setupState.apiKey.components(separatedBy: .whitespacesAndNewlines).joined()
+      KeychainManager.shared.store(cleanedKey, for: "gemini")
       GeminiModelPreference(primary: setupState.geminiModel).save()
     }
 
