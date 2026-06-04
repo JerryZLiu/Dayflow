@@ -50,7 +50,12 @@ struct APIKeyInputView: View {
           .font(.custom("SF Mono", size: 13))
           .focused($isFocused)
           .onChange(of: apiKey) { _, newValue in
-            validateKey(newValue)
+            let cleaned = cleanedAPIKey(newValue)
+            guard cleaned == newValue else {
+              apiKey = cleaned
+              return
+            }
+            validateKey(cleaned)
           }
 
           Button(action: { showPassword.toggle() }) {
@@ -85,7 +90,7 @@ struct APIKeyInputView: View {
 
         // Validation message
         if validationState == .invalid {
-          Text("API key should start with 'AIza' and be at least 30 characters")
+          Text("API key should be more than 10 characters")
             .font(.custom("Figtree", size: 12))
             .foregroundColor(Color(hex: "E91515"))
             .transition(.opacity)
@@ -132,5 +137,9 @@ struct APIKeyInputView: View {
     withAnimation(.easeOut(duration: 0.2)) {
       validationState = onValidate(key) ? .valid : .invalid
     }
+  }
+
+  private func cleanedAPIKey(_ key: String) -> String {
+    key.components(separatedBy: .whitespacesAndNewlines).joined()
   }
 }
