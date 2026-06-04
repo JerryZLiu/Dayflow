@@ -11,11 +11,11 @@ class GeminiAPIHelper {
   static let shared = GeminiAPIHelper()
   private init() {}
 
-  private let baseURL =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
+  private let testModel = GeminiModel.flashLite31
 
   enum APIError: Error, LocalizedError {
     case invalidAPIKey
+    case rateLimited(String)
     case apiError(String)
     case networkError(String)
     case invalidResponse
@@ -24,6 +24,8 @@ class GeminiAPIHelper {
       switch self {
       case .invalidAPIKey:
         return "Invalid or missing API key"
+      case .rateLimited(let message):
+        return message
       case .apiError(let message):
         return message
       case .networkError(let message):
@@ -36,11 +38,15 @@ class GeminiAPIHelper {
 
   // Test the API connection with a simple request
   func testConnection(apiKey: String) async throws -> String {
-    guard !apiKey.isEmpty else {
+    let cleanedAPIKey = apiKey.components(separatedBy: .whitespacesAndNewlines).joined()
+    guard !cleanedAPIKey.isEmpty else {
       throw APIError.invalidAPIKey
     }
 
-    let url = URL(string: "\(baseURL)?key=\(apiKey)")!
+    let url = URL(
+      string:
+        "https://generativelanguage.googleapis.com/v1beta/models/\(testModel.rawValue):generateContent?key=\(cleanedAPIKey)"
+    )!
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -71,7 +77,7 @@ class GeminiAPIHelper {
       callGroupId: UUID().uuidString,
       attempt: 1,
       provider: "gemini",
-      model: nil,
+      model: testModel.rawValue,
       operation: "test_connection",
       requestMethod: request.httpMethod,
       requestURL: request.url,
@@ -135,6 +141,9 @@ class GeminiAPIHelper {
           errorCode: httpResponse.statusCode,
           errorMessage: message
         )
+        if isRateLimit(statusCode: httpResponse.statusCode, message: message) {
+          throw APIError.rateLimited(message)
+        }
         throw APIError.apiError(message)
       }
       if let body = String(data: data, encoding: .utf8) {
@@ -180,6 +189,9 @@ class GeminiAPIHelper {
           errorCode: httpResponse.statusCode,
           errorMessage: message
         )
+        if isRateLimit(statusCode: httpResponse.statusCode, message: message) {
+          throw APIError.rateLimited(message)
+        }
         throw APIError.networkError(message)
       }
       if let body = String(data: data, encoding: .utf8) {
@@ -200,7 +212,11 @@ class GeminiAPIHelper {
         errorCode: httpResponse.statusCode,
         errorMessage: "Status code: \(httpResponse.statusCode)"
       )
-      throw APIError.networkError("Status code: \(httpResponse.statusCode)")
+      let statusMessage = "Status code: \(httpResponse.statusCode)"
+      if isRateLimit(statusCode: httpResponse.statusCode, message: statusMessage) {
+        throw APIError.rateLimited(statusMessage)
+      }
+      throw APIError.networkError(statusMessage)
     }
 
     guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -229,6 +245,19 @@ class GeminiAPIHelper {
       return nil
     }
     return message
+  }
+
+  private func isRateLimit(statusCode: Int, message: String) -> Bool {
+    let lowercased = message.lowercased()
+    return statusCode == 429
+      || statusCode == 503
+      || lowercased.contains("quota")
+      || lowercased.contains("rate limit")
+      || lowercased.contains("rate-limit")
+      || lowercased.contains("too many requests")
+      || lowercased.contains("high demand")
+      || lowercased.contains("overloaded")
+      || lowercased.contains("temporarily unavailable")
   }
 
 }
