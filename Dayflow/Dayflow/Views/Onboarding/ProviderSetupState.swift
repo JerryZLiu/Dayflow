@@ -210,17 +210,17 @@ class ProviderSetupState: ObservableObject {
 
   @discardableResult
   func persistGeminiAPIKey(source: String) -> Bool {
-    let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else {
+    let cleaned = apiKey.components(separatedBy: .whitespacesAndNewlines).joined()
+    guard !cleaned.isEmpty else {
       geminiAPIKeySaveError = nil
       return true
     }
 
-    if trimmed != apiKey {
-      apiKey = trimmed
+    if cleaned != apiKey {
+      apiKey = cleaned
     }
 
-    let stored = KeychainManager.shared.store(trimmed, for: "gemini")
+    let stored = KeychainManager.shared.store(cleaned, for: "gemini")
     if stored {
       geminiAPIKeySaveError = nil
       hasTestedConnection = false
