@@ -476,7 +476,7 @@ private struct ReferralProgramCard: View {
         .fontWeight(.bold)
         .foregroundColor(Color(hex: "333333"))
 
-      Text("Give a month of Dayflow Pro and get 1 month for each person you refer.")
+      Text("Give a month of Dayflow Pro and earn $20 in credits for each person you refer!")
         .font(.custom("Figtree", size: 12))
         .foregroundColor(Color(hex: "333333"))
     }
@@ -546,7 +546,6 @@ private struct ReferralProgramCard: View {
         howItWorks
         if isSignedIn {
           inviteLinkControl
-          sendInviteControl
         } else {
           signInReferralPrompt
         }
@@ -642,8 +641,8 @@ private struct ReferralProgramCard: View {
         )
         ReferralStepRow(
           icon: .system("sparkles"),
-          content: Text("You get ") + Text("Dayflow Pro for a week").bold()
-            + Text(" when they use Dayflow for 40 hours!")
+          content: Text("You earn ") + Text("1 month of Dayflow Pro (stackable!)").bold()
+            + Text(", when they use Dayflow for a week.")
         )
       }
     }
