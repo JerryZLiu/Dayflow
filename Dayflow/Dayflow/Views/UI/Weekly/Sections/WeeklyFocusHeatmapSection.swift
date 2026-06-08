@@ -5,6 +5,7 @@ struct WeeklyFocusHeatmapSection: View {
   let snapshot: WeeklyFocusHeatmapSnapshot
   let width: CGFloat
   let cellGap: CGFloat
+  let usesScrollContainers: Bool
 
   private enum Design {
     static let cardWidth: CGFloat = 958
@@ -35,11 +36,32 @@ struct WeeklyFocusHeatmapSection: View {
   init(
     snapshot: WeeklyFocusHeatmapSnapshot,
     width: CGFloat = Design.cardWidth,
-    cellGap: CGFloat = 1
+    cellGap: CGFloat = 1,
+    usesScrollContainers: Bool = true
   ) {
     self.snapshot = snapshot
     self.width = width
     self.cellGap = cellGap
+    self.usesScrollContainers = usesScrollContainers
+  }
+
+  static func exportWidth(for snapshot: WeeklyFocusHeatmapSnapshot, cellGap: CGFloat = 1) -> CGFloat
+  {
+    let columnCount = snapshot.rows.map { $0.values.count }.max() ?? 0
+    guard columnCount > 0 else { return Design.cardWidth }
+
+    let resolvedGap = max(cellGap, 0)
+    let gridWidth =
+      (CGFloat(columnCount) * Design.cellWidth)
+      + (CGFloat(columnCount - 1) * resolvedGap)
+    let requiredWidth =
+      Design.leadingPadding
+      + Design.labelsWidth
+      + Design.labelsToGridSpacing
+      + gridWidth
+      + Design.trailingPadding
+
+    return max(Design.cardWidth, requiredWidth)
   }
 
   private var resolvedCellGap: CGFloat {
@@ -130,12 +152,21 @@ struct WeeklyFocusHeatmapSection: View {
     HStack(alignment: .top, spacing: Design.labelsToGridSpacing) {
       dayLabels
 
+      gridViewport
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  @ViewBuilder
+  private var gridViewport: some View {
+    if usesScrollContainers {
       ScrollView(.horizontal, showsIndicators: false) {
         gridAndAxis
       }
       .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+    } else {
+      gridAndAxis
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private var dayLabels: some View {
