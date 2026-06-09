@@ -109,11 +109,18 @@ struct WeeklyView: View {
                 headerTitle: dashboardSnapshot.workflow.title,
                 downloadButtonOrigin: CGPoint(x: 79, y: 16),
                 fileName: exportFileName("weekly-workflow"),
+                exportWidth: WeeklyWorkflowSection.exportWidth(for: dashboardSnapshot.workflow),
                 displayHeight: WeeklyAdaptiveLayout.workflowHeight,
                 exportHeight: WeeklyAdaptiveLayout.workflowHeight,
                 watermarkPlacement: .bottomTrailing
               ) { width in
                 WeeklyWorkflowSection(snapshot: dashboardSnapshot.workflow, width: width)
+              } exportContent: { width in
+                WeeklyWorkflowSection(
+                  snapshot: dashboardSnapshot.workflow,
+                  width: width,
+                  usesScrollContainers: false
+                )
               }
 
               WeeklyExportableGraphic(
@@ -122,11 +129,18 @@ struct WeeklyView: View {
                 headerTitle: dashboardSnapshot.heatmap.title,
                 downloadButtonOrigin: CGPoint(x: 44, y: 34),
                 fileName: exportFileName("focus-heatmap"),
+                exportWidth: WeeklyFocusHeatmapSection.exportWidth(for: dashboardSnapshot.heatmap),
                 displayHeight: WeeklyAdaptiveLayout.heatmapHeight,
                 exportHeight: WeeklyAdaptiveLayout.heatmapHeight,
                 watermarkPlacement: .bottomTrailing
               ) { width in
                 WeeklyFocusHeatmapSection(snapshot: dashboardSnapshot.heatmap, width: width)
+              } exportContent: { width in
+                WeeklyFocusHeatmapSection(
+                  snapshot: dashboardSnapshot.heatmap,
+                  width: width,
+                  usesScrollContainers: false
+                )
               }
 
               WeeklyExportableGraphic(
@@ -617,10 +631,12 @@ private struct WeeklyExportableGraphic<Content: View>: View {
   let headerTitle: String
   let downloadButtonOrigin: CGPoint
   let fileName: String
+  let exportWidth: CGFloat
   let displayHeight: CGFloat
   let exportHeight: CGFloat
   let watermarkPlacement: WeeklyExportWatermarkPlacement
   let content: (CGFloat) -> Content
+  let exportContent: (CGFloat) -> Content
 
   @State private var isHovering = false
 
@@ -630,20 +646,51 @@ private struct WeeklyExportableGraphic<Content: View>: View {
     headerTitle: String? = nil,
     downloadButtonOrigin: CGPoint,
     fileName: String,
+    exportWidth: CGFloat = WeeklyAdaptiveLayout.designContentWidth,
     displayHeight: CGFloat,
     exportHeight: CGFloat,
     watermarkPlacement: WeeklyExportWatermarkPlacement,
-    @ViewBuilder content: @escaping (CGFloat) -> Content
+    @ViewBuilder content: @escaping (CGFloat) -> Content,
+    @ViewBuilder exportContent: @escaping (CGFloat) -> Content
   ) {
     self.layout = layout
     self.title = title
     self.headerTitle = headerTitle ?? title
     self.downloadButtonOrigin = downloadButtonOrigin
     self.fileName = fileName
+    self.exportWidth = exportWidth
     self.displayHeight = displayHeight
     self.exportHeight = exportHeight
     self.watermarkPlacement = watermarkPlacement
     self.content = content
+    self.exportContent = exportContent
+  }
+
+  init(
+    layout: WeeklyAdaptiveLayout,
+    title: String,
+    headerTitle: String? = nil,
+    downloadButtonOrigin: CGPoint,
+    fileName: String,
+    exportWidth: CGFloat = WeeklyAdaptiveLayout.designContentWidth,
+    displayHeight: CGFloat,
+    exportHeight: CGFloat,
+    watermarkPlacement: WeeklyExportWatermarkPlacement,
+    @ViewBuilder content: @escaping (CGFloat) -> Content
+  ) {
+    self.init(
+      layout: layout,
+      title: title,
+      headerTitle: headerTitle,
+      downloadButtonOrigin: downloadButtonOrigin,
+      fileName: fileName,
+      exportWidth: exportWidth,
+      displayHeight: displayHeight,
+      exportHeight: exportHeight,
+      watermarkPlacement: watermarkPlacement,
+      content: content,
+      exportContent: content
+    )
   }
 
   var body: some View {
@@ -668,12 +715,12 @@ private struct WeeklyExportableGraphic<Content: View>: View {
           WeeklyGraphicExporter.savePNG(
             fileName: fileName,
             size: CGSize(
-              width: WeeklyAdaptiveLayout.designContentWidth,
+              width: exportWidth,
               height: exportHeight
             ),
             watermarkPlacement: watermarkPlacement
           ) {
-            content(WeeklyAdaptiveLayout.designContentWidth)
+            exportContent(exportWidth)
           }
         }
       }
@@ -804,7 +851,7 @@ private struct WeeklyGraphicDownloadButton: View {
 
 @MainActor
 private enum WeeklyGraphicExporter {
-  private static let targetPixelWidth: CGFloat = 1080
+  private static let exportScale: CGFloat = 2
 
   static func savePNG<Content: View>(
     fileName: String,
@@ -823,7 +870,7 @@ private enum WeeklyGraphicExporter {
 
     let renderer = ImageRenderer(content: exportView)
     renderer.proposedSize = ProposedViewSize(width: size.width, height: size.height)
-    renderer.scale = targetPixelWidth / size.width
+    renderer.scale = exportScale
 
     guard let image = renderer.cgImage else {
       NSSound.beep()
