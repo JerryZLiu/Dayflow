@@ -3,10 +3,33 @@ import SwiftUI
 struct WeeklyWorkflowSection: View {
   let snapshot: WeeklyWorkflowSnapshot
   let width: CGFloat
+  let usesScrollContainers: Bool
 
-  init(snapshot: WeeklyWorkflowSnapshot, width: CGFloat = Design.sectionWidth) {
+  init(
+    snapshot: WeeklyWorkflowSnapshot,
+    width: CGFloat = Design.sectionWidth,
+    usesScrollContainers: Bool = true
+  ) {
     self.snapshot = snapshot
     self.width = width
+    self.usesScrollContainers = usesScrollContainers
+  }
+
+  static func exportWidth(for snapshot: WeeklyWorkflowSnapshot) -> CGFloat {
+    let columnCount = snapshot.rows.map { $0.cells.count }.max() ?? 0
+    guard columnCount > 0 else { return Design.sectionWidth }
+
+    let gridWidth =
+      (CGFloat(columnCount) * Design.cellWidth)
+      + (CGFloat(columnCount - 1) * Design.cellGap)
+    let requiredWidth =
+      Design.gridPadding.leading
+      + Design.labelWidth
+      + Design.labelToGridSpacing
+      + gridWidth
+      + Design.gridPadding.trailing
+
+    return max(Design.sectionWidth, requiredWidth)
   }
 
   private enum Design {
@@ -86,13 +109,22 @@ struct WeeklyWorkflowSection: View {
     HStack(alignment: .top, spacing: Design.labelToGridSpacing) {
       dayLabels
 
+      gridViewport
+    }
+    .padding(Design.gridPadding)
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  @ViewBuilder
+  private var gridViewport: some View {
+    if usesScrollContainers {
       ScrollView(.horizontal, showsIndicators: false) {
         gridAndAxis
       }
       .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+    } else {
+      gridAndAxis
     }
-    .padding(Design.gridPadding)
-    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private var dayLabels: some View {
@@ -141,13 +173,20 @@ struct WeeklyWorkflowSection: View {
     }
   }
 
+  @ViewBuilder
   private var footerPanel: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
+    if usesScrollContainers {
+      ScrollView(.horizontal, showsIndicators: false) {
+        footerContent
+          .padding(Design.footerPadding)
+      }
+      .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+      .frame(maxWidth: .infinity, alignment: .leading)
+    } else {
       footerContent
         .padding(Design.footerPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
-    .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private var footerContent: some View {
