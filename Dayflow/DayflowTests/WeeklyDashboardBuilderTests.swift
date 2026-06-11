@@ -26,6 +26,18 @@ final class WeeklyDashboardBuilderTests: XCTestCase {
     XCTAssertEqual(snapshot.donut.items.map(\.name), ["Focus"])
   }
 
+  func testWeeklyDashboardSnapshotIsSendableForBackgroundLoading() {
+    let weekRange = WeeklyDateRange.containing(Date(timeIntervalSince1970: 1_770_000_000))
+    let snapshot = WeeklyDashboardBuilder.build(
+      cards: [],
+      previousWeekCards: [],
+      categories: [],
+      weekRange: weekRange
+    )
+
+    assertSendable(snapshot)
+  }
+
   func testSankeyCoalescesRealOtherAppWithOverflowBucket() {
     let weekRange = WeeklyDateRange.containing(Date(timeIntervalSince1970: 1_770_000_000))
     let day = DateFormatter.yyyyMMdd.string(from: weekRange.weekStart)
@@ -91,5 +103,9 @@ final class WeeklyDashboardBuilderTests: XCTestCase {
       return String(format: "%d:%02d PM", hour - 12, minute)
     }
     return String(format: "%d:%02d AM", hour, minute)
+  }
+
+  private func assertSendable<T: Sendable>(_ value: T) {
+    _ = value
   }
 }
