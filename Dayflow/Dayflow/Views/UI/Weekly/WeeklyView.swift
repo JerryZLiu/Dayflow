@@ -15,6 +15,7 @@ struct WeeklyView: View {
   @State private var selectedWeekRecordedMinutes: Int?
   @State private var weeklyAccessProgress: WeeklyAccessProgressSnapshot
   @State private var notificationState: WeeklyAccessNotificationState = .idle
+  @State private var weeklyLoadGeneration = 0
 
   init() {
     let initialWeekRange = WeeklyDateRange.containing(Date())
@@ -378,34 +379,43 @@ struct WeeklyView: View {
     for range: WeeklyDateRange,
     categories: [TimelineCategory]
   ) async {
+    weeklyLoadGeneration += 1
+    let loadGeneration = weeklyLoadGeneration
+
     isLoading = true
     selectedWeekRecordedMinutes = nil
 
-    let previousRange = range.shifted(byWeeks: -1)
-    let cards = StorageManager.shared.fetchTimelineCardsByTimeRange(
-      from: range.weekStart,
-      to: range.weekEnd
-    )
-    let previousCards = StorageManager.shared.fetchTimelineCardsByTimeRange(
-      from: previousRange.weekStart,
-      to: previousRange.weekEnd
-    )
-    let recordedMinutes = Int(
-      StorageManager.shared.fetchTotalMinutesTracked(
+    let loadResult = await Task.detached(priority: .userInitiated) {
+      let previousRange = range.shifted(byWeeks: -1)
+      let cards = StorageManager.shared.fetchTimelineCardsByTimeRange(
         from: range.weekStart,
         to: range.weekEnd
-      ).rounded(.down)
-    )
-    let snapshot = WeeklyDashboardBuilder.build(
-      cards: cards,
-      previousWeekCards: previousCards,
-      categories: categories,
-      weekRange: range
-    )
+      )
+      let previousCards = StorageManager.shared.fetchTimelineCardsByTimeRange(
+        from: previousRange.weekStart,
+        to: previousRange.weekEnd
+      )
+      let snapshot = WeeklyDashboardBuilder.build(
+        cards: cards,
+        previousWeekCards: previousCards,
+        categories: categories,
+        weekRange: range
+      )
+      let recordedMinutes = Int(
+        StorageManager.shared.fetchTotalMinutesTracked(
+          from: range.weekStart,
+          to: range.weekEnd
+        ).rounded(.down)
+      )
 
-    guard range == weekRange else { return }
-    dashboardSnapshot = snapshot
-    selectedWeekRecordedMinutes = recordedMinutes
+      return (snapshot: snapshot, selectedWeekRecordedMinutes: recordedMinutes)
+    }.value
+
+    guard !Task.isCancelled, range == weekRange, loadGeneration == weeklyLoadGeneration else {
+      return
+    }
+    dashboardSnapshot = loadResult.snapshot
+    selectedWeekRecordedMinutes = loadResult.selectedWeekRecordedMinutes
     isLoading = false
   }
 }
