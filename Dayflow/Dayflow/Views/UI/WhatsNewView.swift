@@ -32,21 +32,21 @@ struct ReleaseNote: Identifiable {
   }
 }
 
-enum WhatsNewGoalHelpfulness: String, CaseIterable, Identifiable {
-  case helpful
-  case notSureYet = "not_sure_yet"
-  case notHelpful = "not_helpful"
+enum WhatsNewWeeklyFeedback: String, CaseIterable, Identifiable {
+  case valuable = "valuable"
+  case usefulNeedsWork = "useful_needs_work"
+  case notUsefulYet = "not_useful_yet"
 
   var id: String { rawValue }
 
   var title: String {
     switch self {
-    case .helpful:
-      return "Helpful"
-    case .notSureYet:
-      return "Not sure yet"
-    case .notHelpful:
-      return "Not helpful"
+    case .valuable:
+      return "It feels valuable"
+    case .usefulNeedsWork:
+      return "Useful, but needs work"
+    case .notUsefulYet:
+      return "Not useful yet"
     }
   }
 }
@@ -57,17 +57,17 @@ enum WhatsNewConfiguration {
   private static let seenKey = "lastSeenWhatsNewVersion"
 
   /// Override with the specific release number you want to show.
-  private static let versionOverride: String? = "1.13.0"
+  private static let versionOverride: String? = "1.14.0"
 
   /// Update this content before shipping each release. Return nil to disable the modal entirely.
   static var configuredRelease: ReleaseNote? {
     ReleaseNote(
       version: targetVersion,
-      title: "New Weekly View Now Available",
+      title: "Dayflow Pro + New referral system - earn $20 when you refer your friends!",
       highlights: [
-        "We're experimenting with a new Weekly view that helps you understand your time at a higher level.",
-        "We haven't tested it with a huge variety of data, so please send in reports if something looks weird or off.",
-        "Lastly, it would be immensely helpful if you could offer some feedback on the new goals feature.",
+        "Thank you to everyone who already signed up for Dayflow Pro!",
+        "We want Dayflow Pro to be an accessible option for everyone, but understand that not everyone can afford it. We set up a referral system so you can earn $20 of Dayflow credit for every friend you refer to Dayflow. You can find more details in Settings > Account.",
+        "Dayflow will remain open source. We believe in creating open, accessible software for everyone. Dayflow Pro is there for people who want the simplest setup and maximum intelligence.",
       ],
       previewIntro: nil,
       previewImageNames: [],
@@ -130,17 +130,17 @@ struct WhatsNewView: View {
   let onDismiss: () -> Void
 
   @Environment(\.openURL) private var openURL
-  @AppStorage("whatsNewGoalSurveySubmittedVersion") private var submittedGoalSurveyVersion: String =
+  @AppStorage("whatsNewWeeklyFeedbackSubmittedVersion") private var submittedWeeklyFeedbackVersion =
     ""
-  @State private var selectedGoalHelpfulness: WhatsNewGoalHelpfulness?
-  @State private var goalImprovementText = ""
+  @State private var selectedWeeklyFeedback: WhatsNewWeeklyFeedback?
+  @State private var weeklyImprovementText = ""
   @State private var releaseSurveyResponseID = ""
-  @State private var isSubmittingGoalSurvey = false
+  @State private var isSubmittingWeeklyFeedback = false
   @State private var surveyErrorText: String?
   @State private var didHydrateSurveyState = false
 
   private let bottomAnchorID = "whats_new_bottom_anchor"
-  private let releaseSurveyKey = "goal_feedback"
+  private let releaseSurveyKey = "weekly_feedback"
 
   var body: some View {
     ScrollView {
@@ -150,6 +150,11 @@ struct WhatsNewView: View {
             Text("What's New in \(releaseNote.version) 🎉")
               .font(.custom("InstrumentSerif-Regular", size: 32))
               .foregroundColor(.black.opacity(0.9))
+
+            Text(releaseNote.title)
+              .font(.custom("Figtree", size: 17))
+              .fontWeight(.semibold)
+              .foregroundColor(.black.opacity(0.78))
           }
 
           Spacer()
@@ -261,34 +266,34 @@ struct WhatsNewView: View {
 
   private var surveySection: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("Has setting a daily goal been helpful?")
+      Text("How do you feel about Weekly so far?")
         .font(.custom("Figtree", size: 15))
         .fontWeight(.semibold)
         .foregroundColor(.black.opacity(0.85))
         .fixedSize(horizontal: false, vertical: true)
 
       Text(
-        "A quick answer helps shape where goals go next."
+        "A quick answer helps shape where Weekly goes next."
       )
       .font(.custom("Figtree", size: 13))
       .foregroundColor(.black.opacity(0.62))
       .fixedSize(horizontal: false, vertical: true)
 
       HStack(spacing: 10) {
-        ForEach(WhatsNewGoalHelpfulness.allCases) { option in
-          goalHelpfulnessButton(option)
+        ForEach(WhatsNewWeeklyFeedback.allCases) { option in
+          weeklyFeedbackButton(option)
         }
       }
 
       VStack(alignment: .leading, spacing: 8) {
-        Text("What would make goals better?")
+        Text("How can we improve Weekly?")
           .font(.custom("Figtree", size: 15))
           .fontWeight(.semibold)
           .foregroundColor(.black.opacity(0.85))
 
         WhatsNewSurveyTextEditor(
-          text: $goalImprovementText,
-          placeholder: "More control, better reminders, clearer progress, something else..."
+          text: $weeklyImprovementText,
+          placeholder: "New visualizations, data, comparisons, breakdowns, anything missing..."
         )
         .frame(minHeight: 78)
         .background(
@@ -311,12 +316,12 @@ struct WhatsNewView: View {
 
       HStack(spacing: 12) {
         DayflowSurfaceButton(
-          action: submitGoalSurveyFromButton,
+          action: submitWeeklyFeedbackFromButton,
           content: {
             HStack(spacing: 8) {
               Image(systemName: "paperplane.fill")
                 .font(.system(size: 12, weight: .semibold))
-              Text(isSubmittingGoalSurvey ? "Saving..." : "Send feedback")
+              Text(isSubmittingWeeklyFeedback ? "Saving..." : "Send feedback")
                 .font(.custom("Figtree", size: 14))
                 .fontWeight(.semibold)
             }
@@ -329,11 +334,11 @@ struct WhatsNewView: View {
           verticalPadding: 9,
           showOverlayStroke: true
         )
-        .disabled(isSubmittingGoalSurvey)
-        .opacity(isSubmittingGoalSurvey ? 0.72 : 1)
+        .disabled(isSubmittingWeeklyFeedback)
+        .opacity(isSubmittingWeeklyFeedback ? 0.72 : 1)
         .pointingHandCursor()
 
-        if hasSubmittedGoalSurvey {
+        if hasSubmittedWeeklyFeedback {
           Label("Saved.", systemImage: "checkmark.circle.fill")
             .font(.custom("Figtree", size: 14))
             .foregroundColor(Color(red: 0.25, green: 0.17, blue: 0))
@@ -345,11 +350,11 @@ struct WhatsNewView: View {
     .preferredColorScheme(.light)
   }
 
-  private func goalHelpfulnessButton(_ option: WhatsNewGoalHelpfulness) -> some View {
-    let isSelected = selectedGoalHelpfulness == option
+  private func weeklyFeedbackButton(_ option: WhatsNewWeeklyFeedback) -> some View {
+    let isSelected = selectedWeeklyFeedback == option
 
     return Button(action: {
-      selectGoalHelpfulness(option)
+      selectWeeklyFeedback(option)
     }) {
       HStack(spacing: 8) {
         Text(option.title)
@@ -380,7 +385,7 @@ struct WhatsNewView: View {
       )
     }
     .buttonStyle(.plain)
-    .disabled(isSubmittingGoalSurvey)
+    .disabled(isSubmittingWeeklyFeedback)
     .pointingHandCursor()
   }
 
@@ -433,62 +438,62 @@ struct WhatsNewView: View {
     openURL(url)
   }
 
-  private var hasSubmittedGoalSurvey: Bool {
-    submittedGoalSurveyVersion == releaseNote.version
+  private var hasSubmittedWeeklyFeedback: Bool {
+    submittedWeeklyFeedbackVersion == releaseNote.version
   }
 
-  private func selectGoalHelpfulness(_ option: WhatsNewGoalHelpfulness) {
-    let previousSelection = selectedGoalHelpfulness
-    selectedGoalHelpfulness = option
-    persistGoalSurveyState()
+  private func selectWeeklyFeedback(_ option: WhatsNewWeeklyFeedback) {
+    let previousSelection = selectedWeeklyFeedback
+    selectedWeeklyFeedback = option
+    persistWeeklyFeedbackState()
     surveyErrorText = nil
 
     Task {
       if await submitReleaseSurvey() {
-        submittedGoalSurveyVersion = releaseNote.version
+        submittedWeeklyFeedbackVersion = releaseNote.version
       } else {
-        selectedGoalHelpfulness = previousSelection
-        persistGoalSurveyState()
+        selectedWeeklyFeedback = previousSelection
+        persistWeeklyFeedbackState()
       }
     }
   }
 
-  private func submitGoalSurveyFromButton() {
-    persistGoalSurveyState()
+  private func submitWeeklyFeedbackFromButton() {
+    persistWeeklyFeedbackState()
     surveyErrorText = nil
 
     Task {
       if await submitReleaseSurvey() {
-        submittedGoalSurveyVersion = releaseNote.version
+        submittedWeeklyFeedbackVersion = releaseNote.version
       }
     }
   }
 
-  private func persistGoalSurveyState() {
-    if let selectedGoalHelpfulness {
+  private func persistWeeklyFeedbackState() {
+    if let selectedWeeklyFeedback {
       UserDefaults.standard.set(
-        selectedGoalHelpfulness.rawValue, forKey: selectedHelpfulnessStorageKey)
+        selectedWeeklyFeedback.rawValue, forKey: selectedFeedbackStorageKey)
     } else {
-      UserDefaults.standard.removeObject(forKey: selectedHelpfulnessStorageKey)
+      UserDefaults.standard.removeObject(forKey: selectedFeedbackStorageKey)
     }
 
-    UserDefaults.standard.set(goalImprovementText, forKey: goalImprovementStorageKey)
+    UserDefaults.standard.set(weeklyImprovementText, forKey: improvementStorageKey)
   }
 
   private func hydrateSurveyStateIfNeeded() {
-    if let storedHelpfulness = UserDefaults.standard.string(forKey: selectedHelpfulnessStorageKey) {
-      selectedGoalHelpfulness = WhatsNewGoalHelpfulness(rawValue: storedHelpfulness)
+    if let storedFeedback = UserDefaults.standard.string(forKey: selectedFeedbackStorageKey) {
+      selectedWeeklyFeedback = WhatsNewWeeklyFeedback(rawValue: storedFeedback)
     }
-    goalImprovementText = UserDefaults.standard.string(forKey: goalImprovementStorageKey) ?? ""
+    weeklyImprovementText = UserDefaults.standard.string(forKey: improvementStorageKey) ?? ""
     releaseSurveyResponseID = loadReleaseSurveyResponseID()
   }
 
-  private var selectedHelpfulnessStorageKey: String {
-    "whatsNewGoalHelpfulness_\(releaseSurveyKey)_\(releaseNote.version)"
+  private var selectedFeedbackStorageKey: String {
+    "whatsNewWeeklyFeedback_\(releaseSurveyKey)_\(releaseNote.version)"
   }
 
-  private var goalImprovementStorageKey: String {
-    "whatsNewGoalImprovement_\(releaseSurveyKey)_\(releaseNote.version)"
+  private var improvementStorageKey: String {
+    "whatsNewWeeklyImprovement_\(releaseSurveyKey)_\(releaseNote.version)"
   }
 
   private var releaseSurveyResponseIDStorageKey: String {
@@ -509,10 +514,10 @@ struct WhatsNewView: View {
   }
 
   private func submitReleaseSurvey() async -> Bool {
-    isSubmittingGoalSurvey = true
+    isSubmittingWeeklyFeedback = true
 
     defer {
-      isSubmittingGoalSurvey = false
+      isSubmittingWeeklyFeedback = false
     }
 
     do {
@@ -520,14 +525,15 @@ struct WhatsNewView: View {
         releaseSurveyResponseID.isEmpty
         ? loadReleaseSurveyResponseID() : releaseSurveyResponseID
       releaseSurveyResponseID = responseID
-      let trimmedImprovement = goalImprovementText.trimmingCharacters(in: .whitespacesAndNewlines)
+      let trimmedImprovement = weeklyImprovementText.trimmingCharacters(
+        in: .whitespacesAndNewlines)
       try await ReleaseSurveyClient.submit(
         ReleaseSurveyPayload(
           responseID: responseID,
           surveyKey: releaseSurveyKey,
           version: releaseNote.version,
-          proInterest: selectedGoalHelpfulness?.rawValue,
-          proPrice: trimmedImprovement.isEmpty ? nil : trimmedImprovement,
+          selectedOption: selectedWeeklyFeedback?.rawValue,
+          improvementText: trimmedImprovement.isEmpty ? nil : trimmedImprovement,
           appVersion: appVersion,
           analyticsOptIn: AnalyticsService.shared.isOptedIn,
           providerLabel: currentProviderLabel
@@ -565,8 +571,8 @@ private struct ReleaseSurveyPayload: Encodable {
   let responseID: String
   let surveyKey: String
   let version: String
-  let proInterest: String?
-  let proPrice: String?
+  let selectedOption: String?
+  let improvementText: String?
   let appVersion: String
   let analyticsOptIn: Bool
   let providerLabel: String
@@ -575,8 +581,8 @@ private struct ReleaseSurveyPayload: Encodable {
     case responseID = "response_id"
     case surveyKey = "survey_key"
     case version
-    case proInterest = "pro_interest"
-    case proPrice = "pro_price"
+    case selectedOption = "pro_interest"
+    case improvementText = "pro_price"
     case appVersion = "app_version"
     case analyticsOptIn = "analytics_opt_in"
     case providerLabel = "provider_label"
