@@ -12,6 +12,7 @@ build_tmp/
 build_universal/
 .claude/
 scripts/release.env
+Dayflow/Config/LocalSecrets.xcconfig
 signed/
 
 # Ignore Claude prompt notes

@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		C469402F2E8C947E00CA648B /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = C469402E2E8C947E00CA648B /* Sentry */; };
 		C4A035B12E6CFEC600DE0FBD /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = C4A035B02E6CFEC600DE0FBD /* PostHog */; };
+		C4AD00032F0D00010000000C /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = C4AD00022F0D00010000000B /* MarkdownUI */; };
 		C4D74EB12E3608B5005E3CD7 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = C4D74EB02E3608B5005E3CD7 /* Sparkle */; };
 		C4EBF0022DBDF82000FC5824 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = C4EBF0012DBDF82000FC5824 /* GRDB */; };
 /* End PBXBuildFile section */
@@ -34,6 +35,7 @@
 		C4C1D2A12DB56805007D5A55 /* Dayflow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Dayflow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C4C1D2B22DB56806007D5A55 /* DayflowTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DayflowTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C4C1D2BC2DB56806007D5A55 /* DayflowUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DayflowUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C4DF00012EFB100000000001 /* Config/Dayflow.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Dayflow.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -58,6 +60,7 @@
 				C4EBF0022DBDF82000FC5824 /* GRDB in Frameworks */,
 				C4D74EB12E3608B5005E3CD7 /* Sparkle in Frameworks */,
 				C469402F2E8C947E00CA648B /* Sentry in Frameworks */,
+				C4AD00032F0D00010000000C /* MarkdownUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -83,6 +86,7 @@
 			children = (
 				C4C1D2A32DB56805007D5A55 /* Dayflow */,
 				FEFD599FBA059B170B03FA5E /* DayflowTests */,
+				C4DF00012EFB100000000001 /* Config/Dayflow.xcconfig */,
 				C4C1D2A22DB56805007D5A55 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -121,6 +125,7 @@
 				C4D74EB02E3608B5005E3CD7 /* Sparkle */,
 				C4A035B02E6CFEC600DE0FBD /* PostHog */,
 				C469402E2E8C947E00CA648B /* Sentry */,
+				C4AD00022F0D00010000000B /* MarkdownUI */,
 			);
 			productName = Dayflow;
 			productReference = C4C1D2A12DB56805007D5A55 /* Dayflow.app */;
@@ -206,6 +211,7 @@
 				C4D74EAF2E3608B5005E3CD7 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				C4A035AF2E6CFEC600DE0FBD /* XCRemoteSwiftPackageReference "posthog-ios" */,
 				C469402D2E8C947E00CA648B /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
+				C4AD00012F0D00010000000A /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C4C1D2A22DB56805007D5A55 /* Products */;
@@ -401,6 +407,7 @@
 		};
 		C4C1D2C72DB56806007D5A55 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = C4DF00012EFB100000000001 /* Config/Dayflow.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -435,6 +442,7 @@
 		};
 		C4C1D2C82DB56806007D5A55 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = C4DF00012EFB100000000001 /* Config/Dayflow.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -593,6 +601,14 @@
 				minimumVersion = 3.31.0;
 			};
 		};
+		C4AD00012F0D00010000000A /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.1;
+			};
+		};
 		C4D74EAF2E3608B5005E3CD7 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
@@ -621,6 +637,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C4A035AF2E6CFEC600DE0FBD /* XCRemoteSwiftPackageReference "posthog-ios" */;
 			productName = PostHog;
+		};
+		C4AD00022F0D00010000000B /* MarkdownUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C4AD00012F0D00010000000A /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
+			productName = MarkdownUI;
 		};
 		C4D74EB02E3608B5005E3CD7 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
