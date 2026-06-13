@@ -8,15 +8,15 @@
 import Foundation
 
 /// Represents a single message in the chat conversation
-struct ChatMessage: Identifiable, Sendable {
+struct ChatMessage: Identifiable, Sendable, Equatable {
   let id: UUID
   let role: Role
   let content: String
   let timestamp: Date
   var toolStatus: ToolStatus?
 
-  /// The role/type of message
-  enum Role: Sendable {
+  /// The role/type of message. String-backed so chat history can persist it.
+  enum Role: String, Sendable, Equatable {
     case user  // User's question
     case assistant  // LLM's response
     case toolCall  // Visible tool execution

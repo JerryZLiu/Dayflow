@@ -648,6 +648,32 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
               CREATE INDEX IF NOT EXISTS idx_llm_calls_batch ON llm_calls(batch_id);
           """)
 
+      // Dashboard chat history: conversations and their messages
+      try db.execute(
+        sql: """
+              CREATE TABLE IF NOT EXISTS chat_conversations (
+                  id TEXT NOT NULL PRIMARY KEY,
+                  title TEXT NOT NULL,
+                  provider TEXT NOT NULL,
+                  cli_session_id TEXT,
+                  created_at INTEGER NOT NULL,
+                  updated_at INTEGER NOT NULL
+              );
+              CREATE INDEX IF NOT EXISTS idx_chat_conversations_updated
+              ON chat_conversations(updated_at DESC);
+
+              CREATE TABLE IF NOT EXISTS chat_messages (
+                  id TEXT NOT NULL PRIMARY KEY,
+                  conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+                  role TEXT NOT NULL,
+                  content TEXT NOT NULL,
+                  created_at INTEGER NOT NULL,
+                  sort_order INTEGER NOT NULL
+              );
+              CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation
+              ON chat_messages(conversation_id, sort_order);
+          """)
+
       // Migration: Add soft delete column to timeline_cards if it doesn't exist
       let timelineCardsColumns = try db.columns(in: "timeline_cards").map { $0.name }
       if !timelineCardsColumns.contains("is_deleted") {
