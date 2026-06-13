@@ -19,6 +19,8 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>113</string>
+	<key>DayflowBackendURL</key>
+	<string>$(DAYFLOW_BACKEND_URL)</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Dayflow uses screen access to create your timeline. Recordings stay on your Mac and you can pause or delete them anytime.</string>
 	<key>SUAllowsAutomaticUpdates</key>

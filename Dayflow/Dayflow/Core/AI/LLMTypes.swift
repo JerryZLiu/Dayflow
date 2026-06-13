@@ -93,7 +93,7 @@ struct DashboardChatRequest: Sendable {
 
 enum LLMProviderType: Codable {
   case geminiDirect
-  case dayflowBackend(endpoint: String = "https://web-production-f3361.up.railway.app")
+  case dayflowBackend(endpoint: String = "")
   case ollamaLocal(endpoint: String = "http://localhost:11434")
   case chatGPTClaude
 

@@ -60,9 +60,6 @@ enum DailyRecapGeneratorError: LocalizedError {
 final class DailyRecapGenerator {
   static let shared = DailyRecapGenerator()
 
-  private static let dayflowBackendDefaultEndpoint = "https://web-production-f3361.up.railway.app"
-  private static let dayflowBackendInfoPlistKey = "DayflowBackendURL"
-  private static let dayflowBackendOverrideDefaultsKey = "dayflowBackendURLOverride"
   private static let localRecapMaxOutputTokens = 8192
 
   private static let localPrompt = """
@@ -443,7 +440,7 @@ final class DailyRecapGenerator {
       .trimmingCharacters(in: .whitespacesAndNewlines)
     guard !token.isEmpty else { return nil }
 
-    let endpoint = resolvedDayflowEndpoint()
+    guard let endpoint = resolvedDayflowEndpoint() else { return nil }
     return DayflowBackendProvider(token: token, endpoint: endpoint)
   }
 
@@ -478,31 +475,15 @@ final class DailyRecapGenerator {
     return !baseURL.isEmpty && !modelId.isEmpty
   }
 
-  private func resolvedDayflowEndpoint() -> String {
-    let defaults = UserDefaults.standard
-
-    if let override = defaults.string(forKey: Self.dayflowBackendOverrideDefaultsKey)?
-      .trimmingCharacters(in: .whitespacesAndNewlines),
-      !override.isEmpty
-    {
-      return override
+  private func resolvedDayflowEndpoint() -> String? {
+    let savedEndpoint: String?
+    if case .dayflowBackend(let endpoint) = LLMProviderType.load() {
+      savedEndpoint = endpoint
+    } else {
+      savedEndpoint = nil
     }
 
-    if let infoEndpoint = Bundle.main.infoDictionary?[Self.dayflowBackendInfoPlistKey] as? String {
-      let trimmed = infoEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-      if !trimmed.isEmpty {
-        return trimmed
-      }
-    }
-
-    if case .dayflowBackend(let savedEndpoint) = LLMProviderType.load(from: defaults) {
-      let trimmed = savedEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-      if !trimmed.isEmpty {
-        return trimmed
-      }
-    }
-
-    return Self.dayflowBackendDefaultEndpoint
+    return DayflowBackendConfiguration.endpoint(legacySavedEndpoint: savedEndpoint)
   }
 
   private func makeDraft(

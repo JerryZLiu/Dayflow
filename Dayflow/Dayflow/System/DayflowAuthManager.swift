@@ -258,7 +258,6 @@ final class DayflowAuthManager: ObservableObject {
   nonisolated private static let sessionAccount = "session_token"
   private static let rememberedEmailKey = "dayflowAccountEmail"
   private static let pendingReferralCodeKey = "dayflowPendingReferralCode"
-  private static let defaultEndpoint = "https://web-production-f3361.up.railway.app"
 
   @Published private(set) var user: DayflowAuthUser?
   @Published private(set) var entitlements = DayflowEntitlement.free
@@ -271,11 +270,10 @@ final class DayflowAuthManager: ObservableObject {
   @Published private(set) var referralSummary: DayflowReferralSummary?
   @Published private(set) var pendingReferralCode: String?
 
-  private let endpoint: String
+  private let endpoint: String?
 
   private init() {
-    self.endpoint = Self.defaultEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-      .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    self.endpoint = DayflowBackendConfiguration.endpoint()
     self.pendingReferralCode = UserDefaults.standard.string(forKey: Self.pendingReferralCodeKey)
   }
 
@@ -763,6 +761,10 @@ final class DayflowAuthManager: ObservableObject {
   }
 
   private func makeRequest(path: String, method: String) throws -> URLRequest {
+    guard let endpoint else {
+      throw DayflowAuthError.message("Invalid Dayflow backend URL.")
+    }
+
     guard let url = URL(string: "\(endpoint)\(path)") else {
       throw DayflowAuthError.message("Invalid Dayflow backend URL.")
     }

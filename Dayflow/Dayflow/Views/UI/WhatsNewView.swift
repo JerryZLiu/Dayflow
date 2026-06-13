@@ -590,9 +590,6 @@ private struct ReleaseSurveyPayload: Encodable {
 }
 
 private enum ReleaseSurveyClient {
-  private static let infoPlistEndpointKey = "DayflowBackendURL"
-  private static let debugEndpointOverrideKey = "dayflowBackendURLOverride"
-
   static func submit(_ payload: ReleaseSurveyPayload) async throws {
     guard let url = releaseSurveyURL() else {
       throw URLError(.badURL)
@@ -617,27 +614,7 @@ private enum ReleaseSurveyClient {
   }
 
   private static func resolvedEndpoint() -> String? {
-    #if DEBUG
-      if let override = UserDefaults.standard.string(forKey: debugEndpointOverrideKey)?
-        .trimmingCharacters(in: .whitespacesAndNewlines),
-        !override.isEmpty
-      {
-        return override.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-      }
-    #endif
-
-    if let infoEndpoint = Bundle.main.infoDictionary?[infoPlistEndpointKey] as? String {
-      let trimmed = infoEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-      if !trimmed.isEmpty {
-        return trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-      }
-    }
-
-    #if DEBUG
-      return "https://web-production-f3361.up.railway.app"
-    #else
-      return nil
-    #endif
+    DayflowBackendConfiguration.endpoint()
   }
 }
 

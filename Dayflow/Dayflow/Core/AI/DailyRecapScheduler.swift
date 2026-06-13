@@ -319,37 +319,6 @@ final class DailyRecapScheduler: @unchecked Sendable {
     )
   }
 
-  private static func resolvedDayflowEndpoint(
-    defaultEndpoint: String,
-    infoPlistKey: String,
-    overrideDefaultsKey: String
-  ) -> String {
-    let defaults = UserDefaults.standard
-
-    if let override = defaults.string(forKey: overrideDefaultsKey)?
-      .trimmingCharacters(in: .whitespacesAndNewlines),
-      !override.isEmpty
-    {
-      return override
-    }
-
-    if let infoEndpoint = Bundle.main.infoDictionary?[infoPlistKey] as? String {
-      let trimmed = infoEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-      if !trimmed.isEmpty {
-        return trimmed
-      }
-    }
-
-    if case .dayflowBackend(let savedEndpoint) = LLMProviderType.load(from: defaults) {
-      let trimmed = savedEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-      if !trimmed.isEmpty {
-        return trimmed
-      }
-    }
-
-    return defaultEndpoint
-  }
-
   private static func makeCardsText(day: String, cards: [TimelineCard]) -> String {
     let ordered = cards.sorted { lhs, rhs in
       if lhs.startTimestamp == rhs.startTimestamp {
