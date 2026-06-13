@@ -179,7 +179,11 @@ if [[ -n "${SENTRY_ENV:-}" ]]; then
   /usr/libexec/PlistBuddy -c "Set :SentryEnvironment ${SENTRY_ENV}" "${SANITIZED_APP}/Contents/Info.plist" \
     >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :SentryEnvironment string ${SENTRY_ENV}" "${SANITIZED_APP}/Contents/Info.plist"
 fi
-RESOLVED_DAYFLOW_BACKEND_URL="${DAYFLOW_BACKEND_URL:-https://web-production-f3361.up.railway.app}"
+if [[ -z "${DAYFLOW_BACKEND_URL:-}" ]]; then
+  echo "ERROR: DAYFLOW_BACKEND_URL must be set before building a release DMG." >&2
+  exit 1
+fi
+RESOLVED_DAYFLOW_BACKEND_URL="${DAYFLOW_BACKEND_URL}"
 /usr/libexec/PlistBuddy -c "Set :DayflowBackendURL ${RESOLVED_DAYFLOW_BACKEND_URL}" "${SANITIZED_APP}/Contents/Info.plist" \
   >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :DayflowBackendURL string ${RESOLVED_DAYFLOW_BACKEND_URL}" "${SANITIZED_APP}/Contents/Info.plist"
 
