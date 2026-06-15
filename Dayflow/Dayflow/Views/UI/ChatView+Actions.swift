@@ -53,6 +53,31 @@ extension ChatView {
     resetChatFeedbackState()
   }
 
+  /// Open a saved conversation from the history panel. The transcript restores
+  /// at the last user message (see ChatScrollModel.applyOpeningPositionIfNeeded).
+  func openConversation(_ record: ChatConversationRecord) {
+    guard !chatService.isProcessing else { return }
+    guard record.id != chatService.currentConversationID else { return }
+
+    scrollModel.prepareForConversationLoad()
+    chatService.loadConversation(record)
+    conversationId = record.id
+    resetChatFeedbackState()
+
+    // Continue the thread with the provider it was started on, when available.
+    let provider = DashboardChatProvider.fromStoredValue(record.provider)
+    if provider != selectedProvider, isProviderAvailable(provider) {
+      applySelectedProvider(provider)
+    }
+
+    AnalyticsService.shared.capture(
+      "chat_conversation_reopened",
+      [
+        "conversation_id": record.id.uuidString,
+        "provider": record.provider,
+      ])
+  }
+
   func copyDebugLog() {
     let text = chatService.debugLog.map { entry in
       "[\(chatViewDebugTimestampFormatter.string(from: entry.timestamp))] \(entry.type.rawValue)\n\(entry.content)"

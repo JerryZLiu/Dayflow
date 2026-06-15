@@ -23,6 +23,7 @@ let chatViewMemoryUpdatedFormatter: DateFormatter = {
 
 struct ChatView: View {
   @ObservedObject var chatService = ChatService.shared
+  @StateObject var scrollModel = ChatScrollModel()
   @State var inputText = ""
   @State var showWorkDetails = false
   @State var isInputFocused = false
@@ -42,6 +43,7 @@ struct ChatView: View {
   @State var conversationId: UUID?
   @State var didAnimateWelcome = false
   @State var showMemoryPanel = false
+  @State var showHistoryPanel = false
   @State var memoryDraft = ""
   @State var storedMemoryBlob = ""
   @State var memoryUpdatedAt: Date?
@@ -59,6 +61,16 @@ struct ChatView: View {
       if isUnlocked {
         HStack(spacing: 0) {
           chatContent
+          if showHistoryPanel {
+            ChatHistoryPanel(
+              conversations: chatService.conversations,
+              currentConversationID: chatService.currentConversationID,
+              isProcessing: chatService.isProcessing,
+              onSelect: { openConversation($0) },
+              onDelete: { chatService.deleteConversation(id: $0.id) },
+              onNewChat: { resetConversation() }
+            )
+          }
           if showMemoryPanel {
             memoryPanel
           }
@@ -99,6 +111,7 @@ struct ChatView: View {
     .onAppear {
       refreshChatAccessProgress()
       loadMemoryFromStore(resetDraft: true)
+      chatService.refreshConversationList()
       Task { await refreshRuntimeAvailability() }
     }
     .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in

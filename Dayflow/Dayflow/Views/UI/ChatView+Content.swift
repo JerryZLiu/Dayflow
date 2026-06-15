@@ -5,132 +5,8 @@ import SwiftUI
 extension ChatView {
   var chatContent: some View {
     VStack(alignment: .leading, spacing: 0) {
-      // Header buttons
-      HStack(spacing: 8) {
-        Spacer()
-
-        // Clear chat button (only show if there are messages)
-        if !chatService.messages.isEmpty {
-          Button(action: { resetConversation() }) {
-            Text("Clear")
-              .font(.custom("Figtree", size: 12).weight(.semibold))
-              .foregroundColor(Color(hex: "F96E00"))
-              .padding(.horizontal, 10)
-              .padding(.vertical, 6)
-              .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                  .fill(Color(hex: "FFF4E9"))
-              )
-              .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                  .stroke(Color(hex: "F96E00").opacity(0.25), lineWidth: 1)
-              )
-          }
-          .buttonStyle(.plain)
-          .help("Clear chat")
-          .pointingHandCursor()
-        }
-
-        // Debug toggle
-        Button(action: { chatService.showDebugPanel.toggle() }) {
-          Image(systemName: chatService.showDebugPanel ? "ladybug.fill" : "ladybug")
-            .font(.system(size: 14))
-            .foregroundColor(
-              chatService.showDebugPanel ? Color(hex: "F96E00") : Color(hex: "999999"))
-        }
-        .buttonStyle(.plain)
-        .help("Toggle debug panel")
-        .pointingHandCursor()
-
-        Button(
-          action: {
-            showMemoryPanel.toggle()
-            if showMemoryPanel {
-              syncMemoryFromStoreIfNeeded()
-              AnalyticsService.shared.capture("chat_memory_panel_opened")
-            }
-          }
-        ) {
-          Image(systemName: showMemoryPanel ? "brain.head.profile.fill" : "brain.head.profile")
-            .font(.system(size: 14))
-            .foregroundColor(showMemoryPanel ? Color(hex: "F96E00") : Color(hex: "999999"))
-        }
-        .buttonStyle(.plain)
-        .help("Toggle memory panel")
-        .pointingHandCursor()
-      }
-      .padding(.trailing, 12)
-      .padding(.top, 8)
-
-      // Messages area
-      ScrollViewReader { proxy in
-        ScrollView {
-          LazyVStack(alignment: .leading, spacing: 16) {
-            // Welcome message if empty
-            if chatService.messages.isEmpty {
-              welcomeView
-            }
-
-            // Messages
-            ForEach(Array(chatService.messages.enumerated()), id: \.element.id) { index, message in
-              if let status = chatService.workStatus,
-                let insertionIndex = statusInsertionIndex,
-                index == insertionIndex
-              {
-                WorkStatusCard(status: status, showDetails: $showWorkDetails)
-              }
-              ChatMessageRow(
-                message: message,
-                showsAssistantFooter: shouldShowAssistantFeedbackFooter(for: message),
-                selectedDirection: chatVoteSelections[message.id],
-                showsThanks: thankedMessageIDs.contains(message.id),
-                onCopy: { copyAssistantMessage(message) },
-                onRate: { direction in handleAssistantRating(direction, for: message) }
-              )
-            }
-            if let status = chatService.workStatus,
-              let insertionIndex = statusInsertionIndex,
-              insertionIndex == chatService.messages.count
-            {
-              WorkStatusCard(status: status, showDetails: $showWorkDetails)
-            }
-
-            // Follow-up suggestions (show after last assistant message when not processing)
-            if !chatService.isProcessing && !chatService.currentSuggestions.isEmpty {
-              followUpSuggestions
-            }
-
-            // Anchor for auto-scroll
-            Color.clear
-              .frame(height: 1)
-              .id(bottomID)
-          }
-          .padding(.horizontal, 16)
-          .padding(.top, 16)
-          .padding(.bottom, 20)
-        }
-        .scrollIndicators(.never)
-        .onChange(of: chatService.messages.count) {
-          withAnimation(.easeOut(duration: 0.2)) {
-            proxy.scrollTo(bottomID, anchor: .bottom)
-          }
-        }
-        .onChange(of: chatService.isProcessing) {
-          if chatService.isProcessing {
-            showWorkDetails = false
-          }
-          // Auto-scroll when processing starts
-          withAnimation(.easeOut(duration: 0.2)) {
-            proxy.scrollTo(bottomID, anchor: .bottom)
-          }
-        }
-      }
-      .onChange(of: chatService.messages.isEmpty) { _, isEmpty in
-        if isEmpty {
-          didAnimateWelcome = false
-          resetChatFeedbackState()
-        }
-      }
+      chatHeaderBar
+      messagesArea
 
       Divider()
         .background(Color(hex: "ECECEC"))
@@ -145,6 +21,238 @@ extension ChatView {
         endPoint: .bottom
       )
     )
+  }
+
+  // MARK: - Header buttons
+
+  var chatHeaderBar: some View {
+    HStack(spacing: 8) {
+      Spacer()
+
+      // New chat button (only show if there are messages)
+      if !chatService.messages.isEmpty {
+        Button(action: { resetConversation() }) {
+          Text("New chat")
+            .font(.custom("Figtree", size: 12).weight(.semibold))
+            .foregroundColor(Color(hex: "F96E00"))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+              RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(hex: "FFF4E9"))
+            )
+            .overlay(
+              RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color(hex: "F96E00").opacity(0.25), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .help("Start a new chat (this one is saved in history)")
+        .pointingHandCursor()
+      }
+
+      // History toggle
+      Button(
+        action: {
+          showHistoryPanel.toggle()
+          if showHistoryPanel {
+            chatService.refreshConversationList()
+          }
+        }
+      ) {
+        Image(systemName: "clock.arrow.circlepath")
+          .font(.system(size: 14))
+          .foregroundColor(showHistoryPanel ? Color(hex: "F96E00") : Color(hex: "999999"))
+      }
+      .buttonStyle(.plain)
+      .help("Toggle chat history")
+      .pointingHandCursor()
+
+      // Debug toggle
+      Button(action: { chatService.showDebugPanel.toggle() }) {
+        Image(systemName: chatService.showDebugPanel ? "ladybug.fill" : "ladybug")
+          .font(.system(size: 14))
+          .foregroundColor(
+            chatService.showDebugPanel ? Color(hex: "F96E00") : Color(hex: "999999"))
+      }
+      .buttonStyle(.plain)
+      .help("Toggle debug panel")
+      .pointingHandCursor()
+
+      Button(
+        action: {
+          showMemoryPanel.toggle()
+          if showMemoryPanel {
+            syncMemoryFromStoreIfNeeded()
+            AnalyticsService.shared.capture("chat_memory_panel_opened")
+          }
+        }
+      ) {
+        Image(systemName: showMemoryPanel ? "brain.head.profile.fill" : "brain.head.profile")
+          .font(.system(size: 14))
+          .foregroundColor(showMemoryPanel ? Color(hex: "F96E00") : Color(hex: "999999"))
+      }
+      .buttonStyle(.plain)
+      .help("Toggle memory panel")
+      .pointingHandCursor()
+    }
+    .padding(.trailing, 12)
+    .padding(.top, 8)
+  }
+
+  // MARK: - Messages area
+
+  // Scroll behavior follows shadcn's message-scroller rules: a new user turn
+  // anchors near the top and the reply streams into the space below;
+  // auto-follow only runs while the reader is at the live edge.
+  var messagesArea: some View {
+    ScrollViewReader { proxy in
+      ZStack(alignment: .bottom) {
+        transcriptScrollView(proxy)
+        if scrollModel.showJumpToLatest {
+          JumpToLatestPill(isStreaming: chatService.isProcessing) {
+            scrollModel.jumpToLatest(using: proxy, bottomID: bottomID)
+          }
+          .padding(.bottom, 14)
+          .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
+      }
+      .animation(.easeOut(duration: 0.18), value: scrollModel.showJumpToLatest)
+      .onChange(of: chatService.messages.count) {
+        if let last = chatService.messages.last, last.role == .user {
+          scrollModel.queueAnchor(for: last.id)
+        }
+      }
+      .onChange(of: chatService.isProcessing) {
+        if chatService.isProcessing {
+          showWorkDetails = false
+        }
+      }
+    }
+    .onChange(of: chatService.messages.isEmpty) { _, isEmpty in
+      if isEmpty {
+        didAnimateWelcome = false
+        resetChatFeedbackState()
+        scrollModel.resetForNewConversation()
+      }
+    }
+  }
+
+  /// The scrollable transcript, with geometry reporting and scroll-model wiring.
+  func transcriptScrollView(_ proxy: ScrollViewProxy) -> some View {
+    ScrollView {
+      transcript
+        .background(
+          GeometryReader { geometry in
+            Color.clear.preference(
+              key: ChatContentFrameKey.self,
+              value: geometry.frame(in: .named(ChatScrollCoordinateSpace.viewport))
+            )
+          }
+        )
+        .coordinateSpace(name: ChatScrollCoordinateSpace.content)
+    }
+    .coordinateSpace(name: ChatScrollCoordinateSpace.viewport)
+    .scrollIndicators(.automatic)
+    .background(
+      GeometryReader { geometry in
+        Color.clear
+          .onAppear { scrollModel.updateViewportHeight(geometry.size.height) }
+          .onChange(of: geometry.size.height) { _, height in
+            scrollModel.updateViewportHeight(height)
+          }
+      }
+    )
+    .onChatScrollWheel {
+      scrollModel.noteUserGesture()
+    }
+    .onPreferenceChange(ChatContentFrameKey.self) { frame in
+      MainActor.assumeIsolated {
+        scrollModel.updateContentFrame(frame)
+        scrollModel.followIfNeeded(using: proxy, bottomID: bottomID)
+      }
+    }
+    .onPreferenceChange(ChatRowFramesKey.self) { frames in
+      MainActor.assumeIsolated {
+        scrollModel.updateRowFrames(frames)
+        scrollModel.anchorPendingTurnIfReady(using: proxy)
+        scrollModel.applyOpeningPositionIfNeeded(
+          lastUserMessageID: chatService.messages.last(where: { $0.role == .user })?.id,
+          using: proxy,
+          bottomID: bottomID
+        )
+      }
+    }
+  }
+
+  /// The transcript rows. Each row reports its frame so the scroll model can
+  /// anchor turns, detect hidden content, and restore opening positions.
+  var transcript: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      // Welcome message if empty
+      if chatService.messages.isEmpty {
+        welcomeView
+      }
+
+      // Messages
+      ForEach(Array(chatService.messages.enumerated()), id: \.element.id) { index, message in
+        if index == statusInsertionIndex {
+          workStatusRow
+        }
+        transcriptRow(for: message)
+      }
+      if statusInsertionIndex == chatService.messages.count {
+        workStatusRow
+      }
+
+      // Follow-up suggestions (show after last assistant message when not processing)
+      if !chatService.isProcessing && !chatService.currentSuggestions.isEmpty {
+        followUpSuggestions
+          .chatRowFrame(id: "suggestions")
+      }
+
+      // Tail spacer: reserves space below the newest turn so it can anchor near
+      // the top of the viewport. Doubles as the scroll target for the live edge.
+      Color.clear
+        .frame(height: max(1, scrollModel.tailSpacerHeight))
+        .id(bottomID)
+    }
+    .padding(.horizontal, 16)
+    .padding(.top, 16)
+    .padding(.bottom, 20)
+  }
+
+  @ViewBuilder
+  var workStatusRow: some View {
+    if let status = chatService.workStatus {
+      WorkStatusCard(status: status, showDetails: $showWorkDetails)
+        .chatRowFrame(id: "workStatus")
+    }
+  }
+
+  /// One transcript row plus its anchor marker: a scroll target 64pt above a
+  /// user turn, so scrolling it to .top leaves the previous turn peeking above
+  /// the newly anchored message.
+  func transcriptRow(for message: ChatMessage) -> some View {
+    ChatMessageRow(
+      message: message,
+      showsAssistantFooter: shouldShowAssistantFeedbackFooter(for: message),
+      selectedDirection: chatVoteSelections[message.id],
+      showsThanks: thankedMessageIDs.contains(message.id),
+      onCopy: { copyAssistantMessage(message) },
+      onRate: { direction in handleAssistantRating(direction, for: message) }
+    )
+    .id(message.id)
+    .chatRowFrame(id: message.id)
+    .overlay(alignment: .top) {
+      if message.role == .user {
+        Color.clear
+          .frame(height: 1)
+          .offset(y: -ChatScrollModel.previousTurnPeek)
+          .id(ChatAnchorMarkerID(messageID: message.id))
+          .allowsHitTesting(false)
+      }
+    }
   }
 
   // MARK: - Debug Panel
@@ -574,7 +682,7 @@ extension ChatView {
         placeholder: "Ask about your Dayflow data...",
         onSubmit: submitCurrentInputIfAllowed
       )
-      .frame(height: 50, alignment: .leading)
+      .frame(maxWidth: .infinity, alignment: .leading)
 
       Rectangle()
         .fill(Color(hex: "EEE4D8"))
