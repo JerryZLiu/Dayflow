@@ -158,6 +158,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Start daily recap generation scheduler (checks every 5 minutes)
     DailyRecapScheduler.shared.start()
+    PersonalPlugins.start()
 
     // Observe recording state
     analyticsSub = AppState.shared.$isRecording
@@ -266,6 +267,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             case .dayflowBackend: return "dayflow"
             case .ollamaLocal: return "ollama"
             case .chatGPTClaude: return "chat_cli"
+            case .apfel: return "apfel"
             }
           }()
         ])
