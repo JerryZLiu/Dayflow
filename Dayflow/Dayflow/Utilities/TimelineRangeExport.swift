@@ -53,4 +53,15 @@ enum TimelineRangeExport {
       activityCount: totalActivities
     )
   }
+
+  /// The default export file name for a day or range. Shared by the Settings UI save panel
+  /// and the deep-link export so both propose the same name.
+  static func defaultFileName(startDay: Date, endDay: Date) -> String {
+    let start = DateFormatter.yyyyMMdd.string(from: startDay)
+    let end = DateFormatter.yyyyMMdd.string(from: endDay)
+    if start == end {
+      return "Dayflow timeline \(start).md"
+    }
+    return "Dayflow timeline \(start) to \(end).md"
+  }
 }

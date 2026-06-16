@@ -114,7 +114,9 @@ final class AppDeepLinkRouter {
   private func exportTimeline(from url: URL) {
     switch TimelineExportRequest.parse(url: url) {
     case .success(let request):
-      Task.detached(priority: .userInitiated) {
+      // Run off the main thread. Use a GCD queue rather than Task.detached so the synchronous
+      // database reads and file write don't occupy a Swift cooperative thread.
+      DispatchQueue.global(qos: .userInitiated).async {
         TimelineExportService.run(request)
       }
     case .failure(let error):

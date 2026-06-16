@@ -19,7 +19,13 @@ struct TimelineExportRequest: Equatable {
   enum ParseError: Error, Equatable {
     case invalidDate(String)
     case startAfterEnd
+    case rangeTooLarge
   }
+
+  /// Maximum number of days an export may span (inclusive). Bounds the work a single deep link
+  /// can trigger — without it, `start=2000-01-01&end=2030-01-01` would force thousands of
+  /// database reads on a background thread.
+  static let maxRangeDays = 366
 
   /// Parses a `dayflow://export-timeline?...` URL into a validated request.
   ///
@@ -33,10 +39,16 @@ struct TimelineExportRequest: Equatable {
   static func parse(url: URL, now: Date = Date()) -> Result<TimelineExportRequest, ParseError> {
     let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
 
+    // Resolve in preference order: the first name with a non-empty value wins, regardless of
+    // where it appears in the query string (so `path` beats its `to`/`destination` aliases).
     func value(forAny names: [String]) -> String? {
-      for item in items where names.contains(item.name.lowercased()) {
-        if let trimmed = item.value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty {
-          return trimmed
+      for name in names {
+        for item in items where item.name.lowercased() == name {
+          if let trimmed = item.value?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !trimmed.isEmpty
+          {
+            return trimmed
+          }
         }
       }
       return nil
@@ -75,6 +87,9 @@ struct TimelineExportRequest: Equatable {
 
     guard startDay <= endDay else { return .failure(.startAfterEnd) }
 
+    let span = Calendar.current.dateComponents([.day], from: startDay, to: endDay).day ?? 0
+    guard span < maxRangeDays else { return .failure(.rangeTooLarge) }
+
     return .success(
       TimelineExportRequest(
         startDay: startDay,
@@ -101,6 +116,6 @@ struct TimelineExportRequest: Equatable {
 
   private static func parseBool(_ value: String?) -> Bool {
     guard let value = value?.lowercased() else { return false }
-    return ["true", "1", "yes", "y"].contains(value)
+    return ["true", "1", "yes"].contains(value)
   }
 }

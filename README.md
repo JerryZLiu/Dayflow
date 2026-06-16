@@ -89,7 +89,9 @@ Dayflow registers a `dayflow://` URL scheme so you can drive it from Raycast, Al
 | `date` | `today`, `yesterday`, or `YYYY-MM-DD` (single day) | `today` |
 | `start` / `end` | `today`, `yesterday`, or `YYYY-MM-DD` (inclusive range) | — |
 | `path` (aliases `to`, `destination`) | a file path, or a directory to write into; `~` is expanded | `~/Downloads/Dayflow timeline <range>.md` |
-| `reveal` | `true` / `1` to reveal the file in Finder when done | `false` |
+| `reveal` | `true` / `1` / `yes` to reveal the file in Finder when done | `false` |
+
+For safety (the `dayflow://` scheme can be invoked by other apps), deep-link exports may only be written inside your **Downloads**, **Documents**, or **Desktop** folders (or a subfolder of one); a `path` outside those is rejected and nothing is written. Exports are also capped at one year (366 days) per call.
 
 ```bash
 # Export today to ~/Downloads

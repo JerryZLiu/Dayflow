@@ -5,12 +5,16 @@ import Foundation
 /// for the requested range, resolves the destination path, writes the file, emits analytics,
 /// and optionally reveals the result in Finder.
 ///
-/// The path/name resolution is factored into pure static helpers so it can be unit tested
-/// without touching the real filesystem.
+/// The path resolution is factored into pure static helpers so it can be unit tested without
+/// touching the real filesystem.
+///
+/// Because the `dayflow://` URL scheme is invokable by any local process or by a webpage (and
+/// the app is not sandboxed), the caller-supplied destination is treated as untrusted: writes
+/// are constrained to the user's standard export folders (Downloads, Documents, Desktop) and
+/// `..` traversal is collapsed before that check. See `resolveDestination`.
 enum TimelineExportService {
-  /// Runs the export described by `request`. Intended to be called off the main actor
-  /// (the deep-link router dispatches it on a detached task). Fails soft: errors are logged
-  /// and reported to analytics, never thrown.
+  /// Runs the export described by `request`. Intended to be called off the main actor.
+  /// Fails soft: errors are logged and reported to analytics, never thrown.
   static func run(_ request: TimelineExportRequest, now: Date = Date()) {
     let output = TimelineRangeExport.build(
       startDay: request.startDay,
@@ -18,11 +22,21 @@ enum TimelineExportService {
       now: now
     )
 
-    let destination = resolveDestination(
-      rawPath: request.destinationPath,
-      startDay: request.startDay,
-      endDay: request.endDay
-    )
+    guard
+      let destination = resolveDestination(
+        rawPath: request.destinationPath,
+        startDay: request.startDay,
+        endDay: request.endDay
+      )
+    else {
+      print(
+        "[DeepLink] export-timeline: refused destination "
+          + "\(request.destinationPath ?? "<default>") — outside the allowed export folders "
+          + "(Downloads, Documents, Desktop)")
+      AnalyticsService.shared.capture(
+        "timeline_export_failed", ["source": "deeplink", "error": "destination_not_allowed"])
+      return
+    }
 
     do {
       try FileManager.default.createDirectory(
@@ -46,8 +60,8 @@ enum TimelineExportService {
     AnalyticsService.shared.capture(
       "timeline_exported",
       [
-        "start_day": dayString(request.startDay),
-        "end_day": dayString(request.endDay),
+        "start_day": DateFormatter.yyyyMMdd.string(from: request.startDay),
+        "end_day": DateFormatter.yyyyMMdd.string(from: request.endDay),
         "day_count": output.dayCount,
         "activity_count": output.activityCount,
         "format": "markdown",
@@ -65,55 +79,68 @@ enum TimelineExportService {
 
   // MARK: - Pure helpers (unit tested)
 
-  /// Resolves the final file URL for the export.
+  /// The standard, safe export roots: the user's Downloads, Documents, and Desktop folders.
+  /// Deep-link exports are constrained to these (and their subfolders) so a hostile
+  /// `dayflow://export-timeline?path=...` cannot overwrite sensitive files (dotfiles,
+  /// `~/Library`, LaunchAgents) on this non-sandboxed app.
+  static func allowedExportRoots(fileManager: FileManager = .default) -> [URL] {
+    let searchPaths: [FileManager.SearchPathDirectory] = [
+      .downloadsDirectory, .documentDirectory, .desktopDirectory,
+    ]
+    return searchPaths.compactMap {
+      fileManager.urls(for: $0, in: .userDomainMask).first?.standardizedFileURL
+    }
+  }
+
+  /// Resolves the final file URL for the export, or `nil` when the request targets a location
+  /// outside `allowedExportRoots`.
   ///
   /// - `rawPath == nil`/empty → `<downloads>/<derived name>`.
   /// - `rawPath` is an existing directory (or ends with a path separator) → `<dir>/<derived name>`.
   /// - otherwise `rawPath` is the target file; a missing extension gets `.md` appended.
   ///
-  /// A leading `~` is expanded. `fileManager` is injectable so tests can stub the home/Downloads
-  /// directory and the directory-existence check.
+  /// A leading `~` is expanded and `..` is collapsed (the URL is standardized) before the
+  /// containment check, so traversal cannot escape the allowed roots. `fileManager` is
+  /// injectable so tests can stub the export folders and the directory-existence check.
   static func resolveDestination(
     rawPath: String?,
     startDay: Date,
     endDay: Date,
     fileManager: FileManager = .default
-  ) -> URL {
-    let fileName = defaultFileName(startDay: startDay, endDay: endDay)
+  ) -> URL? {
+    let fileName = TimelineRangeExport.defaultFileName(startDay: startDay, endDay: endDay)
 
-    guard let rawPath, !rawPath.isEmpty else {
-      return downloadsDirectory(fileManager: fileManager).appendingPathComponent(fileName)
+    let candidate: URL
+    if let rawPath, !rawPath.isEmpty {
+      let expanded = (rawPath as NSString).expandingTildeInPath
+      let looksLikeDirectory =
+        rawPath.hasSuffix("/") || isExistingDirectory(expanded, fileManager: fileManager)
+      if looksLikeDirectory {
+        candidate = URL(fileURLWithPath: expanded, isDirectory: true)
+          .appendingPathComponent(fileName)
+      } else {
+        var fileURL = URL(fileURLWithPath: expanded)
+        if fileURL.pathExtension.isEmpty {
+          fileURL.appendPathExtension("md")
+        }
+        candidate = fileURL
+      }
+    } else {
+      candidate = downloadsDirectory(fileManager: fileManager).appendingPathComponent(fileName)
     }
 
-    let expanded = (rawPath as NSString).expandingTildeInPath
-    let looksLikeDirectory =
-      rawPath.hasSuffix("/") || isExistingDirectory(expanded, fileManager: fileManager)
-
-    if looksLikeDirectory {
-      return URL(fileURLWithPath: expanded, isDirectory: true).appendingPathComponent(fileName)
-    }
-
-    var fileURL = URL(fileURLWithPath: expanded)
-    if fileURL.pathExtension.isEmpty {
-      fileURL.appendPathExtension("md")
-    }
-    return fileURL
-  }
-
-  /// The default file name, mirroring the Settings UI export naming.
-  static func defaultFileName(startDay: Date, endDay: Date) -> String {
-    let start = dayString(startDay)
-    let end = dayString(endDay)
-    if start == end {
-      return "Dayflow timeline \(start).md"
-    }
-    return "Dayflow timeline \(start) to \(end).md"
+    let standardized = candidate.standardizedFileURL
+    guard isWithinAllowedRoots(standardized, fileManager: fileManager) else { return nil }
+    return standardized
   }
 
   // MARK: - Private
 
-  private static func dayString(_ date: Date) -> String {
-    DateFormatter.yyyyMMdd.string(from: date)
+  private static func isWithinAllowedRoots(_ url: URL, fileManager: FileManager) -> Bool {
+    let directoryPath = url.deletingLastPathComponent().standardizedFileURL.path
+    return allowedExportRoots(fileManager: fileManager).contains { root in
+      directoryPath == root.path || directoryPath.hasPrefix(root.path + "/")
+    }
   }
 
   private static func downloadsDirectory(fileManager: FileManager) -> URL {

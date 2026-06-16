@@ -24,7 +24,7 @@ final class TimelineRangeExportTests: XCTestCase {
     XCTAssertFalse(output.markdown.contains(TimelineRangeExport.dayDivider))
   }
 
-  func testRangeJoinsSectionsAndCountsOnlyNonEmptyDays() {
+  func testRangeRendersEveryCalendarDayAndSumsActivities() {
     let start = normalizedDay("2026-06-01")
     let end = normalizedDay("2026-06-03")
     let cardsByDay: [String: [TimelineCard]] = [
@@ -43,12 +43,30 @@ final class TimelineRangeExportTests: XCTestCase {
       fetch: { cardsByDay[$0] ?? [] }
     )
 
+    // dayCount counts every calendar day in the range (including the empty one);
+    // activityCount sums only the cards that exist.
     XCTAssertEqual(output.dayCount, 3)
     XCTAssertEqual(output.activityCount, 3)
     // Two dividers between three day-sections.
     let dividerCount = output.markdown.components(separatedBy: TimelineRangeExport.dayDivider).count - 1
     XCTAssertEqual(dividerCount, 2)
     XCTAssertTrue(output.markdown.contains("_No timeline activities were recorded for this day._"))
+  }
+
+  // MARK: - Default file name
+
+  func testDefaultFileNameSingleDay() {
+    let single = normalizedDay("2026-06-10")
+    XCTAssertEqual(
+      TimelineRangeExport.defaultFileName(startDay: single, endDay: single),
+      "Dayflow timeline 2026-06-10.md")
+  }
+
+  func testDefaultFileNameRange() {
+    XCTAssertEqual(
+      TimelineRangeExport.defaultFileName(
+        startDay: normalizedDay("2026-06-01"), endDay: normalizedDay("2026-06-03")),
+      "Dayflow timeline 2026-06-01 to 2026-06-03.md")
   }
 
   func testFetchInvokedWithSequentialDayStrings() {

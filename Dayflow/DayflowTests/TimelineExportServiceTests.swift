@@ -4,89 +4,108 @@ import XCTest
 
 final class TimelineExportServiceTests: XCTestCase {
   private let day = DateFormatter.yyyyMMdd.date(from: "2026-06-10")!
-  private let rangeEnd = DateFormatter.yyyyMMdd.date(from: "2026-06-03")!
-  private let rangeStart = DateFormatter.yyyyMMdd.date(from: "2026-06-01")!
+  /// Synthetic home so the allowed export roots are deterministic.
+  private let home = URL(fileURLWithPath: "/Users/test", isDirectory: true)
 
-  // MARK: - File name
-
-  func testDefaultFileNameSingleDay() {
-    let name = TimelineExportService.defaultFileName(startDay: day, endDay: day)
-    XCTAssertEqual(name, "Dayflow timeline 2026-06-10.md")
+  private func fm(existingDirectories: [String] = []) -> StubFileManager {
+    StubFileManager(home: home, existingDirectories: existingDirectories)
   }
 
-  func testDefaultFileNameRange() {
-    let name = TimelineExportService.defaultFileName(startDay: rangeStart, endDay: rangeEnd)
-    XCTAssertEqual(name, "Dayflow timeline 2026-06-01 to 2026-06-03.md")
-  }
-
-  // MARK: - Destination resolution
+  // MARK: - Allowed destinations
 
   func testNilPathUsesDownloadsDirectory() {
-    let fm = StubFileManager(downloads: URL(fileURLWithPath: "/Users/test/Downloads", isDirectory: true))
     let url = TimelineExportService.resolveDestination(
-      rawPath: nil, startDay: day, endDay: day, fileManager: fm)
-    XCTAssertEqual(url.path, "/Users/test/Downloads/Dayflow timeline 2026-06-10.md")
+      rawPath: nil, startDay: day, endDay: day, fileManager: fm())
+    XCTAssertEqual(url?.path, "/Users/test/Downloads/Dayflow timeline 2026-06-10.md")
   }
 
-  func testTrailingSlashTreatedAsDirectory() {
+  func testTrailingSlashTreatedAsDirectoryWithinAllowedRoot() {
     let url = TimelineExportService.resolveDestination(
-      rawPath: "/tmp/exports/", startDay: day, endDay: day, fileManager: StubFileManager())
-    XCTAssertEqual(url.path, "/tmp/exports/Dayflow timeline 2026-06-10.md")
+      rawPath: "/Users/test/Documents/exports/", startDay: day, endDay: day, fileManager: fm())
+    XCTAssertEqual(url?.path, "/Users/test/Documents/exports/Dayflow timeline 2026-06-10.md")
   }
 
   func testExistingDirectoryGetsDerivedFileName() {
-    let fm = StubFileManager(directories: ["/tmp/exports"])
     let url = TimelineExportService.resolveDestination(
-      rawPath: "/tmp/exports", startDay: day, endDay: day, fileManager: fm)
-    XCTAssertEqual(url.path, "/tmp/exports/Dayflow timeline 2026-06-10.md")
+      rawPath: "/Users/test/Desktop/reports", startDay: day, endDay: day,
+      fileManager: fm(existingDirectories: ["/Users/test/Desktop/reports"]))
+    XCTAssertEqual(url?.path, "/Users/test/Desktop/reports/Dayflow timeline 2026-06-10.md")
   }
 
   func testFilePathWithoutExtensionGetsMarkdownExtension() {
     let url = TimelineExportService.resolveDestination(
-      rawPath: "/tmp/myexport", startDay: day, endDay: day, fileManager: StubFileManager())
-    XCTAssertEqual(url.path, "/tmp/myexport.md")
+      rawPath: "/Users/test/Documents/myexport", startDay: day, endDay: day, fileManager: fm())
+    XCTAssertEqual(url?.path, "/Users/test/Documents/myexport.md")
   }
 
   func testFilePathWithExtensionUnchanged() {
     let url = TimelineExportService.resolveDestination(
-      rawPath: "/tmp/myexport.md", startDay: day, endDay: day, fileManager: StubFileManager())
-    XCTAssertEqual(url.path, "/tmp/myexport.md")
+      rawPath: "/Users/test/Downloads/myexport.md", startDay: day, endDay: day, fileManager: fm())
+    XCTAssertEqual(url?.path, "/Users/test/Downloads/myexport.md")
   }
 
-  func testTildeIsExpanded() {
+  func testTildeIsExpandedWithinDownloads() {
+    // Tilde expansion uses the real home, so align the stub's roots to the real home.
+    let realHome = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+    let stub = StubFileManager(home: realHome)
     let url = TimelineExportService.resolveDestination(
-      rawPath: "~/exp.md", startDay: day, endDay: day, fileManager: StubFileManager())
-    XCTAssertFalse(url.path.hasPrefix("~"))
-    XCTAssertTrue(url.path.hasSuffix("/exp.md"))
+      rawPath: "~/Downloads/exp.md", startDay: day, endDay: day, fileManager: stub)
+    XCTAssertEqual(url?.path, NSHomeDirectory() + "/Downloads/exp.md")
+  }
+
+  // MARK: - Rejected destinations (security: arbitrary-write guard)
+
+  func testPathOutsideAllowedRootsIsRejected() {
+    let url = TimelineExportService.resolveDestination(
+      rawPath: "/tmp/evil.md", startDay: day, endDay: day, fileManager: fm())
+    XCTAssertNil(url)
+  }
+
+  func testDotfileInHomeRootIsRejected() {
+    let url = TimelineExportService.resolveDestination(
+      rawPath: "/Users/test/.zshrc", startDay: day, endDay: day, fileManager: fm())
+    XCTAssertNil(url)
+  }
+
+  func testParentTraversalEscapingAllowedRootIsRejected() {
+    let url = TimelineExportService.resolveDestination(
+      rawPath: "/Users/test/Documents/../../etc/passwd", startDay: day, endDay: day,
+      fileManager: fm())
+    XCTAssertNil(url)
   }
 }
 
-/// Minimal `FileManager` stub: returns a fixed Downloads directory and reports a configured
-/// set of paths as existing directories. Everything else falls through to the real manager.
+/// Minimal `FileManager` stub: derives Downloads/Documents/Desktop from a fixed home and reports
+/// a configured set of paths as existing directories. Everything else falls through to the real
+/// manager.
 private final class StubFileManager: FileManager {
-  private let downloads: URL?
-  private let directories: Set<String>
+  private let home: URL
+  private let existingDirectories: Set<String>
 
-  init(downloads: URL? = nil, directories: [String] = []) {
-    self.downloads = downloads
-    self.directories = Set(directories)
+  init(home: URL, existingDirectories: [String] = []) {
+    self.home = home
+    self.existingDirectories = Set(existingDirectories)
     super.init()
   }
+
+  override var homeDirectoryForCurrentUser: URL { home }
 
   override func urls(
     for directory: FileManager.SearchPathDirectory,
     in domainMask: FileManager.SearchPathDomainMask
   ) -> [URL] {
-    if directory == .downloadsDirectory, let downloads {
-      return [downloads]
+    switch directory {
+    case .downloadsDirectory: return [home.appendingPathComponent("Downloads")]
+    case .documentDirectory: return [home.appendingPathComponent("Documents")]
+    case .desktopDirectory: return [home.appendingPathComponent("Desktop")]
+    default: return super.urls(for: directory, in: domainMask)
     }
-    return super.urls(for: directory, in: domainMask)
   }
 
   override func fileExists(
     atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?
   ) -> Bool {
-    if directories.contains(path) {
+    if existingDirectories.contains(path) {
       isDirectory?.pointee = ObjCBool(true)
       return true
     }

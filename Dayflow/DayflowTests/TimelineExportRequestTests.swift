@@ -50,6 +50,13 @@ final class TimelineExportRequestTests: XCTestCase {
     XCTAssertEqual(request.endDay, expected)
   }
 
+  func testRangeWithOnlyEndFallsBackToEndForStart() {
+    let request = try! parse("dayflow://export-timeline?end=2026-06-03")
+    let expected = normalizedTimelineDate(date("2026-06-03"))
+    XCTAssertEqual(request.startDay, expected)
+    XCTAssertEqual(request.endDay, expected)
+  }
+
   func testNoParametersDefaultsToToday() {
     let request = try! parse("dayflow://export-timeline")
     let today = timelineDisplayDate(from: now, now: now)
@@ -83,6 +90,20 @@ final class TimelineExportRequestTests: XCTestCase {
     XCTAssertEqual(result, .failure(.invalidDate("garbage")))
   }
 
+  func testRangeExceedingCapFails() {
+    let result = TimelineExportRequest.parse(
+      url: URL(string: "dayflow://export-timeline?start=2000-01-01&end=2030-01-01")!, now: now)
+    XCTAssertEqual(result, .failure(.rangeTooLarge))
+  }
+
+  func testFullYearRangeIsAllowed() {
+    let result = TimelineExportRequest.parse(
+      url: URL(string: "dayflow://export-timeline?start=2026-01-01&end=2026-12-31")!, now: now)
+    guard case .success = result else {
+      return XCTFail("A one-year range should be within the cap, got \(result)")
+    }
+  }
+
   // MARK: - Destination & flags
 
   func testDestinationPathCaptured() {
@@ -105,8 +126,16 @@ final class TimelineExportRequestTests: XCTestCase {
   func testRevealParsing() {
     XCTAssertTrue(try! parse("dayflow://export-timeline?date=today&reveal=true").reveal)
     XCTAssertTrue(try! parse("dayflow://export-timeline?date=today&reveal=1").reveal)
+    XCTAssertTrue(try! parse("dayflow://export-timeline?date=today&reveal=yes").reveal)
+    XCTAssertTrue(try! parse("dayflow://export-timeline?date=today&reveal=YES").reveal)
     XCTAssertFalse(try! parse("dayflow://export-timeline?date=today&reveal=false").reveal)
     XCTAssertFalse(try! parse("dayflow://export-timeline?date=today").reveal)
+  }
+
+  func testDestinationAliasPrefersPathOverTo() {
+    // `to` appears first in the query but `path` is the primary key and must win.
+    let request = try! parse("dayflow://export-timeline?date=today&to=/tmp/a.md&path=/tmp/b.md")
+    XCTAssertEqual(request.destinationPath, "/tmp/b.md")
   }
 
   // MARK: - Helpers

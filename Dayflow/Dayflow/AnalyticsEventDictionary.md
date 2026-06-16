@@ -100,6 +100,12 @@ This document lists manual events, properties, and code locations. All events re
 - timeline_copied
   - props: `timeline_mode: day|week`, `timeline_day?: yyyy-MM-dd`, `week_start?: yyyy-MM-dd`, `week_end?: yyyy-MM-dd`, `activity_count: int`
   - file: Views/UI/MainView.swift
+- timeline_exported
+  - props: `start_day: yyyy-MM-dd`, `end_day: yyyy-MM-dd`, `day_count: int`, `activity_count: int`, `format: markdown`, `file_extension: string`, `source: ui|deeplink`
+  - files: Views/UI/Settings/OtherSettingsViewModel.swift (Settings export), App/TimelineExportService.swift (dayflow://export-timeline deep link)
+- timeline_export_failed
+  - props: `source: deeplink`, `error: destination_not_allowed|string`
+  - file: App/TimelineExportService.swift
 
 ## Dashboard Chat
 - chat_question_asked

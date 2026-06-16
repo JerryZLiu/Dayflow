@@ -158,14 +158,11 @@ final class OtherSettingsViewModel: ObservableObject {
     dayCount: Int,
     activityCount: Int
   ) {
-    let dayFormatter = DateFormatter()
-    dayFormatter.dateFormat = "yyyy-MM-dd"
-
     let savePanel = NSSavePanel()
     savePanel.title = "Export timeline"
     savePanel.prompt = "Export"
     savePanel.nameFieldStringValue =
-      "Dayflow timeline \(dayFormatter.string(from: startDate)) to \(dayFormatter.string(from: endDate)).md"
+      TimelineRangeExport.defaultFileName(startDay: startDate, endDay: endDate)
     savePanel.allowedContentTypes = [.text, .plainText]
     savePanel.canCreateDirectories = true
 
@@ -188,8 +185,8 @@ final class OtherSettingsViewModel: ObservableObject {
       AnalyticsService.shared.capture(
         "timeline_exported",
         [
-          "start_day": dayFormatter.string(from: startDate),
-          "end_day": dayFormatter.string(from: endDate),
+          "start_day": DateFormatter.yyyyMMdd.string(from: startDate),
+          "end_day": DateFormatter.yyyyMMdd.string(from: endDate),
           "day_count": dayCount,
           "activity_count": activityCount,
           "format": "markdown",
