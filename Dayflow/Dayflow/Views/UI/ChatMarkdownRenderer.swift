@@ -2,432 +2,202 @@
 //  ChatMarkdownRenderer.swift
 //  Dayflow
 //
-//  Lightweight markdown renderer for dashboard chat bubbles.
+//  Markdown rendering for dashboard chat bubbles, backed by MarkdownUI so
+//  assistant replies get full GitHub-flavored markdown (tables, nested lists,
+//  task lists, thematic breaks) with Dayflow's warm visual style.
 //
 
+import AppKit
+import MarkdownUI
 import SwiftUI
 
 struct ChatMarkdownContentView: View {
   let content: String
 
-  private let textColor = Color(hex: "333333")
-
   var body: some View {
-    let blocks = ChatMarkdownParser.parse(content)
-
-    VStack(alignment: .leading, spacing: 10) {
-      ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-        ChatMarkdownBlockView(block: block, textColor: textColor)
-      }
-    }
-    .textSelection(.enabled)
+    Markdown(content)
+      .markdownTheme(.dayflowChat)
+      .textSelection(.enabled)
   }
 }
 
-private struct ChatMarkdownBlockView: View {
-  let block: ChatMarkdownBlock
-  let textColor: Color
+// MARK: - Dayflow chat theme
 
-  @ViewBuilder
-  var body: some View {
-    switch block {
-    case .paragraph(let text):
-      ChatMarkdownInlineText(
-        content: text,
-        font: .custom("Figtree", size: 13).weight(.medium),
-        textColor: textColor
-      )
-    case .heading(let level, let text):
-      ChatMarkdownInlineText(
-        content: text,
-        font: headingFont(for: level),
-        textColor: textColor
-      )
-    case .list(let items):
-      VStack(alignment: .leading, spacing: 6) {
-        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-          ChatMarkdownListRow(item: item, textColor: textColor)
+extension Theme {
+  /// Matches the previous hand-rolled renderer: Figtree 13pt medium body text
+  /// in #333333, warm parchment code blocks, and the soft tan quote bar.
+  static let dayflowChat = Theme()
+    .text {
+      FontFamily(.custom("Figtree"))
+      FontSize(13)
+      FontWeight(.medium)
+      ForegroundColor(Color(hex: "333333"))
+    }
+    .code {
+      FontFamilyVariant(.monospaced)
+      FontSize(12)
+      BackgroundColor(Color(hex: "F5EFE7"))
+    }
+    .strong {
+      FontWeight(.bold)
+    }
+    .link {
+      ForegroundColor(Color(hex: "F96E00"))
+    }
+    .paragraph { configuration in
+      configuration.label
+        .relativeLineSpacing(.em(0.18))
+        .markdownMargin(top: 0, bottom: 8)
+    }
+    .heading1 { configuration in
+      configuration.label
+        .markdownTextStyle {
+          FontSize(17)
+          FontWeight(.bold)
         }
-      }
-    case .quote(let text):
+        .markdownMargin(top: 10, bottom: 4)
+    }
+    .heading2 { configuration in
+      configuration.label
+        .markdownTextStyle {
+          FontSize(15)
+          FontWeight(.bold)
+        }
+        .markdownMargin(top: 10, bottom: 4)
+    }
+    .heading3 { configuration in
+      configuration.label
+        .markdownTextStyle {
+          FontSize(14)
+          FontWeight(.semibold)
+        }
+        .markdownMargin(top: 8, bottom: 4)
+    }
+    .heading4 { configuration in
+      configuration.label
+        .markdownTextStyle {
+          FontSize(13)
+          FontWeight(.semibold)
+        }
+        .markdownMargin(top: 8, bottom: 4)
+    }
+    .blockquote { configuration in
       HStack(alignment: .top, spacing: 10) {
         RoundedRectangle(cornerRadius: 999)
           .fill(Color(hex: "E7D7C6"))
           .frame(width: 4)
-
-        ChatMarkdownInlineText(
-          content: text,
-          font: .custom("Figtree", size: 13).weight(.medium),
-          textColor: Color(hex: "5A5147")
+        configuration.label
+          .markdownTextStyle {
+            ForegroundColor(Color(hex: "5A5147"))
+          }
+      }
+      .fixedSize(horizontal: false, vertical: true)
+      .markdownMargin(top: 2, bottom: 8)
+    }
+    .codeBlock { configuration in
+      ChatCodeBlockView(configuration: configuration)
+    }
+    .listItem { configuration in
+      configuration.label
+        .markdownMargin(top: 3)
+    }
+    .table { configuration in
+      configuration.label
+        .markdownTableBorderStyle(.init(color: Color(hex: "E7DDD2")))
+        .markdownTableBackgroundStyle(
+          .alternatingRows(Color.white, Color(hex: "FBF7F1"))
         )
-      }
-      .padding(.vertical, 2)
-    case .codeBlock(let language, let code):
-      ChatMarkdownCodeBlock(language: language, code: code)
+        .markdownMargin(top: 4, bottom: 8)
     }
-  }
-
-  private func headingFont(for level: Int) -> Font {
-    switch level {
-    case 1:
-      return .custom("Figtree", size: 17).weight(.bold)
-    case 2:
-      return .custom("Figtree", size: 15).weight(.bold)
-    default:
-      return .custom("Figtree", size: 14).weight(.semibold)
+    .tableCell { configuration in
+      configuration.label
+        .markdownTextStyle {
+          FontSize(12.5)
+          if configuration.row == 0 {
+            FontWeight(.bold)
+          }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .relativeLineSpacing(.em(0.15))
     }
-  }
+    .thematicBreak {
+      Divider()
+        .overlay(Color(hex: "E7DDD2"))
+        .markdownMargin(top: 12, bottom: 12)
+    }
 }
 
-private struct ChatMarkdownListRow: View {
-  let item: ChatMarkdownListItem
-  let textColor: Color
+// MARK: - Code block with language label and copy button
+
+private struct ChatCodeBlockView: View {
+  let configuration: CodeBlockConfiguration
+
+  @State private var didCopy = false
 
   var body: some View {
-    HStack(alignment: .top, spacing: 8) {
-      Text(item.marker)
-        .font(.custom("Figtree", size: 13).weight(.bold))
-        .foregroundColor(textColor)
-        .frame(width: 18, alignment: .trailing)
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: 8) {
+        if let language = configuration.language, !language.isEmpty {
+          Text(language.uppercased())
+            .font(.custom("Figtree", size: 10).weight(.bold))
+            .foregroundColor(Color(hex: "9A7C60"))
+        }
 
-      ChatMarkdownInlineText(
-        content: item.content,
-        font: .custom("Figtree", size: 13).weight(.medium),
-        textColor: textColor
-      )
-    }
-    .padding(.leading, CGFloat(item.indentLevel) * 16)
-  }
-}
+        Spacer()
 
-private struct ChatMarkdownCodeBlock: View {
-  let language: String?
-  let code: String
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      if let language, !language.isEmpty {
-        Text(language.uppercased())
-          .font(.custom("Figtree", size: 10).weight(.bold))
-          .foregroundColor(Color(hex: "9A7C60"))
+        Button(action: copyCode) {
+          HStack(spacing: 4) {
+            Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+              .font(.system(size: 10, weight: .semibold))
+            if didCopy {
+              Text("Copied")
+                .font(.custom("Figtree", size: 10).weight(.semibold))
+            }
+          }
+          .foregroundColor(didCopy ? Color(hex: "34C759") : Color(hex: "9A7C60"))
+        }
+        .buttonStyle(.plain)
+        .pointingHandCursor()
+        .accessibilityLabel(Text("Copy code"))
       }
+      .padding(.horizontal, 10)
+      .padding(.top, 8)
+      .padding(.bottom, 6)
 
       ScrollView(.horizontal, showsIndicators: false) {
-        Text(code)
-          .font(.system(size: 12, weight: .regular, design: .monospaced))
-          .foregroundColor(Color(hex: "333333"))
+        configuration.label
           .fixedSize(horizontal: false, vertical: true)
-          .frame(maxWidth: .infinity, alignment: .leading)
+          .relativeLineSpacing(.em(0.2))
+          .markdownTextStyle {
+            FontFamilyVariant(.monospaced)
+            FontSize(12)
+            ForegroundColor(Color(hex: "333333"))
+          }
+          .padding(.horizontal, 10)
+          .padding(.bottom, 10)
       }
     }
-    .textSelection(.enabled)
-    .padding(10)
     .background(Color(hex: "FAF7F2"))
     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: 12, style: .continuous)
         .stroke(Color(hex: "E7DDD2"), lineWidth: 1)
     )
-  }
-}
-
-private struct ChatMarkdownInlineText: View {
-  let content: String
-  let font: Font
-  let textColor: Color
-
-  var body: some View {
-    parsedText
-      .font(font)
-      .foregroundColor(textColor)
-      .lineSpacing(2)
-      .fixedSize(horizontal: false, vertical: true)
+    .markdownMargin(top: 4, bottom: 8)
   }
 
-  private var parsedText: Text {
-    let normalized =
-      content
-      .replacingOccurrences(of: "\r\n", with: "\n")
-      .replacingOccurrences(of: "\r", with: "\n")
-
-    let options = AttributedString.MarkdownParsingOptions(
-      interpretedSyntax: .inlineOnlyPreservingWhitespace
+  private func copyCode() {
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    pasteboard.setString(
+      configuration.content.trimmingCharacters(in: .whitespacesAndNewlines),
+      forType: .string
     )
-
-    if let parsed = try? AttributedString(markdown: normalized, options: options) {
-      return Text(parsed)
+    didCopy = true
+    Task {
+      try? await Task.sleep(nanoseconds: 1_500_000_000)
+      didCopy = false
     }
-
-    return Text(normalized)
-  }
-}
-
-enum ChatMarkdownBlock: Equatable {
-  case paragraph(String)
-  case heading(level: Int, text: String)
-  case list([ChatMarkdownListItem])
-  case quote(String)
-  case codeBlock(language: String?, code: String)
-}
-
-struct ChatMarkdownListItem: Equatable {
-  let marker: String
-  let indentLevel: Int
-  let content: String
-}
-
-enum ChatMarkdownParser {
-  static func parse(_ content: String) -> [ChatMarkdownBlock] {
-    let normalized =
-      content
-      .replacingOccurrences(of: "\r\n", with: "\n")
-      .replacingOccurrences(of: "\r", with: "\n")
-    let lines = normalized.components(separatedBy: "\n")
-
-    var blocks: [ChatMarkdownBlock] = []
-    var paragraphLines: [String] = []
-    var index = 0
-
-    func flushParagraph() {
-      let text =
-        paragraphLines
-        .joined(separator: "\n")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-
-      if !text.isEmpty {
-        blocks.append(.paragraph(text))
-      }
-
-      paragraphLines.removeAll(keepingCapacity: true)
-    }
-
-    while index < lines.count {
-      let line = lines[index]
-      let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-      if trimmed.isEmpty {
-        flushParagraph()
-        index += 1
-        continue
-      }
-
-      if let fence = codeFenceInfo(from: line) {
-        flushParagraph()
-        blocks.append(parseCodeBlock(lines: lines, index: &index, fence: fence))
-        continue
-      }
-
-      if let heading = headingInfo(from: line) {
-        flushParagraph()
-        blocks.append(.heading(level: heading.level, text: heading.text))
-        index += 1
-        continue
-      }
-
-      if let listItem = listItemInfo(from: line) {
-        flushParagraph()
-        blocks.append(parseList(lines: lines, index: &index, firstItem: listItem))
-        continue
-      }
-
-      if isQuoteLine(line) {
-        flushParagraph()
-        blocks.append(parseQuote(lines: lines, index: &index))
-        continue
-      }
-
-      paragraphLines.append(line.trimmingCharacters(in: .whitespaces))
-      index += 1
-    }
-
-    flushParagraph()
-
-    return blocks
-  }
-
-  private static func parseList(
-    lines: [String],
-    index: inout Int,
-    firstItem: ListItemMatch
-  ) -> ChatMarkdownBlock {
-    var items: [ChatMarkdownListItem] = []
-    let listKind = firstItem.kind
-
-    while index < lines.count {
-      guard let item = listItemInfo(from: lines[index]), item.kind == listKind else { break }
-
-      var contentLines = [item.content]
-      let baseIndent = item.leadingSpaces
-      index += 1
-
-      while index < lines.count {
-        let nextLine = lines[index]
-        let trimmed = nextLine.trimmingCharacters(in: .whitespaces)
-
-        if trimmed.isEmpty
-          || codeFenceInfo(from: nextLine) != nil
-          || headingInfo(from: nextLine) != nil
-          || isQuoteLine(nextLine)
-          || listItemInfo(from: nextLine) != nil
-        {
-          break
-        }
-
-        if leadingSpaceCount(in: nextLine) > baseIndent {
-          contentLines.append(trimmed)
-          index += 1
-          continue
-        }
-
-        break
-      }
-
-      items.append(
-        ChatMarkdownListItem(
-          marker: item.marker,
-          indentLevel: max(0, item.leadingSpaces / 2),
-          content: contentLines.joined(separator: "\n")
-        ))
-    }
-
-    return .list(items)
-  }
-
-  private static func parseQuote(lines: [String], index: inout Int) -> ChatMarkdownBlock {
-    var quoteLines: [String] = []
-
-    while index < lines.count, isQuoteLine(lines[index]) {
-      var line = lines[index].trimmingCharacters(in: .whitespaces)
-      line.removeFirst()
-      quoteLines.append(line.trimmingCharacters(in: .whitespaces))
-      index += 1
-    }
-
-    return .quote(quoteLines.joined(separator: "\n"))
-  }
-
-  private static func parseCodeBlock(
-    lines: [String],
-    index: inout Int,
-    fence: CodeFence
-  ) -> ChatMarkdownBlock {
-    var codeLines: [String] = []
-    index += 1
-
-    while index < lines.count {
-      if isFenceClosingLine(lines[index]) {
-        index += 1
-        break
-      }
-
-      codeLines.append(lines[index])
-      index += 1
-    }
-
-    return .codeBlock(language: fence.language, code: codeLines.joined(separator: "\n"))
-  }
-
-  private static func headingInfo(from line: String) -> (level: Int, text: String)? {
-    let trimmed = line.trimmingCharacters(in: .whitespaces)
-    guard trimmed.hasPrefix("#") else { return nil }
-
-    let level = trimmed.prefix(while: { $0 == "#" }).count
-    guard (1...6).contains(level) else { return nil }
-
-    let contentStart = trimmed.index(trimmed.startIndex, offsetBy: level)
-    guard contentStart < trimmed.endIndex, trimmed[contentStart] == " " else { return nil }
-
-    let text = trimmed[contentStart...].trimmingCharacters(in: .whitespaces)
-    guard !text.isEmpty else { return nil }
-
-    return (level, text)
-  }
-
-  private static func codeFenceInfo(from line: String) -> CodeFence? {
-    let trimmed = line.trimmingCharacters(in: .whitespaces)
-    guard trimmed.hasPrefix("```") else { return nil }
-
-    let language = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-    return CodeFence(language: language.isEmpty ? nil : language)
-  }
-
-  private static func isFenceClosingLine(_ line: String) -> Bool {
-    line.trimmingCharacters(in: .whitespaces) == "```"
-  }
-
-  private static func isQuoteLine(_ line: String) -> Bool {
-    line.trimmingCharacters(in: .whitespaces).hasPrefix(">")
-  }
-
-  private static func listItemInfo(from line: String) -> ListItemMatch? {
-    let leadingSpaces = leadingSpaceCount(in: line)
-    let trimmedLeading = line.dropFirst(leadingSpaces)
-
-    if let remainder = trimmedLeading.dropMarkdownListPrefix("-")
-      ?? trimmedLeading.dropMarkdownListPrefix("*")
-      ?? trimmedLeading.dropMarkdownListPrefix("+")
-    {
-      return ListItemMatch(
-        kind: .unordered,
-        leadingSpaces: leadingSpaces,
-        marker: "•",
-        content: String(remainder)
-      )
-    }
-
-    let digits = trimmedLeading.prefix(while: { $0.isNumber })
-    guard !digits.isEmpty else { return nil }
-
-    let dotIndex = trimmedLeading.index(trimmedLeading.startIndex, offsetBy: digits.count)
-    guard dotIndex < trimmedLeading.endIndex, trimmedLeading[dotIndex] == "." else { return nil }
-
-    let contentStart = trimmedLeading.index(after: dotIndex)
-    guard contentStart < trimmedLeading.endIndex, trimmedLeading[contentStart] == " " else {
-      return nil
-    }
-
-    let content = trimmedLeading[contentStart...].trimmingCharacters(in: .whitespaces)
-    guard !content.isEmpty else { return nil }
-
-    return ListItemMatch(
-      kind: .ordered,
-      leadingSpaces: leadingSpaces,
-      marker: "\(digits).",
-      content: content
-    )
-  }
-
-  private static func leadingSpaceCount(in line: String) -> Int {
-    line.prefix(while: { $0 == " " }).count
-  }
-
-  private struct CodeFence {
-    let language: String?
-  }
-
-  private struct ListItemMatch {
-    let kind: ListKind
-    let leadingSpaces: Int
-    let marker: String
-    let content: String
-  }
-
-  private enum ListKind {
-    case unordered
-    case ordered
-  }
-}
-
-extension Substring {
-  fileprivate func dropMarkdownListPrefix(_ marker: Character) -> Substring? {
-    guard first == marker else { return nil }
-
-    let markerEnd = index(after: startIndex)
-    guard markerEnd < endIndex, self[markerEnd] == " " else { return nil }
-
-    let content = self[markerEnd...].trimmingCharacters(in: .whitespaces)
-    guard !content.isEmpty else { return nil }
-
-    return content[...]
   }
 }
