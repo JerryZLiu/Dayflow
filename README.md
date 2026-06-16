@@ -76,6 +76,41 @@ Most time trackers tell you which app was open. Dayflow tries to understand what
 
 Cursor for two hours could mean shipping a feature, debugging auth, reviewing a PR, or getting lost in setup. Dayflow gives you the context, not just the window title.
 
+## Automation
+
+Dayflow registers a `dayflow://` URL scheme so you can drive it from Raycast, Alfred, Apple Shortcuts, `cron`, or any tool that can open a URL (`open "dayflow://…"`).
+
+### Export the timeline
+
+`dayflow://export-timeline` writes your timeline to a Markdown file without opening the app UI — the same output as the in-app export, but scriptable.
+
+| Parameter | Values | Default |
+| --- | --- | --- |
+| `date` | `today`, `yesterday`, or `YYYY-MM-DD` (single day) | `today` |
+| `start` / `end` | `today`, `yesterday`, or `YYYY-MM-DD` (inclusive range) | — |
+| `path` (aliases `to`, `destination`) | a file path, or a directory to write into; `~` is expanded | `~/Downloads/Dayflow timeline <range>.md` |
+| `reveal` | `true` / `1` to reveal the file in Finder when done | `false` |
+
+```bash
+# Export today to ~/Downloads
+open "dayflow://export-timeline?date=today"
+
+# Export a date range to a specific file
+open "dayflow://export-timeline?start=2026-06-01&end=2026-06-07&path=~/Reports/last-week.md"
+
+# Export yesterday into a folder and reveal it in Finder
+open "dayflow://export-timeline?date=yesterday&path=~/Reports/&reveal=true"
+```
+
+Dates follow Dayflow's timeline day, which runs from 4am to 4am — so before 4am, `date=today` exports the day that just ended.
+
+### Control recording
+
+```bash
+open "dayflow://start-recording"   # aliases: start, resume
+open "dayflow://stop-recording"    # aliases: stop, pause
+```
+
 ## Privacy
 
 Dayflow is local-first and open source.

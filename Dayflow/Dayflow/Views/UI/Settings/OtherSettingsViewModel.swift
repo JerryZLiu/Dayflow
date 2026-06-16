@@ -103,39 +103,15 @@ final class OtherSettingsViewModel: ObservableObject {
     exportErrorMessage = nil
 
     Task.detached(priority: .userInitiated) { [start, end] in
-      let calendar = Calendar.current
-      let dayFormatter = DateFormatter()
-      dayFormatter.dateFormat = "yyyy-MM-dd"
-
-      var cursor = start
-      let endDate = end
-
-      var sections: [String] = []
-      var totalActivities = 0
-      var dayCount = 0
-
-      while cursor <= endDate {
-        let dayString = dayFormatter.string(from: cursor)
-        let cards = StorageManager.shared.fetchTimelineCards(forDay: dayString)
-        totalActivities += cards.count
-        let section = TimelineClipboardFormatter.makeMarkdown(for: cursor, cards: cards)
-        sections.append(section)
-        dayCount += 1
-
-        guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
-        cursor = next
-      }
-
-      let divider = "\n\n---\n\n"
-      let exportText = sections.joined(separator: divider)
+      let output = TimelineRangeExport.build(startDay: start, endDay: end)
 
       await MainActor.run {
         self.presentSavePanelAndWrite(
-          exportText: exportText,
+          exportText: output.markdown,
           startDate: start,
           endDate: end,
-          dayCount: dayCount,
-          activityCount: totalActivities
+          dayCount: output.dayCount,
+          activityCount: output.activityCount
         )
       }
     }
@@ -218,6 +194,7 @@ final class OtherSettingsViewModel: ObservableObject {
           "activity_count": activityCount,
           "format": "markdown",
           "file_extension": url.pathExtension.lowercased(),
+          "source": "ui",
         ])
     } catch {
       exportStatusMessage = nil
