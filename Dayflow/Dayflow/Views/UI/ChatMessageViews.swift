@@ -36,7 +36,10 @@ struct MessageBubble: View {
     let blocks = ChatContentParser.blocks(from: message.content)
     return HStack {
       VStack(alignment: .leading, spacing: 10) {
-        ForEach(blocks) { block in
+        // Positional identity: while a reply streams in, block N stays block N,
+        // so SwiftUI updates content in place instead of rebuilding every block
+        // (the parser mints fresh UUIDs on each parse).
+        ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
           switch block {
           case .text(_, let content):
             ChatMarkdownContentView(content: content)
