@@ -37,7 +37,7 @@ struct DaySummaryView: View {
 
   // MARK: - Pre-computed Stats (to avoid expensive parsing during body evaluation)
   // These are computed on background thread when data loads, avoiding main thread hangs
-  @State private var cardsWithDurations: [CardWithDuration] = []
+  @State private var cardsWithDurations: [DaySummaryStats.CardWithDuration] = []
   @State private var cachedCategoryDurations: [CategoryTimeData] = []
   @State private var cachedTotalFocusTime: TimeInterval = 0
   @State private var cachedTotalCapturedTime: TimeInterval = 0
@@ -61,17 +61,6 @@ struct DaySummaryView: View {
     static let titleColor = Color(hex: "333333")
     static let subtitleColor = Color(hex: "707070")
 
-    static let focusGapMinutes: Int = 5
-    static let timelineDayStartMinutes: Int = 4 * 60
-    static let minutesPerDay: Int = 24 * 60
-  }
-
-  /// Pre-computed card data with parsed timestamps to avoid expensive parsing during body evaluation
-  private struct CardWithDuration {
-    let card: TimelineCard
-    let duration: TimeInterval
-    let startMinutes: Int  // For focus blocks calculation
-    let endMinutes: Int  // For focus blocks calculation
   }
 
   // MARK: - Computed Stats
@@ -223,12 +212,12 @@ struct DaySummaryView: View {
       // Use timeline display date to handle 4 AM boundary
       let cards = storageManager.fetchTimelineCards(forDay: dayString)
       let explicitPlanForDay = storageManager.fetchDayGoalPlan(forDay: dayString) != nil
-      let plan = Self.carriedForwardGoalPlan(
+      let plan = DaySummaryStats.carriedForwardGoalPlan(
         day: dayString,
         storageManager: storageManager,
         categories: currentCategories
       )
-      let summary = Self.makeReviewSummary(
+      let summary = DaySummaryStats.makeReviewSummary(
         segments: storageManager.fetchReviewRatingSegments(
           overlapping: Int(dayInfo.startOfDay.timeIntervalSince1970),
           endTs: Int(dayInfo.endOfDay.timeIntervalSince1970)
@@ -238,27 +227,27 @@ struct DaySummaryView: View {
       )
 
       // Pre-compute all card durations (expensive parsing done once here, off main thread)
-      let precomputed = self.precomputeCardDurations(cards)
+      let precomputed = DaySummaryStats.precomputeCardDurations(cards)
 
       // Pre-compute all stats using the parsed durations
-      let catDurations = self.computeCategoryDurations(
+      let catDurations = DaySummaryStats.computeCategoryDurations(
         from: precomputed, categories: currentCategories)
-      let totalCaptured = self.computeTotalCapturedTime(
+      let totalCaptured = DaySummaryStats.computeTotalCapturedTime(
         from: precomputed, categories: currentCategories)
-      let totalFocus = self.computeTotalFocusTime(
+      let totalFocus = DaySummaryStats.computeTotalFocusTime(
         from: precomputed, snapshots: plan.focusCategories, categories: currentCategories)
-      let blocks = self.computeFocusBlocks(
+      let blocks = DaySummaryStats.computeFocusBlocks(
         from: precomputed, snapshots: plan.focusCategories, baseDate: dayInfo.startOfDay,
         categories: currentCategories)
-      let totalDistracted = self.computeTotalDistractedTime(
+      let totalDistracted = DaySummaryStats.computeTotalDistractedTime(
         from: precomputed, snapshots: plan.distractionCategories, categories: currentCategories)
-      let yesterdayReview = self.makeGoalReviewSnapshot(
+      let yesterdayReview = DaySummaryStats.makeGoalReviewSnapshot(
         dayInfo: previousDayInfo,
         storageManager: storageManager,
         categories: currentCategories
       )
       let explicitYesterdayPlan = storageManager.fetchDayGoalPlan(forDay: previousDayInfo.dayString)
-      let setupReferenceStats = self.makeGoalSetupReferenceStats(
+      let setupReferenceStats = DaySummaryStats.makeGoalSetupReferenceStats(
         currentTimelineDate: currentTimelineDate,
         storageManager: storageManager,
         categories: currentCategories
@@ -289,7 +278,7 @@ struct DaySummaryView: View {
     let dayInfo = timelineDayInfo
     let storageManager = storageManager
     Task.detached(priority: .userInitiated) {
-      let summary = Self.makeReviewSummary(
+      let summary = DaySummaryStats.makeReviewSummary(
         segments: storageManager.fetchReviewRatingSegments(
           overlapping: Int(dayInfo.startOfDay.timeIntervalSince1970),
           endTs: Int(dayInfo.endOfDay.timeIntervalSince1970)
@@ -831,14 +820,6 @@ struct DaySummaryView: View {
     )
   }
 
-  nonisolated private func timelineMinutes(for timeString: String) -> Int? {
-    guard let minutes = parseTimeHMMA(timeString: timeString) else { return nil }
-    if minutes >= Design.timelineDayStartMinutes {
-      return minutes - Design.timelineDayStartMinutes
-    }
-    return minutes + (Design.minutesPerDay - Design.timelineDayStartMinutes)
-  }
-
   private func formatDurationTitleCase(_ seconds: TimeInterval) -> String {
     let totalMinutes = Int(seconds / 60)
     let hours = totalMinutes / 60
@@ -871,262 +852,26 @@ struct DaySummaryView: View {
     }
   }
 
-  // MARK: - Pre-computation Helpers (run on background thread to avoid main thread hangs)
-
-  /// Pre-computes per-card durations clipped to the current timeline day window (4 AM -> 4 AM).
-  /// Overlap normalization is applied later based on active category configuration.
-  nonisolated private func precomputeCardDurations(_ cards: [TimelineCard]) -> [CardWithDuration] {
-    cards.compactMap { card in
-      guard let startMinutes = timelineMinutes(for: card.startTimestamp),
-        let endMinutes = timelineMinutes(for: card.endTimestamp)
-      else {
-        return nil
-      }
-      var adjustedEnd = endMinutes
-      if adjustedEnd < startMinutes {
-        adjustedEnd += Design.minutesPerDay
-      }
-
-      // Clip to this timeline day's 24h window so cross-boundary cards only
-      // contribute the portion that belongs to the selected day.
-      let clippedStart = min(max(startMinutes, 0), Design.minutesPerDay)
-      let clippedEnd = min(max(adjustedEnd, 0), Design.minutesPerDay)
-      guard clippedEnd > clippedStart else { return nil }
-
-      let duration = TimeInterval(clippedEnd - clippedStart) * 60
-      return CardWithDuration(
-        card: card,
-        duration: duration,
-        startMinutes: clippedStart,
-        endMinutes: clippedEnd
-      )
-    }
-  }
-
-  /// Removes overlapping coverage by trimming later cards so each minute of the day is counted once.
-  nonisolated private func removeOverlaps(from durations: [CardWithDuration]) -> [CardWithDuration]
-  {
-    guard durations.count > 1 else { return durations }
-
-    let sorted = durations.sorted { lhs, rhs in
-      if lhs.startMinutes == rhs.startMinutes {
-        if lhs.endMinutes == rhs.endMinutes {
-          let lhsId = lhs.card.recordId ?? 0
-          let rhsId = rhs.card.recordId ?? 0
-          return lhsId < rhsId
-        }
-        // Prefer the longer interval when starts match.
-        return lhs.endMinutes > rhs.endMinutes
-      }
-      return lhs.startMinutes < rhs.startMinutes
-    }
-
-    var normalized: [CardWithDuration] = []
-    normalized.reserveCapacity(sorted.count)
-    var coveredUntil = 0
-
-    for item in sorted {
-      if coveredUntil >= Design.minutesPerDay { break }
-
-      let normalizedStart = max(item.startMinutes, coveredUntil)
-      let normalizedEnd = min(item.endMinutes, Design.minutesPerDay)
-      guard normalizedEnd > normalizedStart else { continue }
-
-      normalized.append(
-        CardWithDuration(
-          card: item.card,
-          duration: TimeInterval(normalizedEnd - normalizedStart) * 60,
-          startMinutes: normalizedStart,
-          endMinutes: normalizedEnd
-        )
-      )
-      coveredUntil = max(coveredUntil, normalizedEnd)
-    }
-
-    return normalized
-  }
-
-  nonisolated private func normalizedNonSystemDurations(
-    from precomputed: [CardWithDuration], categories: [TimelineCategory]
-  ) -> [CardWithDuration] {
-    let nonSystemDurations = precomputed.filter { item in
-      !isSystemCategoryStatic(item.card.category, categories: categories)
-    }
-    return removeOverlaps(from: nonSystemDurations)
-  }
-
-  /// Computes category durations from pre-computed data
-  nonisolated private func computeCategoryDurations(
-    from precomputed: [CardWithDuration], categories: [TimelineCategory]
-  ) -> [CategoryTimeData] {
-    let categoryLookup = firstCategoryLookup(
-      from: categories, normalizedKey: normalizedCategoryName)
-    var durationsByCategory: [String: TimeInterval] = [:]
-    var fallbackNamesByCategory: [String: String] = [:]
-
-    for item in normalizedNonSystemDurations(from: precomputed, categories: categories) {
-      let categoryKey = normalizedCategoryName(item.card.category)
-      durationsByCategory[categoryKey, default: 0] += item.duration
-
-      if fallbackNamesByCategory[categoryKey] == nil {
-        fallbackNamesByCategory[categoryKey] = item.card.category
-      }
-    }
-
-    return durationsByCategory.keys.sorted { lhs, rhs in
-      let lhsDuration = durationsByCategory[lhs, default: 0]
-      let rhsDuration = durationsByCategory[rhs, default: 0]
-      let lhsDisplayMinutes = Int(lhsDuration / 60)
-      let rhsDisplayMinutes = Int(rhsDuration / 60)
-
-      if lhsDisplayMinutes != rhsDisplayMinutes {
-        return lhsDisplayMinutes > rhsDisplayMinutes
-      }
-
-      let lhsOrder = categoryLookup[lhs]?.order ?? Int.max
-      let rhsOrder = categoryLookup[rhs]?.order ?? Int.max
-
-      if lhsOrder != rhsOrder {
-        return lhsOrder < rhsOrder
-      }
-
-      let lhsName = categoryLookup[lhs]?.name ?? fallbackNamesByCategory[lhs] ?? lhs
-      let rhsName = categoryLookup[rhs]?.name ?? fallbackNamesByCategory[rhs] ?? rhs
-      return lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedAscending
-    }
-    .compactMap { categoryKey -> CategoryTimeData? in
-      guard let duration = durationsByCategory[categoryKey] else { return nil }
-      guard duration > 0 else { return nil }
-
-      if let category = categoryLookup[categoryKey] {
-        return CategoryTimeData(category: category, duration: duration)
-      }
-
-      let name = fallbackNamesByCategory[categoryKey] ?? categoryKey
-      return CategoryTimeData(name: name, colorHex: "#E5E7EB", duration: duration)
-    }
-  }
-
-  /// Computes total captured time from pre-computed data
-  nonisolated private func computeTotalCapturedTime(
-    from precomputed: [CardWithDuration], categories: [TimelineCategory]
-  ) -> TimeInterval {
-    normalizedNonSystemDurations(from: precomputed, categories: categories).reduce(0) {
-      total, item in
-      total + item.duration
-    }
-  }
-
-  /// Computes total focus time from pre-computed data
-  nonisolated private func computeTotalFocusTime(
-    from precomputed: [CardWithDuration], snapshots: [DayGoalCategorySnapshot],
-    categories: [TimelineCategory]
-  ) -> TimeInterval {
-    normalizedNonSystemDurations(from: precomputed, categories: categories)
-      .filter {
-        isGoalCategoryStatic($0.card.category, snapshots: snapshots, categories: categories)
-      }
-      .reduce(0) { $0 + $1.duration }
-  }
-
-  /// Computes focus blocks from pre-computed data
-  nonisolated private func computeFocusBlocks(
-    from precomputed: [CardWithDuration], snapshots: [DayGoalCategorySnapshot], baseDate: Date,
-    categories: [TimelineCategory]
-  ) -> [FocusBlock] {
-    let focusCards = normalizedNonSystemDurations(from: precomputed, categories: categories)
-      .filter {
-        isGoalCategoryStatic($0.card.category, snapshots: snapshots, categories: categories)
-      }
-
-    var blocks: [(start: Int, end: Int)] = []
-    for item in focusCards {
-      blocks.append((start: item.startMinutes, end: item.endMinutes))
-    }
-
-    let sorted = blocks.sorted { $0.start < $1.start }
-    var merged: [(start: Int, end: Int)] = []
-    for block in sorted {
-      if let last = merged.last {
-        let gap = block.start - last.end
-        if gap < Design.focusGapMinutes {
-          merged[merged.count - 1].end = max(last.end, block.end)
-          continue
-        }
-      }
-      merged.append(block)
-    }
-
-    return merged.map { block in
-      let startDate = baseDate.addingTimeInterval(TimeInterval(block.start * 60))
-      let endDate = baseDate.addingTimeInterval(TimeInterval(block.end * 60))
-      return FocusBlock(startTime: startDate, endTime: endDate)
-    }
-  }
-
-  /// Computes total distracted time from pre-computed data
-  nonisolated private func computeTotalDistractedTime(
-    from precomputed: [CardWithDuration], snapshots: [DayGoalCategorySnapshot],
-    categories: [TimelineCategory]
-  ) -> TimeInterval {
-    normalizedNonSystemDurations(from: precomputed, categories: categories).reduce(0) {
-      total, item in
-      guard
-        isGoalCategoryStatic(item.card.category, snapshots: snapshots, categories: categories)
-      else { return total }
-      return total + item.duration
-    }
-  }
-
-  /// Static version of isSystemCategory that takes categories as parameter (for use in background thread)
-  nonisolated private func isSystemCategoryStatic(_ name: String, categories: [TimelineCategory])
-    -> Bool
-  {
-    let normalized = normalizedCategoryName(name)
-    if normalized == "system" { return true }
-    guard let category = categories.first(where: { normalizedCategoryName($0.name) == normalized })
-    else {
-      return false
-    }
-    return category.isSystem
-  }
-
-  /// Goal-category matcher that prefers current category IDs and falls back to saved names.
-  nonisolated private func isGoalCategoryStatic(
-    _ name: String, snapshots: [DayGoalCategorySnapshot], categories: [TimelineCategory]
-  ) -> Bool {
-    if isSystemCategoryStatic(name, categories: categories) { return false }
-    let normalized = normalizedCategoryName(name)
-    let selectedIDs = Set(snapshots.map(\.categoryID))
-
-    if let category = categories.first(where: { normalizedCategoryName($0.name) == normalized }),
-      selectedIDs.contains(category.id.uuidString)
-    {
-      return true
-    }
-
-    return snapshots.contains { normalizedCategoryName($0.name) == normalized }
-  }
-
   /// Recomputes cached stats when categories change (rename/color/system/focus/distraction flags)
   private func recomputeCachedStatsForCategoryChange() {
     let precomputed =
-      cardsWithDurations.isEmpty ? precomputeCardDurations(timelineCards) : cardsWithDurations
+      cardsWithDurations.isEmpty
+      ? DaySummaryStats.precomputeCardDurations(timelineCards) : cardsWithDurations
     let currentCategories = categories
     let plan = effectiveGoalPlan
     let baseDate = timelineDayInfo.startOfDay
 
     Task.detached(priority: .userInitiated) {
-      let catDurations = self.computeCategoryDurations(
+      let catDurations = DaySummaryStats.computeCategoryDurations(
         from: precomputed, categories: currentCategories)
-      let totalCaptured = self.computeTotalCapturedTime(
+      let totalCaptured = DaySummaryStats.computeTotalCapturedTime(
         from: precomputed, categories: currentCategories)
-      let totalFocus = self.computeTotalFocusTime(
+      let totalFocus = DaySummaryStats.computeTotalFocusTime(
         from: precomputed, snapshots: plan.focusCategories, categories: currentCategories)
-      let blocks = self.computeFocusBlocks(
+      let blocks = DaySummaryStats.computeFocusBlocks(
         from: precomputed, snapshots: plan.focusCategories, baseDate: baseDate,
         categories: currentCategories)
-      let totalDistracted = self.computeTotalDistractedTime(
+      let totalDistracted = DaySummaryStats.computeTotalDistractedTime(
         from: precomputed, snapshots: plan.distractionCategories, categories: currentCategories)
 
       await MainActor.run {
@@ -1137,209 +882,6 @@ struct DaySummaryView: View {
         self.cachedTotalDistractedTime = totalDistracted
       }
     }
-  }
-
-  nonisolated private func makeGoalReviewSnapshot(
-    dayInfo: (dayString: String, startOfDay: Date, endOfDay: Date),
-    storageManager: StorageManaging,
-    categories: [TimelineCategory]
-  ) -> DayGoalReviewSnapshot {
-    let plan = Self.carriedForwardGoalPlan(
-      day: dayInfo.dayString,
-      storageManager: storageManager,
-      categories: categories
-    )
-    let cards = storageManager.fetchTimelineCards(forDay: dayInfo.dayString)
-    let precomputed = precomputeCardDurations(cards)
-    let categoryDurations = computeCategoryDurations(from: precomputed, categories: categories)
-    let focusDuration = computeTotalFocusTime(
-      from: precomputed,
-      snapshots: plan.focusCategories,
-      categories: categories
-    )
-    let distractedDuration = computeTotalDistractedTime(
-      from: precomputed,
-      snapshots: plan.distractionCategories,
-      categories: categories
-    )
-
-    return DayGoalReviewSnapshot(
-      day: dayInfo.dayString,
-      plan: plan,
-      focusDuration: focusDuration,
-      distractedDuration: distractedDuration,
-      focusCategories: goalCategoryResults(
-        snapshots: plan.focusCategories,
-        categoryDurations: categoryDurations,
-        categories: categories
-      )
-    )
-  }
-
-  nonisolated private func makeGoalSetupReferenceStats(
-    currentTimelineDate: Date,
-    storageManager: StorageManaging,
-    categories: [TimelineCategory]
-  ) -> DayGoalSetupReferenceStats {
-    let calendar = Calendar.current
-    let dayStrings = (1...7).compactMap { offset -> String? in
-      guard let date = calendar.date(byAdding: .day, value: -offset, to: currentTimelineDate)
-      else {
-        return nil
-      }
-      return timelineDisplayDate(from: date).getDayInfoFor4AMBoundary().dayString
-    }
-    guard let yesterdayDayString = dayStrings.first else { return .empty }
-
-    let yesterdayMaps = categoryDurationMaps(
-      forDay: yesterdayDayString,
-      storageManager: storageManager,
-      categories: categories
-    )
-
-    var lastWeekByIDTotals: [String: TimeInterval] = [:]
-    var lastWeekByNameTotals: [String: TimeInterval] = [:]
-    for dayString in dayStrings {
-      let maps = categoryDurationMaps(
-        forDay: dayString,
-        storageManager: storageManager,
-        categories: categories
-      )
-      for (categoryID, duration) in maps.byID {
-        lastWeekByIDTotals[categoryID, default: 0] += duration
-      }
-      for (categoryName, duration) in maps.byName {
-        lastWeekByNameTotals[categoryName, default: 0] += duration
-      }
-    }
-
-    let dayCount = max(Double(dayStrings.count), 1)
-    return DayGoalSetupReferenceStats(
-      yesterdayByCategoryID: yesterdayMaps.byID,
-      yesterdayByCategoryName: yesterdayMaps.byName,
-      lastWeekAverageByCategoryID: lastWeekByIDTotals.mapValues { $0 / dayCount },
-      lastWeekAverageByCategoryName: lastWeekByNameTotals.mapValues { $0 / dayCount }
-    )
-  }
-
-  nonisolated private func categoryDurationMaps(
-    forDay dayString: String,
-    storageManager: StorageManaging,
-    categories: [TimelineCategory]
-  ) -> (byID: [String: TimeInterval], byName: [String: TimeInterval]) {
-    let cards = storageManager.fetchTimelineCards(forDay: dayString)
-    let precomputed = precomputeCardDurations(cards)
-    let categoryDurations = computeCategoryDurations(from: precomputed, categories: categories)
-    return durationMaps(from: categoryDurations)
-  }
-
-  nonisolated private func durationMaps(
-    from categoryDurations: [CategoryTimeData]
-  ) -> (byID: [String: TimeInterval], byName: [String: TimeInterval]) {
-    var byID: [String: TimeInterval] = [:]
-    var byName: [String: TimeInterval] = [:]
-    for item in categoryDurations {
-      byID[item.id, default: 0] += item.duration
-      byName[normalizedCategoryName(item.name), default: 0] += item.duration
-    }
-    return (byID, byName)
-  }
-
-  nonisolated private static func carriedForwardGoalPlan(
-    day: String,
-    storageManager: StorageManaging,
-    categories: [TimelineCategory]
-  ) -> DayGoalPlan {
-    let saved = storageManager.fetchMostRecentDayGoalPlan(beforeOrOn: day)
-    let plan = saved ?? DayGoalPlan.defaultPlan(day: day, categories: categories)
-    return plan.carriedForward(to: day, categories: categories)
-  }
-
-  nonisolated private func goalCategoryResults(
-    snapshots: [DayGoalCategorySnapshot],
-    categoryDurations: [CategoryTimeData],
-    categories: [TimelineCategory]
-  ) -> [DayGoalCategoryResult] {
-    let currentByID = Dictionary(uniqueKeysWithValues: categories.map { ($0.id.uuidString, $0) })
-    let durationByID = categoryDurations.reduce(into: [String: TimeInterval]()) { result, item in
-      result[item.id] = item.duration
-    }
-    let durationByName = categoryDurations.reduce(into: [String: TimeInterval]()) { result, item in
-      result[normalizedCategoryName(item.name)] = item.duration
-    }
-
-    return
-      snapshots
-      .sorted { $0.sortOrder < $1.sortOrder }
-      .map { snapshot in
-        let current = currentByID[snapshot.categoryID]
-        let name = current?.name ?? snapshot.name
-        let colorHex = current?.colorHex ?? snapshot.colorHex
-        let duration =
-          durationByID[snapshot.categoryID]
-          ?? durationByName[normalizedCategoryName(snapshot.name), default: 0]
-
-        return DayGoalCategoryResult(
-          id: snapshot.categoryID,
-          name: name,
-          colorHex: colorHex,
-          duration: duration
-        )
-      }
-  }
-
-  private enum ReviewRatingKey: String {
-    case distracted
-    case neutral
-    case focused
-  }
-
-  nonisolated private static func makeReviewSummary(
-    segments: [TimelineReviewRatingSegment],
-    dayStartTs: Int,
-    dayEndTs: Int
-  ) -> TimelineReviewSummarySnapshot {
-    var durationByRating: [ReviewRatingKey: TimeInterval] = [
-      .distracted: 0,
-      .neutral: 0,
-      .focused: 0,
-    ]
-    var latestEnd: Int? = nil
-
-    for segment in segments {
-      let start = max(segment.startTs, dayStartTs)
-      let end = min(segment.endTs, dayEndTs)
-      guard end > start else { continue }
-
-      let normalized = segment.rating
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .lowercased()
-
-      guard let rating = ReviewRatingKey(rawValue: normalized) else { continue }
-
-      durationByRating[rating, default: 0] += TimeInterval(end - start)
-      latestEnd = max(latestEnd ?? end, end)
-    }
-
-    let total = durationByRating.values.reduce(0, +)
-    guard total > 0 else {
-      return .placeholder
-    }
-
-    let distractedRatio = durationByRating[.distracted, default: 0] / total
-    let neutralRatio = durationByRating[.neutral, default: 0] / total
-    let productiveRatio = durationByRating[.focused, default: 0] / total
-
-    return TimelineReviewSummarySnapshot(
-      hasData: true,
-      lastReviewedAt: latestEnd.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-      distractedRatio: distractedRatio,
-      neutralRatio: neutralRatio,
-      productiveRatio: productiveRatio,
-      distractedDuration: durationByRating[.distracted, default: 0],
-      neutralDuration: durationByRating[.neutral, default: 0],
-      productiveDuration: durationByRating[.focused, default: 0]
-    )
   }
 }
 
