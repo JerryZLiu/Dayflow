@@ -568,7 +568,10 @@ extension ChatView {
     VStack(spacing: 0) {
       // Text input
       AppKitComposerTextField(
-        text: $inputText,
+        text: Binding(
+          get: { inputText },
+          set: { inputText = $0 }
+        ),
         isFocused: $isInputFocused,
         focusToken: composerFocusToken,
         placeholder: "Ask about your Dayflow data...",
