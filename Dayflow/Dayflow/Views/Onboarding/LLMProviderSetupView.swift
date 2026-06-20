@@ -542,7 +542,7 @@ struct LLMProviderSetupView: View {
               .foregroundColor(.black.opacity(0.6))
               .frame(width: 20, alignment: .leading)
 
-            Group {
+            Button(action: openGoogleAIStudio) {
               Text("Visit Google AI Studio ")
                 .font(.custom("Figtree", size: 14))
                 .foregroundColor(.black.opacity(0.8))
@@ -551,7 +551,7 @@ struct LLMProviderSetupView: View {
                 .foregroundColor(Color(red: 1, green: 0.42, blue: 0.02))
                 .underline()
             }
-            .onTapGesture { openGoogleAIStudio() }
+            .buttonStyle(.plain)
             .pointingHandCursor()
           }
 
@@ -561,7 +561,7 @@ struct LLMProviderSetupView: View {
               .foregroundColor(.black.opacity(0.6))
               .frame(width: 20, alignment: .leading)
 
-            Text("Click \"Get API key\" in the top right")
+            Text("Click \"Create API key\" in the top right")
               .font(.custom("Figtree", size: 14))
               .foregroundColor(.black.opacity(0.8))
           }
