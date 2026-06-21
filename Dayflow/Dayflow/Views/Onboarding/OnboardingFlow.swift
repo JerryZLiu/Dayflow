@@ -838,7 +838,7 @@ enum DownloadReasonOption: CaseIterable, Identifiable, Hashable {
     case .automaticLog:
       return "To keep an automatic log of what I worked on"
     case .proofOfWork:
-      return "To have something to show for my work (standups, reviews, clients)"
+      return "To make my work more visible for standups, reviews, or promotions"
     case .cutDistractions:
       return "To find and cut distractions"
     case .productiveFocused:
