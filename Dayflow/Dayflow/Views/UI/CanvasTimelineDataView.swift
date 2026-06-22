@@ -2,13 +2,7 @@ import AppKit
 import Foundation
 import SwiftUI
 
-// MARK: - Cached DateFormatters (creating DateFormatters is expensive due to ICU initialization)
-
-private let cachedDayFormatter: DateFormatter = {
-  let formatter = DateFormatter()
-  formatter.dateFormat = "yyyy-MM-dd"
-  return formatter
-}()
+// MARK: - Cached DateFormatter (creating DateFormatters is expensive due to ICU initialization)
 
 private let cachedTimeFormatter: DateFormatter = {
   let formatter = DateFormatter()
@@ -21,75 +15,6 @@ private struct CanvasConfig {
   static let timeColumnWidth: CGFloat = 60
   static let startHour: Int = 4  // 4 AM baseline
   static let endHour: Int = 28  // 4 AM next day
-}
-
-enum TimelineScale {
-  static let hourHeight: CGFloat = 168
-}
-
-enum TimelineCardLayout {
-  static let iconLeadingInset: CGFloat = 16
-  static let iconTextSpacing: CGFloat = 6
-  static let faviconSize: CGFloat = 18
-  static let faviconVerticalOffset: CGFloat = 0
-  static let compactDurationThreshold: CGFloat = 13
-  static let compactVerticalPadding: CGFloat = 0
-  static let normalVerticalPadding: CGFloat = 6
-  static let hoverScale: CGFloat = 1.005
-  static let pressedScale: CGFloat = 0.992
-}
-
-enum TimelineTypography {
-  static let cardTextFontSize: CGFloat = 16
-  static let cardTextFontWeight: TimelineCardTextWeight = .regular
-  static let timeLabelFontSize: CGFloat = 12
-
-  static func cardSecondaryTextFontSize(for cardTextFontSize: CGFloat) -> CGFloat {
-    max(8, cardTextFontSize - 3)
-  }
-}
-
-enum TimelineCardTextWeight: String, CaseIterable, Identifiable {
-  case regular
-  case medium
-  case semibold
-  case bold
-
-  var id: String { rawValue }
-
-  var label: String {
-    switch self {
-    case .regular:
-      return "Reg"
-    case .medium:
-      return "Med"
-    case .semibold:
-      return "Semi"
-    case .bold:
-      return "Bold"
-    }
-  }
-
-  var fontWeight: Font.Weight {
-    switch self {
-    case .regular:
-      return .regular
-    case .medium:
-      return .medium
-    case .semibold:
-      return .semibold
-    case .bold:
-      return .bold
-    }
-  }
-}
-
-struct TimelineTimeLabelFramesPreferenceKey: PreferenceKey {
-  static var defaultValue: [CGRect] = []
-
-  static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
-    value.append(contentsOf: nextValue())
-  }
 }
 
 private struct TimelineCardsLayerFramePreferenceKey: PreferenceKey {
@@ -121,11 +46,6 @@ private struct CanvasPositionedActivity: Identifiable {
   let faviconSecondaryHost: String?
 }
 
-private struct RecordingProjectionWindow {
-  let start: Date
-  let end: Date
-}
-
 struct CanvasTimelineDataView: View {
   @Binding var selectedDate: Date
   @Binding var selectedActivity: TimelineActivity?
@@ -151,7 +71,7 @@ struct CanvasTimelineDataView: View {
 
   @State private var selectedCardId: String? = nil
   @State private var positionedActivities: [CanvasPositionedActivity] = []
-  @State private var recordingProjection: RecordingProjectionWindow?
+  @State private var recordingProjection: TimelineRecordingProjectionWindow?
   @State private var cardsLayerFrame: CGRect = .zero
   @State private var refreshTimer: Timer?
   @State private var didInitialScrollInView: Bool = false
@@ -167,8 +87,6 @@ struct CanvasTimelineDataView: View {
   @EnvironmentObject private var categoryStore: CategoryStore
   @EnvironmentObject private var appState: AppState
   @EnvironmentObject private var retryCoordinator: RetryCoordinator
-
-  private let storageManager = StorageManager.shared
 
   private var pixelsPerMinute: CGFloat {
     hourHeight / 60
@@ -705,20 +623,17 @@ struct CanvasTimelineDataView: View {
 
       // Normalize to noon so time components do not leak into day jumps
       let requestedSelectedDate = await MainActor.run { self.selectedDate }
-      var logicalDate = requestedSelectedDate
-      logicalDate =
-        calendar.date(bySettingHour: 12, minute: 0, second: 0, of: logicalDate) ?? logicalDate
-
-      // Derive the effective timeline day (handles the 4 AM boundary for "today")
-      let timelineDate = timelineDisplayDate(from: logicalDate, now: Date())
-
-      let dayString = cachedDayFormatter.string(from: timelineDate)
+      let logicalDate =
+        calendar.date(bySettingHour: 12, minute: 0, second: 0, of: requestedSelectedDate)
+        ?? requestedSelectedDate
 
       // Check for cancellation before expensive database read
       guard !Task.isCancelled else { return }
 
-      let timelineCards = self.storageManager.fetchTimelineCards(forDay: dayString)
-      let activities = self.processTimelineCards(timelineCards, for: timelineDate)
+      // Shared loader handles the 4 AM boundary, failed-card filtering, and
+      // card -> activity conversion (same path the Week view uses).
+      let payload = TimelineActivityLoader.dayPayload(for: logicalDate)
+      let dayString = payload.dayString
 
       // Check for cancellation before expensive processing
       guard !Task.isCancelled else { return }
@@ -726,9 +641,9 @@ struct CanvasTimelineDataView: View {
       // Mitigation transform: resolve visual overlaps by trimming larger cards
       // so that smaller cards "win". This is a display-only fix to handle
       // upstream card-generation overlap bugs without touching stored data.
-      let segments = self.resolveOverlapsForDisplay(activities)
-      let recordingProjection = self.computeRecordingProjectionWindow(
-        timelineDate: timelineDate,
+      let segments = TimelineActivityLoader.resolveDisplaySegments(from: payload.activities)
+      let recordingProjection = TimelineActivityLoader.recordingProjectionWindow(
+        for: payload.timelineDate,
         displaySegments: segments,
         now: Date()
       )
@@ -765,7 +680,8 @@ struct CanvasTimelineDataView: View {
       guard !Task.isCancelled else { return }
 
       let currentDayString = await MainActor.run {
-        cachedDayFormatter.string(from: timelineDisplayDate(from: self.selectedDate, now: Date()))
+        DateFormatter.yyyyMMdd.string(
+          from: timelineDisplayDate(from: self.selectedDate, now: Date()))
       }
 
       guard currentDayString == dayString else {
@@ -854,278 +770,12 @@ struct CanvasTimelineDataView: View {
     }
   }
 
-  private func processTimelineCards(_ cards: [TimelineCard], for date: Date) -> [TimelineActivity] {
-    let calendar = Calendar.current
-    let baseDate = calendar.startOfDay(for: date)
-
-    var results: [TimelineActivity] = []
-    var idCounts: [String: Int] = [:]
-    results.reserveCapacity(cards.count)
-
-    for card in cards {
-      guard TimelineActivityLoader.shouldDisplay(card, storageManager: storageManager) else {
-        continue
-      }
-
-      guard let startDate = cachedTimeFormatter.date(from: card.startTimestamp),
-        let endDate = cachedTimeFormatter.date(from: card.endTimestamp)
-      else {
-        continue
-      }
-
-      let startComponents = calendar.dateComponents([.hour, .minute], from: startDate)
-      let endComponents = calendar.dateComponents([.hour, .minute], from: endDate)
-
-      guard
-        let finalStartDate = calendar.date(
-          bySettingHour: startComponents.hour ?? 0,
-          minute: startComponents.minute ?? 0,
-          second: 0,
-          of: baseDate
-        ),
-        let finalEndDate = calendar.date(
-          bySettingHour: endComponents.hour ?? 0,
-          minute: endComponents.minute ?? 0,
-          second: 0,
-          of: baseDate
-        )
-      else { continue }
-
-      var adjustedStartDate = finalStartDate
-      var adjustedEndDate = finalEndDate
-
-      let startHour = calendar.component(.hour, from: finalStartDate)
-      if startHour < 4 {
-        adjustedStartDate =
-          calendar.date(byAdding: .day, value: 1, to: finalStartDate) ?? finalStartDate
-      }
-
-      let endHour = calendar.component(.hour, from: finalEndDate)
-      if endHour < 4 {
-        adjustedEndDate = calendar.date(byAdding: .day, value: 1, to: finalEndDate) ?? finalEndDate
-      }
-
-      if adjustedEndDate < adjustedStartDate {
-        adjustedEndDate =
-          calendar.date(byAdding: .day, value: 1, to: adjustedEndDate) ?? adjustedEndDate
-      }
-
-      let baseId = TimelineActivity.stableId(
-        recordId: card.recordId,
-        batchId: card.batchId,
-        startTime: adjustedStartDate,
-        endTime: adjustedEndDate,
-        title: card.title,
-        category: card.category,
-        subcategory: card.subcategory
-      )
-
-      let seenCount = idCounts[baseId, default: 0]
-      idCounts[baseId] = seenCount + 1
-      let finalId = seenCount == 0 ? baseId : "\(baseId)-\(seenCount)"
-      #if DEBUG
-        if seenCount > 0 {
-          print(
-            "[CanvasTimelineDataView] Duplicate TimelineActivity.id detected: \(baseId) -> \(finalId)"
-          )
-        }
-      #endif
-
-      results.append(
-        TimelineActivity(
-          id: finalId,
-          recordId: card.recordId,
-          batchId: card.batchId,
-          startTime: adjustedStartDate,
-          endTime: adjustedEndDate,
-          title: card.title,
-          summary: card.summary,
-          detailedSummary: card.detailedSummary,
-          category: card.category,
-          subcategory: card.subcategory,
-          distractions: card.distractions,
-          videoSummaryURL: card.videoSummaryURL,
-          screenshot: nil,
-          appSites: card.appSites,
-          isBackupGenerated: card.isBackupGenerated
-        ))
-    }
-
-    return results
-  }
-
-  // Trims larger overlapping cards so smaller cards keep their full range.
-  // This is a mitigation transform for occasional upstream timeline card overlap bugs.
-  private struct DisplaySegment {
-    let activity: TimelineActivity
-    var start: Date
-    var end: Date
-  }
-
-  private func resolveOverlapsForDisplay(_ activities: [TimelineActivity]) -> [DisplaySegment] {
-    // Start with raw segments mirroring activity times
-    var segments = activities.map {
-      DisplaySegment(activity: $0, start: $0.startTime, end: $0.endTime)
-    }
-    guard segments.count > 1 else { return segments }
-
-    // Sort by start time for deterministic processing
-    segments.sort { $0.start < $1.start }
-
-    // Iteratively resolve overlaps until stable, with a safety cap
-    var changed = true
-    var passes = 0
-    let maxPasses = 8
-    while changed && passes < maxPasses {
-      changed = false
-      passes += 1
-
-      // Compare each pair that could overlap (sweep-style)
-      var i = 0
-      while i < segments.count {
-        var j = i + 1
-        while j < segments.count {
-          // Early exit if no chance to overlap (since sorted by start)
-          if segments[j].start >= segments[i].end { break }
-
-          // Compute overlap window
-          let s1 = segments[i]
-          let s2 = segments[j]
-          let overlapStart = max(s1.start, s2.start)
-          let overlapEnd = min(s1.end, s2.end)
-
-          if overlapEnd > overlapStart {
-            // There is overlap — decide small vs big by duration
-            let d1 = s1.end.timeIntervalSince(s1.start)
-            let d2 = s2.end.timeIntervalSince(s2.start)
-            let smallIdx = d1 <= d2 ? i : j
-            let bigIdx = d1 <= d2 ? j : i
-
-            // Reload references after indices chosen
-            let small = segments[smallIdx]
-            var big = segments[bigIdx]
-
-            // Cases
-            if big.start < small.start && small.end < big.end {
-              // Small fully inside big — keep the longer side of big
-              let left = small.start.timeIntervalSince(big.start)
-              let right = big.end.timeIntervalSince(small.end)
-              if right >= left {
-                big.start = small.end
-              } else {
-                big.end = small.start
-              }
-            } else if small.start <= big.start && big.start < small.end {
-              // Overlap at big start — trim big.start to small.end
-              big.start = small.end
-            } else if small.start < big.end && big.end <= small.end {
-              // Overlap at big end — trim big.end to small.start
-              big.end = small.start
-            }
-
-            // Validate and apply change
-            if big.end <= big.start {
-              // Trimmed away — remove big
-              segments.remove(at: bigIdx)
-              changed = true
-              // Restart inner loop from j = i+1 since indices shifted
-              j = i + 1
-              continue
-            } else if big.start != segments[bigIdx].start || big.end != segments[bigIdx].end {
-              segments[bigIdx] = big
-              changed = true
-              // Resort local order if start changed
-              segments.sort { $0.start < $1.start }
-              // Restart scanning from current i
-              j = i + 1
-              continue
-            }
-          }
-          j += 1
-        }
-        i += 1
-      }
-    }
-
-    return segments
-  }
-
-  private func recordingProjectionHeight(for projection: RecordingProjectionWindow) -> CGFloat {
+  private func recordingProjectionHeight(for projection: TimelineRecordingProjectionWindow)
+    -> CGFloat
+  {
     let durationMinutes = max(0, projection.end.timeIntervalSince(projection.start) / 60)
     let rawHeight = CGFloat(durationMinutes) * pixelsPerMinute
     return max(10, rawHeight - 2)
-  }
-
-  private func computeRecordingProjectionWindow(
-    timelineDate: Date,
-    displaySegments: [DisplaySegment],
-    now: Date
-  ) -> RecordingProjectionWindow? {
-    guard timelineIsToday(timelineDate, now: now) else { return nil }
-
-    let dayInfo = timelineDate.getDayInfoFor4AMBoundary()
-    let dayStart = dayInfo.startOfDay
-    let dayEnd = dayInfo.endOfDay
-    let cycleDuration: TimeInterval = 15 * 60
-    let hardCap: TimeInterval = 40 * 60
-    guard cycleDuration > 0 else { return nil }
-
-    let centeredStart = now.addingTimeInterval(-(cycleDuration / 2))
-    var windowStart = max(dayStart, centeredStart)
-    var windowEnd = windowStart.addingTimeInterval(cycleDuration)
-    if windowEnd > dayEnd {
-      windowEnd = dayEnd
-      windowStart = max(dayStart, windowEnd.addingTimeInterval(-cycleDuration))
-    }
-    windowEnd = min(windowEnd, windowStart.addingTimeInterval(hardCap))
-
-    if windowEnd <= windowStart {
-      return nil
-    }
-
-    let sortedSegments = displaySegments.sorted { $0.start < $1.start }
-
-    var moved = true
-    var iterations = 0
-    let maxIterations = max(1, sortedSegments.count + 2)
-    while moved {
-      moved = false
-      let previousStart = windowStart
-      let previousEnd = windowEnd
-      for segment in sortedSegments {
-        let intersects = segment.end > windowStart && segment.start < windowEnd
-        if intersects {
-          windowStart = segment.end
-          windowEnd = windowStart.addingTimeInterval(cycleDuration)
-          if windowEnd > dayEnd {
-            windowEnd = dayEnd
-            windowStart = max(dayStart, windowEnd.addingTimeInterval(-cycleDuration))
-          }
-          windowEnd = min(windowEnd, windowStart.addingTimeInterval(hardCap))
-          moved = true
-          break
-        }
-      }
-      if windowStart >= dayEnd {
-        return nil
-      }
-      if moved {
-        iterations += 1
-        // Guard against non-progress loops caused by day-end clamping.
-        if windowStart == previousStart && windowEnd == previousEnd {
-          return nil
-        }
-        if iterations >= maxIterations {
-          return nil
-        }
-      }
-    }
-
-    if windowEnd <= windowStart {
-      return nil
-    }
-
-    return RecordingProjectionWindow(start: windowStart, end: windowEnd)
   }
 
   private func startRefreshTimer() {
@@ -1220,243 +870,6 @@ extension CanvasTimelineDataView {
       )
       .allowsHitTesting(false)
       .accessibilityHidden(true)
-  }
-}
-
-struct CanvasActivityCardStyle {
-  let text: Color
-  let time: Color
-  let accent: Color
-  let isIdle: Bool
-}
-
-struct CanvasActivityCard: View {
-  @AppStorage("showTimelineAppIcons") private var showTimelineAppIcons: Bool = true
-  @State private var isHovering = false
-
-  let title: String
-  let time: String
-  let height: CGFloat
-  let durationMinutes: Double
-  let style: CanvasActivityCardStyle
-  let isSelected: Bool
-  let isSystemCategory: Bool
-  let isBackupGenerated: Bool
-  let onTap: () -> Void
-  // Raw values for pattern matching (may contain paths)
-  let faviconPrimaryRaw: String?
-  let faviconSecondaryRaw: String?
-  // Normalized hosts for network fetch
-  let faviconPrimaryHost: String?
-  let faviconSecondaryHost: String?
-  let statusLine: String?
-  let fontSize: CGFloat
-  let fontWeight: TimelineCardTextWeight
-  let iconLeadingInset: CGFloat
-  let iconTextSpacing: CGFloat
-  let faviconSize: CGFloat
-  let faviconVerticalOffset: CGFloat
-  let compactDurationThreshold: CGFloat
-  let compactVerticalPadding: CGFloat
-  let normalVerticalPadding: CGFloat
-  let hoverScale: CGFloat
-  let pressedScale: CGFloat
-
-  private var isFailedCard: Bool {
-    title == "Processing failed"
-  }
-
-  private var isCompactCard: Bool {
-    durationMinutes < Double(compactDurationThreshold)
-  }
-
-  private var verticalPadding: CGFloat {
-    guard !isFailedCard else { return 0 }
-    return isCompactCard ? compactVerticalPadding : normalVerticalPadding
-  }
-
-  private var secondaryFontSize: CGFloat {
-    TimelineTypography.cardSecondaryTextFontSize(for: fontSize)
-  }
-
-  private var backupIndicator: some View {
-    Text("!")
-      .font(Font.custom("Figtree", size: 9).weight(.semibold))
-      .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
-      .frame(width: 14, height: 14)
-      .background(
-        Circle()
-          .fill(Color(red: 0.96, green: 0.94, blue: 0.91).opacity(0.9))
-      )
-      .overlay(
-        Circle()
-          .stroke(Color(red: 0.9, green: 0.9, blue: 0.9), lineWidth: 0.75)
-      )
-      .help(
-        "This card fell back to a lower-quality Gemini model due to rate limiting, so output quality may be lower."
-      )
-  }
-
-  private var selectionStroke: Color {
-    if isSystemCategory {
-      return Color(red: 1, green: 0.16, blue: 0.11)
-    }
-    return style.accent
-  }
-
-  var body: some View {
-    Button(action: {
-      withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-        onTap()
-      }
-    }) {
-      HStack(alignment: .top, spacing: isFailedCard ? 10 : iconTextSpacing) {
-        if durationMinutes >= 10 {
-          if isFailedCard {
-            VStack(alignment: .leading, spacing: 4) {
-              HStack(alignment: .top, spacing: 8) {
-                Text(title)
-                  .font(
-                    Font.custom("Figtree", size: fontSize)
-                      .weight(fontWeight.fontWeight)
-                  )
-                  .foregroundColor(style.text)
-
-                Spacer()
-
-                Text(time)
-                  .font(
-                    Font.custom("Figtree", size: secondaryFontSize)
-                      .weight(.medium)
-                  )
-                  .foregroundColor(style.time)
-                  .lineLimit(1)
-                  .truncationMode(.tail)
-              }
-
-              if let statusLine = statusLine {
-                Text(statusLine)
-                  .font(Font.custom("Figtree", size: secondaryFontSize))
-                  .foregroundColor(Color(red: 0.55, green: 0.45, blue: 0.4))
-                  .lineLimit(1)
-                  .truncationMode(.tail)
-              }
-            }
-          } else {
-            if showTimelineAppIcons && (faviconPrimaryRaw != nil || faviconSecondaryRaw != nil) {
-              FaviconImageView(
-                primaryRaw: faviconPrimaryRaw,
-                secondaryRaw: faviconSecondaryRaw,
-                primaryHost: faviconPrimaryHost,
-                secondaryHost: faviconSecondaryHost,
-                size: faviconSize
-              )
-              .offset(y: faviconVerticalOffset)
-            }
-
-            Text(title)
-              .font(
-                Font.custom("Figtree", size: fontSize)
-                  .weight(fontWeight.fontWeight)
-              )
-              .foregroundColor(style.text)
-
-            Spacer()
-
-            HStack(spacing: 6) {
-              if isBackupGenerated {
-                backupIndicator
-              }
-
-              Text(time)
-                .font(
-                  Font.custom("Figtree", size: secondaryFontSize)
-                    .weight(.medium)
-                )
-                .foregroundColor(style.time)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            }
-          }
-        }
-      }
-      .padding(.leading, iconLeadingInset)
-      .padding(.trailing, 10)
-      .padding(.vertical, verticalPadding)
-      .frame(
-        maxWidth: .infinity,
-        minHeight: height,
-        maxHeight: height,
-        alignment: isCompactCard ? .leading : .topLeading
-      )
-      .background(isFailedCard ? Color(hex: "FFECE4") : Color(hex: "FFFBF8"))
-      .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
-      .overlay(
-        RoundedRectangle(cornerRadius: 2, style: .continuous)
-          .inset(by: 0.25)
-          .stroke(
-            isFailedCard ? Color(red: 1, green: 0.16, blue: 0.11) : Color(hex: "E8E8E8"),
-            style: isFailedCard
-              ? StrokeStyle(lineWidth: 0.5, dash: [2.5, 2.5]) : StrokeStyle(lineWidth: 0.25)
-          )
-      )
-      .overlay(alignment: .leading) {
-        if !isFailedCard {
-          UnevenRoundedRectangle(
-            topLeadingRadius: 2,
-            bottomLeadingRadius: 2,
-            bottomTrailingRadius: 0,
-            topTrailingRadius: 0,
-            style: .continuous
-          )
-          .fill(style.accent)
-          .frame(width: 6)
-        }
-      }
-      // Selection halo for the active activity
-      .overlay(
-        RoundedRectangle(cornerRadius: 2, style: .continuous)
-          .stroke(selectionStroke, lineWidth: 1.5)
-          .opacity(isSelected ? 1 : 0)
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: 2, style: .continuous)
-          .stroke(Color.black.opacity(isHovering ? 0.08 : 0), lineWidth: 1)
-      )
-      .shadow(
-        color: .black.opacity(isHovering ? 0.08 : 0),
-        radius: 1,
-        x: 0,
-        y: 1
-      )
-      .shadow(
-        color: .black.opacity(isHovering ? 0.06 : 0),
-        radius: 2,
-        x: 0,
-        y: 2
-      )
-    }
-    .buttonStyle(CanvasCardButtonStyle(pressedScale: pressedScale))
-    .pointingHandCursor()
-    .hoverScaleEffect(scale: hoverScale)
-    .onHover { hovering in
-      isHovering = hovering
-    }
-    .animation(.easeOut(duration: 0.18), value: isHovering)
-    .padding(.horizontal, 6)
-  }
-}
-
-struct CanvasCardButtonStyle: ButtonStyle {
-  var pressedScale: CGFloat = TimelineCardLayout.pressedScale
-
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .dayflowPressScale(
-        configuration.isPressed,
-        pressedScale: pressedScale,
-        animation: .spring(response: 0.3, dampingFraction: 0.6)
-      )
   }
 }
 
