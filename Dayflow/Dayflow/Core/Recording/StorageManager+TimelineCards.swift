@@ -2,6 +2,13 @@ import Foundation
 import GRDB
 import Sentry
 
+/// Epoch-based activity span for a timeline card.
+struct TimelineActivitySpan: Sendable {
+  let category: String
+  let startTs: Int
+  let endTs: Int
+}
+
 extension StorageManager {
   func saveTimelineCardShell(batchId: Int64, card: TimelineCardShell) -> Int64? {
     let encoder = JSONEncoder()
@@ -387,6 +394,52 @@ extension StorageManager {
           )
         }
       }) ?? []
+  }
+
+  /// Lightweight epoch-based activity for a day, used by the focus timer.
+  /// Reads `start_ts`/`end_ts` (ground truth) rather than the display
+  /// `start`/`end` text, which can be timezone-skewed for some cards.
+  func fetchTimelineActivity(forDay day: String) -> [TimelineActivitySpan] {
+    guard let dayDate = dateFormatter.date(from: day) else { return [] }
+    let calendar = Calendar.current
+
+    var startComponents = calendar.dateComponents([.year, .month, .day], from: dayDate)
+    startComponents.hour = 4
+    startComponents.minute = 0
+    startComponents.second = 0
+    guard let dayStart = calendar.date(from: startComponents) else { return [] }
+
+    guard let nextDay = calendar.date(byAdding: .day, value: 1, to: dayDate) else { return [] }
+    var endComponents = calendar.dateComponents([.year, .month, .day], from: nextDay)
+    endComponents.hour = 4
+    endComponents.minute = 0
+    endComponents.second = 0
+    guard let dayEnd = calendar.date(from: endComponents) else { return [] }
+
+    let startTs = Int(dayStart.timeIntervalSince1970)
+    let endTs = Int(dayEnd.timeIntervalSince1970)
+
+    let spans: [TimelineActivitySpan]? = try? timedRead("fetchTimelineActivity(forDay:\(day))") {
+      db in
+      try Row.fetchAll(
+        db,
+        sql: """
+              SELECT category, start_ts, end_ts FROM timeline_cards
+              WHERE start_ts >= ? AND start_ts < ?
+                AND is_deleted = 0
+              ORDER BY end_ts ASC
+          """, arguments: [startTs, endTs]
+      )
+      .compactMap { row -> TimelineActivitySpan? in
+        guard
+          let category: String = row["category"],
+          let start: Int = row["start_ts"],
+          let end: Int = row["end_ts"]
+        else { return nil }
+        return TimelineActivitySpan(category: category, startTs: start, endTs: end)
+      }
+    }
+    return spans ?? []
   }
 
   func fetchTimelineCards(forDay day: String) -> [TimelineCard] {
