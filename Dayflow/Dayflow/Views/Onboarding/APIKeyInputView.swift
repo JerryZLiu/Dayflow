@@ -26,12 +26,12 @@ struct APIKeyInputView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
-      Text(title)
+      Text(LocalizedStringKey(title))
         .font(.custom("Figtree", size: 16))
         .fontWeight(.semibold)
         .foregroundColor(.black.opacity(0.9))
 
-      Text(subtitle)
+      Text(LocalizedStringKey(subtitle))
         .font(.custom("Figtree", size: 14))
         .foregroundColor(.black.opacity(0.6))
 

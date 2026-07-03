@@ -58,7 +58,7 @@ struct LLMProviderSetupView: View {
 
         // Title in the content area
         HStack {
-          Text(headerTitle)
+          Text(LocalizedStringKey(headerTitle))
             .font(.custom("Figtree", size: 32))
             .fontWeight(.semibold)
             .foregroundColor(.black.opacity(0.9))
@@ -142,7 +142,7 @@ struct LLMProviderSetupView: View {
         action: handleContinue,
         content: {
           HStack(spacing: 6) {
-            Text(nextButtonText).font(.custom("Figtree", size: 14)).fontWeight(.semibold)
+            Text(LocalizedStringKey(nextButtonText)).font(.custom("Figtree", size: 14)).fontWeight(.semibold)
             if nextButtonText == "Next" {
               Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium))
             }
@@ -417,12 +417,12 @@ struct LLMProviderSetupView: View {
     case .information(let title, let description):
       VStack(alignment: .leading, spacing: 24) {
         VStack(alignment: .leading, spacing: 16) {
-          Text(title)
+          Text(LocalizedStringKey(title))
             .font(.custom("Figtree", size: 24))
             .fontWeight(.semibold)
             .foregroundColor(.black.opacity(0.9))
           if !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            Text(description)
+            Text(LocalizedStringKey(description))
               .font(.custom("Figtree", size: 14))
               .foregroundColor(.black.opacity(0.6))
               .fixedSize(horizontal: false, vertical: true)

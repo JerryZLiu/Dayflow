@@ -94,12 +94,20 @@ final class StorageSettingsViewModel: ObservableObject {
   func storageFooterText() -> String {
     let recordingsText =
       recordingsLimitBytes == Int64.max
-      ? "Unlimited" : usageFormatter.string(fromByteCount: recordingsLimitBytes)
+      ? NSLocalizedString("Unlimited", comment: "No storage cap")
+      : usageFormatter.string(fromByteCount: recordingsLimitBytes)
     let timelapsesText =
       timelapsesLimitBytes == Int64.max
-      ? "Unlimited" : usageFormatter.string(fromByteCount: timelapsesLimitBytes)
-    return
-      "Recording cap: \(recordingsText) • Timelapse cap: \(timelapsesText). Lowering a cap immediately deletes the oldest files for that type. Timeline card text stays preserved. Please avoid deleting files manually so you do not remove Dayflow's database."
+      ? NSLocalizedString("Unlimited", comment: "No storage cap")
+      : usageFormatter.string(fromByteCount: timelapsesLimitBytes)
+    return String(
+      format: NSLocalizedString(
+        "Recording cap: %@ • Timelapse cap: %@. Lowering a cap immediately deletes the oldest files for that type. Timeline card text stays preserved. Please avoid deleting files manually so you do not remove Dayflow's database.",
+        comment: "Storage footer explaining caps and deletion behavior"
+      ),
+      recordingsText,
+      timelapsesText
+    )
   }
 
   func handleLimitSelection(for category: StorageCategory, index: Int) {
@@ -248,8 +256,8 @@ enum StorageCategory {
 
   var displayName: String {
     switch self {
-    case .recordings: return "Recordings"
-    case .timelapses: return "Timelapses"
+    case .recordings: return NSLocalizedString("Recordings", comment: "Storage category")
+    case .timelapses: return NSLocalizedString("Timelapses", comment: "Storage category")
     }
   }
 }
