@@ -127,7 +127,7 @@ struct FlexibleProviderCard: View {
   private var titleSection: some View {
     HStack {
       Spacer()
-      Text(title)
+      Text(LocalizedStringKey(title))
         .font(.custom("Figtree", size: 18))
         .fontWeight(.semibold)
         .foregroundColor(.black.opacity(0.9))
@@ -155,7 +155,7 @@ struct FlexibleProviderCard: View {
           Image(systemName: "checkmark.circle.fill")
             .font(.system(size: 12))
             .foregroundColor(.green)
-          Text(customStatusText ?? "Currently selected")
+          Text(LocalizedStringKey(customStatusText ?? "Currently selected"))
             .font(.custom("Figtree", size: 12))
             .fontWeight(.medium)
             .foregroundColor(.black.opacity(0.6))
@@ -184,7 +184,7 @@ struct FlexibleProviderCard: View {
     DayflowSurfaceButton(
       action: buttonAction,
       content: {
-        Text(buttonTitle)
+        Text(LocalizedStringKey(buttonTitle))
           .font(.custom("Figtree", size: 14))
           .fontWeight(.semibold)
           .foregroundColor(buttonForegroundColor)
@@ -290,7 +290,7 @@ struct BadgeView: View {
 
   var body: some View {
     HStack(spacing: 4 * scale) {
-      Text(text)
+      Text(LocalizedStringKey(text))
         .font(Font.custom("Figtree", size: 10 * scale * fontScale).weight(textWeight))
         .kerning(kerningValue * scale * fontScale)
         .foregroundColor(textColor)
@@ -534,7 +534,7 @@ struct FeatureRowView: View {
         )
         .frame(width: 16 * scale)
 
-      Text(feature.text)
+      Text(LocalizedStringKey(feature.text))
         .font(.custom("Figtree", size: 14 * scale * fontScale))
         .foregroundColor(.black.opacity(0.75))
         .fixedSize(horizontal: false, vertical: true)

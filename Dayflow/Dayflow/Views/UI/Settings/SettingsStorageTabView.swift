@@ -18,9 +18,22 @@ struct SettingsStorageTabView: View {
       let option = StorageSettingsViewModel.storageOptions[pending.index]
       let categoryName = pending.category.displayName
       return Alert(
-        title: Text("Lower \(categoryName) limit?"),
+        title: Text(
+          String(
+            format: NSLocalizedString("Lower %@ limit?", comment: "Confirm lowering storage cap"),
+            categoryName
+          )
+        ),
         message: Text(
-          "Reducing the \(categoryName) limit to \(option.label) will immediately delete the oldest \(categoryName) data to stay under the new cap."
+          String(
+            format: NSLocalizedString(
+              "Reducing the %@ limit to %@ will immediately delete the oldest %@ data to stay under the new cap.",
+              comment: "Confirm lowering storage cap and deleting oldest files"
+            ),
+            categoryName,
+            option.label,
+            categoryName
+          )
         ),
         primaryButton: .destructive(Text("Confirm")) {
           viewModel.applyLimit(for: pending.category, index: pending.index)
