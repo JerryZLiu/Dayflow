@@ -861,7 +861,8 @@ extension StorageManager {
           distractions: card.distractions,
           appSites: card.appSites,
           isBackupGenerated: card.isBackupGenerated,
-          idle: card.idleMetadata
+          idle: card.idleMetadata,
+          reasoning: card.reasoning
         )
         let metadataString: String? = (try? encoder.encode(meta)).flatMap {
           String(data: $0, encoding: .utf8)
@@ -938,6 +939,32 @@ extension StorageManager {
     }
 
     return (insertedIds, videoPaths)
+  }
+
+  /// The persisted card-generation reasoning for a batch, if any was stored
+  /// (newer cards only). Read from the metadata JSON envelope.
+  func fetchCardReasoning(batchId: Int64) -> String? {
+    (try? timedRead("fetchCardReasoning(batchId)") { db in
+      let rows = try Row.fetchAll(
+        db,
+        sql: """
+              SELECT metadata FROM timeline_cards
+              WHERE batch_id = ? AND is_deleted = 0
+              ORDER BY start_ts ASC
+          """,
+        arguments: [batchId])
+      let decoder = JSONDecoder()
+      for row in rows {
+        guard let metadataString: String = row["metadata"],
+          let data = metadataString.data(using: .utf8),
+          let meta = try? decoder.decode(TimelineMetadata.self, from: data),
+          let reasoning = meta.reasoning?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !reasoning.isEmpty
+        else { continue }
+        return reasoning
+      }
+      return nil
+    }) ?? nil
   }
 
   // Note: Transcript storage methods removed in favor of Observations table

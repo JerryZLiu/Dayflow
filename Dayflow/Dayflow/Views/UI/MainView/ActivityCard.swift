@@ -29,6 +29,7 @@ struct ActivityCard: View {
   @State private var slideshowTitle: String?
   @State private var slideshowStartTime: Date?
   @State private var slideshowEndTime: Date?
+  @State private var cardInsight: CardInsight?
 
   private let timeFormatter: DateFormatter = {
     let formatter = DateFormatter()
@@ -43,6 +44,7 @@ struct ActivityCard: View {
           .padding(16)
           .allowsHitTesting(!showCategoryPicker)
           .id(activity.id)
+          .task(id: activity.id) { await loadInsight(for: activity) }
           .transition(
             .blurReplace.animation(
               .easeOut(duration: 0.2)
@@ -322,7 +324,20 @@ struct ActivityCard: View {
             .textSelection(.enabled)
         }
       }
+
+      if let insight = cardInsight, !insight.isEmpty {
+        CardInsightSection(insight: insight)
+      }
     }
+  }
+
+  private func loadInsight(for activity: TimelineActivity) async {
+    guard let batchId = activity.batchId else {
+      await MainActor.run { cardInsight = nil }
+      return
+    }
+    let insight = await Task.detached { CardInsight.load(forBatchId: batchId) }.value
+    await MainActor.run { cardInsight = insight }
   }
 
   private func renderMarkdownText(_ content: String) -> Text {
