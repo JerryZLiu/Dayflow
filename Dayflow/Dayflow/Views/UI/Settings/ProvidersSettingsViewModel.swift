@@ -24,6 +24,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
   @Published var localEngine: LocalEngine {
     didSet {
       guard oldValue != localEngine else { return }
+      guard !suppressLocalSettingsPersistence else { return }
       UserDefaults.standard.set(localEngine.rawValue, forKey: "llmLocalEngine")
       LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
       refreshUpgradeBannerState()
@@ -32,12 +33,14 @@ final class ProvidersSettingsViewModel: ObservableObject {
   @Published var localBaseURL: String {
     didSet {
       guard oldValue != localBaseURL else { return }
+      guard !suppressLocalSettingsPersistence else { return }
       UserDefaults.standard.set(localBaseURL, forKey: "llmLocalBaseURL")
     }
   }
   @Published var localModelId: String {
     didSet {
       guard oldValue != localModelId else { return }
+      guard !suppressLocalSettingsPersistence else { return }
       UserDefaults.standard.set(localModelId, forKey: "llmLocalModelId")
       LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
       refreshUpgradeBannerState()
@@ -46,6 +49,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
   @Published var localAPIKey: String {
     didSet {
       guard oldValue != localAPIKey else { return }
+      guard !suppressLocalSettingsPersistence else { return }
       persistLocalAPIKey(localAPIKey)
     }
   }
@@ -115,6 +119,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
   private var savedGeminiModel: GeminiModel
   private var pendingSetupRole: ProviderRoutingRole?
   private var pendingSetupDisplayProviderId: String?
+  private var suppressLocalSettingsPersistence = false
 
   init() {
     let preference = GeminiModelPreference.load()
@@ -548,6 +553,72 @@ final class ProvidersSettingsViewModel: ObservableObject {
     secondaryRoutingProviderId == providerId
   }
 
+  /// True when the user is allowed to wipe the persisted config (keychain
+  /// entries, setup flags, endpoint URLs, etc.) for this provider. We
+  /// refuse to remove the config of the active primary so the app never
+  /// ends up in a state with no working primary.
+  func canRemoveProviderConfig(_ providerId: String) -> Bool {
+    let canonical = canonicalProviderId(for: providerId)
+    // Dayflow Pro is a server-side entitlement, not local config.
+    guard canonical != "dayflow" else { return false }
+    guard isProviderConfigured(providerId) else { return false }
+    guard canonicalProviderId(for: primaryRoutingProviderId) != canonical else { return false }
+    return true
+  }
+
+  /// Wipes the persisted configuration for a provider — keychain entries,
+  /// setup-complete flags, model selections, endpoint URLs, CLI tool
+  /// preference. If the provider is currently the secondary slot, also
+  /// clears the backup assignment so we don't leave a dangling reference.
+  func removeProviderConfig(_ providerId: String) {
+    guard canRemoveProviderConfig(providerId) else { return }
+    let canonical = canonicalProviderId(for: providerId)
+
+    if let backupProvider, backupProvider == canonical {
+      clearBackupProvider()
+    }
+
+    switch canonical {
+    case "gemini":
+      KeychainManager.shared.delete(for: "gemini")
+      UserDefaults.standard.removeObject(forKey: "geminiSetupComplete")
+      GeminiModelPreference.clear()
+    case "ollama":
+      UserDefaults.standard.removeObject(forKey: "ollamaSetupComplete")
+      UserDefaults.standard.removeObject(forKey: "llmLocalBaseURL")
+      UserDefaults.standard.removeObject(forKey: "llmLocalModelId")
+      UserDefaults.standard.removeObject(forKey: "llmLocalEngine")
+      UserDefaults.standard.removeObject(forKey: "llmLocalAPIKey")
+      LocalModelPreferences.clearPreset()
+      resetLocalProviderFieldsAfterRemoval()
+    case "chatgpt_claude":
+      UserDefaults.standard.removeObject(forKey: "chatgpt_claudeSetupComplete")
+      UserDefaults.standard.removeObject(forKey: "chatCLIPreferredTool")
+      preferredCLITool = nil
+    default:
+      return
+    }
+
+    AnalyticsService.shared.capture(
+      "provider_config_removed",
+      [
+        "provider": providerId,
+        "underlying_provider": canonical,
+      ])
+    objectWillChange.send()
+  }
+
+  private func resetLocalProviderFieldsAfterRemoval() {
+    suppressLocalSettingsPersistence = true
+    defer { suppressLocalSettingsPersistence = false }
+
+    localEngine = .ollama
+    localBaseURL = LocalEngine.ollama.defaultBaseURL
+    localModelId = LocalModelPreferences.defaultModelId(for: .ollama)
+    localAPIKey = ""
+    showLocalModelUpgradeBanner = false
+  }
+
   var backupProviderDisplayName: String {
     guard let backupProvider = secondaryRoutingProviderId else { return "Not configured" }
     return providerDisplayName(backupProvider)
@@ -841,7 +912,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
     }
   }
 
-  private func canonicalProviderId(for displayProviderId: String) -> String {
+  func canonicalProviderId(for displayProviderId: String) -> String {
     switch displayProviderId {
     case "chatgpt", "claude", "chatgpt_claude":
       return "chatgpt_claude"
