@@ -15,6 +15,15 @@ import Foundation
 enum ChatCLITool: String, Codable {
   case codex
   case claude
+
+  var providerID: LLMProviderID {
+    switch self {
+    case .codex:
+      return .chatGPT
+    case .claude:
+      return .claude
+    }
+  }
 }
 
 /// Events emitted during JSONL streaming from CLI tools
