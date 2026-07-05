@@ -66,7 +66,7 @@ extension OllamaProvider {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuthorizationHeader(to: &urlRequest)
         urlRequest.httpBody = try JSONEncoder().encode(request)
-        urlRequest.timeoutInterval = 60.0  // 60-second timeout
+        urlRequest.timeoutInterval = requestTimeout
 
         let start = Date()
         apiStart = start
