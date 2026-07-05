@@ -231,3 +231,209 @@ struct TimelineClipboardFormatter {
     return formatter
   }()
 }
+
+struct TimelineCalendarFormatter {
+  static func makeICS(
+    cards: [TimelineCard],
+    calendarName: String = "Dayflow timeline",
+    now: Date = Date()
+  ) -> String {
+    let utcFormatter = makeUTCFormatter()
+    let events = cards.compactMap { card -> String? in
+      guard let dateRange = eventDateRange(for: card) else { return nil }
+
+      let summary = cleanedLine(card.title).isEmpty ? "Dayflow activity" : cleanedLine(card.title)
+      let description = descriptionText(for: card)
+      let uid = eventUID(for: card, startDate: dateRange.start)
+
+      var lines: [String] = [
+        "BEGIN:VEVENT",
+        "UID:\(escapeText(uid))",
+        "DTSTAMP:\(utcFormatter.string(from: now))",
+        "DTSTART:\(utcFormatter.string(from: dateRange.start))",
+        "DTEND:\(utcFormatter.string(from: dateRange.end))",
+        "SUMMARY:\(escapeText(summary))",
+      ]
+
+      if !description.isEmpty {
+        lines.append("DESCRIPTION:\(escapeText(description))")
+      }
+
+      let category = cleanedLine(card.category)
+      if !category.isEmpty {
+        lines.append("CATEGORIES:\(escapeText(category))")
+      }
+
+      lines.append("END:VEVENT")
+      return lines.map(foldLine).joined(separator: "\r\n")
+    }
+
+    let header = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Dayflow//Timeline Export//EN",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      "X-WR-CALNAME:\(escapeText(calendarName))",
+    ].map(foldLine)
+
+    let footer = ["END:VCALENDAR"]
+    return (header + events + footer).joined(separator: "\r\n") + "\r\n"
+  }
+
+  static func eventDateRange(for card: TimelineCard) -> (start: Date, end: Date)? {
+    guard
+      let dayDate = DateFormatter.yyyyMMdd.date(from: card.day),
+      let startMinute = parseTimeHMMA(timeString: card.startTimestamp),
+      let endMinute = parseTimeHMMA(timeString: card.endTimestamp)
+    else {
+      return nil
+    }
+
+    let calendar = Calendar.current
+    guard
+      let rawStart = calendar.date(
+        byAdding: .minute,
+        value: startMinute,
+        to: calendar.startOfDay(for: dayDate)
+      ),
+      let rawEnd = calendar.date(
+        byAdding: .minute,
+        value: endMinute,
+        to: calendar.startOfDay(for: dayDate)
+      )
+    else {
+      return nil
+    }
+
+    var start = startMinute < 4 * 60
+      ? (calendar.date(byAdding: .day, value: 1, to: rawStart) ?? rawStart)
+      : rawStart
+    var end = endMinute < 4 * 60
+      ? (calendar.date(byAdding: .day, value: 1, to: rawEnd) ?? rawEnd)
+      : rawEnd
+
+    if end <= start {
+      end = calendar.date(byAdding: .day, value: 1, to: end) ?? end
+    }
+
+    if end <= start {
+      start = rawStart
+      end = calendar.date(byAdding: .minute, value: 1, to: rawStart) ?? rawStart
+    }
+
+    return (start, end)
+  }
+
+  private static func descriptionText(for card: TimelineCard) -> String {
+    var parts: [String] = []
+
+    let timeRange = "\(cleanedLine(card.startTimestamp)) - \(cleanedLine(card.endTimestamp))"
+    if timeRange != " - " {
+      parts.append("Time: \(timeRange)")
+    }
+
+    let category = [cleanedLine(card.category), cleanedLine(card.subcategory)]
+      .filter { !$0.isEmpty }
+      .joined(separator: " / ")
+    if !category.isEmpty {
+      parts.append("Category: \(category)")
+    }
+
+    if let summary = cleanedParagraph(card.summary) {
+      parts.append("Summary:\n\(summary)")
+    }
+
+    if let details = cleanedParagraph(card.detailedSummary),
+      details != cleanedParagraph(card.summary)
+    {
+      parts.append("Details:\n\(details)")
+    }
+
+    return parts.joined(separator: "\n\n")
+  }
+
+  private static func eventUID(for card: TimelineCard, startDate: Date) -> String {
+    if let recordId = card.recordId {
+      return "dayflow-\(recordId)@dayflow.local"
+    }
+
+    let key = [
+      card.day,
+      card.startTimestamp,
+      card.endTimestamp,
+      card.title,
+      String(Int(startDate.timeIntervalSince1970)),
+    ].joined(separator: "-")
+
+    let sanitized = key
+      .lowercased()
+      .map { character -> Character in
+        character.isLetter || character.isNumber ? character : "-"
+      }
+    return "dayflow-\(String(sanitized))@dayflow.local"
+  }
+
+  private static func cleanedLine(_ value: String) -> String {
+    value
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .components(separatedBy: CharacterSet.newlines)
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .filter { !$0.isEmpty }
+      .joined(separator: " ")
+  }
+
+  private static func cleanedParagraph(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let lines = value
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .components(separatedBy: CharacterSet.newlines)
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .filter { !$0.isEmpty }
+    guard !lines.isEmpty else { return nil }
+    return lines.joined(separator: "\n")
+  }
+
+  private static func escapeText(_ value: String) -> String {
+    value
+      .replacingOccurrences(of: "\\", with: "\\\\")
+      .replacingOccurrences(of: ";", with: "\\;")
+      .replacingOccurrences(of: ",", with: "\\,")
+      .replacingOccurrences(of: "\r\n", with: "\\n")
+      .replacingOccurrences(of: "\n", with: "\\n")
+      .replacingOccurrences(of: "\r", with: "\\n")
+  }
+
+  private static func foldLine(_ line: String) -> String {
+    var folded = ""
+    var current = ""
+    var currentByteCount = 0
+
+    for scalar in line.unicodeScalars {
+      let text = String(scalar)
+      let byteCount = text.lengthOfBytes(using: .utf8)
+      if currentByteCount + byteCount > 75, !current.isEmpty {
+        folded += folded.isEmpty ? current : "\r\n \(current)"
+        current = text
+        currentByteCount = byteCount
+      } else {
+        current += text
+        currentByteCount += byteCount
+      }
+    }
+
+    if !current.isEmpty {
+      folded += folded.isEmpty ? current : "\r\n \(current)"
+    }
+
+    return folded
+  }
+
+  private static func makeUTCFormatter() -> DateFormatter {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
+    return formatter
+  }
+}

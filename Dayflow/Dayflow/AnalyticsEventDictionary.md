@@ -100,6 +100,15 @@ This document lists manual events, properties, and code locations. All events re
 - timeline_copied
   - props: `timeline_mode: day|week`, `timeline_day?: yyyy-MM-dd`, `week_start?: yyyy-MM-dd`, `week_end?: yyyy-MM-dd`, `activity_count: int`
   - file: Views/UI/MainView.swift
+- timeline_exported
+  - props: `start_day: yyyy-MM-dd`, `end_day: yyyy-MM-dd`, `day_count: int`, `activity_count: int`, `skipped_activity_count: int`, `format: markdown|ics`, `file_extension: string`
+  - file: Views/UI/Settings/OtherSettingsViewModel.swift
+- dayflow_backup_exported
+  - props: `size_bytes: int`, `includes_recordings: bool`, `includes_timelapses: bool`, `includes_preferences: bool`
+  - file: Views/UI/Settings/OtherSettingsViewModel.swift
+- dayflow_backup_import_queued
+  - props: `size_bytes: int`, `includes_recordings: bool`, `includes_timelapses: bool`, `includes_preferences: bool`
+  - file: Views/UI/Settings/OtherSettingsViewModel.swift
 
 ## Dashboard Chat
 - chat_question_asked

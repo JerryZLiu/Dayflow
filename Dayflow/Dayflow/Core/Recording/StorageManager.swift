@@ -200,6 +200,7 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
   init() {
     UserDefaultsMigrator.migrateIfNeeded()
     StoragePathMigrator.migrateIfNeeded()
+    DayflowBackupManager.applyPendingRestoreIfNeeded()
 
     let appSupport = fileMgr.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     let baseDir = appSupport.appendingPathComponent("Dayflow", isDirectory: true)

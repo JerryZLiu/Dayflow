@@ -13,6 +13,7 @@ struct SettingsDataTabView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: SettingsStyle.sectionSpacing) {
       exportSection
+      backupRestoreSection
       reprocessSection
     }
   }
@@ -74,7 +75,7 @@ struct SettingsDataTabView: View {
         }
 
         Text(
-          "Use Markdown exports to archive in Notion, share with teammates, or paste into ChatGPT / Claude / Gemini for deeper analysis."
+          "Export Markdown for archives and team notes, or export a calendar file that opens in Apple Calendar."
         )
         .font(.custom("Figtree", size: 12))
         .foregroundColor(SettingsStyle.secondary)
@@ -87,6 +88,13 @@ struct SettingsDataTabView: View {
             isLoading: viewModel.isExportingTimelineRange,
             isDisabled: rangeInvalid,
             action: viewModel.exportTimelineRange
+          )
+
+          SettingsSecondaryButton(
+            title: "Apple Calendar",
+            systemImage: "calendar.badge.plus",
+            isDisabled: rangeInvalid || viewModel.isExportingTimelineRange,
+            action: viewModel.exportTimelineRangeAsCalendar
           )
 
           if rangeInvalid {
@@ -107,6 +115,75 @@ struct SettingsDataTabView: View {
             .font(.custom("Figtree", size: 12))
             .foregroundColor(SettingsStyle.destructive)
         }
+      }
+    }
+  }
+
+  // MARK: - Backup and restore
+
+  private var backupRestoreSection: some View {
+    SettingsSection(
+      title: "Backup and restore",
+      subtitle: "Move Dayflow's local data to another Mac."
+    ) {
+      VStack(alignment: .leading, spacing: 14) {
+        Text(
+          "Backups include your timeline database, local screenshots/recordings, timelapses, categories, and safe local preferences. API keys and account tokens are not included."
+        )
+        .font(.custom("Figtree", size: 12))
+        .foregroundColor(SettingsStyle.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+        HStack(spacing: 12) {
+          SettingsPrimaryButton(
+            title: viewModel.isExportingBackup ? "Exporting…" : "Export backup",
+            systemImage: viewModel.isExportingBackup ? nil : "externaldrive.badge.plus",
+            isLoading: viewModel.isExportingBackup,
+            isDisabled: viewModel.isImportingBackup || viewModel.backupImportQueued,
+            action: viewModel.exportDayflowBackup
+          )
+
+          SettingsSecondaryButton(
+            title: viewModel.isImportingBackup ? "Importing…" : "Import backup",
+            systemImage: "square.and.arrow.down.on.square",
+            isDisabled: viewModel.isExportingBackup || viewModel.isImportingBackup,
+            action: viewModel.chooseDayflowBackupToImport
+          )
+
+          if viewModel.backupImportQueued {
+            SettingsSecondaryButton(
+              title: "Quit Dayflow",
+              systemImage: "power",
+              action: viewModel.quitToApplyBackupImport
+            )
+          }
+        }
+
+        if let message = viewModel.backupStatusMessage {
+          Text(message)
+            .font(.custom("Figtree", size: 12))
+            .foregroundColor(SettingsStyle.statusGood)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+
+        if let error = viewModel.backupErrorMessage {
+          Text(error)
+            .font(.custom("Figtree", size: 12))
+            .foregroundColor(SettingsStyle.destructive)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      .alert("Import Dayflow backup?", isPresented: $viewModel.showBackupImportConfirm) {
+        Button("Cancel", role: .cancel) {
+          viewModel.cancelDayflowBackupImport()
+        }
+        Button("Import on next launch", role: .destructive) {
+          viewModel.importSelectedDayflowBackup()
+        }
+      } message: {
+        Text(
+          "This will replace the current local Dayflow data the next time the app launches. Your current data will be kept as a safety copy."
+        )
       }
     }
   }

@@ -39,6 +39,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
   override init() {
     UserDefaultsMigrator.migrateIfNeeded()
+    DayflowBackupManager.applyPendingRestoreIfNeeded()
     super.init()
   }
 
