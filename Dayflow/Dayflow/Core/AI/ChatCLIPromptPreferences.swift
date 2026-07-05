@@ -14,12 +14,27 @@ struct ChatCLIPromptOverrides: Codable, Equatable {
   }
 }
 
-enum ChatCLIPromptPreferences {
-  private static let overridesKey = "chatCLIPromptOverrides"
-  private static let store = UserDefaults.standard
+enum ChatCLIPromptPreferencesError: Error {
+  case encodingFailed
+  case writeVerificationFailed
+}
 
-  static func load() -> ChatCLIPromptOverrides {
-    guard let data = store.data(forKey: overridesKey) else {
+enum ChatCLIPromptPreferences {
+  private static let chatGPTOverridesKey = "chatGPTPromptOverrides"
+  private static let claudeOverridesKey = "claudePromptOverrides"
+
+  static func hasStoredOverrides(
+    for tool: ChatCLITool,
+    in defaults: UserDefaults = .standard
+  ) -> Bool {
+    defaults.object(forKey: overridesKey(for: tool)) != nil
+  }
+
+  static func load(
+    for tool: ChatCLITool,
+    from defaults: UserDefaults = .standard
+  ) -> ChatCLIPromptOverrides {
+    guard let data = defaults.data(forKey: overridesKey(for: tool)) else {
       return ChatCLIPromptOverrides()
     }
     guard let overrides = try? JSONDecoder().decode(ChatCLIPromptOverrides.self, from: data) else {
@@ -28,14 +43,59 @@ enum ChatCLIPromptPreferences {
     return overrides
   }
 
-  static func save(_ overrides: ChatCLIPromptOverrides) {
-    guard let data = try? JSONEncoder().encode(overrides) else { return }
-    store.set(data, forKey: overridesKey)
+  static func save(
+    _ overrides: ChatCLIPromptOverrides,
+    for tool: ChatCLITool,
+    to defaults: UserDefaults = .standard
+  ) {
+    try? saveVerified(overrides, for: tool, to: defaults)
   }
 
-  static func reset() {
-    store.removeObject(forKey: overridesKey)
+  static func reset(
+    for tool: ChatCLITool,
+    in defaults: UserDefaults = .standard
+  ) {
+    defaults.removeObject(forKey: overridesKey(for: tool))
   }
+
+  static func saveVerified(
+    _ overrides: ChatCLIPromptOverrides,
+    for tool: ChatCLITool,
+    to defaults: UserDefaults
+  ) throws {
+    let key = overridesKey(for: tool)
+    let previousValue = defaults.object(forKey: key)
+    let data: Data
+    do {
+      data = try JSONEncoder().encode(overrides)
+    } catch {
+      throw ChatCLIPromptPreferencesError.encodingFailed
+    }
+
+    defaults.set(data, forKey: key)
+    guard load(for: tool, from: defaults) == overrides else {
+      restore(previousValue, forKey: key, in: defaults)
+      throw ChatCLIPromptPreferencesError.writeVerificationFailed
+    }
+  }
+
+  private static func restore(_ value: Any?, forKey key: String, in defaults: UserDefaults) {
+    if let value {
+      defaults.set(value, forKey: key)
+    } else {
+      defaults.removeObject(forKey: key)
+    }
+  }
+
+  private static func overridesKey(for tool: ChatCLITool) -> String {
+    switch tool {
+    case .codex:
+      return chatGPTOverridesKey
+    case .claude:
+      return claudeOverridesKey
+    }
+  }
+
 }
 
 enum ChatCLIPromptDefaults {
