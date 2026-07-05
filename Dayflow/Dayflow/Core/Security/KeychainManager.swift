@@ -27,16 +27,23 @@ final class KeychainManager {
       guard let data = apiKey.data(using: .utf8) else { return false }
 
       let service = "\(servicePrefix).\(provider)"
-
-      // Delete any existing item first
-      let deleteQuery: [String: Any] = [
+      let itemQuery: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword,
         kSecAttrService as String: service,
         kSecAttrAccount as String: provider,
       ]
-      SecItemDelete(deleteQuery as CFDictionary)
 
-      // Add new item
+      let updateStatus = SecItemUpdate(
+        itemQuery as CFDictionary,
+        [kSecValueData as String: data] as CFDictionary
+      )
+      if updateStatus == errSecSuccess {
+        return true
+      }
+      guard updateStatus == errSecItemNotFound else {
+        return false
+      }
+
       let addQuery: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword,
         kSecAttrService as String: service,
@@ -45,8 +52,7 @@ final class KeychainManager {
         kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked,
       ]
 
-      let status = SecItemAdd(addQuery as CFDictionary, nil)
-      return status == errSecSuccess
+      return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
     }
   }
 
