@@ -91,171 +91,73 @@ struct DashboardChatRequest: Sendable {
   let history: [DashboardChatTurn]
 }
 
-enum LLMProviderType: Codable {
-  case geminiDirect
-  case dayflowBackend(endpoint: String = "")
-  case ollamaLocal(endpoint: String = "http://localhost:11434")
-  case chatGPTClaude
-
-  private static let providerDefaultsKey = "llmProviderType"
-  private static let selectedProviderDefaultsKey = "selectedLLMProvider"
-  private static let localBaseURLDefaultsKey = "llmLocalBaseURL"
-  private static let chatCLIPreferredToolDefaultsKey = "chatCLIPreferredTool"
-
-  static func load(from defaults: UserDefaults = .standard) -> LLMProviderType {
-    if let savedData = defaults.data(forKey: providerDefaultsKey),
-      let decoded = try? JSONDecoder().decode(LLMProviderType.self, from: savedData)
-    {
-      return decoded
-    }
-
-    guard let migrated = migrateLegacySelection(from: defaults) else {
-      return .geminiDirect
-    }
-
-    migrated.persist(to: defaults)
-    return migrated
-  }
-
-  func persist(to defaults: UserDefaults = .standard) {
-    if let encoded = try? JSONEncoder().encode(self) {
-      defaults.set(encoded, forKey: Self.providerDefaultsKey)
-    }
-    defaults.set(canonicalProviderID, forKey: Self.selectedProviderDefaultsKey)
-  }
-
-  var canonicalProviderID: String {
-    switch self {
-    case .geminiDirect:
-      return "gemini"
-    case .dayflowBackend:
-      return "dayflow"
-    case .ollamaLocal:
-      return "ollama"
-    case .chatGPTClaude:
-      return "chatgpt_claude"
-    }
-  }
-
-  private static func migrateLegacySelection(from defaults: UserDefaults) -> LLMProviderType? {
-    guard
-      let rawSelection = defaults.string(forKey: selectedProviderDefaultsKey)?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .lowercased(),
-      !rawSelection.isEmpty
-    else {
-      return nil
-    }
-
-    switch rawSelection {
-    case "gemini":
-      return .geminiDirect
-    case "dayflow":
-      return .dayflowBackend()
-    case "ollama":
-      let endpoint = defaults.string(forKey: localBaseURLDefaultsKey)?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-      if let endpoint, !endpoint.isEmpty {
-        return .ollamaLocal(endpoint: endpoint)
-      }
-      return .ollamaLocal()
-    case "chatgpt":
-      if defaults.string(forKey: chatCLIPreferredToolDefaultsKey) == nil {
-        defaults.set("codex", forKey: chatCLIPreferredToolDefaultsKey)
-      }
-      return .chatGPTClaude
-    case "claude":
-      if defaults.string(forKey: chatCLIPreferredToolDefaultsKey) == nil {
-        defaults.set("claude", forKey: chatCLIPreferredToolDefaultsKey)
-      }
-      return .chatGPTClaude
-    case "chatgpt_claude":
-      return .chatGPTClaude
-    default:
-      return nil
-    }
-  }
-}
-
 enum LLMProviderID: String, Codable, CaseIterable {
-  case gemini
   case dayflow
-  case ollama
-  case chatGPTClaude = "chatgpt_claude"
+  case gemini
+  case chatGPT = "chatgpt"
+  case claude
+  case openAICompatible = "openai_compatible"
+  case local
 
   var analyticsName: String {
     switch self {
-    case .gemini:
-      return "gemini"
     case .dayflow:
       return "dayflow"
-    case .ollama:
-      return "ollama"
-    case .chatGPTClaude:
+    case .gemini:
+      return "gemini"
+    case .chatGPT, .claude:
       return "chat_cli"
+    case .openAICompatible:
+      return "openai_compatible"
+    case .local:
+      return "ollama"
     }
   }
 
-  static func from(_ providerType: LLMProviderType) -> LLMProviderID {
-    switch providerType {
-    case .geminiDirect:
-      return .gemini
-    case .dayflowBackend:
-      return .dayflow
-    case .ollamaLocal:
-      return .ollama
-    case .chatGPTClaude:
-      return .chatGPTClaude
-    }
-  }
-
-  func providerLabel(chatTool: ChatCLITool? = nil) -> String {
+  var providerLabel: String {
     switch self {
-    case .gemini:
-      return "gemini"
-    case .dayflow:
-      return "dayflow"
-    case .ollama:
+    case .dayflow: return "dayflow"
+    case .gemini: return "gemini"
+    case .chatGPT: return "chatgpt"
+    case .claude: return "claude"
+    case .openAICompatible: return "openai_compatible"
+    case .local:
       return "local"
-    case .chatGPTClaude:
-      return chatTool == .claude ? "claude" : "chatgpt"
     }
   }
 }
 
-enum LLMProviderRoutingPreferences {
-  static let backupProviderDefaultsKey = "llmBackupProviderId"
-  static let backupChatCLIToolDefaultsKey = "llmBackupChatCLITool"
+enum LLMProviderSetupPreferencesError: Error {
+  case writeVerificationFailed
+}
 
-  static func loadBackupProvider(from defaults: UserDefaults = .standard) -> LLMProviderID? {
-    guard let rawValue = defaults.string(forKey: backupProviderDefaultsKey) else {
-      return nil
-    }
-    return LLMProviderID(rawValue: rawValue)
+enum LLMProviderSetupPreferences {
+  static func isComplete(
+    _ providerID: LLMProviderID,
+    in defaults: UserDefaults = .standard
+  ) -> Bool {
+    defaults.bool(forKey: completionKey(for: providerID))
   }
 
-  static func saveBackupProvider(_ provider: LLMProviderID?, to defaults: UserDefaults = .standard)
-  {
-    if let provider {
-      defaults.set(provider.rawValue, forKey: backupProviderDefaultsKey)
-    } else {
-      defaults.removeObject(forKey: backupProviderDefaultsKey)
+  static func markComplete(
+    _ providerID: LLMProviderID,
+    in defaults: UserDefaults = .standard
+  ) throws {
+    let key = completionKey(for: providerID)
+    let previousValue = defaults.object(forKey: key)
+    defaults.set(true, forKey: key)
+    guard isComplete(providerID, in: defaults) else {
+      if let previousValue {
+        defaults.set(previousValue, forKey: key)
+      } else {
+        defaults.removeObject(forKey: key)
+      }
+      throw LLMProviderSetupPreferencesError.writeVerificationFailed
     }
   }
 
-  static func loadBackupChatCLITool(from defaults: UserDefaults = .standard) -> ChatCLITool? {
-    guard let rawValue = defaults.string(forKey: backupChatCLIToolDefaultsKey) else {
-      return nil
-    }
-    return ChatCLITool(rawValue: rawValue)
-  }
-
-  static func saveBackupChatCLITool(_ tool: ChatCLITool?, to defaults: UserDefaults = .standard) {
-    if let tool {
-      defaults.set(tool.rawValue, forKey: backupChatCLIToolDefaultsKey)
-    } else {
-      defaults.removeObject(forKey: backupChatCLIToolDefaultsKey)
-    }
+  private static func completionKey(for providerID: LLMProviderID) -> String {
+    "\(providerID.rawValue)SetupComplete"
   }
 }
 
