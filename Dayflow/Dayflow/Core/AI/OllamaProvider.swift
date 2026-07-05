@@ -6,7 +6,7 @@
 import AppKit
 import Foundation
 
-final class OllamaProvider {
+final class OllamaProvider: @unchecked Sendable {
   let endpoint: String
   let screenshotInterval: TimeInterval = 10  // seconds between screenshots
   // Read persisted local settings
@@ -34,6 +34,16 @@ final class OllamaProvider {
   // Get the actual local engine type for analytics tracking
   var localEngine: String {
     UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
+  }
+
+  // How many describe_frame requests to run against the local server at once.
+  // The server caps this itself (LM Studio "Max Concurrent Predictions", Ollama
+  // OLLAMA_NUM_PARALLEL) and doesn't expose the limit over HTTP, so keep this ≤
+  // that value. Default 1 (sequential). Override via
+  // `defaults write teleportlabs.com.Dayflow llmLocalMaxConcurrency <n>`.
+  var maxConcurrency: Int {
+    let configured = UserDefaults.standard.integer(forKey: "llmLocalMaxConcurrency")
+    return configured > 0 ? min(configured, 16) : 1
   }
 
   init(endpoint: String = "http://localhost:1234") {
