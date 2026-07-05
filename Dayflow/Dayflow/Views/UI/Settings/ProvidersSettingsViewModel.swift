@@ -49,6 +49,12 @@ final class ProvidersSettingsViewModel: ObservableObject {
       persistLocalAPIKey(localAPIKey)
     }
   }
+  @Published var localMaxConcurrency: Int {
+    didSet {
+      guard oldValue != localMaxConcurrency else { return }
+      UserDefaults.standard.set(localMaxConcurrency, forKey: "llmLocalMaxConcurrency")
+    }
+  }
   @Published var showLocalModelUpgradeBanner = false
   @Published var isShowingLocalModelUpgradeSheet = false
   @Published var upgradeStatusMessage: String?
@@ -136,6 +142,8 @@ final class ProvidersSettingsViewModel: ObservableObject {
     }
 
     localAPIKey = UserDefaults.standard.string(forKey: "llmLocalAPIKey") ?? ""
+    let storedConcurrency = UserDefaults.standard.integer(forKey: "llmLocalMaxConcurrency")
+    localMaxConcurrency = storedConcurrency > 0 ? min(storedConcurrency, 16) : 1
     if let raw = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") {
       preferredCLITool = CLITool(rawValue: raw)
     } else {
@@ -189,6 +197,8 @@ final class ProvidersSettingsViewModel: ObservableObject {
     localBaseURL = UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? localBaseURL
     localModelId = UserDefaults.standard.string(forKey: "llmLocalModelId") ?? localModelId
     localAPIKey = UserDefaults.standard.string(forKey: "llmLocalAPIKey") ?? localAPIKey
+    let storedConcurrency = UserDefaults.standard.integer(forKey: "llmLocalMaxConcurrency")
+    localMaxConcurrency = storedConcurrency > 0 ? min(storedConcurrency, 16) : 1
     let raw = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? localEngine.rawValue
     localEngine = LocalEngine(rawValue: raw) ?? localEngine
     LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
