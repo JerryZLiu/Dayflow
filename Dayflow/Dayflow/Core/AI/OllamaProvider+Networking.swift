@@ -41,6 +41,27 @@ extension OllamaProvider {
     }
   }
 
+  func makeChatURLRequest(
+    _ request: ChatRequest,
+    url: URL? = nil,
+    timeoutInterval: TimeInterval = 60.0
+  ) throws -> URLRequest {
+    guard let resolvedURL = url ?? LocalEndpointUtilities.chatCompletionsURL(baseURL: endpoint)
+    else {
+      throw NSError(
+        domain: "OllamaProvider", code: 15,
+        userInfo: [NSLocalizedDescriptionKey: "Invalid local endpoint URL"])
+    }
+
+    var urlRequest = URLRequest(url: resolvedURL)
+    urlRequest.httpMethod = "POST"
+    urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    applyAuthorizationHeader(to: &urlRequest)
+    urlRequest.httpBody = try JSONEncoder().encode(request)
+    urlRequest.timeoutInterval = timeoutInterval
+    return urlRequest
+  }
+
   func callChatAPI(
     _ request: ChatRequest, operation: String, batchId: Int64? = nil, maxRetries: Int = 3
   ) async throws -> ChatResponse {
@@ -61,12 +82,7 @@ extension OllamaProvider {
       var didLogTiming = false
       var apiStart: Date?
       do {
-        var urlRequest = URLRequest(url: url)
-        urlRequest.httpMethod = "POST"
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuthorizationHeader(to: &urlRequest)
-        urlRequest.httpBody = try JSONEncoder().encode(request)
-        urlRequest.timeoutInterval = 60.0  // 60-second timeout
+        let urlRequest = try makeChatURLRequest(request, url: url)
 
         let start = Date()
         apiStart = start
@@ -82,6 +98,7 @@ extension OllamaProvider {
           callGroupId: callGroupId,
           attempt: attempt + 1,
           provider: localEngine,  // Track actual engine: ollama, lmstudio, or custom
+          providerID: providerID.rawValue,
           model: request.model,
           operation: operation,
           requestMethod: urlRequest.httpMethod,
@@ -199,6 +216,7 @@ extension OllamaProvider {
               callGroupId: callGroupId,
               attempt: attempt + 1,
               provider: localEngine,  // Track actual engine: ollama, lmstudio, or custom
+              providerID: providerID.rawValue,
               model: request.model,
               operation: operation,
               requestMethod: "POST",
@@ -258,9 +276,7 @@ extension OllamaProvider {
   }
 
   private func applyAuthorizationHeader(to request: inout URLRequest) {
-    if isLMStudio {
-      request.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
-    } else if isCustomEngine, let token = customAPIKey {
+    if let token = authorizationBearerToken {
       request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     }
   }
