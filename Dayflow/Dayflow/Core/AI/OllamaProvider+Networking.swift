@@ -6,11 +6,21 @@
 import Foundation
 
 extension OllamaProvider {
+  /// Default output cap kept low because long generations are slow on local hardware.
+  static let defaultMaxOutputTokens = 4000
+
+  /// Override for reasoning models that need more headroom (#246):
+  /// `defaults write teleportlabs.com.Dayflow llmLocalMaxOutputTokens -int 32000`
+  static var configuredMaxOutputTokens: Int {
+    let configured = UserDefaults.standard.integer(forKey: "llmLocalMaxOutputTokens")
+    return configured > 0 ? configured : defaultMaxOutputTokens
+  }
+
   struct ChatRequest: Codable {
     let model: String
     let messages: [ChatMessage]
     var temperature: Double = 0.7
-    var max_tokens: Int = 4000
+    var max_tokens: Int = OllamaProvider.configuredMaxOutputTokens
     var stream: Bool = false
   }
 
@@ -231,7 +241,7 @@ extension OllamaProvider {
   // Helper method for text-only requests
   func callTextAPI(
     _ prompt: String, operation: String, expectJSON: Bool = false, batchId: Int64? = nil,
-    maxRetries: Int = 3, maxTokens: Int = 4000
+    maxRetries: Int = 3, maxTokens: Int = OllamaProvider.configuredMaxOutputTokens
   ) async throws -> String {
     let systemPrompt =
       expectJSON
@@ -269,7 +279,8 @@ extension OllamaProvider {
 // MARK: - Text Generation
 
 extension OllamaProvider {
-  func generateText(prompt: String, maxTokens: Int = 4000) async throws
+  func generateText(prompt: String, maxTokens: Int = OllamaProvider.configuredMaxOutputTokens)
+    async throws
     -> (text: String, log: LLMCall)
   {
     let callStart = Date()
