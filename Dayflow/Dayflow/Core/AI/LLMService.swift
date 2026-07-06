@@ -21,7 +21,7 @@ enum LLMProcessingStep: Sendable, Equatable {
 
 protocol LLMServicing {
   func processBatch(
-    _ batchId: Int64, progressHandler: ((LLMProcessingStep) -> Void)?,
+    _ batchId: Int64, isReprocess: Bool, progressHandler: ((LLMProcessingStep) -> Void)?,
     completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void)
   func generateText(prompt: String) async throws -> String
   func generateTextStreaming(prompt: String) -> AsyncThrowingStream<String, Error>
@@ -551,7 +551,8 @@ final class LLMService: LLMServicing {
 
   // Keep the existing processBatch implementation for backward compatibility
   func processBatch(
-    _ batchId: Int64, progressHandler: ((LLMProcessingStep) -> Void)? = nil,
+    _ batchId: Int64, isReprocess: Bool = false,
+    progressHandler: ((LLMProcessingStep) -> Void)? = nil,
     completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void
   ) {
     Task {
@@ -689,7 +690,10 @@ final class LLMService: LLMServicing {
 
         // Calculate card-generation lookback window.
         let currentTime = Date(timeIntervalSince1970: TimeInterval(batchEndTs))
-        let windowStartTime = currentTime.addingTimeInterval(-batchingConfig.cardLookbackDuration)
+        let windowStartTime =
+          isReprocess
+          ? batchStartDate
+          : currentTime.addingTimeInterval(-batchingConfig.cardLookbackDuration)
 
         // Fetch observations from the recent batching window (instead of just current batch).
         let recentObservations = StorageManager.shared.fetchObservationsByTimeRange(
@@ -703,25 +707,51 @@ final class LLMService: LLMServicing {
           print("       observation: \(obs.observation)")
         }
 
-        // Fetch existing timeline cards that overlap with the recent batching window.
-        let existingTimelineCards = StorageManager.shared.fetchTimelineCardsByTimeRange(
-          from: windowStartTime,
-          to: currentTime
-        )
+        // Merge context.
+        // Live: uses  whole lookback window
+        // Reprocess: uses only immediately-preceding real card
+        let reprocessMergeAnchor: TimelineCardWithTimestamps? =
+          isReprocess
+          ? StorageManager.shared.fetchLastTimelineCard(endingBefore: batchStartDate)
+            .flatMap { $0.title == "Processing failed" ? nil : $0 }
+          : nil
 
-        // Convert TimelineCards to ActivityCardData for context
-        let existingActivityCards = existingTimelineCards.map { card in
-          ActivityCardData(
-            startTime: card.startTimestamp,
-            endTime: card.endTimestamp,
-            category: card.category,
-            subcategory: card.subcategory,
-            title: card.title,
-            summary: card.summary,
-            detailedSummary: card.detailedSummary,
-            distractions: card.distractions,
-            appSites: card.appSites
+        let existingActivityCards: [ActivityCardData]
+        if isReprocess {
+          existingActivityCards =
+            reprocessMergeAnchor.map { anchor in
+              [
+                ActivityCardData(
+                  startTime: anchor.startTimestamp,
+                  endTime: anchor.endTimestamp,
+                  category: anchor.category,
+                  subcategory: anchor.subcategory,
+                  title: anchor.title,
+                  summary: anchor.summary,
+                  detailedSummary: anchor.detailedSummary,
+                  distractions: anchor.distractions,
+                  appSites: nil
+                )
+              ]
+            } ?? []
+        } else {
+          let existingTimelineCards = StorageManager.shared.fetchTimelineCardsByTimeRange(
+            from: windowStartTime,
+            to: currentTime
           )
+          existingActivityCards = existingTimelineCards.map { card in
+            ActivityCardData(
+              startTime: card.startTimestamp,
+              endTime: card.endTimestamp,
+              category: card.category,
+              subcategory: card.subcategory,
+              title: card.title,
+              summary: card.summary,
+              detailedSummary: card.detailedSummary,
+              distractions: card.distractions,
+              appSites: card.appSites
+            )
+          }
         }
 
         // Prepare context for activity generation
@@ -765,12 +795,30 @@ final class LLMService: LLMServicing {
         let isBackupGenerated = usedProviderBackup || usedGemmaForCardGeneration
         // Note: card generation log is not persisted per-batch yet
 
+        // Scope the write
+        let writeFromTime: Date
+        let cardsToWrite: [ActivityCardData]
+        if isReprocess {
+          let didMerge =
+            !existingActivityCards.isEmpty && cards.count == existingActivityCards.count
+          if didMerge, let anchor = reprocessMergeAnchor {
+            writeFromTime = Date(timeIntervalSince1970: TimeInterval(anchor.startTs))
+            cardsToWrite = cards
+          } else {
+            writeFromTime = batchStartDate
+            cardsToWrite = Array(cards.dropFirst(existingActivityCards.count))
+          }
+        } else {
+          writeFromTime = windowStartTime
+          cardsToWrite = cards
+        }
+
         // Replace old cards with new ones in the time range
         let (insertedCardIds, deletedVideoPaths) = StorageManager.shared
           .replaceTimelineCardsInRange(
-            from: windowStartTime,
+            from: writeFromTime,
             to: currentTime,
-            with: cards.map { card in
+            with: cardsToWrite.map { card in
               TimelineCardShell(
                 startTimestamp: card.startTime,
                 endTimestamp: card.endTime,
