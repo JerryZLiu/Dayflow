@@ -105,7 +105,7 @@ extension OllamaProvider {
       .map { "\"\($0.name)\"" }
       .joined(separator: ", ")
 
-    let promptSections = OllamaPromptSections(overrides: OllamaPromptPreferences.load())
+    let promptSections = OllamaPromptSections(overrides: promptOverrides)
 
     let languageBlock =
       LLMOutputLanguagePreferences.languageInstruction(forJSON: true)
@@ -197,7 +197,7 @@ extension OllamaProvider {
   private func generateTitle(observations: [Observation], batchId: Int64?) async throws -> (
     TitleResponse, String
   ) {
-    let promptSections = OllamaPromptSections(overrides: OllamaPromptPreferences.load())
+    let promptSections = OllamaPromptSections(overrides: promptOverrides)
     let languageBlock =
       LLMOutputLanguagePreferences.languageInstruction(forJSON: false)
       .map { "\n\n\($0)" } ?? ""
