@@ -19,6 +19,39 @@ enum LLMProcessingStep: Sendable, Equatable {
   case generatingCards
 }
 
+struct TimelineProviderStartupSelection<Context> {
+  let baselineContext: Context
+  let fallbackContext: Context?
+  let activeContext: Context
+  let usedProviderBackup: Bool
+  let primaryInitializationError: Error?
+}
+
+func selectTimelineProviderStartup<Context>(
+  primary: Result<Context, Error>,
+  backup: Context?
+) throws -> TimelineProviderStartupSelection<Context> {
+  switch primary {
+  case .success(let primaryContext):
+    return TimelineProviderStartupSelection(
+      baselineContext: primaryContext,
+      fallbackContext: backup,
+      activeContext: primaryContext,
+      usedProviderBackup: false,
+      primaryInitializationError: nil
+    )
+  case .failure(let error):
+    guard let backup else { throw error }
+    return TimelineProviderStartupSelection(
+      baselineContext: backup,
+      fallbackContext: nil,
+      activeContext: backup,
+      usedProviderBackup: true,
+      primaryInitializationError: error
+    )
+  }
+}
+
 protocol LLMServicing {
   func processBatch(
     _ batchId: Int64, progressHandler: ((LLMProcessingStep) -> Void)?,
@@ -62,15 +95,6 @@ final class LLMService: LLMServicing {
     let fallbackState: GemmaFallbackState?
   }
 
-  private struct ConfiguredBackupProvider {
-    let id: LLMProviderID
-    let chatToolOverride: ChatCLITool?
-  }
-
-  private var providerType: LLMProviderType {
-    LLMProviderType.load()
-  }
-
   private func makeGeminiProvider() -> GeminiDirectProvider? {
     if let apiKey = KeychainManager.shared.retrieve(for: "gemini"), !apiKey.isEmpty {
       let preference = GeminiModelPreference.load()
@@ -110,33 +134,39 @@ final class LLMService: LLMServicing {
     OllamaProvider(endpoint: endpoint)
   }
 
-  private func makeChatCLIProvider(preferredToolOverride: ChatCLITool? = nil) -> ChatCLIProvider {
-    let tool: ChatCLITool
-    if let preferredToolOverride {
-      tool = preferredToolOverride
-    } else {
-      let preferredTool = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "codex"
-      tool = (preferredTool == "claude") ? .claude : .codex
-    }
-    return ChatCLIProvider(tool: tool)
+  private func localProviderEndpoint() -> String {
+    let saved =
+      UserDefaults.standard.string(forKey: "llmLocalBaseURL")?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return saved.isEmpty ? "http://localhost:11434" : saved
   }
 
-  private func resolvedChatCLITool(for providerID: LLMProviderID, override: ChatCLITool? = nil)
-    -> ChatCLITool?
-  {
-    guard providerID == .chatGPTClaude else { return nil }
-    if let override {
-      return override
+  private func makeOpenAICompatibleProvider() -> OllamaProvider? {
+    guard let configuration = OpenAICompatiblePreferences.load(), configuration.isComplete else {
+      print("❌ [LLMService] OpenAI-compatible provider unavailable: incomplete configuration")
+      return nil
     }
-    let preferredTool = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "codex"
-    return preferredTool == "claude" ? .claude : .codex
+    let apiKey = KeychainManager.shared.retrieve(for: OpenAICompatiblePreferences.keychainProvider)
+    let runtimeConfiguration = OpenAICompatibleRuntimeConfiguration(
+      configuration: configuration,
+      bearerToken: apiKey
+    )
+    return OllamaProvider(openAICompatible: runtimeConfiguration)
   }
 
-  private func providerLabel(for providerID: LLMProviderID, chatToolOverride: ChatCLITool? = nil)
-    -> String
-  {
-    providerID.providerLabel(
-      chatTool: resolvedChatCLITool(for: providerID, override: chatToolOverride))
+  private func makeChatCLIProvider(for providerID: LLMProviderID) -> ChatCLIProvider? {
+    switch providerID {
+    case .chatGPT:
+      return ChatCLIProvider(tool: .codex)
+    case .claude:
+      return ChatCLIProvider(tool: .claude)
+    default:
+      return nil
+    }
+  }
+
+  private func providerLabel(for providerID: LLMProviderID) -> String {
+    providerID.providerLabel
   }
 
   private func noProviderError() -> NSError {
@@ -149,10 +179,9 @@ final class LLMService: LLMServicing {
     )
   }
 
-  private func makeBatchProvider(
-    for providerID: LLMProviderID,
-    chatToolOverride: ChatCLITool? = nil
-  ) throws -> (actions: BatchProviderActions, fallbackState: GemmaFallbackState?) {
+  private func makeBatchProvider(for providerID: LLMProviderID) throws -> (
+    actions: BatchProviderActions, fallbackState: GemmaFallbackState?
+  ) {
     switch providerID {
     case .gemini:
       guard let provider = makeGeminiProvider() else { throw noProviderError() }
@@ -200,12 +229,7 @@ final class LLMService: LLMServicing {
         ), fallbackState: fallbackState
       )
     case .dayflow:
-      let savedEndpoint: String?
-      if case .dayflowBackend(let endpointFromSettings) = providerType {
-        savedEndpoint = endpointFromSettings
-      } else {
-        savedEndpoint = nil
-      }
+      let savedEndpoint = DayflowEndpointPreferences.load()
       guard let endpoint = resolvedDayflowEndpoint(savedEndpoint: savedEndpoint) else {
         throw noProviderError()
       }
@@ -216,18 +240,24 @@ final class LLMService: LLMServicing {
           generateActivityCards: provider.generateActivityCards
         ), fallbackState: nil
       )
-    case .ollama:
-      let endpoint =
-        UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? "http://localhost:11434"
-      let provider = makeOllamaProvider(endpoint: endpoint)
+    case .local:
+      let provider = makeOllamaProvider(endpoint: localProviderEndpoint())
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
           generateActivityCards: provider.generateActivityCards
         ), fallbackState: nil
       )
-    case .chatGPTClaude:
-      let provider = makeChatCLIProvider(preferredToolOverride: chatToolOverride)
+    case .openAICompatible:
+      guard let provider = makeOpenAICompatibleProvider() else { throw noProviderError() }
+      return (
+        actions: BatchProviderActions(
+          transcribeScreenshots: provider.transcribeScreenshots,
+          generateActivityCards: provider.generateActivityCards
+        ), fallbackState: nil
+      )
+    case .chatGPT, .claude:
+      guard let provider = makeChatCLIProvider(for: providerID) else { throw noProviderError() }
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
@@ -237,36 +267,24 @@ final class LLMService: LLMServicing {
     }
   }
 
-  private func makeTimelineProviderContext(
-    for providerID: LLMProviderID,
-    chatToolOverride: ChatCLITool? = nil
-  ) throws -> TimelineProviderContext {
-    let providerBundle = try makeBatchProvider(for: providerID, chatToolOverride: chatToolOverride)
+  private func makeTimelineProviderContext(for providerID: LLMProviderID) throws
+    -> TimelineProviderContext
+  {
+    let providerBundle = try makeBatchProvider(for: providerID)
     return TimelineProviderContext(
       id: providerID,
-      providerLabel: providerLabel(for: providerID, chatToolOverride: chatToolOverride),
+      providerLabel: providerLabel(for: providerID),
       actions: providerBundle.actions,
       fallbackState: providerBundle.fallbackState
     )
   }
 
-  private func configuredBackupProvider(primaryProviderID: LLMProviderID)
-    -> ConfiguredBackupProvider?
-  {
-    guard let backupProvider = LLMProviderRoutingPreferences.loadBackupProvider(),
-      backupProvider != primaryProviderID
-    else {
-      return nil
-    }
-
-    let chatToolOverride: ChatCLITool?
-    if backupProvider == .chatGPTClaude {
-      chatToolOverride = LLMProviderRoutingPreferences.loadBackupChatCLITool()
-    } else {
-      chatToolOverride = nil
-    }
-
-    return ConfiguredBackupProvider(id: backupProvider, chatToolOverride: chatToolOverride)
+  private func configuredBackupProvider(
+    primaryProviderID: LLMProviderID,
+    routing: LLMProviderRouting
+  ) -> LLMProviderID? {
+    guard let secondary = routing.secondary, secondary != primaryProviderID else { return nil }
+    return secondary
   }
 
   private final class GemmaFallbackState {
@@ -280,6 +298,7 @@ final class LLMService: LLMServicing {
       "llm_fallback_used",
       [
         "provider": "gemini",
+        "provider_id": LLMProviderID.gemini.rawValue,
         "provider_label": "gemini",
         "fallback_provider": "gemma",
         "fallback_provider_label": "gemma",
@@ -294,9 +313,9 @@ final class LLMService: LLMServicing {
   private func fallbackProps(
     operation: String,
     batchId: Int64?,
-    primaryProvider: String,
+    primaryProviderID: LLMProviderID,
     primaryProviderLabel: String,
-    backupProvider: String,
+    backupProviderID: LLMProviderID,
     backupProviderLabel: String,
     error: Error
   ) -> [String: Any] {
@@ -304,9 +323,11 @@ final class LLMService: LLMServicing {
     return [
       "operation": operation,
       "batch_id": batchId as Any,
-      "primary_provider": primaryProvider,
+      "primary_provider": primaryProviderID.analyticsName,
+      "primary_provider_id": primaryProviderID.rawValue,
       "primary_provider_label": primaryProviderLabel,
-      "backup_provider": backupProvider,
+      "backup_provider": backupProviderID.analyticsName,
+      "backup_provider_id": backupProviderID.rawValue,
       "backup_provider_label": backupProviderLabel,
       "error_domain": nsError.domain,
       "error_code": nsError.code,
@@ -334,9 +355,9 @@ final class LLMService: LLMServicing {
       let attemptProps = fallbackProps(
         operation: operation,
         batchId: batchId,
-        primaryProvider: primaryContext.id.analyticsName,
+        primaryProviderID: primaryContext.id,
         primaryProviderLabel: primaryContext.providerLabel,
-        backupProvider: backupContext.id.analyticsName,
+        backupProviderID: backupContext.id,
         backupProviderLabel: backupContext.providerLabel,
         error: error
       )
@@ -482,8 +503,9 @@ final class LLMService: LLMServicing {
   }
 
   private func makeTextProvider() throws -> TextProviderActions {
-    switch providerType {
-    case .geminiDirect:
+    let providerID = try LLMProviderRoutingStore.load().primary
+    switch providerID {
+    case .gemini:
       guard let provider = makeGeminiProvider() else { throw noProviderError() }
       return TextProviderActions(
         generateText: { prompt in
@@ -491,8 +513,11 @@ final class LLMService: LLMServicing {
         },
         generateTextStreaming: nil
       )
-    case .dayflowBackend(let endpoint):
-      guard let resolvedEndpoint = resolvedDayflowEndpoint(savedEndpoint: endpoint) else {
+    case .dayflow:
+      guard
+        let resolvedEndpoint = resolvedDayflowEndpoint(
+          savedEndpoint: DayflowEndpointPreferences.load())
+      else {
         throw noProviderError()
       }
       guard let provider = makeDayflowProvider(endpoint: resolvedEndpoint) else {
@@ -504,16 +529,24 @@ final class LLMService: LLMServicing {
         },
         generateTextStreaming: nil
       )
-    case .ollamaLocal(let endpoint):
-      let provider = makeOllamaProvider(endpoint: endpoint)
+    case .local:
+      let provider = makeOllamaProvider(endpoint: localProviderEndpoint())
       return TextProviderActions(
         generateText: { prompt in
           try await provider.generateText(prompt: prompt)
         },
         generateTextStreaming: nil
       )
-    case .chatGPTClaude:
-      let provider = makeChatCLIProvider()
+    case .openAICompatible:
+      guard let provider = makeOpenAICompatibleProvider() else { throw noProviderError() }
+      return TextProviderActions(
+        generateText: { prompt in
+          try await provider.generateText(prompt: prompt)
+        },
+        generateTextStreaming: nil
+      )
+    case .chatGPT, .claude:
+      guard let provider = makeChatCLIProvider(for: providerID) else { throw noProviderError() }
       return TextProviderActions(
         generateText: { prompt in
           try await provider.generateText(prompt: prompt)
@@ -567,19 +600,27 @@ final class LLMService: LLMServicing {
       }
 
       let (_, batchStartTs, batchEndTs, _) = batchInfo
-      let processingStartTime = Date()
-      let primaryProviderID = LLMProviderID.from(providerType)
-      let primaryProviderLabel = providerLabel(for: primaryProviderID)
-      let configuredBackup = configuredBackupProvider(primaryProviderID: primaryProviderID)
-      let configuredBackupProviderName = configuredBackup?.id.analyticsName
-      let configuredBackupProviderLabel = configuredBackup.map {
-        providerLabel(for: $0.id, chatToolOverride: $0.chatToolOverride)
+      let routing: LLMProviderRouting
+      do {
+        routing = try LLMProviderRoutingStore.load()
+      } catch {
+        completion(.failure(error))
+        return
       }
+      let processingStartTime = Date()
+      let primaryProviderID = routing.primary
+      let primaryProviderLabel = providerLabel(for: primaryProviderID)
+      let configuredBackup = configuredBackupProvider(
+        primaryProviderID: primaryProviderID,
+        routing: routing
+      )
+      let configuredBackupProviderName = configuredBackup?.analyticsName
+      let configuredBackupProviderLabel = configuredBackup.map { providerLabel(for: $0) }
       var backupConfigured = false
       var lastProcessingStep: LLMProcessingStep?
       print(
         "🧭 [LLMService] processBatch selected primary=\(primaryProviderID.analyticsName) "
-          + "label=\(primaryProviderLabel) backup=\(configuredBackup?.id.analyticsName ?? "none")"
+          + "label=\(primaryProviderLabel) backup=\(configuredBackup?.analyticsName ?? "none")"
       )
 
       do {
@@ -596,30 +637,58 @@ final class LLMService: LLMServicing {
             "total_duration_seconds": batchEndTs - batchStartTs,
             "llm_provider": primaryProviderID.analyticsName,
             "llm_provider_label": primaryProviderLabel,
+            "provider_id": primaryProviderID.rawValue,
           ])
 
-        let primaryContext = try makeTimelineProviderContext(for: primaryProviderID)
-        let backupContext: TimelineProviderContext? = {
+        let primaryResult: Result<TimelineProviderContext, Error> = Result {
+          try makeTimelineProviderContext(for: primaryProviderID)
+        }
+        let configuredBackupContext: TimelineProviderContext? = {
           guard let configuredBackup else { return nil }
-          return try? makeTimelineProviderContext(
-            for: configuredBackup.id,
-            chatToolOverride: configuredBackup.chatToolOverride
-          )
+          return try? makeTimelineProviderContext(for: configuredBackup)
         }()
-        backupConfigured = backupContext != nil
-        if let configuredBackup, backupContext == nil {
+        backupConfigured = configuredBackupContext != nil
+        if let configuredBackup, configuredBackupContext == nil {
           AnalyticsService.shared.capture(
             "llm_timeline_backup_unavailable",
             [
               "primary_provider": primaryProviderID.analyticsName,
               "primary_provider_label": primaryProviderLabel,
-              "backup_provider": configuredBackup.id.analyticsName,
+              "primary_provider_id": primaryProviderID.rawValue,
+              "backup_provider": configuredBackup.analyticsName,
               "backup_provider_label": configuredBackupProviderLabel as Any,
+              "backup_provider_id": configuredBackup.rawValue,
               "batch_id": batchId,
             ])
         }
-        var activeContext = primaryContext
-        var usedProviderBackup = false
+        let startup = try selectTimelineProviderStartup(
+          primary: primaryResult,
+          backup: configuredBackupContext
+        )
+        if startup.usedProviderBackup,
+          let configuredBackup,
+          let configuredBackupContext,
+          let primaryError = startup.primaryInitializationError
+        {
+          let props = fallbackProps(
+            operation: "initialize_provider",
+            batchId: batchId,
+            primaryProviderID: primaryProviderID,
+            primaryProviderLabel: primaryProviderLabel,
+            backupProviderID: configuredBackup,
+            backupProviderLabel: configuredBackupContext.providerLabel,
+            error: primaryError
+          )
+          AnalyticsService.shared.capture("llm_timeline_fallback_attempted", props)
+          AnalyticsService.shared.capture("llm_timeline_fallback_succeeded", props)
+        }
+
+        // If the routed primary could not initialize, the backup becomes the batch baseline.
+        // Its fallback is nil so later stages stay pinned to it instead of retrying the primary.
+        let primaryContext = startup.baselineContext
+        let backupContext = startup.fallbackContext
+        var activeContext = startup.activeContext
+        var usedProviderBackup = startup.usedProviderBackup
 
         // Mark batch as processing
         StorageManager.shared.updateBatch(batchId, status: "processing")
@@ -677,6 +746,7 @@ final class LLMService: LLMServicing {
             [
               "batch_id": batchId,
               "provider": activeContext.id.analyticsName,
+              "provider_id": activeContext.id.rawValue,
               "provider_label": activeContext.providerLabel,
               "transcribe_latency_ms": Int((transcribeLog.latency ?? 0) * 1000),
             ])
@@ -813,7 +883,9 @@ final class LLMService: LLMServicing {
             "processing_duration_seconds": Int(Date().timeIntervalSince(processingStartTime)),
             "llm_provider": primaryProviderID.analyticsName,
             "llm_provider_label": primaryProviderLabel,
+            "provider_id": primaryProviderID.rawValue,
             "effective_llm_provider": activeContext.id.analyticsName,
+            "effective_provider_id": activeContext.id.rawValue,
             "used_provider_backup": usedProviderBackup,
           ])
 
@@ -837,8 +909,10 @@ final class LLMService: LLMServicing {
             "processing_duration_seconds": Int(Date().timeIntervalSince(processingStartTime)),
             "llm_provider": primaryProviderID.analyticsName,
             "llm_provider_label": primaryProviderLabel,
+            "provider_id": primaryProviderID.rawValue,
             "backup_provider": configuredBackupProviderName as Any,
             "backup_provider_label": configuredBackupProviderLabel as Any,
+            "backup_provider_id": configuredBackup?.rawValue as Any,
             "backup_configured": backupConfigured,
           ])
 
@@ -1117,7 +1191,7 @@ final class LLMService: LLMServicing {
       )
     case .codex, .claude:
       let tool: ChatCLITool = request.provider == .claude ? .claude : .codex
-      let chatCLI = makeChatCLIProvider(preferredToolOverride: tool)
+      let chatCLI = ChatCLIProvider(tool: tool)
       return chatCLI.generateChatStreaming(prompt: request.prompt, sessionId: request.sessionId)
     }
   }
