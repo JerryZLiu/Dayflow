@@ -39,16 +39,23 @@ enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
       return .dayflow
     }
 
-    switch LLMProviderType.load(from: defaults) {
-    case .geminiDirect:
+    guard let providerID = (try? LLMProviderRoutingStore.load(from: defaults))?.primary else {
+      return .none
+    }
+
+    switch providerID {
+    case .gemini:
       return .gemini
-    case .dayflowBackend:
+    case .dayflow:
       return .dayflow
-    case .chatGPTClaude:
-      let preferredTool = defaults.string(forKey: "chatCLIPreferredTool") ?? "codex"
-      return preferredTool == "claude" ? .claude : .chatgpt
-    case .ollamaLocal:
+    case .chatGPT:
+      return .chatgpt
+    case .claude:
+      return .claude
+    case .local:
       return .local
+    case .openAICompatible:
+      return .none
     }
   }
 
