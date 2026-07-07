@@ -729,7 +729,7 @@ final class DayflowBackendProvider {
       code: -1,
       userInfo: [
         NSLocalizedDescriptionKey:
-          "Text generation is not yet supported with Dayflow Backend. Please configure Gemini, Ollama, or ChatGPT/Claude CLI in Settings."
+          "Text generation is not yet supported with Dayflow Backend. Please configure Gemini, ChatGPT, Claude, an OpenAI-compatible endpoint, or Local in Settings."
       ]
     )
   }
