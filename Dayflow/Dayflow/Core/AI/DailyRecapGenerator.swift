@@ -476,14 +476,10 @@ final class DailyRecapGenerator {
   }
 
   private func resolvedDayflowEndpoint() -> String? {
-    let savedEndpoint: String?
-    if case .dayflowBackend(let endpoint) = LLMProviderType.load() {
-      savedEndpoint = endpoint
-    } else {
-      savedEndpoint = nil
-    }
-
-    return DayflowBackendConfiguration.endpoint(legacySavedEndpoint: savedEndpoint)
+    _ = try? LLMProviderRoutingStore.load()
+    return DayflowBackendConfiguration.endpoint(
+      legacySavedEndpoint: DayflowEndpointPreferences.load()
+    )
   }
 
   private func makeDraft(
