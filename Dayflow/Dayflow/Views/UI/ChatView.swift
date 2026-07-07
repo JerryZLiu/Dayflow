@@ -30,7 +30,6 @@ struct ChatView: View {
   @State var composerFocusToken = 0
   @Namespace var bottomID
   @AppStorage("dashboardChatProvider") var selectedProviderRaw: String = "gemini"
-  @AppStorage("chatCLIPreferredTool") var chatCLIPreferredTool: String = "codex"
   @AppStorage("hasChatBetaAccepted") var hasBetaAccepted: Bool = false
   @State var geminiConfigured = false
   @State var codexDetected = false
