@@ -33,13 +33,66 @@ final class DailyRecapCardsTextTests: XCTestCase {
     XCTAssertEqual(text, makeText())
   }
 
-  private func card(title: String, minute: Int) -> TimelineCard {
+  func testEmptyCardListReturnsNoActivitiesMessage() {
+    let text = DailyRecapGenerator.makeCardsText(day: "2026-06-16", cards: [])
+    XCTAssertEqual(text, "No timeline activities were recorded for 2026-06-16.")
+  }
+
+  func testIncludesDistinctSummaryButNotSummaryEqualToTitle() {
+    let withSummary = DailyRecapGenerator.makeCardsText(
+      day: "2026-06-16",
+      cards: [card(title: "Wrote the report", minute: 0, summary: "Drafted Q2 numbers")]
+    )
+    XCTAssertTrue(withSummary.contains("Drafted Q2 numbers"))
+
+    // A summary identical to the title is redundant and must be dropped, not
+    // printed twice.
+    let redundant = DailyRecapGenerator.makeCardsText(
+      day: "2026-06-16",
+      cards: [card(title: "Wrote the report", minute: 0, summary: "Wrote the report")]
+    )
+    let occurrences = redundant.components(separatedBy: "Wrote the report").count - 1
+    XCTAssertEqual(occurrences, 1)
+  }
+
+  // Filtering "Processing failed" and character-budget truncation must compose:
+  // failed cards are removed BEFORE the budget is measured, so they never
+  // consume budget or count toward the "omitted" tally.
+  func testFilterAndTruncationCompose() {
+    var cards: [TimelineCard] = []
+    for i in 0..<20 {
+      cards.append(card(title: "Processing failed", minute: i))
+      cards.append(card(title: "Real activity \(i)", minute: i))
+    }
+    let text = DailyRecapGenerator.makeCardsText(
+      day: "2026-06-16", cards: cards, maxCharacters: 300
+    )
+    XCTAssertFalse(text.contains("Processing failed"))
+    if text.contains("omitted") {
+      // The omitted count must reference only the 20 real cards, never the 40 total.
+      let omittedReal = (1...20).contains { text.contains("... and \($0) more") }
+      XCTAssertTrue(omittedReal, "omitted count should be <= 20 real activities, not include filtered cards")
+    }
+  }
+
+  // Boundary: when everything fits, there must be NO truncation notice
+  // (off-by-one guard on the `includedCount < ordered.count` check).
+  func testNoOmissionNoticeWhenAllCardsFit() {
+    let cards = (0..<3).map { card(title: "Task \($0)", minute: $0) }
+    let text = DailyRecapGenerator.makeCardsText(
+      day: "2026-06-16", cards: cards, maxCharacters: 10_000
+    )
+    XCTAssertFalse(text.contains("omitted"))
+    XCTAssertTrue(text.contains("3. 9:02am - 9:03am: Task 2"))
+  }
+
+  private func card(title: String, minute: Int, summary: String = "") -> TimelineCard {
     TimelineCard(
       recordId: nil, batchId: nil,
       startTimestamp: String(format: "9:%02d AM", minute),
       endTimestamp: String(format: "9:%02d AM", minute + 1),
       category: "Work", subcategory: "Coding",
-      title: title, summary: "", detailedSummary: "", day: "2026-06-16",
+      title: title, summary: summary, detailedSummary: "", day: "2026-06-16",
       distractions: nil, videoSummaryURL: nil, otherVideoSummaryURLs: nil, appSites: nil
     )
   }
