@@ -28,16 +28,9 @@ extension ChatCLIProvider {
     let basePrompt = buildCardsPrompt(observations: observations, context: context)
     var actualPromptUsed = basePrompt
 
-    let model: String
-    let effort: String?
-    switch tool {
-    case .claude:
-      model = "sonnet"
-      effort = nil
-    case .codex:
-      model = "gpt-5.4"
-      effort = "low"
-    }
+    let modelConfiguration = Self.activityCardModelConfiguration(for: tool)
+    let model = modelConfiguration.model
+    let effort = modelConfiguration.reasoningEffort
 
     var lastError: Error?
     var lastRun: ChatCLIRunResult?
@@ -79,6 +72,7 @@ extension ChatCLIProvider {
         if !coverageValid, let coverageError {
           AnalyticsService.shared.captureValidationFailure(
             provider: "chat_cli",
+            providerID: tool.providerID,
             operation: "generate_activity_cards",
             validationType: "time_coverage",
             attempt: attempt,
@@ -91,6 +85,7 @@ extension ChatCLIProvider {
         if !durationValid, let durationError {
           AnalyticsService.shared.captureValidationFailure(
             provider: "chat_cli",
+            providerID: tool.providerID,
             operation: "generate_activity_cards",
             validationType: "duration",
             attempt: attempt,
@@ -147,6 +142,17 @@ extension ChatCLIProvider {
       finishedAt: finishedAt, error: finalError, stdout: lastRawOutput, stderr: finalStderr,
       run: finalRun)
     throw finalError
+  }
+
+  static func activityCardModelConfiguration(for tool: ChatCLITool) -> (
+    model: String, reasoningEffort: String?
+  ) {
+    switch tool {
+    case .claude:
+      return (model: "sonnet", reasoningEffort: "medium")
+    case .codex:
+      return (model: "gpt-5.4", reasoningEffort: "low")
+    }
   }
 
   private func runResultFromStreamingError(
