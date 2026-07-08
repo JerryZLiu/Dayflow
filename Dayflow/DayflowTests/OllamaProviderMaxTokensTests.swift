@@ -43,4 +43,33 @@ final class OllamaProviderMaxTokensTests: XCTestCase {
     let request = OllamaProvider.ChatRequest(model: "test-model", messages: [])
     XCTAssertEqual(request.max_tokens, 16000)
   }
+
+  // Boundary: exactly 1 is the smallest value the `configured > 0` guard
+  // treats as a real override (0 falls back, per the test above). Pins the
+  // guard's exclusive-zero semantics so a future `>= 0` regression is caught.
+  func testMaxOutputTokensAcceptsMinimumPositiveOverride() {
+    UserDefaults.standard.set(1, forKey: key)
+    XCTAssertEqual(OllamaProvider.configuredMaxOutputTokens, 1)
+  }
+
+  // Reasoning models (the #246 use case) can legitimately need very large
+  // caps. Confirm a large override passes through unclamped, both via the
+  // computed property and into the ChatRequest the network layer sends.
+  func testMaxOutputTokensPassesLargeReasoningModelOverrideThrough() {
+    UserDefaults.standard.set(131_072, forKey: key)
+    XCTAssertEqual(OllamaProvider.configuredMaxOutputTokens, 131_072)
+    let request = OllamaProvider.ChatRequest(model: "test-model", messages: [])
+    XCTAssertEqual(request.max_tokens, 131_072)
+  }
+
+  // The default constant and the fallback path must agree — guards against a
+  // future edit that changes one but not the other.
+  func testDefaultConstantMatchesUnsetFallback() {
+    XCTAssertEqual(OllamaProvider.defaultMaxOutputTokens, 4000)
+    UserDefaults.standard.removeObject(forKey: key)
+    XCTAssertEqual(
+      OllamaProvider.configuredMaxOutputTokens,
+      OllamaProvider.defaultMaxOutputTokens
+    )
+  }
 }
