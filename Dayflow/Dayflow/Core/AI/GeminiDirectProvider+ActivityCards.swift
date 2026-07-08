@@ -199,6 +199,7 @@ extension GeminiDirectProvider {
         if !coverageValid && coverageError != nil {
           AnalyticsService.shared.captureValidationFailure(
             provider: "gemini",
+            providerID: .gemini,
             operation: "generate_activity_cards",
             validationType: "time_coverage",
             attempt: attempt + 1,
@@ -218,6 +219,7 @@ extension GeminiDirectProvider {
         if !durationValid && durationError != nil {
           AnalyticsService.shared.captureValidationFailure(
             provider: "gemini",
+            providerID: .gemini,
             operation: "generate_activity_cards",
             validationType: "duration",
             attempt: attempt + 1,
@@ -426,6 +428,7 @@ extension GeminiDirectProvider {
         callGroupId: groupId,
         attempt: attempt,
         provider: "gemini",
+        providerID: LLMProviderID.gemini.rawValue,
         model: modelName,
         operation: "generate_activity_cards",
         requestMethod: request.httpMethod,
@@ -542,6 +545,7 @@ extension GeminiDirectProvider {
           callGroupId: groupId,
           attempt: attempt,
           provider: "gemini",
+          providerID: LLMProviderID.gemini.rawValue,
           model: modelName,
           operation: "generate_activity_cards",
           requestMethod: request.httpMethod,
