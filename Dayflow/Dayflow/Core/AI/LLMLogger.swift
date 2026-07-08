@@ -10,6 +10,7 @@ struct LLMCallContext: Sendable {
   let callGroupId: String?
   let attempt: Int
   let provider: String
+  var providerID: String? = nil
   let model: String?
   let operation: String
   let requestMethod: String?
@@ -47,6 +48,7 @@ enum LLMLogger {
 
       if let batchId = ctx.batchId { props["batch_id"] = batchId }
       if let groupId = ctx.callGroupId { props["group_id"] = groupId }
+      if let providerID = ctx.providerID { props["provider_id"] = providerID }
 
       // Bubble token usage if present in response headers (non-HTTP calls may stuff them here).
       if let headers = http.responseHeaders {
@@ -81,6 +83,7 @@ enum LLMLogger {
 
       if let batchId = ctx.batchId { props["batch_id"] = batchId }
       if let groupId = ctx.callGroupId { props["group_id"] = groupId }
+      if let providerID = ctx.providerID { props["provider_id"] = providerID }
       if let errorCode { props["error_code"] = errorCode }
       if let errorMessage, !errorMessage.isEmpty { props["error_message"] = errorMessage }
       if let body = http?.responseBody,
