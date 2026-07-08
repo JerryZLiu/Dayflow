@@ -305,6 +305,7 @@ final class AnalyticsService {
   /// Track LLM validation failures (time coverage, duration, parse errors)
   func captureValidationFailure(
     provider: String,
+    providerID: LLMProviderID,
     operation: String,
     validationType: String,
     attempt: Int,
@@ -314,6 +315,7 @@ final class AnalyticsService {
   ) {
     var props: [String: Any] = [
       "provider": provider,
+      "provider_id": providerID.rawValue,
       "operation": operation,
       "validation_type": validationType,
       "attempt": attempt,
