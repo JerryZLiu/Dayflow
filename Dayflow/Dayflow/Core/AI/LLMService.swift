@@ -110,6 +110,10 @@ final class LLMService: LLMServicing {
     OllamaProvider(endpoint: endpoint)
   }
 
+  private func makeOpenRouterProvider() -> OpenRouterProvider {
+    OpenRouterProvider()
+  }
+
   private func makeChatCLIProvider(preferredToolOverride: ChatCLITool? = nil) -> ChatCLIProvider {
     let tool: ChatCLITool
     if let preferredToolOverride {
@@ -228,6 +232,14 @@ final class LLMService: LLMServicing {
       )
     case .chatGPTClaude:
       let provider = makeChatCLIProvider(preferredToolOverride: chatToolOverride)
+      return (
+        actions: BatchProviderActions(
+          transcribeScreenshots: provider.transcribeScreenshots,
+          generateActivityCards: provider.generateActivityCards
+        ), fallbackState: nil
+      )
+    case .openRouter:
+      let provider = makeOpenRouterProvider()
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
@@ -514,6 +526,14 @@ final class LLMService: LLMServicing {
       )
     case .chatGPTClaude:
       let provider = makeChatCLIProvider()
+      return TextProviderActions(
+        generateText: { prompt in
+          try await provider.generateText(prompt: prompt)
+        },
+        generateTextStreaming: provider.generateTextStreaming
+      )
+    case .openRouter:
+      let provider = makeOpenRouterProvider()
       return TextProviderActions(
         generateText: { prompt in
           try await provider.generateText(prompt: prompt)
@@ -1119,6 +1139,9 @@ final class LLMService: LLMServicing {
       let tool: ChatCLITool = request.provider == .claude ? .claude : .codex
       let chatCLI = makeChatCLIProvider(preferredToolOverride: tool)
       return chatCLI.generateChatStreaming(prompt: request.prompt, sessionId: request.sessionId)
+    case .openRouter:
+      let provider = makeOpenRouterProvider()
+      return provider.generateTextStreaming(prompt: request.prompt)
     }
   }
 }

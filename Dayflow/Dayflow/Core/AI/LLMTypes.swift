@@ -16,6 +16,7 @@ enum DashboardChatProvider: String, Codable, CaseIterable {
   case gemini
   case codex
   case claude
+  case openRouter = "openrouter"
 
   static func fromStoredValue(_ value: String?) -> DashboardChatProvider {
     guard let value else { return .gemini }
@@ -24,7 +25,7 @@ enum DashboardChatProvider: String, Codable, CaseIterable {
 
   var chatCLITool: ChatCLITool? {
     switch self {
-    case .gemini:
+    case .gemini, .openRouter:
       return nil
     case .codex:
       return .codex
@@ -41,6 +42,8 @@ enum DashboardChatProvider: String, Codable, CaseIterable {
     switch self {
     case .gemini:
       return "gemini_function_calling"
+    case .openRouter:
+      return "openrouter_api"
     case .codex, .claude:
       return "chat_cli"
     }
@@ -96,6 +99,7 @@ enum LLMProviderType: Codable {
   case dayflowBackend(endpoint: String = "")
   case ollamaLocal(endpoint: String = "http://localhost:11434")
   case chatGPTClaude
+  case openRouter(modelId: String = "deepseek/deepseek-v4-flash")
 
   private static let providerDefaultsKey = "llmProviderType"
   private static let selectedProviderDefaultsKey = "selectedLLMProvider"
@@ -134,6 +138,8 @@ enum LLMProviderType: Codable {
       return "ollama"
     case .chatGPTClaude:
       return "chatgpt_claude"
+    case .openRouter:
+      return "openrouter"
     }
   }
 
@@ -171,6 +177,9 @@ enum LLMProviderType: Codable {
       return .chatGPTClaude
     case "chatgpt_claude":
       return .chatGPTClaude
+    case "openrouter":
+      let model = defaults.string(forKey: "openrouterModelId") ?? "deepseek/deepseek-v4-flash"
+      return .openRouter(modelId: model)
     default:
       return nil
     }
@@ -182,6 +191,7 @@ enum LLMProviderID: String, Codable, CaseIterable {
   case dayflow
   case ollama
   case chatGPTClaude = "chatgpt_claude"
+  case openRouter = "openrouter"
 
   var analyticsName: String {
     switch self {
@@ -193,6 +203,8 @@ enum LLMProviderID: String, Codable, CaseIterable {
       return "ollama"
     case .chatGPTClaude:
       return "chat_cli"
+    case .openRouter:
+      return "openrouter"
     }
   }
 
@@ -206,6 +218,8 @@ enum LLMProviderID: String, Codable, CaseIterable {
       return .ollama
     case .chatGPTClaude:
       return .chatGPTClaude
+    case .openRouter:
+      return .openRouter
     }
   }
 
@@ -219,6 +233,8 @@ enum LLMProviderID: String, Codable, CaseIterable {
       return "local"
     case .chatGPTClaude:
       return chatTool == .claude ? "claude" : "chatgpt"
+    case .openRouter:
+      return "openrouter"
     }
   }
 }

@@ -222,6 +222,40 @@ struct OnboardingLLMSelectionView: View {
         }
       ),
 
+      // OpenRouter card
+      FlexibleProviderCard(
+        id: "openrouter",
+        title: "OpenRouter",
+        badgeText: "NEW",
+        badgeType: .blue,
+        icon: "globe",
+        features: [
+          ("Access 300+ models (DeepSeek, Claude, GPT, Gemini, and more)", true),
+          ("Pay per token, no subscriptions needed", true),
+          ("Vision-capable models for screenshot analysis", true),
+          ("Requires an OpenRouter API key (free to sign up)", false),
+          ("Requires internet connection", false),
+        ],
+        isSelected: selectedProvider == "openrouter",
+        buttonMode: .onboarding(onProceed: {
+          if selectedProvider == "openrouter" {
+            saveProviderSelection()
+            onNext("openrouter")
+          } else {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+              didUserSelectProvider = true
+              selectedProvider = "openrouter"
+            }
+          }
+        }),
+        onSelect: {
+          withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+            didUserSelectProvider = true
+            selectedProvider = "openrouter"
+          }
+        }
+      ),
+
       /*
       // Dayflow Pro card
       FlexibleProviderCard(
@@ -273,6 +307,8 @@ struct OnboardingLLMSelectionView: View {
       providerType = .dayflowBackend()
     case "chatgpt_claude":
       providerType = .chatGPTClaude
+    case "openrouter":
+      providerType = .openRouter()
     default:
       providerType = .geminiDirect
     }
