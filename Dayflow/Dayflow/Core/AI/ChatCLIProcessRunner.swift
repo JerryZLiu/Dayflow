@@ -301,7 +301,6 @@ struct ChatCLIProcessRunner {
     hasRetriedInvalidTransport: Bool = false
   ) async throws {
     let toolName = tool.rawValue
-    let _ = sessionId != nil  // isResume - unused but kept for clarity
 
     var cmdParts: [String] = [toolName]
     switch tool {
@@ -328,18 +327,12 @@ struct ChatCLIProcessRunner {
       cmdParts.append(LoginShellRunner.shellEscape(prompt))
 
     case .claude:
-      cmdParts.append("-p")
-      cmdParts.append(contentsOf: ["--output-format", "stream-json"])
-      cmdParts.append("--verbose")
-      cmdParts.append("--include-partial-messages")
-      if let sessionId = sessionId {
-        cmdParts.append(contentsOf: ["--resume", sessionId])
-      }
-      if let model = model { cmdParts.append(contentsOf: ["--model", model]) }
-      cmdParts.append("--dangerously-skip-permissions")
-      cmdParts.append("--strict-mcp-config")
-      cmdParts.append("--")
-      cmdParts.append(LoginShellRunner.shellEscape(prompt))
+      cmdParts = buildClaudeStreamingCommandParts(
+        prompt: prompt,
+        model: model,
+        reasoningEffort: reasoningEffort,
+        sessionId: sessionId
+      )
     }
 
     let shellCommand =
@@ -710,6 +703,32 @@ struct ChatCLIProcessRunner {
     return cmdParts
   }
 
+  func buildClaudeStreamingCommandParts(
+    prompt: String,
+    model: String?,
+    reasoningEffort: String?,
+    sessionId: String?
+  ) -> [String] {
+    var cmdParts = [
+      "claude", "-p", "--output-format", "stream-json", "--verbose",
+      "--include-partial-messages",
+    ]
+    if let sessionId {
+      cmdParts.append(contentsOf: ["--resume", sessionId])
+    }
+    if let model {
+      cmdParts.append(contentsOf: ["--model", model])
+    }
+    if let reasoningEffort {
+      cmdParts.append(contentsOf: ["--effort", reasoningEffort])
+    }
+    cmdParts.append("--dangerously-skip-permissions")
+    cmdParts.append("--strict-mcp-config")
+    cmdParts.append("--")
+    cmdParts.append(LoginShellRunner.shellEscape(prompt))
+    return cmdParts
+  }
+
   func parseAssistant(tool: ChatCLITool, raw: String) -> (text: String, usage: TokenUsage?) {
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -765,7 +784,8 @@ struct ChatCLIProcessRunner {
 
   func run(
     tool: ChatCLITool, prompt: String, workingDirectory: URL, imagePaths: [String] = [],
-    model: String? = nil, reasoningEffort: String? = nil, disableTools: Bool = false
+    model: String? = nil, reasoningEffort: String? = nil, disableTools: Bool = false,
+    timeoutSeconds: TimeInterval = Constants.timeoutSeconds
   ) throws -> ChatCLIRunResult {
     try run(
       tool: tool,
@@ -776,7 +796,8 @@ struct ChatCLIProcessRunner {
       reasoningEffort: reasoningEffort,
       disableTools: disableTools,
       processEnvironment: [:],
-      hasRetriedInvalidTransport: false
+      hasRetriedInvalidTransport: false,
+      timeoutSeconds: timeoutSeconds
     )
   }
 
@@ -789,7 +810,8 @@ struct ChatCLIProcessRunner {
     reasoningEffort: String?,
     disableTools: Bool,
     processEnvironment: [String: String],
-    hasRetriedInvalidTransport: Bool
+    hasRetriedInvalidTransport: Bool,
+    timeoutSeconds: TimeInterval = Constants.timeoutSeconds
   ) throws -> ChatCLIRunResult {
     let toolName = tool.rawValue
 
@@ -851,7 +873,6 @@ struct ChatCLIProcessRunner {
     stdoutReader.start()
     stderrReader.start()
 
-    let timeoutSeconds = Constants.timeoutSeconds
     let semaphore = DispatchSemaphore(value: 0)
     DispatchQueue.global().async {
       process.waitUntilExit()
@@ -907,7 +928,8 @@ struct ChatCLIProcessRunner {
         reasoningEffort: reasoningEffort,
         disableTools: disableTools,
         processEnvironment: fallback.environment,
-        hasRetriedInvalidTransport: true
+        hasRetriedInvalidTransport: true,
+        timeoutSeconds: timeoutSeconds
       )
     }
 
