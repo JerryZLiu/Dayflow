@@ -261,6 +261,8 @@ final class ProvidersSettingsViewModel: ObservableObject {
       currentProvider = "ollama"
     case .chatGPTClaude:
       currentProvider = "chatgpt_claude"
+    case .openRouter:
+      currentProvider = "openrouter"
     }
     hasLoadedProvider = true
   }
@@ -517,6 +519,14 @@ final class ProvidersSettingsViewModel: ObservableObject {
       let preferredTool = (UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
       return !preferredTool.isEmpty
+    case "openrouter":
+      if UserDefaults.standard.bool(forKey: "openrouterSetupComplete") {
+        return true
+      }
+      if let key = KeychainManager.shared.retrieve(for: "openrouter") {
+        return !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      }
+      return false
     case "dayflow":
       return isDayflowProActive
     default:

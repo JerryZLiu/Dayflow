@@ -7,6 +7,7 @@ class ProviderSetupState: ObservableObject {
   @Published var currentStepIndex: Int = 0
   @Published var apiKey: String = ""
   @Published var geminiAPIKeySaveError: String?
+  @Published var activeProviderType: String = "gemini"
   @Published var hasTestedConnection: Bool = false
   @Published var testSuccessful: Bool = false
   @Published var geminiModel: GeminiModel
@@ -14,8 +15,11 @@ class ProviderSetupState: ObservableObject {
   @Published var localEngine: LocalEngine = .lmstudio
   @Published var localBaseURL: String = LocalEngine.lmstudio.defaultBaseURL
   @Published var localModelId: String = LocalModelPreferences.defaultModelId(for: .lmstudio)
-  @Published var localAPIKey: String = UserDefaults.standard.string(forKey: "llmLocalAPIKey") ?? ""
-  // CLI detection
+  @Published var localAPIKey: String? = UserDefaults.standard.string(forKey: "llmLocalAPIKey") ?? ""
+    // OpenRouter configuration
+    @Published var openRouterModelId: String = UserDefaults.standard.string(forKey: "openrouterModelId") ?? "deepseek/deepseek-v4-flash"
+    @Published var openRouterAPIKeySaveError: String?
+    // CLI detection
   @Published var codexCLIStatus: CLIDetectionState = .unknown
   @Published var claudeCLIStatus: CLIDetectionState = .unknown
   @Published var isCheckingCLIStatus: Bool = false
@@ -64,6 +68,7 @@ class ProviderSetupState: ObservableObject {
   }
 
   func configureSteps(for provider: String) {
+    activeProviderType = provider
     switch provider {
     case "ollama":
       steps = [
@@ -127,6 +132,28 @@ class ProviderSetupState: ObservableObject {
       claudeCLIReport = nil
       isCheckingCLIStatus = false
       hasStartedCLICheck = false
+    case "openrouter":
+      steps = [
+        SetupStep(
+          id: "getkey", title: "Get API key",
+          contentType: .apiKeyInstructions),
+        SetupStep(
+          id: "enterkey", title: "Enter API key",
+          contentType: .apiKeyInput),
+        SetupStep(
+          id: "model", title: "Choose model",
+          contentType: .information(
+            "Model Selection",
+            "You can change the model anytime in Settings. Default: deepseek/deepseek-v4-flash")),
+        SetupStep(
+          id: "verify", title: "Test connection",
+          contentType: .information(
+            "Test Connection", "Click the button below to verify your API key works with OpenRouter.")),
+        SetupStep(
+          id: "complete", title: "Complete",
+          contentType: .information(
+            "All set!", "OpenRouter is now configured and ready to use with Dayflow.")),
+      ]
     default:  // gemini
       steps = [
         SetupStep(
@@ -150,7 +177,11 @@ class ProviderSetupState: ObservableObject {
   func goNext() {
     // Save API key to keychain when moving from API key input step
     if currentStep.contentType.isApiKeyInput && !apiKey.isEmpty {
-      guard persistGeminiAPIKey(source: "onboarding_step") else { return }
+      if activeProviderType == "openrouter" {
+        guard persistOpenRouterAPIKey(source: "onboarding_step") else { return }
+      } else {
+        guard persistGeminiAPIKey(source: "onboarding_step") else { return }
+      }
     }
 
     if currentStepIndex < steps.count - 1 {
@@ -228,6 +259,31 @@ class ProviderSetupState: ObservableObject {
       persistGeminiModelSelection(source: source)
     } else {
       geminiAPIKeySaveError =
+        "Couldn't save your API key to Keychain. Please unlock Keychain and try again."
+    }
+    return stored
+  }
+
+  @discardableResult
+  func persistOpenRouterAPIKey(source: String) -> Bool {
+    let cleaned = apiKey.components(separatedBy: .whitespacesAndNewlines).joined()
+    guard !cleaned.isEmpty else {
+      openRouterAPIKeySaveError = nil
+      return true
+    }
+
+    if cleaned != apiKey {
+      apiKey = cleaned
+    }
+
+    let stored = KeychainManager.shared.store(cleaned, for: "openrouter")
+    if stored {
+      openRouterAPIKeySaveError = nil
+      hasTestedConnection = false
+      testSuccessful = false
+      UserDefaults.standard.set(openRouterModelId, forKey: "openrouterModelId")
+    } else {
+      openRouterAPIKeySaveError =
         "Couldn't save your API key to Keychain. Please unlock Keychain and try again."
     }
     return stored

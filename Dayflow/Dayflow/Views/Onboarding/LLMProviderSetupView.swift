@@ -15,6 +15,8 @@ struct LLMProviderSetupView: View {
       return "Use local AI"
     case "chatgpt_claude":
       return "Connect ChatGPT or Claude"
+    case "openrouter":
+      return "Connect OpenRouter"
     default:
       return "Gemini"
     }

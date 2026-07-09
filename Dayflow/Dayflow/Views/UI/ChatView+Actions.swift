@@ -347,6 +347,8 @@ extension ChatView {
       chatCLIPreferredTool = "codex"
     case .claude:
       chatCLIPreferredTool = "claude"
+    case .openRouter:
+      break
     }
   }
 
@@ -358,6 +360,11 @@ extension ChatView {
       return codexDetected
     case .claude:
       return claudeDetected
+    case .openRouter:
+      if let key = KeychainManager.shared.retrieve(for: "openrouter") {
+        return !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      }
+      return false
     }
   }
 
