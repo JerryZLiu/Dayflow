@@ -18,7 +18,9 @@ extension ChatCLIProvider {
     encoder.outputFormatting = .prettyPrinted
     let existingCardsData = try? encoder.encode(context.existingCards)
     let existingCardsJSON = existingCardsData.flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-    let promptSections = ChatCLIPromptSections(overrides: ChatCLIPromptPreferences.load())
+    let promptSections = ChatCLIPromptSections(
+      overrides: ChatCLIPromptPreferences.load(for: tool)
+    )
 
     // Build prompt with explicit concatenation to avoid GRDB SQL interpolation pollution
     let categoriesSectionText = categoriesSection(from: context.categories)
