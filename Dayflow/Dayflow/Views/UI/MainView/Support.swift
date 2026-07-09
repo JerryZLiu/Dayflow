@@ -416,11 +416,15 @@ func canNavigateForward(from date: Date, now: Date = Date()) -> Bool {
 
 func normalizedTimelineDate(_ date: Date) -> Date {
   let calendar = Calendar.current
-  if let normalized = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: date) {
+  // Anchor to the day-boundary hour (not noon) so that composing this with
+  // `getDayInfoFor4AMBoundary()` stays on the same logical day for any boundary
+  // hour — including boundaries later than noon (e.g. 4 PM).
+  let boundaryHour = DayBoundaryPreferences.boundaryHour
+  if let normalized = calendar.date(bySettingHour: boundaryHour, minute: 0, second: 0, of: date) {
     return normalized
   }
   let startOfDay = calendar.startOfDay(for: date)
-  return calendar.date(byAdding: DateComponents(hour: 12), to: startOfDay) ?? date
+  return calendar.date(byAdding: DateComponents(hour: boundaryHour), to: startOfDay) ?? date
 }
 
 func timelineDisplayDate(from date: Date, now: Date = Date()) -> Date {

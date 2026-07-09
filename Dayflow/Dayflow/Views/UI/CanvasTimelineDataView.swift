@@ -111,8 +111,10 @@ struct CanvasTimelineDataView: View {
   // own copy of this calculation).
   private func nowCenteredTargetHourIndex() -> Int {
     let currentHour = Calendar.current.component(.hour, from: Date())
-    let hoursSince4AM = currentHour >= 4 ? currentHour - 4 : (24 - 4) + currentHour
-    return max(0, hoursSince4AM - 2)
+    let startHour = CanvasConfig.startHour
+    let hoursSinceStart =
+      currentHour >= startHour ? currentHour - startHour : (24 - startHour) + currentHour
+    return max(0, hoursSinceStart - 2)
   }
 
   private func scrollToNowCenteredHour(with proxy: ScrollViewProxy, animated: Bool = false) {
