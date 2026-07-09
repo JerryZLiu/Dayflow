@@ -267,7 +267,7 @@ final class ChatToolExecutor {
 
     let calendar = Calendar.current
     var startComponents = calendar.dateComponents([.year, .month, .day], from: date)
-    startComponents.hour = 4
+    startComponents.hour = DayBoundaryPreferences.boundaryHour
     startComponents.minute = 0
     startComponents.second = 0
 

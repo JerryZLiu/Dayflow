@@ -51,13 +51,13 @@ struct WeeklyDateRange: Equatable, Sendable {
     let baseWeekStart =
       calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date))
       ?? date
-    let mondayAtFourAM =
-      calendar.date(bySettingHour: 4, minute: 0, second: 0, of: baseWeekStart) ?? baseWeekStart
+    let mondayAtBoundary =
+      calendar.date(bySettingHour: DayBoundaryPreferences.boundaryHour, minute: 0, second: 0, of: baseWeekStart) ?? baseWeekStart
 
-    if date < mondayAtFourAM {
-      return calendar.date(byAdding: .day, value: -7, to: mondayAtFourAM) ?? mondayAtFourAM
+    if date < mondayAtBoundary {
+      return calendar.date(byAdding: .day, value: -7, to: mondayAtBoundary) ?? mondayAtBoundary
     }
 
-    return mondayAtFourAM
+    return mondayAtBoundary
   }
 }

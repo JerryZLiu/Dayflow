@@ -105,11 +105,11 @@ enum TimelineActivityLoader {
       var adjustedStartDate = startDate
       var adjustedEndDate = endDate
 
-      if calendar.component(.hour, from: startDate) < 4 {
+      if calendar.component(.hour, from: startDate) < DayBoundaryPreferences.boundaryHour {
         adjustedStartDate = calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
       }
 
-      if calendar.component(.hour, from: endDate) < 4 {
+      if calendar.component(.hour, from: endDate) < DayBoundaryPreferences.boundaryHour {
         adjustedEndDate = calendar.date(byAdding: .day, value: 1, to: endDate) ?? endDate
       }
 

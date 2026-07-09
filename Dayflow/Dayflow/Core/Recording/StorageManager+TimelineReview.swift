@@ -136,7 +136,7 @@ extension StorageManager {
   {
     guard let dayDate = dateFormatter.date(from: day) else { return 0 }
     let calendar = Calendar.current
-    guard let dayStart = calendar.date(bySettingHour: 4, minute: 0, second: 0, of: dayDate) else {
+    guard let dayStart = calendar.date(bySettingHour: DayBoundaryPreferences.boundaryHour, minute: 0, second: 0, of: dayDate) else {
       return 0
     }
     let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart

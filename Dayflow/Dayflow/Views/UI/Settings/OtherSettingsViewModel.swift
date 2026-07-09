@@ -36,6 +36,12 @@ final class OtherSettingsViewModel: ObservableObject {
       TimelapsePreferences.saveAllTimelapsesToDisk = saveAllTimelapsesToDisk
     }
   }
+  @Published var dayBoundaryHour: Int {
+    didSet {
+      guard dayBoundaryHour != oldValue else { return }
+      DayBoundaryPreferences.boundaryHour = dayBoundaryHour
+    }
+  }
   @Published var outputLanguageOverride: String
   @Published var isOutputLanguageOverrideSaved: Bool = true
 
@@ -57,6 +63,7 @@ final class OtherSettingsViewModel: ObservableObject {
       UserDefaults.standard.object(forKey: "showTimelineAppIcons") as? Bool ?? true
     showDailyGoalPopups = DayGoalPreferences.showDailyGoalPopups
     saveAllTimelapsesToDisk = TimelapsePreferences.saveAllTimelapsesToDisk
+    dayBoundaryHour = DayBoundaryPreferences.boundaryHour
     outputLanguageOverride = LLMOutputLanguagePreferences.override
     exportStartDate = timelineDisplayDate(from: Date())
     exportEndDate = timelineDisplayDate(from: Date())

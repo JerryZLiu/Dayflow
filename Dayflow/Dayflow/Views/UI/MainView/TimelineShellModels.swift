@@ -86,7 +86,7 @@ struct TimelineWeekRange: Equatable, Sendable {
       calendar.date(byAdding: .day, value: -daysFromWeekStart, to: anchorDay)
       ?? anchorDay
     let weekStart =
-      calendar.date(bySettingHour: 4, minute: 0, second: 0, of: weekStartDay) ?? weekStartDay
+      calendar.date(bySettingHour: DayBoundaryPreferences.boundaryHour, minute: 0, second: 0, of: weekStartDay) ?? weekStartDay
     let weekEnd = calendar.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
     return TimelineWeekRange(weekStart: weekStart, weekEnd: weekEnd)
   }

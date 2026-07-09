@@ -429,7 +429,7 @@ func timelineDisplayDate(from date: Date, now: Date = Date()) -> Date {
   let normalizedNow = normalizedTimelineDate(now)
   let nowHour = calendar.component(.hour, from: now)
 
-  if nowHour < 4 && calendar.isDate(normalizedDate, inSameDayAs: normalizedNow) {
+  if nowHour < DayBoundaryPreferences.boundaryHour && calendar.isDate(normalizedDate, inSameDayAs: normalizedNow) {
     normalizedDate = calendar.date(byAdding: .day, value: -1, to: normalizedDate) ?? normalizedDate
   }
 

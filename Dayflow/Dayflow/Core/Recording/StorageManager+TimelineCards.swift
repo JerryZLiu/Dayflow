@@ -36,7 +36,7 @@ extension StorageManager {
 
     // If the parsed time is between midnight and 4 AM, and it's earlier than baseDate,
     // disambiguate whether it's same day (before batch) or next day (after midnight crossing)
-    if startHour < 4 && startDate < baseDate {
+    if startHour < DayBoundaryPreferences.boundaryHour && startDate < baseDate {
       let nextDayStartDate = calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
 
       // Pick whichever is closer to batch start time
@@ -59,7 +59,7 @@ extension StorageManager {
       calendar.date(bySettingHour: endHour, minute: endMinute, second: 0, of: baseDate) ?? baseDate
 
     // Disambiguate end time day using same logic as start time
-    if endHour < 4 && endDate < baseDate {
+    if endHour < DayBoundaryPreferences.boundaryHour && endDate < baseDate {
       let nextDayEndDate = calendar.date(byAdding: .day, value: 1, to: endDate) ?? endDate
 
       let sameDayDistance = abs(endDate.timeIntervalSince(baseDate))
@@ -398,17 +398,17 @@ extension StorageManager {
 
     let calendar = Calendar.current
 
-    // Get 4 AM of the given day as the start
+    // Get the day-boundary hour of the given day as the start
     var startComponents = calendar.dateComponents([.year, .month, .day], from: dayDate)
-    startComponents.hour = 4
+    startComponents.hour = DayBoundaryPreferences.boundaryHour
     startComponents.minute = 0
     startComponents.second = 0
     guard let dayStart = calendar.date(from: startComponents) else { return [] }
 
-    // Get 4 AM of the next day as the end
+    // Get the day-boundary hour of the next day as the end
     guard let nextDay = calendar.date(byAdding: .day, value: 1, to: dayDate) else { return [] }
     var endComponents = calendar.dateComponents([.year, .month, .day], from: nextDay)
-    endComponents.hour = 4
+    endComponents.hour = DayBoundaryPreferences.boundaryHour
     endComponents.minute = 0
     endComponents.second = 0
     guard let dayEnd = calendar.date(from: endComponents) else { return [] }
@@ -557,8 +557,8 @@ extension StorageManager {
     // Find the Monday of the week containing this date
     var weekStart = calendar.date(
       from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date))!
-    // Set to 4 AM on that Monday
-    weekStart = calendar.date(bySettingHour: 4, minute: 0, second: 0, of: weekStart) ?? weekStart
+    // Set to the day-boundary hour on that Monday
+    weekStart = calendar.date(bySettingHour: DayBoundaryPreferences.boundaryHour, minute: 0, second: 0, of: weekStart) ?? weekStart
 
     // If current date is before 4 AM Monday, go back one week
     if date < weekStart {

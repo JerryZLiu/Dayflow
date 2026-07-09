@@ -60,6 +60,21 @@ struct SettingsOtherTabView: View {
         }
 
         SettingsRow(
+          label: "Day start time",
+          subtitle:
+            "The hour a new day begins. Activity before this time is attributed to the previous day. Affects the timeline, daily recap, weekly, and journal views."
+        ) {
+          Picker("", selection: $viewModel.dayBoundaryHour) {
+            ForEach(0..<24, id: \.self) { hour in
+              Text(SettingsOtherTabView.formattedHour(hour)).tag(hour)
+            }
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+          .frame(width: 110)
+        }
+
+        SettingsRow(
           label: "Save all timelapses to disk",
           subtitle:
             "New and reprocessed timeline cards will pre-generate timelapse videos and store them on disk instead of building them on demand. Uses more storage and background processing.",
@@ -111,5 +126,18 @@ struct SettingsOtherTabView: View {
         Spacer()
       }
     }
+  }
+
+  /// Formats an hour (0–23) as a locale-stable 12-hour label, e.g. "4 AM".
+  static func formattedHour(_ hour: Int) -> String {
+    let calendar = Calendar.current
+    let base = calendar.startOfDay(for: Date())
+    guard let date = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: base) else {
+      return "\(hour):00"
+    }
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "h a"
+    return formatter.string(from: date)
   }
 }

@@ -271,7 +271,7 @@ extension GeminiDirectProvider {
 
     let calendar = Calendar.current
     var startComponents = calendar.dateComponents([.year, .month, .day], from: dayDate)
-    startComponents.hour = 4
+    startComponents.hour = DayBoundaryPreferences.boundaryHour
     startComponents.minute = 0
     startComponents.second = 0
     guard let dayStart = calendar.date(from: startComponents) else {
@@ -282,7 +282,7 @@ extension GeminiDirectProvider {
       throw DashboardToolArgError.invalidDate(dateString)
     }
     var endComponents = calendar.dateComponents([.year, .month, .day], from: nextDay)
-    endComponents.hour = 4
+    endComponents.hour = DayBoundaryPreferences.boundaryHour
     endComponents.minute = 0
     endComponents.second = 0
     guard let dayEnd = calendar.date(from: endComponents) else {
