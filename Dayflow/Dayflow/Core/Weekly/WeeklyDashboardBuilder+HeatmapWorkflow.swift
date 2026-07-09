@@ -420,8 +420,8 @@ extension WeeklyDashboardBuilder {
   ) {
     let fallbackStart = 9.0 * 60.0
     let fallbackEnd = 22.0 * 60.0
-    let dayStart = 4.0 * 60.0
-    let dayEnd = 28.0 * 60.0
+    let dayStart = Double(DayBoundaryPreferences.boundaryMinutes)
+    let dayEnd = Double(DayBoundaryPreferences.boundaryMinutes + 1440)
     let padding = 30.0
     let snapMinutes = 15.0
 

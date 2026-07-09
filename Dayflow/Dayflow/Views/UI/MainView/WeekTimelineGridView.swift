@@ -7,8 +7,10 @@ enum WeekTimelineConfig {
   static let hourHeight: CGFloat = 111
   static let pixelsPerMinute: CGFloat = hourHeight / 60
   static let timeColumnWidth: CGFloat = 48
-  static let startHour: Int = 4
-  static let endHour: Int = 28
+  /// Visual start of the week grid's hour axis = the configured day-boundary
+  /// hour (defaults to 4 AM). The axis always spans a full 24 hours from there.
+  static var startHour: Int { DayBoundaryPreferences.boundaryHour }
+  static var endHour: Int { startHour + 24 }
   static let weekHeaderHeight: CGFloat = 22
   static let headerSpacing: CGFloat = 2
   static let weekdayInlineSpacing: CGFloat = 6

@@ -37,6 +37,9 @@ enum DayBoundaryPreferences {
       UserDefaults.standard.set(min(max(newValue, 0), 23), forKey: dayBoundaryHourKey)
     }
   }
+
+  /// The day boundary expressed as minutes since midnight (`boundaryHour * 60`).
+  static var boundaryMinutes: Int { boundaryHour * 60 }
 }
 
 extension Date {

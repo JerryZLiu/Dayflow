@@ -13,8 +13,10 @@ private let cachedTimeFormatter: DateFormatter = {
 
 private struct CanvasConfig {
   static let timeColumnWidth: CGFloat = 60
-  static let startHour: Int = 4  // 4 AM baseline
-  static let endHour: Int = 28  // 4 AM next day
+  /// Visual start of the timeline axis = the configured day-boundary hour
+  /// (defaults to 4 AM). The axis always spans a full 24 hours from there.
+  static var startHour: Int { DayBoundaryPreferences.boundaryHour }
+  static var endHour: Int { startHour + 24 }
 }
 
 private struct TimelineCardsLayerFramePreferenceKey: PreferenceKey {
