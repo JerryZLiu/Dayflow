@@ -77,6 +77,7 @@ class GeminiAPIHelper {
       callGroupId: UUID().uuidString,
       attempt: 1,
       provider: "gemini",
+      providerID: LLMProviderID.gemini.rawValue,
       model: testModel.rawValue,
       operation: "test_connection",
       requestMethod: request.httpMethod,
