@@ -276,8 +276,10 @@ struct ChatCLITestView: View {
   }
 
   func chatCLITestAnalyticsProperties(for tool: CLITool) -> [String: Any] {
-    [
-      "provider": "chatgpt_claude",
+    let providerID: LLMProviderID = tool == .claude ? .claude : .chatGPT
+    return [
+      "provider": providerID.analyticsName,
+      "provider_id": providerID.rawValue,
       "tool": tool.rawValue,
       "setup_step": "test",
     ]
