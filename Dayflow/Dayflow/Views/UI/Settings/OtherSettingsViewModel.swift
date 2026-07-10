@@ -40,6 +40,14 @@ final class OtherSettingsViewModel: ObservableObject {
     didSet {
       guard dayBoundaryHour != oldValue else { return }
       DayBoundaryPreferences.boundaryHour = dayBoundaryHour
+      NotificationCenter.default.post(name: .dayFramingChanged, object: nil)
+    }
+  }
+  @Published var dayLabelMode: DayLabelMode {
+    didSet {
+      guard dayLabelMode != oldValue else { return }
+      DayLabelPreferences.mode = dayLabelMode
+      NotificationCenter.default.post(name: .dayFramingChanged, object: nil)
     }
   }
   @Published var outputLanguageOverride: String
@@ -64,6 +72,7 @@ final class OtherSettingsViewModel: ObservableObject {
     showDailyGoalPopups = DayGoalPreferences.showDailyGoalPopups
     saveAllTimelapsesToDisk = TimelapsePreferences.saveAllTimelapsesToDisk
     dayBoundaryHour = DayBoundaryPreferences.boundaryHour
+    dayLabelMode = DayLabelPreferences.mode
     outputLanguageOverride = LLMOutputLanguagePreferences.override
     exportStartDate = timelineDisplayDate(from: Date())
     exportEndDate = timelineDisplayDate(from: Date())

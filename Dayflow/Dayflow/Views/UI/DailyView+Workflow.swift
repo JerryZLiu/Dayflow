@@ -122,7 +122,7 @@ extension DailyView {
     } else if isYesterdaySelection(selectedDate) {
       headingText = "Your workflow yesterday"
     } else {
-      let displayDate = timelineDisplayDate(from: selectedDate)
+      let displayDate = timelineDisplayDate(from: selectedDate).timelineLabelDate()
       headingText = "Your workflow on \(dailyStandupSectionDayFormatter.string(from: displayDate))"
     }
 
@@ -389,8 +389,8 @@ extension DailyView {
     selectedDate = normalizedTimelineDate(shifted)
   }
   func dailyDateTitle(for date: Date) -> String {
-    let displayDate = timelineDisplayDate(from: date)
-    let timelineToday = timelineDisplayDate(from: Date())
+    let displayDate = timelineDisplayDate(from: date).timelineLabelDate()
+    let timelineToday = timelineDisplayDate(from: Date()).timelineLabelDate()
     if Calendar.current.isDate(displayDate, inSameDayAs: timelineToday) {
       return dailyTodayDisplayFormatter.string(from: displayDate)
     }
@@ -404,7 +404,7 @@ extension DailyView {
       return "Yesterday's total"
     }
 
-    let displayDate = timelineDisplayDate(from: date)
+    let displayDate = timelineDisplayDate(from: date).timelineLabelDate()
     return "Total for \(dailyStandupSectionDayFormatter.string(from: displayDate))"
   }
   func formatDuration(minutes: Double) -> String {

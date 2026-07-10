@@ -75,6 +75,20 @@ struct SettingsOtherTabView: View {
         }
 
         SettingsRow(
+          label: "Day label",
+          subtitle:
+            "For a day that crosses midnight, name it after the date it starts on or the date it ends on. Display only — your data isn't affected."
+        ) {
+          Picker("", selection: $viewModel.dayLabelMode) {
+            Text("Start date").tag(DayLabelMode.startDate)
+            Text("End date").tag(DayLabelMode.endDate)
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+          .frame(width: 130)
+        }
+
+        SettingsRow(
           label: "Save all timelapses to disk",
           subtitle:
             "New and reprocessed timeline cards will pre-generate timelapse videos and store them on disk instead of building them on demand. Uses more storage and background processing.",

@@ -65,6 +65,7 @@ struct WeekTimelineGridView: View {
   @Binding var refreshTrigger: Int
 
   let weekRange: TimelineWeekRange
+  let onSelectDay: (Date) -> Void
   let onSelectActivity: (TimelineActivity) -> Void
   let onClearSelection: () -> Void
 
@@ -110,11 +111,13 @@ struct WeekTimelineGridView: View {
   }
 
   private var todayDayString: String {
-    DateFormatter.yyyyMMdd.string(from: timelineDisplayDate(from: Date()))
+    DateFormatter.yyyyMMdd.string(
+      from: timelineDisplayDate(from: Date()).timelineLabelDate())
   }
 
   private var selectedDayString: String {
-    DateFormatter.yyyyMMdd.string(from: timelineDisplayDate(from: selectedDate))
+    DateFormatter.yyyyMMdd.string(
+      from: timelineDisplayDate(from: selectedDate).timelineLabelDate())
   }
 
   private var weekAutoScrollKey: String {
@@ -252,14 +255,23 @@ struct WeekTimelineGridView: View {
         .frame(width: WeekTimelineConfig.timeColumnWidth)
 
       ForEach(weekRange.days) { day in
-        HStack(spacing: WeekTimelineConfig.weekdayInlineSpacing) {
-          Text(day.weekdayLabel)
-            .font(.custom("Figtree", size: 12).weight(.medium))
-            .foregroundColor(Color(hex: "333333"))
+        let isFuture = day.date > timelineDisplayDate(from: Date()).timelineLabelDate()
+        Button {
+          onSelectDay(day.date.timelineDateFromLabel())
+        } label: {
+          HStack(spacing: WeekTimelineConfig.weekdayInlineSpacing) {
+            Text(day.weekdayLabel)
+              .font(.custom("Figtree", size: 12).weight(.medium))
+              .foregroundColor(Color(hex: "333333"))
 
-          dayNumberBadge(for: day)
+            dayNumberBadge(for: day)
+          }
+          .frame(width: dayWidth, alignment: .center)
         }
-        .frame(width: dayWidth, alignment: .center)
+        .buttonStyle(.plain)
+        .disabled(isFuture)
+        .opacity(isFuture ? 0.45 : 1)
+        .pointingHandCursor(enabled: !isFuture)
       }
     }
   }
@@ -533,7 +545,7 @@ struct WeekTimelineGridView: View {
       let fetchMs = Int((CFAbsoluteTimeGetCurrent() - fetchStart) * 1000)
       let weekDays = requestedWeekRange.days
       let dayLookup = Dictionary(
-        uniqueKeysWithValues: weekDays.enumerated().map { ($1.dayString, $0) })
+        uniqueKeysWithValues: weekDays.enumerated().map { ($1.storageDayString, $0) })
 
       let positioningStart = CFAbsoluteTimeGetCurrent()
       var positioned: [WeekPositionedActivity] = []
@@ -541,7 +553,7 @@ struct WeekTimelineGridView: View {
 
       for day in weekDays {
         let dayActivities = activities.filter {
-          $0.startTime.getDayInfoFor4AMBoundary().dayString == day.dayString
+          $0.startTime.getDayInfoFor4AMBoundary().dayString == day.storageDayString
         }
         let segments = TimelineActivityLoader.resolveDisplaySegments(from: dayActivities)
 
@@ -556,7 +568,7 @@ struct WeekTimelineGridView: View {
             WeekPositionedActivity(
               id: segment.activity.id,
               activity: segment.activity,
-              columnIndex: dayLookup[day.dayString] ?? 0,
+              columnIndex: dayLookup[day.storageDayString] ?? 0,
               yPosition: calculateYPosition(for: segment.start) + 1,
               height: height,
               durationMinutes: durationMinutes,

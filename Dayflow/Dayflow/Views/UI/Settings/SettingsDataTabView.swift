@@ -138,7 +138,7 @@ struct SettingsDataTabView: View {
 
         if isReprocessDatePickerExpanded {
           inlineCalendar(
-            date: $viewModel.reprocessDayDate,
+            date: timelineLabelDateBinding($viewModel.reprocessDayDate),
             disabled: viewModel.isReprocessingDay,
             onDateSelected: {
               withAnimation(.easeOut(duration: 0.2)) {
@@ -268,14 +268,21 @@ struct SettingsDataTabView: View {
   // MARK: - Helpers
 
   private func formattedTimelineDate(_ date: Date) -> String {
-    Self.dateLabelFormatter.string(from: timelineDisplayDate(from: date))
+    Self.dateLabelFormatter.string(from: timelineDisplayDate(from: date).timelineLabelDate())
   }
 
   private func exportDateBinding(for picker: ExportDatePicker) -> Binding<Date> {
     switch picker {
-    case .start: return $viewModel.exportStartDate
-    case .end: return $viewModel.exportEndDate
+    case .start: return timelineLabelDateBinding($viewModel.exportStartDate)
+    case .end: return timelineLabelDateBinding($viewModel.exportEndDate)
     }
+  }
+
+  private func timelineLabelDateBinding(_ storageDate: Binding<Date>) -> Binding<Date> {
+    Binding(
+      get: { timelineDisplayDate(from: storageDate.wrappedValue).timelineLabelDate() },
+      set: { storageDate.wrappedValue = normalizedTimelineDate($0.timelineDateFromLabel()) }
+    )
   }
 
   private static let dateLabelFormatter: DateFormatter = {

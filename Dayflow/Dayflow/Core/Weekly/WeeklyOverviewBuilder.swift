@@ -445,7 +445,7 @@ enum WeeklyOverviewBuilder {
       return WeeklyOverviewDay(
         label: labels.short,
         weekdayName: labels.full,
-        dayString: DateFormatter.yyyyMMdd.string(from: dayDate)
+        dayString: dayDate.timelineStorageDayStringForLabel
       )
     }
   }

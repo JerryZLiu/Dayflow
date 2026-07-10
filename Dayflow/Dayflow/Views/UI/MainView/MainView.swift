@@ -33,6 +33,13 @@ struct MainView: View {
   @State var scrollToNowTick: Int = 0
   @State var hasAnyActivities: Bool = true
   @State var refreshActivitiesTrigger: Int = 0
+  // Observe the day-framing settings directly so the timeline re-renders even
+  // when the change is made from the Settings tab (where the timeline isn't the
+  // active view). Combined into `dayFramingID` and used as an `.id()` to force
+  // the header/labels/columns to rebuild consistently.
+  @AppStorage("dayLabelMode") private var dayLabelModeSetting = "startDate"
+  @AppStorage("dayBoundaryHour") private var dayBoundaryHourSetting = 4
+  var dayFramingID: String { "\(dayLabelModeSetting)|\(dayBoundaryHourSetting)" }
   @ObservedObject var inactivity = InactivityMonitor.shared
   @ObservedObject var pauseManager = PauseManager.shared
 

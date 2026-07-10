@@ -32,6 +32,7 @@ private struct WeekTimelineHoverPrototypeHarness: View {
         hasAnyActivities: $hasAny,
         refreshTrigger: $refresh,
         weekRange: Self.weekRange,
+        onSelectDay: { selectedDate = $0 },
         onSelectActivity: { selectedActivity = $0 },
         onClearSelection: { selectedActivity = nil },
         previewPositionedActivities: Self.mockActivities()

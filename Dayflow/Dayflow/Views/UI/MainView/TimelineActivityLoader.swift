@@ -35,8 +35,9 @@ enum TimelineActivityLoader {
     in weekRange: TimelineWeekRange,
     storageManager: StorageManaging = StorageManager.shared
   ) -> [TimelineActivity] {
+    let storageRange = weekRange.storageRange
     let cards = storageManager.fetchTimelineCardsByTimeRange(
-      from: weekRange.weekStart, to: weekRange.weekEnd)
+      from: storageRange.start, to: storageRange.end)
     return buildActivities(from: displayableCards(cards, storageManager: storageManager))
   }
 

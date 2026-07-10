@@ -19,6 +19,7 @@ enum TimelineMode: String, CaseIterable, Identifiable {
 struct TimelineWeekDay: Identifiable, Equatable, Sendable {
   let date: Date
   let dayString: String
+  let storageDayString: String
   let weekdayLabel: String
   let dayNumber: String
 
@@ -71,6 +72,7 @@ struct TimelineWeekRange: Equatable, Sendable {
       return TimelineWeekDay(
         date: normalizedDate,
         dayString: DateFormatter.yyyyMMdd.string(from: normalizedDate),
+        storageDayString: normalizedDate.timelineStorageDayStringForLabel,
         weekdayLabel: Self.weekdayFormatter.string(from: normalizedDate),
         dayNumber: Self.dayNumberFormatter.string(from: normalizedDate)
       )
@@ -79,7 +81,13 @@ struct TimelineWeekRange: Equatable, Sendable {
 
   static func containing(_ date: Date, calendar: Calendar = Self.calendar) -> TimelineWeekRange {
     let timelineDate = timelineDisplayDate(from: date, now: date)
-    let anchorDay = calendar.startOfDay(for: timelineDate)
+    return containingLabelDate(timelineDate.timelineLabelDate(), calendar: calendar)
+  }
+
+  static func containingLabelDate(
+    _ date: Date, calendar: Calendar = Self.calendar
+  ) -> TimelineWeekRange {
+    let anchorDay = calendar.startOfDay(for: date)
     let weekday = calendar.component(.weekday, from: anchorDay)
     let daysFromWeekStart = (weekday - calendar.firstWeekday + 7) % 7
     let weekStartDay =
@@ -89,6 +97,13 @@ struct TimelineWeekRange: Equatable, Sendable {
       calendar.date(bySettingHour: DayBoundaryPreferences.boundaryHour, minute: 0, second: 0, of: weekStartDay) ?? weekStartDay
     let weekEnd = calendar.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
     return TimelineWeekRange(weekStart: weekStart, weekEnd: weekEnd)
+  }
+
+  /// Time range whose storage-day keys populate this fixed natural week.
+  var storageRange: (start: Date, end: Date) {
+    let start = normalizedTimelineDate(weekStart.timelineDateFromLabel())
+    let end = Self.calendar.date(byAdding: .day, value: 7, to: start) ?? start
+    return (start, end)
   }
 
   func shifted(byWeeks weeks: Int, calendar: Calendar = Self.calendar) -> TimelineWeekRange {
@@ -112,8 +127,10 @@ struct TimelineWeekRange: Equatable, Sendable {
   }
 
   func contains(_ date: Date) -> Bool {
-    let timelineDate = timelineDisplayDate(from: date, now: date)
-    let dayStart = timelineDate.getDayInfoFor4AMBoundary().startOfDay
-    return dayStart >= weekStart && dayStart < weekEnd
+    let labelDate = timelineDisplayDate(from: date, now: date).timelineLabelDate()
+    let labelDay = Self.calendar.startOfDay(for: labelDate)
+    let visibleStart = Self.calendar.startOfDay(for: weekStart)
+    let visibleEnd = Self.calendar.startOfDay(for: weekEnd)
+    return labelDay >= visibleStart && labelDay < visibleEnd
   }
 }

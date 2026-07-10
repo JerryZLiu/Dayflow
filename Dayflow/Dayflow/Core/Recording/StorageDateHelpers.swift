@@ -42,6 +42,59 @@ enum DayBoundaryPreferences {
   static var boundaryMinutes: Int { boundaryHour * 60 }
 }
 
+/// Whether a logical day that crosses midnight is labeled by the calendar date
+/// it STARTS on or the date it ENDS on. This is display-only — storage and
+/// fetch keys always use the start date, so switching modes needs no migration.
+enum DayLabelMode: String {
+  case startDate
+  case endDate
+}
+
+enum DayLabelPreferences {
+  static let dayLabelModeKey = "dayLabelMode"
+
+  static var mode: DayLabelMode {
+    get {
+      DayLabelMode(rawValue: UserDefaults.standard.string(forKey: dayLabelModeKey) ?? "")
+        ?? .startDate
+    }
+    set { UserDefaults.standard.set(newValue.rawValue, forKey: dayLabelModeKey) }
+  }
+
+  static var usesEndDate: Bool {
+    mode == .endDate && DayBoundaryPreferences.boundaryHour > 0
+  }
+}
+
+extension Date {
+  /// Converts a timeline "representative" date (as returned by
+  /// `timelineDisplayDate`, anchored on the day's START calendar date) into the
+  /// calendar date to SHOW the user, honoring `DayLabelPreferences`. In end-date
+  /// mode with a boundary after midnight this is the following calendar date.
+  /// Display only — does not affect storage or fetch keys.
+  func timelineLabelDate() -> Date {
+    guard DayLabelPreferences.usesEndDate else {
+      return self
+    }
+    return Calendar.current.date(byAdding: .day, value: 1, to: self) ?? self
+  }
+
+  /// Inverse of `timelineLabelDate()`: maps a user-facing (label) date back to
+  /// the internal timeline representative date used for navigation and fetches.
+  func timelineDateFromLabel() -> Date {
+    guard DayLabelPreferences.usesEndDate else {
+      return self
+    }
+    return Calendar.current.date(byAdding: .day, value: -1, to: self) ?? self
+  }
+
+  /// Storage keys remain anchored to the logical day's start date. This is
+  /// intentionally the inverse of the user-facing label mapping.
+  var timelineStorageDayStringForLabel: String {
+    DateFormatter.yyyyMMdd.string(from: timelineDateFromLabel())
+  }
+}
+
 extension Date {
   /// Calculates the "day" this date belongs to, using the configurable day
   /// boundary hour (`DayBoundaryPreferences.boundaryHour`, default 4 AM).

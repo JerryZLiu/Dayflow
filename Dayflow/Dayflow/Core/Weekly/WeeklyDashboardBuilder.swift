@@ -339,7 +339,7 @@ enum WeeklyDashboardBuilder {
       return WeeklyDayDescriptor(
         id: dayID(for: offset),
         label: dayLabel(for: offset),
-        dayString: DateFormatter.yyyyMMdd.string(from: date),
+        dayString: date.timelineStorageDayStringForLabel,
         order: offset
       )
     }

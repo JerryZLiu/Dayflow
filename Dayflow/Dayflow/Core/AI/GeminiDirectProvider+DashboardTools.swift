@@ -49,8 +49,9 @@ extension GeminiDirectProvider {
     let dateRange = try parseDashboardDateRange(args: args)
 
     let cards: [TimelineCard]
-    if dateRange.mode == "date", let date = dateRange.date {
-      cards = StorageManager.shared.fetchTimelineCards(forDay: date)
+    if dateRange.mode == "date" {
+      let storageDay = dashboardDateFormatter.string(from: dateRange.from)
+      cards = StorageManager.shared.fetchTimelineCards(forDay: storageDay)
     } else {
       cards = StorageManager.shared.fetchTimelineCardsByTimeRange(
         from: dateRange.from, to: dateRange.to)
@@ -65,7 +66,7 @@ extension GeminiDirectProvider {
 
     var items: [[String: Any]] = limitedCards.map { card in
       var item: [String: Any] = [
-        "day": card.day,
+        "day": dashboardLabelDayString(forStorageDay: card.day),
         "startTime": card.startTimestamp,
         "endTime": card.endTimestamp,
         "title": card.title,
@@ -187,7 +188,8 @@ extension GeminiDirectProvider {
     for observation in observations {
       let start = Date(timeIntervalSince1970: TimeInterval(observation.startTs))
       let end = Date(timeIntervalSince1970: TimeInterval(observation.endTs))
-      let day = start.getDayInfoFor4AMBoundary().dayString
+      let storageDay = start.getDayInfoFor4AMBoundary().dayString
+      let day = dashboardLabelDayString(forStorageDay: storageDay)
       let item: [String: Any] = [
         "startTime": dashboardTimeFormatter.string(from: start),
         "endTime": dashboardTimeFormatter.string(from: end),
@@ -265,9 +267,10 @@ extension GeminiDirectProvider {
   }
 
   func dashboardDayBounds(for dateString: String) throws -> (start: Date, end: Date) {
-    guard let dayDate = dashboardDateFormatter.date(from: dateString) else {
+    guard let labelDate = dashboardDateFormatter.date(from: dateString) else {
       throw DashboardToolArgError.invalidDate(dateString)
     }
+    let dayDate = labelDate.timelineDateFromLabel()
 
     let calendar = Calendar.current
     var startComponents = calendar.dateComponents([.year, .month, .day], from: dayDate)
@@ -290,6 +293,11 @@ extension GeminiDirectProvider {
     }
 
     return (dayStart, dayEnd)
+  }
+
+  func dashboardLabelDayString(forStorageDay dayString: String) -> String {
+    guard let storageDate = dashboardDateFormatter.date(from: dayString) else { return dayString }
+    return dashboardDateFormatter.string(from: storageDate.timelineLabelDate())
   }
 
   func dashboardFetchDateDescription(for dateRange: DashboardDateRange) -> String {

@@ -147,7 +147,7 @@ enum WeeklyDonutBuilder {
       guard let date = calendar.date(byAdding: .day, value: offset, to: weekStart) else {
         return nil
       }
-      return DateFormatter.yyyyMMdd.string(from: date)
+      return date.timelineStorageDayStringForLabel
     }
   }
 
