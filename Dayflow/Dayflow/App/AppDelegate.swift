@@ -97,7 +97,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       // Try to start recording, but handle permission failures gracefully
       Task { [weak self] in
         guard let self else { return }
-        guard ScreenRecordingPermissionNotice.isGranted else {
+        let hasScreenRecordingPermission =
+          ScreenRecordingPermissionNotice.isGranted || CGRequestScreenCaptureAccess()
+        guard hasScreenRecordingPermission else {
           await MainActor.run {
             AppState.shared.setRecording(
               false,
