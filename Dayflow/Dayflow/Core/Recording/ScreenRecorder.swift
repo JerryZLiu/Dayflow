@@ -52,6 +52,37 @@ private enum InputIdleSnapshot {
   }
 }
 
+struct ScreenCaptureCompositeLayout: Equatable {
+  let canvasSize: CGSize
+  let destinationRects: [CGRect]
+
+  init?(displayFrames: [CGRect], targetDisplayHeight: CGFloat) {
+    guard !displayFrames.isEmpty, targetDisplayHeight > 0 else { return nil }
+    let desktopBounds = displayFrames.dropFirst().reduce(displayFrames[0]) { $0.union($1) }
+    let tallestDisplay = displayFrames.map(\.height).max() ?? 0
+    guard desktopBounds.width > 0, desktopBounds.height > 0, tallestDisplay > 0 else { return nil }
+
+    let scale = targetDisplayHeight / tallestDisplay
+    canvasSize = CGSize(
+      width: Self.evenPixelDimension(desktopBounds.width * scale),
+      height: Self.evenPixelDimension(desktopBounds.height * scale)
+    )
+    destinationRects = displayFrames.map { frame in
+      CGRect(
+        x: (frame.minX - desktopBounds.minX) * scale,
+        y: (desktopBounds.maxY - frame.maxY) * scale,
+        width: frame.width * scale,
+        height: frame.height * scale
+      ).integral
+    }
+  }
+
+  private static func evenPixelDimension(_ value: CGFloat) -> CGFloat {
+    let roundedUp = Int(ceil(value))
+    return CGFloat(roundedUp.isMultiple(of: 2) ? roundedUp : roundedUp + 1)
+  }
+}
+
 // MARK: - Debug Logging
 
 private let recorderDebugLogging = false
@@ -339,10 +370,6 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       dbg("captureScreenshot skipped - state: \(state.description)")
       return
     }
-    guard let display = cachedDisplay else {
-      dbg("captureScreenshot skipped - no display")
-      return
-    }
     guard ScreenRecordingPermissionNotice.isGranted else {
       handleMissingScreenRecordingPermission(reason: "captureScreenshot")
       return
@@ -352,14 +379,33 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     let idleSecondsAtCapture = InputIdleSnapshot.currentIdleSeconds()
 
     do {
-      let captureSize = scaledCaptureSize(for: display)
+      // Display topology can change while recording. Refresh on every cycle so
+      // a newly attached/removed display is reflected in the next saved frame.
+      let content = try await SCShareableContent.excludingDesktopWindows(
+        false, onScreenWindowsOnly: true)
+      guard !content.displays.isEmpty else { throw ScreenRecorderError.noDisplay }
+      cachedContent = content
+
+      let displays = content.displays.sorted { lhs, rhs in
+        if lhs.frame.minY == rhs.frame.minY { return lhs.frame.minX < rhs.frame.minX }
+        return lhs.frame.minY < rhs.frame.minY
+      }
+      guard
+        let layout = ScreenCaptureCompositeLayout(
+          displayFrames: displays.map(\.frame),
+          targetDisplayHeight: Config.targetHeight
+        )
+      else {
+        throw ScreenRecorderError.noDisplay
+      }
+
       if let blockedApplication = await MainActor.run(body: {
         RecordingPrivacyPreferences.frontmostBlockedApplication()
       }) {
         guard
           let jpegData = await MainActor.run(body: {
             RecordingPrivacyPlaceholder.jpegData(
-              size: CGSize(width: captureSize.width, height: captureSize.height),
+              size: layout.canvasSize,
               quality: Config.jpegQuality,
               applicationName: blockedApplication.name
             )
@@ -376,40 +422,40 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         return
       }
 
-      // 1. Create content filter for the display
       let excludedApplications =
-        cachedContent.map {
-          RecordingPrivacyPreferences.blockedScreenCaptureApplications(in: $0)
-        } ?? []
-      let filter =
-        excludedApplications.isEmpty
-        ? SCContentFilter(display: display, excludingWindows: [])
-        : SCContentFilter(
-          display: display,
-          excludingApplications: excludedApplications,
-          exceptingWindows: []
-        )
+        RecordingPrivacyPreferences.blockedScreenCaptureApplications(in: content)
+      var capturedDisplays: [CGImage] = []
+      capturedDisplays.reserveCapacity(displays.count)
 
-      // 2. Configure screenshot
-      let config = SCStreamConfiguration()
+      for (display, destinationRect) in zip(displays, layout.destinationRects) {
+        let filter =
+          excludedApplications.isEmpty
+          ? SCContentFilter(display: display, excludingWindows: [])
+          : SCContentFilter(
+            display: display,
+            excludingApplications: excludedApplications,
+            exceptingWindows: []
+          )
+        let config = SCStreamConfiguration()
+        config.width = max(2, Int(destinationRect.width.rounded()))
+        config.height = max(2, Int(destinationRect.height.rounded()))
+        config.scalesToFit = true
+        config.showsCursor = true
+        capturedDisplays.append(
+          try await SCScreenshotManager.captureImage(
+            contentFilter: filter,
+            configuration: config
+          ))
+      }
 
-      config.width = captureSize.width
-      config.height = captureSize.height
-      config.scalesToFit = true
-      config.showsCursor = true
+      guard let image = compositeImage(capturedDisplays, layout: layout) else {
+        throw ScreenRecorderError.imageConversionFailed
+      }
 
-      // 3. Capture screenshot
-      let image = try await SCScreenshotManager.captureImage(
-        contentFilter: filter,
-        configuration: config
-      )
-
-      // 4. Convert to JPEG
       guard let jpegData = jpegData(from: image, quality: Config.jpegQuality) else {
         throw ScreenRecorderError.imageConversionFailed
       }
 
-      // 5. Save to disk and register in the database
       let fileURL = try saveScreenshotData(
         jpegData,
         capturedAt: captureTime,
@@ -434,13 +480,36 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     }
   }
 
-  private func scaledCaptureSize(for display: SCDisplay) -> (width: Int, height: Int) {
-    let aspectRatio = Double(display.width) / Double(display.height)
-    var targetWidth = Int(Double(Config.targetHeight) * aspectRatio)
-    if targetWidth % 2 != 0 { targetWidth += 1 }
-    var targetHeight = Int(Config.targetHeight)
-    if targetHeight % 2 != 0 { targetHeight += 1 }
-    return (targetWidth, targetHeight)
+  private func compositeImage(
+    _ images: [CGImage],
+    layout: ScreenCaptureCompositeLayout
+  ) -> CGImage? {
+    guard images.count == layout.destinationRects.count else { return nil }
+    if images.count == 1 { return images[0] }
+
+    let width = Int(layout.canvasSize.width)
+    let height = Int(layout.canvasSize.height)
+    guard
+      let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+      let context = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+      )
+    else {
+      return nil
+    }
+
+    context.setFillColor(CGColor(gray: 0, alpha: 1))
+    context.fill(CGRect(origin: .zero, size: layout.canvasSize))
+    for (image, destinationRect) in zip(images, layout.destinationRects) {
+      context.draw(image, in: destinationRect)
+    }
+    return context.makeImage()
   }
 
   private func saveScreenshotData(
