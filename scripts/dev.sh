@@ -4,6 +4,16 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 
+if [[ -z "${DEVELOPER_DIR:-}" ]]; then
+  XCODE_APP=/Applications/Xcode.app
+  if [[ ! -d "$XCODE_APP/Contents/Developer" ]] && command -v mdfind >/dev/null 2>&1; then
+    XCODE_APP=$(mdfind 'kMDItemCFBundleIdentifier == "com.apple.dt.Xcode"' | head -n 1)
+  fi
+  if [[ -d "$XCODE_APP/Contents/Developer" ]]; then
+    export DEVELOPER_DIR="$XCODE_APP/Contents/Developer"
+  fi
+fi
+
 APP_NAME=${APP_NAME:-Dayflow}
 BUNDLE_ID=${BUNDLE_ID:-teleportlabs.com.Dayflow}
 PROJECT=${PROJECT:-"$REPO_ROOT/Dayflow/Dayflow.xcodeproj"}
