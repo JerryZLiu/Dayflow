@@ -8,12 +8,14 @@
 import SwiftUI
 
 struct TestConnectionView: View {
+  let apiKeyOverride: String?
   let onTestComplete: ((Bool) -> Void)?
 
   @State private var isTesting = false
   @State private var testResult: TestResult?
 
-  init(onTestComplete: ((Bool) -> Void)? = nil) {
+  init(apiKey: String? = nil, onTestComplete: ((Bool) -> Void)? = nil) {
+    self.apiKeyOverride = apiKey
     self.onTestComplete = onTestComplete
   }
 
@@ -43,11 +45,14 @@ struct TestConnectionView: View {
   private func testConnection() {
     guard !isTesting else { return }
 
-    guard
-      let apiKey = KeychainManager.shared.retrieve(for: "gemini")?
-        .components(separatedBy: .whitespacesAndNewlines).joined(),
-      !apiKey.isEmpty
-    else {
+    let override =
+      apiKeyOverride?
+      .components(separatedBy: .whitespacesAndNewlines).joined() ?? ""
+    let storedKey =
+      KeychainManager.shared.retrieve(for: "gemini")?
+      .components(separatedBy: .whitespacesAndNewlines).joined() ?? ""
+    let apiKey = override.isEmpty ? storedKey : override
+    guard !apiKey.isEmpty else {
       testResult = .failure("No API key found. Enter your API key first.")
       onTestComplete?(false)
       AnalyticsService.shared.capture(
