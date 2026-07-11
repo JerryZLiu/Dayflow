@@ -162,16 +162,20 @@ final class OtherSettingsViewModel: ObservableObject {
 
     let normalizedDate = timelineDisplayDate(from: reprocessDayDate)
     let dayString = DateFormatter.yyyyMMdd.string(from: normalizedDate)
+    let displayDayString = normalizedDate.timelineLabelDayString
 
     isReprocessingDay = true
     reprocessErrorMessage = nil
-    reprocessStatusMessage = "Starting reprocess for \(dayString)…"
+    reprocessStatusMessage = "Starting reprocess for \(displayDayString)…"
 
     AnalysisManager.shared.reprocessDay(
       dayString,
       progressHandler: { [weak self] message in
         Task { @MainActor in
-          self?.reprocessStatusMessage = message
+          self?.reprocessStatusMessage = message.replacingOccurrences(
+            of: dayString,
+            with: displayDayString
+          )
         }
       },
       completion: { [weak self] result in
@@ -200,12 +204,14 @@ final class OtherSettingsViewModel: ObservableObject {
   ) {
     let dayFormatter = DateFormatter()
     dayFormatter.dateFormat = "yyyy-MM-dd"
+    let displayStartDate = timelineDisplayDate(from: startDate).timelineLabelDate()
+    let displayEndDate = timelineDisplayDate(from: endDate).timelineLabelDate()
 
     let savePanel = NSSavePanel()
     savePanel.title = "Export timeline"
     savePanel.prompt = "Export"
     savePanel.nameFieldStringValue =
-      "Dayflow timeline \(dayFormatter.string(from: startDate)) to \(dayFormatter.string(from: endDate)).md"
+      "Dayflow timeline \(dayFormatter.string(from: displayStartDate)) to \(dayFormatter.string(from: displayEndDate)).md"
     savePanel.allowedContentTypes = [.text, .plainText]
     savePanel.canCreateDirectories = true
 

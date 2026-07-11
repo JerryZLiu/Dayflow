@@ -93,6 +93,12 @@ extension Date {
   var timelineStorageDayStringForLabel: String {
     DateFormatter.yyyyMMdd.string(from: timelineDateFromLabel())
   }
+
+  /// Canonical user-facing day label. Call this on an internal timeline date;
+  /// storage keys must continue to use the unshifted date.
+  var timelineLabelDayString: String {
+    DateFormatter.yyyyMMdd.string(from: timelineLabelDate())
+  }
 }
 
 extension Date {

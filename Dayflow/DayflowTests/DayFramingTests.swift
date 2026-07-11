@@ -77,6 +77,26 @@ final class DayFramingTests: XCTestCase {
     XCTAssertEqual(DateFormatter.yyyyMMdd.string(from: range.storageRange.start), "2026-07-06")
   }
 
+  func testUserFacingDayStringNeverLeaksEndDateStorageKey() {
+    DayBoundaryPreferences.boundaryHour = 16
+    DayLabelPreferences.mode = .endDate
+    let storageDate = date(2026, 7, 10, hour: 16)
+
+    XCTAssertEqual(DateFormatter.yyyyMMdd.string(from: storageDate), "2026-07-10")
+    XCTAssertEqual(storageDate.timelineLabelDayString, "2026-07-11")
+  }
+
+  func testChatPromptDescribesConfiguredEndDateStorageMapping() {
+    DayBoundaryPreferences.boundaryHour = 16
+    DayLabelPreferences.mode = .endDate
+
+    let prompt = ChatPromptBuilder.cliSystemPrompt()
+    XCTAssertTrue(prompt.contains("4:00 PM-to-4:00 PM"))
+    XCTAssertTrue(prompt.contains("labeled by their END date"))
+    XCTAssertTrue(prompt.contains("subtract one calendar day"))
+    XCTAssertFalse(prompt.contains("Days start at 4:00 AM"))
+  }
+
   private func date(_ year: Int, _ month: Int, _ day: Int, hour: Int) -> Date {
     var components = DateComponents()
     components.calendar = Calendar.current

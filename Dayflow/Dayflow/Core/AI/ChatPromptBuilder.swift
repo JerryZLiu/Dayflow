@@ -30,8 +30,9 @@ private let chatServiceDayFormatter: DateFormatter = {
 enum ChatPromptBuilder {
   static func cliSystemPrompt() -> String {
     let now = Date()
-    let currentDate = chatServiceLongDateFormatter.string(from: now)
+    let currentDate = chatServiceLongDateFormatter.string(from: currentTimelineLabelDate(now))
     let currentTime = chatServiceTimeFormatter.string(from: now)
+    let dayFraming = dayFramingPrompt()
 
     // Use full path (~ doesn't expand in sqlite3)
     let dbPath = NSHomeDirectory() + "/Library/Application Support/Dayflow/chunks.sqlite"
@@ -44,7 +45,7 @@ enum ChatPromptBuilder {
 
       Current date: \(currentDate)
       Current time: \(currentTime)
-      Day boundary: Days start at 4:00 AM (not midnight)
+      \(dayFraming)
 
       ## DATA INTEGRITY (CRITICAL)
 
@@ -208,8 +209,9 @@ enum ChatPromptBuilder {
 
   static func geminiSystemPrompt() -> String {
     let now = Date()
-    let currentDate = chatServiceLongDateFormatter.string(from: now)
+    let currentDate = chatServiceLongDateFormatter.string(from: currentTimelineLabelDate(now))
     let currentTime = chatServiceTimeFormatter.string(from: now)
+    let dayFraming = dayFramingPrompt()
 
     let languageSection = languageOverrideSection()
     let languageBlock: String
@@ -224,7 +226,7 @@ enum ChatPromptBuilder {
 
       Current date: \(currentDate)
       Current time: \(currentTime)
-      Day boundary: Days start at 4:00 AM (not midnight). "Yesterday" means the previous 4 AM–4 AM window.
+      \(dayFraming)
 
       ---
 
@@ -350,8 +352,32 @@ enum ChatPromptBuilder {
       """
   }
 
+  private static func currentTimelineLabelDate(_ now: Date) -> Date {
+    timelineDisplayDate(from: now, now: now).timelineLabelDate()
+  }
+
+  private static func dayFramingPrompt() -> String {
+    let boundaryHour = DayBoundaryPreferences.boundaryHour
+    let boundaryTime = chatServiceTimeFormatter.string(
+      from: Calendar.current.date(
+        bySettingHour: boundaryHour, minute: 0, second: 0, of: Date()) ?? Date()
+    )
+    let window = "\(boundaryTime)-to-\(boundaryTime)"
+
+    if DayLabelPreferences.usesEndDate {
+      return """
+        Day framing: Logical days run \(window) and are labeled by their END date. The database `day` column remains keyed by the START date, so subtract one calendar day from a user-facing date before filtering `day`. "Today" and "yesterday" refer to consecutive labeled logical-day windows.
+        """
+    }
+
+    return """
+      Day framing: Logical days run \(window) and are labeled by their START date. The database `day` column uses the same date label. "Today" and "yesterday" refer to consecutive logical-day windows.
+      """
+  }
+
   private static func todayDate() -> String {
-    chatServiceDayFormatter.string(from: Date())
+    let now = Date()
+    return chatServiceDayFormatter.string(from: timelineDisplayDate(from: now, now: now))
   }
 
   private static func categoryColorsSection() -> String {

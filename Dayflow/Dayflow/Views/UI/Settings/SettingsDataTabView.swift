@@ -115,7 +115,7 @@ struct SettingsDataTabView: View {
 
   private var reprocessSection: some View {
     let normalizedDate = timelineDisplayDate(from: viewModel.reprocessDayDate)
-    let dayString = DateFormatter.yyyyMMdd.string(from: normalizedDate)
+    let displayDayString = normalizedDate.timelineLabelDayString
 
     return SettingsSection(
       title: "Reprocess day",
@@ -149,7 +149,7 @@ struct SettingsDataTabView: View {
           .transition(.move(edge: .top).combined(with: .opacity))
         }
 
-        Text(dayString)
+        Text(displayDayString)
           .font(.custom("Figtree", size: 12))
           .foregroundColor(SettingsStyle.meta)
 
@@ -193,7 +193,7 @@ struct SettingsDataTabView: View {
         Button("Reprocess", role: .destructive) { viewModel.reprocessSelectedDay() }
       } message: {
         Text(
-          "This will delete existing timeline cards for \(dayString) and re-run analysis. It can consume many API calls."
+          "This will delete existing timeline cards for \(displayDayString) and re-run analysis. It can consume many API calls."
         )
       }
     }
