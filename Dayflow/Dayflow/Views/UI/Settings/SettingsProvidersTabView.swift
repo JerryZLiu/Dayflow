@@ -7,7 +7,7 @@ struct SettingsProvidersTabView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: SettingsStyle.sectionSpacing) {
-      if viewModel.currentProvider == "ollama", viewModel.showLocalModelUpgradeBanner {
+      if viewModel.currentProvider == .local, viewModel.showLocalModelUpgradeBanner {
         LocalModelUpgradeBanner(
           preset: .qwen3VL4B,
           onKeepLegacy: { viewModel.markUpgradeBannerKeepLegacy() },
@@ -25,15 +25,24 @@ struct SettingsProvidersTabView: View {
           .foregroundColor(SettingsStyle.statusGood)
       }
 
+      if let error = viewModel.providerRoutingErrorMessage {
+        Text(error)
+          .font(.custom("Figtree", size: 13))
+          .foregroundColor(.red.opacity(0.8))
+      }
+
       currentConfigurationSection
       connectionHealthSection
       failoverRoutingSection
 
-      if viewModel.currentProvider == "gemini" {
+      if viewModel.currentProvider == .gemini {
         geminiModelSection
       }
 
-      promptCustomizationSection
+      primaryPromptCustomizationSection
+      if viewModel.hasChatCLIProviderInRouting {
+        chatCLIPromptCustomizationSection
+      }
     }
   }
 
@@ -53,7 +62,7 @@ struct SettingsProvidersTabView: View {
             action: { viewModel.editProviderConfiguration(viewModel.primaryRoutingProviderId) }
           )
 
-          if viewModel.currentProvider == "ollama" {
+          if viewModel.currentProvider == .local {
             SettingsSecondaryButton(
               title: viewModel.usingRecommendedLocalModel
                 ? "Manage local model" : "Upgrade local model",
@@ -90,7 +99,7 @@ struct SettingsProvidersTabView: View {
     }
 
     switch viewModel.currentProvider {
-    case "ollama":
+    case .local:
       SettingsRow(label: "Engine") { SettingsMetadata(text: viewModel.localEngine.displayName) }
       SettingsRow(label: "Model") {
         SettingsMetadata(
@@ -101,7 +110,7 @@ struct SettingsProvidersTabView: View {
       SettingsRow(label: "API key", showsDivider: false) {
         SettingsMetadata(text: hasKey ? "Stored in UserDefaults" : "Not set")
       }
-    case "gemini":
+    case .gemini:
       SettingsRow(label: "Model preference") {
         SettingsMetadata(text: viewModel.selectedGeminiModel.displayName)
       }
@@ -110,17 +119,32 @@ struct SettingsProvidersTabView: View {
           text: KeychainManager.shared.retrieve(for: "gemini") != nil
             ? "Stored safely in Keychain" : "Not set")
       }
-    case "chatgpt_claude":
-      SettingsRow(label: "CLI preference") {
-        SettingsMetadata(text: viewModel.chatCLIStatusLabel())
+    case .chatGPT, .claude:
+      SettingsRow(label: "CLI") {
+        SettingsMetadata(text: viewModel.cliStatusLabel(for: viewModel.currentProvider))
       }
-    case "dayflow":
-      SettingsRow(label: "Status", showsDivider: false) {
-        SettingsMetadata(text: viewModel.statusText(for: "dayflow") ?? "Requires Dayflow Pro")
+    case .openAICompatible:
+      SettingsRow(label: "Preset") {
+        SettingsMetadata(
+          text: viewModel.openAICompatiblePreset == .openRouter ? "OpenRouter" : "Custom")
       }
-    default:
+      SettingsRow(label: "Model") {
+        SettingsMetadata(
+          text: viewModel.openAICompatibleModelID.isEmpty
+            ? "Not configured" : viewModel.openAICompatibleModelID)
+      }
+      SettingsRow(label: "Endpoint") {
+        SettingsMetadata(text: viewModel.openAICompatibleBaseURL)
+      }
+      let hasKey = !viewModel.openAICompatibleAPIKey.trimmingCharacters(
+        in: .whitespacesAndNewlines
+      ).isEmpty
+      SettingsRow(label: "API key", showsDivider: false) {
+        SettingsMetadata(text: hasKey ? "Stored safely in Keychain" : "Not set")
+      }
+    case .dayflow:
       SettingsRow(label: "Status", showsDivider: false) {
-        SettingsMetadata(text: "Coming soon")
+        SettingsMetadata(text: viewModel.statusText(for: .dayflow) ?? "Requires Dayflow Pro")
       }
     }
   }
@@ -139,28 +163,43 @@ struct SettingsProvidersTabView: View {
           .foregroundColor(SettingsStyle.text)
 
         switch viewModel.currentProvider {
-        case "gemini":
+        case .gemini:
           TestConnectionView(onTestComplete: { _ in })
-        case "ollama":
+        case .local:
           LocalLLMTestView(
-            baseURL: $viewModel.localBaseURL,
-            modelId: $viewModel.localModelId,
-            apiKey: $viewModel.localAPIKey,
+            baseURL: $viewModel.localTestBaseURL,
+            modelId: $viewModel.localTestModelID,
+            apiKey: $viewModel.localTestAPIKey,
             engine: viewModel.localEngine,
             showInputs: viewModel.localEngine == .custom,
-            onTestComplete: { _ in viewModel.handleLocalTestCompletion() }
+            onTestComplete: { success in
+              viewModel.handleLocalTestCompletion(success: success)
+            }
           )
-        case "chatgpt_claude":
+        case .chatGPT:
           ChatCLITestView(
-            selectedTool: viewModel.preferredCLITool,
+            selectedTool: .codex,
             onTestComplete: { _ in }
           )
-        case "dayflow":
-          Text("Hosted cards and transcription run through your Dayflow account.")
-            .font(.custom("Figtree", size: 13))
+        case .claude:
+          ChatCLITestView(
+            selectedTool: .claude,
+            onTestComplete: { _ in }
+          )
+        case .openAICompatible:
+          VStack(alignment: .leading, spacing: 10) {
+            Text(
+              "The setup test sends a small image to verify multimodal support and may incur a provider charge."
+            )
+            .font(.custom("Figtree", size: 12))
             .foregroundColor(SettingsStyle.secondary)
-        default:
-          Text("Dayflow Pro diagnostics coming soon")
+            .fixedSize(horizontal: false, vertical: true)
+            SettingsSecondaryButton(title: "Test connection") {
+              viewModel.editProviderConfiguration(.openAICompatible)
+            }
+          }
+        case .dayflow:
+          Text("Hosted cards and transcription run through your Dayflow account.")
             .font(.custom("Figtree", size: 13))
             .foregroundColor(SettingsStyle.secondary)
         }
@@ -192,9 +231,12 @@ struct SettingsProvidersTabView: View {
     showsDivider: Bool
   ) -> some View {
     let isConfigured = viewModel.isProviderConfigured(provider.id)
+    let isChecking = viewModel.isProviderReadinessChecking(provider.id)
     let isPrimary = viewModel.primaryRoutingProviderId == provider.id
     let isSecondary = viewModel.isBackupProvider(provider.id)
-    let canSetSecondary = viewModel.canAssignSecondary(provider.id) || !isConfigured
+    let canSetSecondary =
+      viewModel.canModifyRouting
+      && (viewModel.canAssignSecondary(provider.id) || (!isConfigured && !isPrimary))
 
     return VStack(alignment: .leading, spacing: 10) {
       HStack(alignment: .center, spacing: 10) {
@@ -207,11 +249,19 @@ struct SettingsProvidersTabView: View {
 
         if isPrimary {
           SettingsBadge(text: "PRIMARY", isAccent: true)
-        } else if isSecondary {
+        }
+        if isSecondary {
           SettingsBadge(text: "SECONDARY")
-        } else if isConfigured {
-          SettingsBadge(text: "CONFIGURED")
-        } else {
+        }
+        if isChecking && !isPrimary && !isSecondary {
+          SettingsBadge(text: "CHECKING")
+        } else if !isChecking && !isConfigured && (isPrimary || isSecondary) {
+          SettingsBadge(text: "NEEDS ATTENTION")
+        } else if !isChecking && !isPrimary && !isSecondary && isConfigured {
+          SettingsBadge(
+            text: provider.id == .chatGPT || provider.id == .claude
+              ? "DETECTED" : "CONFIGURED")
+        } else if !isChecking && !isPrimary && !isSecondary {
           SettingsBadge(text: "NOT SET")
         }
       }
@@ -226,9 +276,12 @@ struct SettingsProvidersTabView: View {
           SettingsPrimaryButton(title: "Upgrade account", systemImage: "sparkles") {
             viewModel.openDayflowUpgradeAccount(from: provider.id)
           }
-        } else if provider.id == "dayflow" {
+        } else if provider.id == .dayflow {
           if !isPrimary {
-            SettingsSecondaryButton(title: "Set primary") {
+            SettingsSecondaryButton(
+              title: "Set primary",
+              isDisabled: !viewModel.canModifyRouting
+            ) {
               viewModel.setPrimaryOrSetup(provider.id)
             }
           }
@@ -254,7 +307,10 @@ struct SettingsProvidersTabView: View {
           }
 
           if !isPrimary {
-            SettingsSecondaryButton(title: "Set primary") {
+            SettingsSecondaryButton(
+              title: "Set primary",
+              isDisabled: !viewModel.canModifyRouting
+            ) {
               viewModel.setPrimaryOrSetup(provider.id)
             }
           }
@@ -315,9 +371,9 @@ struct SettingsProvidersTabView: View {
   // MARK: - Prompt customization
 
   @ViewBuilder
-  private var promptCustomizationSection: some View {
+  private var primaryPromptCustomizationSection: some View {
     switch viewModel.currentProvider {
-    case "gemini":
+    case .gemini:
       promptSection(
         title: "Gemini prompt customization",
         subtitle: "Override Dayflow's defaults to tailor card generation.",
@@ -348,7 +404,7 @@ struct SettingsProvidersTabView: View {
         ],
         onReset: viewModel.resetGeminiPromptOverrides
       )
-    case "ollama":
+    case .local:
       promptSection(
         title: "Local prompt customization",
         subtitle: "Adjust the prompts used for local timeline summaries.",
@@ -371,40 +427,43 @@ struct SettingsProvidersTabView: View {
         ],
         onReset: viewModel.resetOllamaPromptOverrides
       )
-    case "chatgpt_claude":
-      promptSection(
-        title: "ChatGPT / Claude prompt customization",
-        subtitle: "Override Dayflow's defaults to tailor card generation.",
-        intro:
-          "Overrides apply only when their toggle is on. Unchecked sections fall back to Dayflow's defaults.",
-        sections: [
-          promptEditorConfig(
-            heading: "Card titles",
-            description: "Shape how card titles read and tweak the example list.",
-            isEnabled: $viewModel.useCustomChatCLITitlePrompt,
-            text: $viewModel.chatCLITitlePromptText,
-            defaultText: ChatCLIPromptDefaults.titleBlock
-          ),
-          promptEditorConfig(
-            heading: "Card summaries",
-            description: "Control tone and style for the summary field.",
-            isEnabled: $viewModel.useCustomChatCLISummaryPrompt,
-            text: $viewModel.chatCLISummaryPromptText,
-            defaultText: ChatCLIPromptDefaults.summaryBlock
-          ),
-          promptEditorConfig(
-            heading: "Detailed summaries",
-            description: "Define the minute-by-minute breakdown format and examples.",
-            isEnabled: $viewModel.useCustomChatCLIDetailedPrompt,
-            text: $viewModel.chatCLIDetailedPromptText,
-            defaultText: ChatCLIPromptDefaults.detailedSummaryBlock
-          ),
-        ],
-        onReset: viewModel.resetChatCLIPromptOverrides
-      )
-    default:
+    case .dayflow, .chatGPT, .claude, .openAICompatible:
       EmptyView()
     }
+  }
+
+  private var chatCLIPromptCustomizationSection: some View {
+    promptSection(
+      title: "ChatGPT and Claude prompt customization",
+      subtitle: "Keep independent card-generation prompts for each CLI provider.",
+      intro:
+        "Overrides apply only when their toggle is on. Unchecked sections fall back to Dayflow's defaults.",
+      sections: [
+        promptEditorConfig(
+          heading: "Card titles",
+          description: "Shape how card titles read and tweak the example list.",
+          isEnabled: $viewModel.useCustomChatCLITitlePrompt,
+          text: $viewModel.chatCLITitlePromptText,
+          defaultText: ChatCLIPromptDefaults.titleBlock
+        ),
+        promptEditorConfig(
+          heading: "Card summaries",
+          description: "Control tone and style for the summary field.",
+          isEnabled: $viewModel.useCustomChatCLISummaryPrompt,
+          text: $viewModel.chatCLISummaryPromptText,
+          defaultText: ChatCLIPromptDefaults.summaryBlock
+        ),
+        promptEditorConfig(
+          heading: "Detailed summaries",
+          description: "Define the minute-by-minute breakdown format and examples.",
+          isEnabled: $viewModel.useCustomChatCLIDetailedPrompt,
+          text: $viewModel.chatCLIDetailedPromptText,
+          defaultText: ChatCLIPromptDefaults.detailedSummaryBlock
+        ),
+      ],
+      onReset: viewModel.resetChatCLIPromptOverrides,
+      showsChatCLIPicker: true
+    )
   }
 
   private struct PromptEditorConfig {
@@ -432,10 +491,21 @@ struct SettingsProvidersTabView: View {
     subtitle: String,
     intro: String,
     sections: [PromptEditorConfig],
-    onReset: @escaping () -> Void
+    onReset: @escaping () -> Void,
+    showsChatCLIPicker: Bool = false
   ) -> some View {
     SettingsSection(title: title, subtitle: subtitle) {
       VStack(alignment: .leading, spacing: 18) {
+        if showsChatCLIPicker {
+          Picker("Provider", selection: $viewModel.selectedChatCLIPromptTool) {
+            Text("ChatGPT").tag(ChatCLITool.codex)
+            Text("Claude").tag(ChatCLITool.claude)
+          }
+          .pickerStyle(.segmented)
+          .labelsHidden()
+          .frame(maxWidth: 320)
+        }
+
         Text(intro)
           .font(.custom("Figtree", size: 12))
           .foregroundColor(SettingsStyle.secondary)
