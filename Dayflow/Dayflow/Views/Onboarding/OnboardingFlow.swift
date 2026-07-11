@@ -13,11 +13,17 @@ struct OnboardingFlow: View {
   @AppStorage("onboardingStep") private var savedStepRawValue = 0
   @State private var step: OnboardingStep = OnboardingStepMigration.restoredStep()
   @AppStorage("didOnboard") private var didOnboard = false
-  @AppStorage("selectedLLMProvider") private var selectedProvider: String = "gemini"
+  @AppStorage("onboardingSelectedProviderID") private var selectedProviderIDRawValue =
+    LLMProviderID.gemini.rawValue
   @AppStorage("onboardingHasPaidAI") private var savedHasPaidAISelection = ""
   @EnvironmentObject private var categoryStore: CategoryStore
   @State private var userHasPaidAI: Bool? = OnboardingFlow.loadSavedHasPaidAISelection()
   @State private var flowID = UUID().uuidString.lowercased()
+  @State private var routingSaveErrorMessage: String?
+
+  private var selectedProviderID: LLMProviderID {
+    LLMProviderID(rawValue: selectedProviderIDRawValue) ?? .gemini
+  }
 
   private var onboardingFilledSegments: Int {
     switch step {
@@ -142,28 +148,24 @@ struct OnboardingFlow: View {
           hasPaidAI: userHasPaidAI ?? false,
           flowID: flowID,
           flowVariant: "production_onboarding",
-          onSelect: { providerTitle in
-            // Map display title → internal provider ID
-            let providerID: String
-            switch providerTitle {
-            case "Dayflow Pro": providerID = "dayflow"
-            case "ChatGPT or Claude": providerID = "chatgpt_claude"
-            case "Google Gemini": providerID = "gemini"
-            case "Local AI": providerID = "ollama"
-            default: providerID = "gemini"
+          onSelect: { providerID in
+            if providerID == .dayflow, !saveRouting(primary: providerID) {
+              return
             }
-            selectedProvider = providerID
-            if providerID == "dayflow" {
-              LLMProviderType.dayflowBackend().persist()
-            }
+            selectedProviderIDRawValue = providerID.rawValue
 
-            var props: [String: Any] = ["provider": providerID]
-            if providerID == "ollama" {
+            var props: [String: Any] = [
+              "provider": providerID.analyticsName,
+              "provider_id": providerID.rawValue,
+            ]
+            if providerID == .local {
               let localEngine = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
               props["local_engine"] = localEngine
             }
             AnalyticsService.shared.capture("llm_provider_selected", props)
-            AnalyticsService.shared.setPersonProperties(["current_llm_provider": providerID])
+            if providerID == .dayflow {
+              recordCurrentProvider(providerID)
+            }
             advance(extraProps: props)
           }
         )
@@ -175,12 +177,17 @@ struct OnboardingFlow: View {
       case .llmSetup:
         // COMPLETELY STANDALONE - no parent constraints!
         LLMProviderSetupView(
-          providerType: selectedProvider,
+          providerType: selectedProviderID,
           onBack: {
             setStep(.llmSelection)
           },
           onComplete: {
+            guard saveRouting(primary: selectedProviderID, presentsError: false) else {
+              return false
+            }
+            recordCurrentProvider(selectedProviderID)
             advance()
+            return true
           }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -193,7 +200,7 @@ struct OnboardingFlow: View {
           onBack: {
             // Go back to llmSetup, or llmSelection if they picked dayflow
             let backStep: OnboardingStep =
-              (selectedProvider == "dayflow") ? .llmSelection : .llmSetup
+              (selectedProviderID == .dayflow) ? .llmSelection : .llmSetup
             setStep(backStep)
           },
           onNext: {
@@ -271,6 +278,52 @@ struct OnboardingFlow: View {
         .ignoresSafeArea()
     }
     .preferredColorScheme(.light)
+    .alert(
+      "Couldn't save your provider",
+      isPresented: Binding(
+        get: { routingSaveErrorMessage != nil },
+        set: { isPresented in
+          if !isPresented {
+            routingSaveErrorMessage = nil
+          }
+        }
+      )
+    ) {
+      Button("OK", role: .cancel) {
+        routingSaveErrorMessage = nil
+      }
+    } message: {
+      Text(routingSaveErrorMessage ?? "Please try again.")
+    }
+  }
+
+  private func saveRouting(
+    primary providerID: LLMProviderID,
+    presentsError: Bool = true
+  ) -> Bool {
+    do {
+      try LLMProviderRoutingStore.save(LLMProviderRouting(primary: providerID))
+      return true
+    } catch {
+      if presentsError {
+        routingSaveErrorMessage = "Dayflow couldn't save this provider. Please try again."
+      }
+      AnalyticsService.shared.capture(
+        "llm_provider_routing_save_failed",
+        [
+          "provider_id": providerID.rawValue,
+          "surface": "onboarding",
+        ]
+      )
+      return false
+    }
+  }
+
+  private func recordCurrentProvider(_ providerID: LLMProviderID) {
+    AnalyticsService.shared.setPersonProperties([
+      "current_llm_provider": providerID.analyticsName,
+      "current_llm_provider_id": providerID.rawValue,
+    ])
   }
 
   private func restoreSavedStep() {
@@ -339,7 +392,8 @@ struct OnboardingFlow: View {
       savedStepRawValue = step.rawValue
     case .llmSelection:
       markStepCompleted(step, extraProps: extraProps)
-      let nextStep: OnboardingStep = (selectedProvider == "dayflow") ? .categories : .llmSetup
+      let nextStep: OnboardingStep =
+        (selectedProviderID == .dayflow) ? .categories : .llmSetup
       setStep(nextStep)
     case .llmSetup:
       markStepCompleted(step)
@@ -683,7 +737,7 @@ struct OnboardingPrototypeDownloadReasonStep: View {
   var body: some View {
     VStack(spacing: 0) {
       Spacer()
-        .frame(height: 126)
+        .frame(height: 48)
 
       VStack(spacing: 22) {
         VStack(spacing: 4) {
@@ -735,7 +789,7 @@ struct OnboardingPrototypeDownloadReasonStep: View {
       .animation(.easeInOut(duration: 0.2), value: canContinue)
 
       Spacer()
-        .frame(height: 60)
+        .frame(height: 24)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .animation(.easeInOut(duration: 0.2), value: selectedReasons)
@@ -823,7 +877,6 @@ enum DownloadReasonOption: CaseIterable, Identifiable, Hashable {
   case proofOfWork
   case cutDistractions
   case productiveFocused
-  case automatedManualTracking
   case openSourcePrivate
   case other
 
@@ -843,8 +896,6 @@ enum DownloadReasonOption: CaseIterable, Identifiable, Hashable {
       return "To find and cut distractions"
     case .productiveFocused:
       return "To be more productive or focused"
-    case .automatedManualTracking:
-      return "I was already tracking this manually and wanted it automated"
     case .openSourcePrivate:
       return "I wanted a tracker that's open source and keeps my data private"
     case .other:
@@ -862,8 +913,6 @@ enum DownloadReasonOption: CaseIterable, Identifiable, Hashable {
       return "cut_distractions"
     case .productiveFocused:
       return "productive_focused"
-    case .automatedManualTracking:
-      return "automated_manual_tracking"
     case .openSourcePrivate:
       return "open_source_private"
     case .other:
