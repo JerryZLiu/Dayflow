@@ -110,7 +110,7 @@ final class OtherSettingsViewModel: ObservableObject {
       var cursor = start
       let endDate = end
 
-      var sections: [String] = []
+      var cardsByDay: [(day: Date, cards: [TimelineCard])] = []
       var totalActivities = 0
       var dayCount = 0
 
@@ -118,16 +118,18 @@ final class OtherSettingsViewModel: ObservableObject {
         let dayString = dayFormatter.string(from: cursor)
         let cards = StorageManager.shared.fetchTimelineCards(forDay: dayString)
         totalActivities += cards.count
-        let section = TimelineClipboardFormatter.makeMarkdown(for: cursor, cards: cards)
-        sections.append(section)
+        cardsByDay.append((day: cursor, cards: cards))
         dayCount += 1
 
         guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
         cursor = next
       }
 
-      let divider = "\n\n---\n\n"
-      let exportText = sections.joined(separator: divider)
+      let exportText = MarkdownV2RangeExportBuilder.makeMarkdown(
+        start: start,
+        end: end,
+        cardsByDay: cardsByDay
+      )
 
       await MainActor.run {
         self.presentSavePanelAndWrite(

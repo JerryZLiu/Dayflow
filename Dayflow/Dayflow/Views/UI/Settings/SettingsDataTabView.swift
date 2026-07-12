@@ -82,7 +82,7 @@ struct SettingsDataTabView: View {
 
         HStack(spacing: 12) {
           SettingsPrimaryButton(
-            title: viewModel.isExportingTimelineRange ? "Exporting…" : "Export as Markdown",
+            title: viewModel.isExportingTimelineRange ? "Exporting…" : "Export Markdown v2",
             systemImage: viewModel.isExportingTimelineRange ? nil : "square.and.arrow.down",
             isLoading: viewModel.isExportingTimelineRange,
             isDisabled: rangeInvalid,
