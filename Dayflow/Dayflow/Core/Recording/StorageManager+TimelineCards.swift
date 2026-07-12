@@ -199,6 +199,20 @@ extension StorageManager {
     }
   }
 
+  func updateTimelineCardTitle(cardId: Int64, title: String) {
+    let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.isEmpty == false else { return }
+
+    try? timedWrite("updateTimelineCardTitle") { db in
+      try db.execute(
+        sql: """
+              UPDATE timeline_cards
+              SET title = ?
+              WHERE id = ?
+          """, arguments: [trimmed, cardId])
+    }
+  }
+
   // MARK: - Onboarding Card
 
   /// Creates a dummy "Installed Dayflow!" card when onboarding completes.
@@ -267,25 +281,22 @@ extension StorageManager {
   }
 
   func buildOnboardingSummary() -> String {
-    let selectedProvider = UserDefaults.standard.string(forKey: "selectedLLMProvider") ?? "gemini"
+    let selectedProvider = (try? LLMProviderRoutingStore.load())?.primary
 
     switch selectedProvider {
-    case "gemini":
+    case .gemini:
       return
         "You successfully installed Dayflow and configured it with Gemini AI. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
 
-    case "chatgpt_claude":
-      // Check which CLI tool they picked
-      let cliTool = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "claude"
-      if cliTool == "codex" {
-        return
-          "You successfully installed Dayflow with ChatGPT. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
-      } else {
-        return
-          "You successfully installed Dayflow with Claude. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
-      }
+    case .chatGPT:
+      return
+        "You successfully installed Dayflow with ChatGPT. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
 
-    case "ollama":
+    case .claude:
+      return
+        "You successfully installed Dayflow with Claude. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
+
+    case .local:
       // Check which local engine they picked
       let localEngine = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
       if localEngine == "lmstudio" {
@@ -296,7 +307,15 @@ extension StorageManager {
           "You successfully installed Dayflow with Ollama — your data stays 100% on your device. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
       }
 
-    default:
+    case .dayflow:
+      return
+        "You successfully installed Dayflow with Dayflow Pro. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
+
+    case .openAICompatible:
+      return
+        "You successfully installed Dayflow with your OpenAI-compatible provider. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
+
+    case nil:
       return
         "You successfully installed Dayflow. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
     }
