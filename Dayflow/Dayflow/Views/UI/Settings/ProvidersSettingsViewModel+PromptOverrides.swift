@@ -117,7 +117,7 @@ extension ProvidersSettingsViewModel {
   func loadChatCLIPromptOverridesIfNeeded(force: Bool = false) {
     if chatCLIPromptOverridesLoaded && !force { return }
     isUpdatingChatCLIPromptState = true
-    let overrides = ChatCLIPromptPreferences.load()
+    let overrides = ChatCLIPromptPreferences.load(for: selectedChatCLIPromptTool)
 
     let trimmedTitle = overrides.titleBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedSummary = overrides.summaryBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -151,9 +151,9 @@ extension ProvidersSettingsViewModel {
     )
 
     if overrides.isEmpty {
-      ChatCLIPromptPreferences.reset()
+      ChatCLIPromptPreferences.reset(for: selectedChatCLIPromptTool)
     } else {
-      ChatCLIPromptPreferences.save(overrides)
+      ChatCLIPromptPreferences.save(overrides, for: selectedChatCLIPromptTool)
     }
   }
 
@@ -165,7 +165,7 @@ extension ProvidersSettingsViewModel {
     chatCLITitlePromptText = ChatCLIPromptDefaults.titleBlock
     chatCLISummaryPromptText = ChatCLIPromptDefaults.summaryBlock
     chatCLIDetailedPromptText = ChatCLIPromptDefaults.detailedSummaryBlock
-    ChatCLIPromptPreferences.reset()
+    ChatCLIPromptPreferences.reset(for: selectedChatCLIPromptTool)
     isUpdatingChatCLIPromptState = false
     chatCLIPromptOverridesLoaded = true
   }
