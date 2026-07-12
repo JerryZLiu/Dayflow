@@ -9,11 +9,14 @@ final class ProvidersSettingsViewModelTests: XCTestCase {
     "llmLocalBaseURL",
     "llmLocalModelId",
     "llmLocalAPIKey",
-    "ollamaSetupComplete",
-    "selectedLLMProvider",
-    "selectedLLMProviderBaseURL",
-    "selectedLLMProviderCanonical",
-    "selectedLLMProviderDisplayName",
+    "localSetupComplete",
+    "chatGPTPromptOverrides",
+    "claudePromptOverrides",
+    "dayflowProviderEndpointV2",
+    "chatgptSetupComplete",
+    "claudeSetupComplete",
+    "geminiSelectedModel_v3",
+    LLMProviderRoutingStore.storageKey,
   ]
 
   private var savedDefaults: [String: Any?] = [:]
@@ -51,11 +54,55 @@ final class ProvidersSettingsViewModelTests: XCTestCase {
     UserDefaults.standard.set("gemma-4-local", forKey: "llmLocalModelId")
     UserDefaults.standard.set("local-test-key", forKey: "llmLocalAPIKey")
 
-    viewModel.handleProviderSetupCompletion("ollama")
+    viewModel.handleProviderSetupCompletion(.local)
 
     XCTAssertEqual(viewModel.localEngine, .lmstudio)
     XCTAssertEqual(viewModel.localBaseURL, "http://localhost:1234")
     XCTAssertEqual(viewModel.localModelId, "gemma-4-local")
     XCTAssertEqual(viewModel.localAPIKey, "local-test-key")
+  }
+
+  func testProviderSetupCompletionRefreshesGeminiModelPreference() {
+    GeminiModelPreference(primary: .flash35).save()
+    let viewModel = ProvidersSettingsViewModel()
+    XCTAssertEqual(viewModel.selectedGeminiModel, .flash35)
+
+    GeminiModelPreference(primary: .flashLite31).save()
+
+    XCTAssertTrue(viewModel.handleProviderSetupCompletion(.gemini))
+    XCTAssertEqual(viewModel.selectedGeminiModel, .flashLite31)
+  }
+
+  func testProviderSetupStateHydratesTheSavedLocalConfiguration() {
+    UserDefaults.standard.set(LocalEngine.custom.rawValue, forKey: "llmLocalEngine")
+    UserDefaults.standard.set("https://local.example.test/v1", forKey: "llmLocalBaseURL")
+    UserDefaults.standard.set("saved-vision-model", forKey: "llmLocalModelId")
+    UserDefaults.standard.set("saved-local-key", forKey: "llmLocalAPIKey")
+
+    let state = ProviderSetupState()
+
+    XCTAssertEqual(state.localEngine, .custom)
+    XCTAssertEqual(state.localBaseURL, "https://local.example.test/v1")
+    XCTAssertEqual(state.localModelId, "saved-vision-model")
+    XCTAssertEqual(state.localAPIKey, "saved-local-key")
+  }
+
+  func testFailedSetupAssignmentRetainsRoutingIntentForRetry() throws {
+    UserDefaults.standard.set(
+      Data("corrupt-routing".utf8),
+      forKey: LLMProviderRoutingStore.storageKey
+    )
+    let viewModel = ProvidersSettingsViewModel()
+    viewModel.loadRouting()
+    viewModel.beginProviderSetup(.claude, role: .primary)
+
+    XCTAssertFalse(viewModel.handleProviderSetupCompletion(.claude))
+    XCTAssertEqual(viewModel.setupModalProvider, .claude)
+
+    UserDefaults.standard.removeObject(forKey: LLMProviderRoutingStore.storageKey)
+    viewModel.loadRouting()
+
+    XCTAssertTrue(viewModel.handleProviderSetupCompletion(.claude))
+    XCTAssertEqual(viewModel.primaryRoutingProviderId, .claude)
   }
 }
