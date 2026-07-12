@@ -42,6 +42,7 @@ protocol StorageManaging: Sendable {
   func fetchRecentTimelineCardsForDebug(limit: Int) -> [TimelineCardDebugEntry]
 
   func updateTimelineCardCategory(cardId: Int64, category: String)
+  func updateTimelineCardTitle(cardId: Int64, title: String)
 
   // Timeline review ratings (time-based)
   func fetchReviewRatingSegments(overlapping startTs: Int, endTs: Int)
