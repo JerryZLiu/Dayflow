@@ -170,6 +170,57 @@ extension ProvidersSettingsViewModel {
     chatCLIPromptOverridesLoaded = true
   }
 
+  // MARK: - MiniMax (M3)
+
+  func loadMiniMaxPromptOverridesIfNeeded(force: Bool = false) {
+    if minimaxPromptOverridesLoaded && !force { return }
+    isUpdatingMiniMaxPromptState = true
+    let overrides = MiniMaxPromptPreferences.load()
+
+    let trimmedSummary = overrides.summaryBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedTitle = overrides.titleBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    useCustomMiniMaxSummaryPrompt = trimmedSummary?.isEmpty == false
+    useCustomMiniMaxTitlePrompt = trimmedTitle?.isEmpty == false
+
+    minimaxSummaryPromptText = trimmedSummary ?? MiniMaxPromptDefaults.summaryBlock
+    minimaxTitlePromptText = trimmedTitle ?? MiniMaxPromptDefaults.titleBlock
+
+    isUpdatingMiniMaxPromptState = false
+    minimaxPromptOverridesLoaded = true
+  }
+
+  func persistMiniMaxPromptOverridesIfReady() {
+    guard minimaxPromptOverridesLoaded, !isUpdatingMiniMaxPromptState else { return }
+    persistMiniMaxPromptOverrides()
+  }
+
+  func persistMiniMaxPromptOverrides() {
+    let overrides = MiniMaxPromptOverrides(
+      summaryBlock: normalizedOverride(
+        text: minimaxSummaryPromptText, enabled: useCustomMiniMaxSummaryPrompt),
+      titleBlock: normalizedOverride(
+        text: minimaxTitlePromptText, enabled: useCustomMiniMaxTitlePrompt)
+    )
+
+    if overrides.isEmpty {
+      MiniMaxPromptPreferences.reset()
+    } else {
+      MiniMaxPromptPreferences.save(overrides)
+    }
+  }
+
+  func resetMiniMaxPromptOverrides() {
+    isUpdatingMiniMaxPromptState = true
+    useCustomMiniMaxSummaryPrompt = false
+    useCustomMiniMaxTitlePrompt = false
+    minimaxSummaryPromptText = MiniMaxPromptDefaults.summaryBlock
+    minimaxTitlePromptText = MiniMaxPromptDefaults.titleBlock
+    MiniMaxPromptPreferences.reset()
+    isUpdatingMiniMaxPromptState = false
+    minimaxPromptOverridesLoaded = true
+  }
+
   func normalizedOverride(text: String, enabled: Bool) -> String? {
     guard enabled else { return nil }
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

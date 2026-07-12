@@ -149,18 +149,23 @@ struct OnboardingFlow: View {
             case "Dayflow Pro": providerID = "dayflow"
             case "ChatGPT or Claude": providerID = "chatgpt_claude"
             case "Google Gemini": providerID = "gemini"
+            case "MiniMax M3": providerID = "minimax"
             case "Local AI": providerID = "ollama"
             default: providerID = "gemini"
             }
             selectedProvider = providerID
             if providerID == "dayflow" {
               LLMProviderType.dayflowBackend().persist()
+            } else if providerID == "minimax" {
+              LLMProviderType.minimax.persist()
             }
 
             var props: [String: Any] = ["provider": providerID]
             if providerID == "ollama" {
               let localEngine = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
               props["local_engine"] = localEngine
+            } else if providerID == "minimax" {
+              props["model_id"] = MiniMaxProvider.defaultModelId
             }
             AnalyticsService.shared.capture("llm_provider_selected", props)
             AnalyticsService.shared.setPersonProperties(["current_llm_provider": providerID])

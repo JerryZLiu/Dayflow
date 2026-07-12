@@ -96,6 +96,7 @@ enum LLMProviderType: Codable {
   case dayflowBackend(endpoint: String = "")
   case ollamaLocal(endpoint: String = "http://localhost:11434")
   case chatGPTClaude
+  case minimax
 
   private static let providerDefaultsKey = "llmProviderType"
   private static let selectedProviderDefaultsKey = "selectedLLMProvider"
@@ -134,6 +135,8 @@ enum LLMProviderType: Codable {
       return "ollama"
     case .chatGPTClaude:
       return "chatgpt_claude"
+    case .minimax:
+      return "minimax"
     }
   }
 
@@ -171,6 +174,8 @@ enum LLMProviderType: Codable {
       return .chatGPTClaude
     case "chatgpt_claude":
       return .chatGPTClaude
+    case "minimax":
+      return .minimax
     default:
       return nil
     }
@@ -182,6 +187,7 @@ enum LLMProviderID: String, Codable, CaseIterable {
   case dayflow
   case ollama
   case chatGPTClaude = "chatgpt_claude"
+  case minimax
 
   var analyticsName: String {
     switch self {
@@ -193,6 +199,8 @@ enum LLMProviderID: String, Codable, CaseIterable {
       return "ollama"
     case .chatGPTClaude:
       return "chat_cli"
+    case .minimax:
+      return "minimax"
     }
   }
 
@@ -206,6 +214,8 @@ enum LLMProviderID: String, Codable, CaseIterable {
       return .ollama
     case .chatGPTClaude:
       return .chatGPTClaude
+    case .minimax:
+      return .minimax
     }
   }
 
@@ -219,6 +229,8 @@ enum LLMProviderID: String, Codable, CaseIterable {
       return "local"
     case .chatGPTClaude:
       return chatTool == .claude ? "claude" : "chatgpt"
+    case .minimax:
+      return "minimax"
     }
   }
 }

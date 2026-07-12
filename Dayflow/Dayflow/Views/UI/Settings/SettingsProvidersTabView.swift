@@ -31,6 +31,8 @@ struct SettingsProvidersTabView: View {
 
       if viewModel.currentProvider == "gemini" {
         geminiModelSection
+      } else if viewModel.currentProvider == "minimax" {
+        minimaxModelSection
       }
 
       promptCustomizationSection
@@ -110,6 +112,18 @@ struct SettingsProvidersTabView: View {
           text: KeychainManager.shared.retrieve(for: "gemini") != nil
             ? "Stored safely in Keychain" : "Not set")
       }
+    case "minimax":
+      let modelText = viewModel.selectedMiniMaxModel.isEmpty
+        ? MiniMaxProvider.defaultModelId
+        : viewModel.selectedMiniMaxModel
+      SettingsRow(label: "Model") {
+        SettingsMetadata(text: modelText)
+      }
+      SettingsRow(label: "API key", showsDivider: false) {
+        SettingsMetadata(
+          text: KeychainManager.shared.retrieve(for: MiniMaxProvider.keychainKey) != nil
+            ? "Stored safely in Keychain" : "Not set")
+      }
     case "chatgpt_claude":
       SettingsRow(label: "CLI preference") {
         SettingsMetadata(text: viewModel.chatCLIStatusLabel())
@@ -140,7 +154,13 @@ struct SettingsProvidersTabView: View {
 
         switch viewModel.currentProvider {
         case "gemini":
-          TestConnectionView(onTestComplete: { _ in })
+          TestConnectionView(providerID: "gemini", keychainKey: "gemini", onTestComplete: { _ in })
+        case "minimax":
+          TestConnectionView(
+            providerID: "minimax",
+            keychainKey: MiniMaxProvider.keychainKey,
+            onTestComplete: { _ in }
+          )
         case "ollama":
           LocalLLMTestView(
             baseURL: $viewModel.localBaseURL,
@@ -312,11 +332,91 @@ struct SettingsProvidersTabView: View {
     }
   }
 
+  // MARK: - MiniMax model preference
+
+  private var minimaxModelSection: some View {
+    SettingsSection(
+      title: "MiniMax M3 model",
+      subtitle: "Dayflow defaults to MiniMax-M3. You can switch to another M-series model below."
+    ) {
+      VStack(alignment: .leading, spacing: 14) {
+        TextField(
+          "Model ID",
+          text: Binding(
+            get: { viewModel.selectedMiniMaxModel },
+            set: { viewModel.selectedMiniMaxModel = $0 }
+          )
+        )
+        .textFieldStyle(.roundedBorder)
+        .onSubmit {
+          let trimmed = viewModel.selectedMiniMaxModel.trimmingCharacters(in: .whitespacesAndNewlines)
+          if !trimmed.isEmpty {
+            var pref = MiniMaxModelPreference.load()
+            pref.setModelId(trimmed)
+            pref.persist()
+            UserDefaults.standard.set(trimmed, forKey: "llmMiniMaxModelId")
+          }
+        }
+
+        Text(
+          "Common M-series model IDs: MiniMax-M3 (default), MiniMax-M2.7, MiniMax-M2.7-highspeed, MiniMax-M2.5."
+        )
+        .font(.custom("Figtree", size: 12))
+        .foregroundColor(SettingsStyle.secondary)
+
+        HStack(spacing: 8) {
+          SettingsSecondaryButton(
+            title: "Reset to M3",
+            action: {
+              var pref = MiniMaxModelPreference.load()
+              pref.reset()
+              pref.persist()
+              viewModel.selectedMiniMaxModel = MiniMaxProvider.defaultModelId
+              UserDefaults.standard.set(MiniMaxProvider.defaultModelId, forKey: "llmMiniMaxModelId")
+            }
+          )
+          SettingsSecondaryButton(
+            title: "Open MiniMax docs",
+            action: {
+              if let url = URL(string: "https://platform.minimax.io/docs/api-reference/text-openai-api") {
+                NSWorkspace.shared.open(url)
+              }
+            }
+          )
+        }
+      }
+    }
+  }
+
   // MARK: - Prompt customization
 
   @ViewBuilder
   private var promptCustomizationSection: some View {
     switch viewModel.currentProvider {
+    case "minimax":
+      promptSection(
+        title: "MiniMax prompt customization",
+        subtitle: "Override Dayflow's defaults to tailor card generation.",
+        intro:
+          "Overrides apply only when their toggle is on. Unchecked sections fall back to Dayflow's defaults.",
+        sections: [
+          promptEditorConfig(
+            heading: "Card titles",
+            description: "Shape how card titles read and tweak the example list.",
+            isEnabled: $viewModel.useCustomMiniMaxTitlePrompt,
+            text: $viewModel.minimaxTitlePromptText,
+            defaultText: MiniMaxPromptDefaults.titleBlock
+          ),
+          promptEditorConfig(
+            heading: "Card summaries",
+            description: "Control tone and style for the summary field.",
+            isEnabled: $viewModel.useCustomMiniMaxSummaryPrompt,
+            text: $viewModel.minimaxSummaryPromptText,
+            defaultText: MiniMaxPromptDefaults.summaryBlock
+          ),
+        ],
+        onReset: viewModel.resetMiniMaxPromptOverrides
+      )
     case "gemini":
       promptSection(
         title: "Gemini prompt customization",

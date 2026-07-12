@@ -10,6 +10,16 @@ class ProviderSetupState: ObservableObject {
   @Published var hasTestedConnection: Bool = false
   @Published var testSuccessful: Bool = false
   @Published var geminiModel: GeminiModel
+  /// Set by `configureSteps(for:)`. Used to scope API-key persistence and
+  /// any provider-specific UI branches.
+  @Published var activeProviderType: String = "gemini"
+  /// Keychain key for the current provider ("gemini" or "minimax").
+  var keychainKey: String {
+    switch activeProviderType {
+    case "minimax": return MiniMaxProvider.keychainKey
+    default: return "gemini"
+    }
+  }
   // Local engine configuration
   @Published var localEngine: LocalEngine = .lmstudio
   @Published var localBaseURL: String = LocalEngine.lmstudio.defaultBaseURL
@@ -64,6 +74,7 @@ class ProviderSetupState: ObservableObject {
   }
 
   func configureSteps(for provider: String) {
+    activeProviderType = provider
     switch provider {
     case "ollama":
       steps = [
@@ -127,6 +138,25 @@ class ProviderSetupState: ObservableObject {
       claudeCLIReport = nil
       isCheckingCLIStatus = false
       hasStartedCLICheck = false
+    case "minimax":
+      steps = [
+        SetupStep(
+          id: "getkey", title: "Get API key",
+          contentType: .apiKeyInstructions),
+        SetupStep(
+          id: "enterkey", title: "Enter API key",
+          contentType: .apiKeyInput),
+        SetupStep(
+          id: "verify", title: "Test connection",
+          contentType: .information(
+            "Test Connection",
+            "Click the button below to verify your API key works with MiniMax M3.")),
+        SetupStep(
+          id: "complete", title: "Complete",
+          contentType: .information(
+            "All set!",
+            "MiniMax M3 is now configured and ready to use with Dayflow.")),
+      ]
     default:  // gemini
       steps = [
         SetupStep(
@@ -220,12 +250,14 @@ class ProviderSetupState: ObservableObject {
       apiKey = cleaned
     }
 
-    let stored = KeychainManager.shared.store(cleaned, for: "gemini")
+    let stored = KeychainManager.shared.store(cleaned, for: keychainKey)
     if stored {
       geminiAPIKeySaveError = nil
       hasTestedConnection = false
       testSuccessful = false
-      persistGeminiModelSelection(source: source)
+      if activeProviderType == "gemini" {
+        persistGeminiModelSelection(source: source)
+      }
     } else {
       geminiAPIKeySaveError =
         "Couldn't save your API key to Keychain. Please unlock Keychain and try again."

@@ -111,8 +111,38 @@ final class ProvidersSettingsViewModel: ObservableObject {
     didSet { persistChatCLIPromptOverridesIfReady() }
   }
 
+  // MARK: - MiniMax (M3) provider state
+
+  @Published var selectedMiniMaxModel: String = MiniMaxProvider.defaultModelId {
+    didSet {
+      guard oldValue != selectedMiniMaxModel else { return }
+      UserDefaults.standard.set(selectedMiniMaxModel, forKey: "llmMiniMaxModelId")
+    }
+  }
+  @Published var minimaxAPIKey: String = "" {
+    didSet {
+      guard oldValue != minimaxAPIKey else { return }
+      MiniMaxAPIHelper.setAPIKey(minimaxAPIKey)
+    }
+  }
+  @Published var minimaxPromptOverridesLoaded = false
+  @Published var isUpdatingMiniMaxPromptState = false
+  @Published var useCustomMiniMaxTitlePrompt = false {
+    didSet { persistMiniMaxPromptOverridesIfReady() }
+  }
+  @Published var useCustomMiniMaxSummaryPrompt = false {
+    didSet { persistMiniMaxPromptOverridesIfReady() }
+  }
+  @Published var minimaxTitlePromptText = MiniMaxPromptDefaults.titleBlock {
+    didSet { persistMiniMaxPromptOverridesIfReady() }
+  }
+  @Published var minimaxSummaryPromptText = MiniMaxPromptDefaults.summaryBlock {
+    didSet { persistMiniMaxPromptOverridesIfReady() }
+  }
+
   private var hasLoadedProvider = false
   private var savedGeminiModel: GeminiModel
+  private var savedMiniMaxModel: String = MiniMaxProvider.defaultModelId
   private var pendingSetupRole: ProviderRoutingRole?
   private var pendingSetupDisplayProviderId: String?
 
@@ -120,6 +150,11 @@ final class ProvidersSettingsViewModel: ObservableObject {
     let preference = GeminiModelPreference.load()
     selectedGeminiModel = preference.primary
     savedGeminiModel = preference.primary
+
+    let minimaxPref = MiniMaxModelPreference.load()
+    selectedMiniMaxModel = minimaxPref.modelId
+    savedMiniMaxModel = minimaxPref.modelId
+    minimaxAPIKey = KeychainManager.shared.retrieve(for: MiniMaxProvider.keychainKey) ?? ""
 
     let rawEngine = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
     let engine = LocalEngine(rawValue: rawEngine) ?? .ollama
@@ -153,6 +188,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
     loadGeminiPromptOverridesIfNeeded()
     loadOllamaPromptOverridesIfNeeded()
     loadChatCLIPromptOverridesIfNeeded()
+    loadMiniMaxPromptOverridesIfNeeded()
   }
 
   func handleLocalTestCompletion() {
@@ -181,6 +217,8 @@ final class ProvidersSettingsViewModel: ObservableObject {
       loadOllamaPromptOverridesIfNeeded(force: true)
     } else if provider == "chatgpt_claude" {
       loadChatCLIPromptOverridesIfNeeded(force: true)
+    } else if provider == "minimax" {
+      loadMiniMaxPromptOverridesIfNeeded(force: true)
     }
     refreshUpgradeBannerState()
   }
@@ -261,6 +299,11 @@ final class ProvidersSettingsViewModel: ObservableObject {
       currentProvider = "ollama"
     case .chatGPTClaude:
       currentProvider = "chatgpt_claude"
+    case .minimax:
+      currentProvider = "minimax"
+      let preference = MiniMaxModelPreference.load()
+      selectedMiniMaxModel = preference.modelId
+      savedMiniMaxModel = preference.modelId
     }
     hasLoadedProvider = true
   }
@@ -759,6 +802,14 @@ final class ProvidersSettingsViewModel: ObservableObject {
         badgeType: .green,
         icon: "desktopcomputer"
       ),
+      CompactProviderInfo(
+        id: "minimax",
+        title: "MiniMax M3",
+        summary: "Frontier multimodal model • 1M-token context • paid API key",
+        badgeText: "NEW",
+        badgeType: .orange,
+        icon: "sparkles"
+      ),
     ]
   }
 
@@ -790,6 +841,9 @@ final class ProvidersSettingsViewModel: ObservableObject {
       return chatCLIStatusLabel()
     case "dayflow":
       return isDayflowProActive ? "Dayflow Pro active" : "Requires Dayflow Pro"
+    case "minimax":
+      let displayModel = selectedMiniMaxModel.isEmpty ? MiniMaxProvider.defaultModelId : selectedMiniMaxModel
+      return "MiniMax M3 – \(displayModel)"
     default:
       return nil
     }
@@ -820,6 +874,8 @@ final class ProvidersSettingsViewModel: ObservableObject {
       return "ChatGPT / Claude CLI"
     case "dayflow":
       return "Dayflow Backend"
+    case "minimax":
+      return "MiniMax API"
     default:
       return "Diagnostics"
     }
@@ -837,6 +893,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
       }
       return "ChatGPT or Claude"
     case "dayflow": return "Dayflow Pro"
+    case "minimax": return "MiniMax M3"
     default: return id.capitalized
     }
   }

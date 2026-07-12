@@ -90,6 +90,15 @@ struct OnboardingPrototypeChooseProviderStep: View {
       notes: "Uses Gemini free tier."
     ),
     ComparisonProvider(
+      id: "minimax",
+      title: "MiniMax M3",
+      selectionName: "MiniMax M3",
+      accuracy: RatedValue(text: "Best", rating: .best),
+      subscription: "MiniMax Token Plan",
+      ease: RatedValue(text: "API key", rating: .medium),
+      notes: "Frontier multimodal model • 1M-token context window • native image & video understanding."
+    ),
+    ComparisonProvider(
       id: "local",
       title: "Local AI",
       selectionName: "Local AI",
@@ -219,7 +228,7 @@ struct OnboardingPrototypeChooseProviderStep: View {
         }
       }
     }
-    .frame(maxWidth: 1060)
+    .frame(maxWidth: 1280)
   }
 
   private var emptyLabelCell: some View {
@@ -272,6 +281,8 @@ struct OnboardingPrototypeChooseProviderStep: View {
       }
     case "gemini":
       iconCircle(imageName: "GeminiLogo")
+    case "minimax":
+      iconCircle(systemName: "sparkles")
     default:
       iconCircle(systemName: "laptopcomputer")
     }

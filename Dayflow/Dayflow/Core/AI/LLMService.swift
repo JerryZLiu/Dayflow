@@ -110,6 +110,25 @@ final class LLMService: LLMServicing {
     OllamaProvider(endpoint: endpoint)
   }
 
+  private func makeMiniMaxProvider() -> MiniMaxProvider? {
+    if let apiKey = KeychainManager.shared.retrieve(for: MiniMaxProvider.keychainKey),
+      !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      let preference = MiniMaxModelPreference.load()
+      let provider = MiniMaxProvider()
+      if preference.hasUserOverride || preference.modelId != MiniMaxProvider.defaultModelId {
+        UserDefaults.standard.set(preference.modelId, forKey: "llmMiniMaxModelId")
+      }
+      print(
+        "🔐 [LLMService] MiniMax provider ready endpoint=\(provider.endpoint) model=\(provider.savedModelId)"
+      )
+      return provider
+    } else {
+      print("❌ [LLMService] Failed to retrieve MiniMax API key from Keychain")
+      return nil
+    }
+  }
+
   private func makeChatCLIProvider(preferredToolOverride: ChatCLITool? = nil) -> ChatCLIProvider {
     let tool: ChatCLITool
     if let preferredToolOverride {
@@ -228,6 +247,14 @@ final class LLMService: LLMServicing {
       )
     case .chatGPTClaude:
       let provider = makeChatCLIProvider(preferredToolOverride: chatToolOverride)
+      return (
+        actions: BatchProviderActions(
+          transcribeScreenshots: provider.transcribeScreenshots,
+          generateActivityCards: provider.generateActivityCards
+        ), fallbackState: nil
+      )
+    case .minimax:
+      guard let provider = makeMiniMaxProvider() else { throw noProviderError() }
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
@@ -519,6 +546,14 @@ final class LLMService: LLMServicing {
           try await provider.generateText(prompt: prompt)
         },
         generateTextStreaming: provider.generateTextStreaming
+      )
+    case .minimax:
+      guard let provider = makeMiniMaxProvider() else { throw noProviderError() }
+      return TextProviderActions(
+        generateText: { prompt in
+          try await provider.generateText(prompt: prompt)
+        },
+        generateTextStreaming: nil
       )
     }
   }

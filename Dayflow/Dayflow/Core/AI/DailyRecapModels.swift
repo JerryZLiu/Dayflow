@@ -49,6 +49,8 @@ enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
       return preferredTool == "claude" ? .claude : .chatgpt
     case .ollamaLocal:
       return .local
+    case .minimax:
+      return .gemini  // Daily recap falls back to gemini for now; explicit override available
     }
   }
 

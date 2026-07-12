@@ -15,9 +15,16 @@ struct LLMProviderSetupView: View {
       return "Use local AI"
     case "chatgpt_claude":
       return "Connect ChatGPT or Claude"
+    case "minimax":
+      return "MiniMax M3"
     default:
       return "Gemini"
     }
+  }
+
+  /// True for cloud providers that share the same "API key" setup flow shape.
+  var isCloudAPIKeyProvider: Bool {
+    activeProviderType == "gemini" || activeProviderType == "minimax"
   }
 
   // Layout constants
@@ -327,8 +334,10 @@ struct LLMProviderSetupView: View {
         APIKeyInputView(
           apiKey: $setupState.apiKey,
           title: "Enter your API key:",
-          subtitle: "Paste your Gemini API key below",
-          placeholder: "AQ...",
+          subtitle: activeProviderType == "minimax"
+            ? "Paste your MiniMax API key below"
+            : "Paste your Gemini API key below",
+          placeholder: activeProviderType == "minimax" ? "ey..." : "AQ...",
           onValidate: { key in
             key.components(separatedBy: .whitespacesAndNewlines).joined().count > 10
           }
@@ -359,27 +368,38 @@ struct LLMProviderSetupView: View {
           )
         }
 
-        VStack(alignment: .leading, spacing: 12) {
-          Text(
-            "Choose your Gemini model. We recommend 3.5 Flash, with 3.1 Flash-Lite available as a fallback."
-          )
-          .font(.custom("Figtree", size: 16))
-          .fontWeight(.semibold)
-          .foregroundColor(.black.opacity(0.85))
+        if activeProviderType == "gemini" {
+          VStack(alignment: .leading, spacing: 12) {
+            Text(
+              "Choose your Gemini model. We recommend 3.5 Flash, with 3.1 Flash-Lite available as a fallback."
+            )
+            .font(.custom("Figtree", size: 16))
+            .fontWeight(.semibold)
+            .foregroundColor(.black.opacity(0.85))
 
-          Picker("Gemini model", selection: $setupState.geminiModel) {
-            ForEach(GeminiModel.allCases, id: \.self) { model in
-              Text(model.shortLabel).tag(model)
+            Picker("Gemini model", selection: $setupState.geminiModel) {
+              ForEach(GeminiModel.allCases, id: \.self) { model in
+                Text(model.shortLabel).tag(model)
+              }
             }
-          }
-          .pickerStyle(.segmented)
+            .pickerStyle(.segmented)
 
-          Text(GeminiModelPreference(primary: setupState.geminiModel).fallbackSummary)
-            .font(.custom("Figtree", size: 13))
-            .foregroundColor(.black.opacity(0.55))
-        }
-        .onChange(of: setupState.geminiModel) {
-          setupState.persistGeminiModelSelection(source: "onboarding_picker")
+            Text(GeminiModelPreference(primary: setupState.geminiModel).fallbackSummary)
+              .font(.custom("Figtree", size: 13))
+              .foregroundColor(.black.opacity(0.55))
+          }
+          .onChange(of: setupState.geminiModel) {
+            setupState.persistGeminiModelSelection(source: "onboarding_picker")
+          }
+        } else if activeProviderType == "minimax" {
+          VStack(alignment: .leading, spacing: 12) {
+            Text(
+              "Dayflow defaults to the MiniMax M3 model (1M-token context, multimodal). You can switch to M2.7 or another M-series model in Settings → Providers after setup."
+            )
+            .font(.custom("Figtree", size: 14))
+            .foregroundColor(.black.opacity(0.65))
+            .fixedSize(horizontal: false, vertical: true)
+          }
         }
 
         HStack {
@@ -448,6 +468,17 @@ struct LLMProviderSetupView: View {
             if title == "Testing" || title == "Test Connection" {
               if providerType == "gemini" {
                 TestConnectionView(
+                  providerID: "gemini",
+                  keychainKey: "gemini",
+                  onTestComplete: { success in
+                    setupState.hasTestedConnection = true
+                    setupState.testSuccessful = success
+                  }
+                )
+              } else if providerType == "minimax" {
+                TestConnectionView(
+                  providerID: "minimax",
+                  keychainKey: MiniMaxProvider.keychainKey,
                   onTestComplete: { success in
                     setupState.hasTestedConnection = true
                     setupState.testSuccessful = success
@@ -523,13 +554,17 @@ struct LLMProviderSetupView: View {
     case .apiKeyInstructions:
       VStack(alignment: .leading, spacing: 24) {
         VStack(alignment: .leading, spacing: 8) {
-          Text("Get your Gemini API key")
+          Text(activeProviderType == "minimax"
+              ? "Get your MiniMax API key"
+              : "Get your Gemini API key")
             .font(.custom("Figtree", size: 24))
             .fontWeight(.semibold)
             .foregroundColor(.black.opacity(0.9))
 
           Text(
-            "allows you to run Dayflow for free. All you need is a Google account - no credit card required."
+            activeProviderType == "minimax"
+              ? "powers Dayflow with MiniMax's frontier M3 model. Subscribe to a Token Plan and top up tokens to receive an API key — pay-as-you-go pricing applies after that."
+              : "allows you to run Dayflow for free. All you need is a Google account - no credit card required."
           )
           .font(.custom("Figtree", size: 14))
           .foregroundColor(.black.opacity(0.6))
@@ -542,11 +577,15 @@ struct LLMProviderSetupView: View {
               .foregroundColor(.black.opacity(0.6))
               .frame(width: 20, alignment: .leading)
 
-            Button(action: openGoogleAIStudio) {
-              Text("Visit Google AI Studio ")
-                .font(.custom("Figtree", size: 14))
-                .foregroundColor(.black.opacity(0.8))
-                + Text("(aistudio.google.com)")
+            Button(action: openProviderPortal) {
+              Text(
+                activeProviderType == "minimax"
+                  ? "Visit the MiniMax Token Plan page "
+                  : "Visit Google AI Studio "
+              )
+              .font(.custom("Figtree", size: 14))
+              .foregroundColor(.black.opacity(0.8))
+              + Text(providerPortalURLDisplay)
                 .font(.custom("Figtree", size: 14))
                 .foregroundColor(Color(red: 1, green: 0.42, blue: 0.02))
                 .underline()
@@ -561,9 +600,13 @@ struct LLMProviderSetupView: View {
               .foregroundColor(.black.opacity(0.6))
               .frame(width: 20, alignment: .leading)
 
-            Text("Click \"Create API key\" in the top right")
-              .font(.custom("Figtree", size: 14))
-              .foregroundColor(.black.opacity(0.8))
+            Text(
+              activeProviderType == "minimax"
+                ? "Subscribe to a Token Plan and generate an API key"
+                : "Click \"Create API key\" in the top right"
+            )
+            .font(.custom("Figtree", size: 14))
+            .foregroundColor(.black.opacity(0.8))
           }
 
           HStack(alignment: .top, spacing: 12) {
@@ -572,22 +615,31 @@ struct LLMProviderSetupView: View {
               .foregroundColor(.black.opacity(0.6))
               .frame(width: 20, alignment: .leading)
 
-            Text("Create a new API key and copy it")
-              .font(.custom("Figtree", size: 14))
-              .foregroundColor(.black.opacity(0.8))
+            Text(
+              activeProviderType == "minimax"
+                ? "Copy the API key and paste it on the next step"
+                : "Create a new API key and copy it"
+            )
+            .font(.custom("Figtree", size: 14))
+            .foregroundColor(.black.opacity(0.8))
           }
         }
         .padding(.vertical, 12)
 
-        // Buttons row with Open Google AI Studio on left, Next on right
+        // Buttons row with Open provider portal on left, Next on right
         HStack {
           DayflowSurfaceButton(
-            action: openGoogleAIStudio,
+            action: openProviderPortal,
             content: {
               HStack(spacing: 8) {
                 Image(systemName: "safari").font(.system(size: 14))
-                Text("Open Google AI Studio").font(.custom("Figtree", size: 14)).fontWeight(
-                  .semibold)
+                Text(
+                  activeProviderType == "minimax"
+                    ? "Open MiniMax Token Plan"
+                    : "Open Google AI Studio"
+                )
+                .font(.custom("Figtree", size: 14))
+                .fontWeight(.semibold)
               }
             },
             background: Color(red: 0.25, green: 0.17, blue: 0),
@@ -634,11 +686,18 @@ struct LLMProviderSetupView: View {
   }
 
   func saveConfiguration() {
-    // Save API key to keychain for Gemini
-    if activeProviderType == "gemini" && !setupState.apiKey.isEmpty {
+    // Save API key to keychain for cloud API providers
+    if isCloudAPIKeyProvider, !setupState.apiKey.isEmpty {
       let cleanedKey = setupState.apiKey.components(separatedBy: .whitespacesAndNewlines).joined()
-      KeychainManager.shared.store(cleanedKey, for: "gemini")
-      GeminiModelPreference(primary: setupState.geminiModel).save()
+      KeychainManager.shared.store(cleanedKey, for: setupState.keychainKey)
+      if activeProviderType == "gemini" {
+        GeminiModelPreference(primary: setupState.geminiModel).save()
+      } else if activeProviderType == "minimax" {
+        // Default the model to MiniMax-M3 on first run; user can change it later in Settings.
+        MiniMaxModelPreference(modelId: MiniMaxProvider.defaultModelId, hasUserOverride: false)
+          .persist()
+        UserDefaults.standard.set(MiniMaxProvider.defaultModelId, forKey: "llmMiniMaxModelId")
+      }
     }
 
     // Save local endpoint for local engine selection
@@ -677,6 +736,30 @@ struct LLMProviderSetupView: View {
   func openGoogleAIStudio() {
     if let url = URL(string: "https://aistudio.google.com/app/apikey") {
       NSWorkspace.shared.open(url)
+    }
+  }
+
+  /// Opens the provider's API-key portal — works for both Gemini and MiniMax.
+  func openProviderPortal() {
+    let urlString: String
+    switch activeProviderType {
+    case "minimax":
+      urlString = "https://platform.minimax.io/user-center/payment/token-plan"
+    default:
+      urlString = "https://aistudio.google.com/app/apikey"
+    }
+    if let url = URL(string: urlString) {
+      NSWorkspace.shared.open(url)
+    }
+  }
+
+  /// Short display string for the inline link in the instructions step.
+  var providerPortalURLDisplay: String {
+    switch activeProviderType {
+    case "minimax":
+      return "(platform.minimax.io)"
+    default:
+      return "(aistudio.google.com)"
     }
   }
 
