@@ -20,6 +20,24 @@ extension MainView {
     }
   }
 
+  func handleTitleChange(to newTitle: String, for activity: TimelineActivity) {
+    let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+
+    // Optimistically update the selected activity so the UI reflects the change immediately.
+    selectedActivity = activity.withTitle(trimmed)
+
+    // Ask the timeline list to refresh so other cards stay in sync.
+    refreshActivitiesTrigger &+= 1
+
+    guard let recordId = activity.recordId else { return }
+
+    // Persist the change off the main actor to avoid blocking UI interactions.
+    Task.detached(priority: .userInitiated) {
+      StorageManager.shared.updateTimelineCardTitle(cardId: recordId, title: trimmed)
+    }
+  }
+
   func handleTimelineRating(_ direction: TimelineRatingDirection) {
     guard let activity = selectedActivity else { return }
 
