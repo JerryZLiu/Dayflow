@@ -693,6 +693,11 @@ final class ProvidersSettingsViewModel: ObservableObject {
         return !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       }
       return UserDefaults.standard.bool(forKey: "geminiSetupComplete")
+    case "minimax":
+      if let key = KeychainManager.shared.retrieve(for: MiniMaxProvider.keychainKey) {
+        return !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      }
+      return UserDefaults.standard.bool(forKey: "minimaxSetupComplete")
     case "ollama":
       if UserDefaults.standard.bool(forKey: "ollamaSetupComplete") {
         return true
