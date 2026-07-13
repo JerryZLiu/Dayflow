@@ -10,6 +10,7 @@ struct ActivityCard: View {
   var scrollSummary: Bool = false
   var hasAnyActivities: Bool = true
   var onCategoryChange: ((TimelineCategory, TimelineActivity) -> Void)? = nil
+  var onTitleChange: ((String, TimelineActivity) -> Void)? = nil
   var onNavigateToCategoryEditor: (() -> Void)? = nil
   var onRetryBatchCompleted: ((Int64) -> Void)? = nil
   @EnvironmentObject private var appState: AppState
@@ -19,6 +20,10 @@ struct ActivityCard: View {
     false
 
   @State private var showCategoryPicker = false
+  @State private var isEditingTitle = false
+  @State private var draftTitle = ""
+  @State private var isHoveringTitle = false
+  @FocusState private var titleFieldFocused: Bool
   @State private var isPreparingSlideshow = false
   @State private var slideshowError: String?
   @State private var slideshowRequestID = 0
@@ -72,6 +77,8 @@ struct ActivityCard: View {
       }
       .onChange(of: activity.id) {
         showCategoryPicker = false
+        isEditingTitle = false
+        isHoveringTitle = false
         isPreparingSlideshow = false
         slideshowError = nil
         slideshowRequestID &+= 1
@@ -153,12 +160,7 @@ struct ActivityCard: View {
       // Header
       HStack(alignment: .center) {
         VStack(alignment: .leading, spacing: 6) {
-          Text(activity.title)
-            .font(
-              Font.custom("Figtree", size: 16)
-                .weight(.semibold)
-            )
-            .foregroundColor(.black)
+          titleView(for: activity)
 
           HStack(alignment: .center, spacing: 6) {
             Text(
@@ -280,6 +282,66 @@ struct ActivityCard: View {
         }
       }
     }
+  }
+
+  @ViewBuilder
+  private func titleView(for activity: TimelineActivity) -> some View {
+    if isEditingTitle {
+      TextField("Title", text: $draftTitle)
+        .textFieldStyle(.plain)
+        .font(
+          Font.custom("Figtree", size: 16)
+            .weight(.semibold)
+        )
+        .foregroundColor(.black)
+        .focused($titleFieldFocused)
+        .onSubmit { commitTitleEdit(for: activity) }
+        .onExitCommand { isEditingTitle = false }
+        .onChange(of: titleFieldFocused) {
+          // Losing focus commits, matching Finder's rename behavior.
+          if !titleFieldFocused && isEditingTitle {
+            commitTitleEdit(for: activity)
+          }
+        }
+    } else {
+      HStack(alignment: .center, spacing: 6) {
+        Text(activity.title)
+          .font(
+            Font.custom("Figtree", size: 16)
+              .weight(.semibold)
+          )
+          .foregroundColor(.black)
+          .onTapGesture(count: 2) { startTitleEdit(for: activity) }
+
+        if isHoveringTitle && !isFailedCard(activity) {
+          Button(action: { startTitleEdit(for: activity) }) {
+            Image(systemName: "pencil")
+              .font(.system(size: 12, weight: .medium))
+              .foregroundColor(Color(red: 0.55, green: 0.55, blue: 0.55))
+          }
+          .buttonStyle(PlainButtonStyle())
+          .pointingHandCursorOnHover(reassertOnPressEnd: true)
+          .accessibilityLabel(Text("Edit title"))
+        }
+      }
+      .onHover { hovering in
+        isHoveringTitle = hovering
+      }
+    }
+  }
+
+  private func startTitleEdit(for activity: TimelineActivity) {
+    guard !isFailedCard(activity) else { return }
+    draftTitle = activity.title
+    isEditingTitle = true
+    titleFieldFocused = true
+  }
+
+  private func commitTitleEdit(for activity: TimelineActivity) {
+    isEditingTitle = false
+    let trimmed = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, trimmed != activity.title else { return }
+    onTitleChange?(trimmed, activity)
   }
 
   @ViewBuilder
