@@ -125,6 +125,131 @@ final class ProvidersSettingsViewModel: ObservableObject {
       MiniMaxAPIHelper.setAPIKey(minimaxAPIKey)
     }
   }
+
+  // MARK: - Model catalog (live + curated, all providers)
+
+  /// Per-provider snapshot of available models, fetched from the provider API
+  /// or from a curated fallback list when the API isn't reachable.
+  @Published private(set) var modelSnapshots: [String: ModelListSnapshot] = [:]
+
+  /// In-flight provider IDs (UI uses this to spin a refresh button).
+  @Published private(set) var refreshingProviderIDs: Set<String> = []
+
+  /// User-selected model per provider. Mirrors the existing per-provider
+  /// `selected*Model` properties but is the source of truth that the
+  /// settings UI binds to.
+  @Published var selectedCodexModel: String = "gpt-4o" {
+    didSet { UserDefaults.standard.set(selectedCodexModel, forKey: "llmCodexModel") }
+  }
+  @Published var selectedClaudeModel: String = "claude-sonnet-4-5" {
+    didSet { UserDefaults.standard.set(selectedClaudeModel, forKey: "llmClaudeModel") }
+  }
+
+  /// All models for a provider, or an empty array if we haven't fetched yet.
+  func models(for providerID: String) -> [LLMModelOption] {
+    modelSnapshots[providerID]?.models ?? []
+  }
+
+  func isRefreshing(_ providerID: String) -> Bool {
+    refreshingProviderIDs.contains(providerID)
+  }
+
+  /// The currently effective model for the active provider — i.e. what gets
+  /// sent on the wire. This is the single source of truth the LLMService
+  /// and ChatService read from.
+  var effectiveModelForCurrentProvider: String {
+    switch currentProvider {
+    case "gemini": return selectedGeminiModel.rawValue
+    case "minimax": return selectedMiniMaxModel
+    case "ollama": return localModelId
+    case "chatgpt_claude":
+      switch preferredCLITool {
+      case .codex?: return selectedCodexModel
+      case .claude?: return selectedClaudeModel
+      case .none: return selectedClaudeModel  // safe default
+      }
+    case "dayflow": return "dayflow-managed"
+    default: return ""
+    }
+  }
+
+  /// Fetch (or re-fetch) the model list for a provider. Cheap if the cached
+  /// list is < 24h old and `force == false`.
+  func refreshModels(for providerID: String, force: Bool = false) async {
+    if !force, let cached = modelSnapshots[providerID], !cached.isStale { return }
+    if refreshingProviderIDs.contains(providerID) { return }
+    refreshingProviderIDs.insert(providerID)
+    defer { refreshingProviderIDs.remove(providerID) }
+    do {
+      let snapshot = try await ModelCatalog.shared.refresh(for: providerID)
+      await MainActor.run {
+        self.modelSnapshots[providerID] = snapshot
+        // If the currently-selected model is no longer in the catalog, fall
+        // back to the recommended one so the LLMService never sends a stale ID.
+        let activeID = self.activeModelID(for: providerID)
+        if !snapshot.models.isEmpty,
+          !snapshot.models.contains(where: { $0.id == activeID })
+        {
+          if let recommended = snapshot.models.first(where: { $0.isRecommended })
+            ?? snapshot.models.first
+          {
+            self.applyModelSelectionChange(recommended.id, for: providerID)
+          }
+        }
+      }
+    } catch {
+      // The catalog already returns a curated fallback on error, but if
+      // even that throws we just log and keep the previous snapshot.
+      print("[ProvidersSettingsViewModel] refreshModels(\(providerID)) failed: \(error)")
+    }
+  }
+
+  /// Refresh every provider that has a fetcher implemented. Called on
+  /// `handleOnAppear` so the settings page has up-to-date lists the moment
+  /// the user opens it.
+  func refreshAllProviderModels() async {
+    await withTaskGroup(of: Void.self) { group in
+      for id in ["gemini", "minimax", "ollama", "codex", "claude"] {
+        group.addTask { await self.refreshModels(for: id) }
+      }
+    }
+  }
+
+  /// When the user picks a model in the picker, persist it to the right
+  /// backing field. Mirrors the per-provider setter behaviour so the
+  /// existing `selectedGeminiModel.didSet` etc. keeps firing.
+  func setSelectedModel(_ modelID: String, for providerID: String) {
+    applyModelSelectionChange(modelID, for: providerID)
+  }
+
+  func activeModelID(for providerID: String) -> String {
+    switch providerID {
+    case "gemini": return selectedGeminiModel.rawValue
+    case "minimax": return selectedMiniMaxModel
+    case "ollama": return localModelId
+    case "codex": return selectedCodexModel
+    case "claude": return selectedClaudeModel
+    default: return ""
+    }
+  }
+
+  func applyModelSelectionChange(_ modelID: String, for providerID: String) {
+    switch providerID {
+    case "gemini":
+      if let model = GeminiModel(rawValue: modelID) {
+        selectedGeminiModel = model
+      }
+    case "minimax":
+      selectedMiniMaxModel = modelID
+    case "ollama":
+      localModelId = modelID
+    case "codex":
+      selectedCodexModel = modelID
+    case "claude":
+      selectedClaudeModel = modelID
+    default: break
+    }
+  }
   @Published var minimaxPromptOverridesLoaded = false
   @Published var isUpdatingMiniMaxPromptState = false
   @Published var useCustomMiniMaxTitlePrompt = false {
@@ -176,6 +301,27 @@ final class ProvidersSettingsViewModel: ObservableObject {
     } else {
       preferredCLITool = nil
     }
+
+    // Load the persisted ChatCLI model selections (codex + claude).
+    if let codex = UserDefaults.standard.string(forKey: "llmCodexModel"),
+      !codex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      selectedCodexModel = codex
+    }
+    if let claude = UserDefaults.standard.string(forKey: "llmClaudeModel"),
+      !claude.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      selectedClaudeModel = claude
+    }
+
+    // Hydrate the in-memory model-snapshot cache from UserDefaults so the
+    // settings picker has *something* to show on the very first render
+    // (before the background refresh completes).
+    if let data = UserDefaults.standard.data(forKey: "llmModelCatalogCache.v1"),
+      let decoded = try? JSONDecoder().decode([String: ModelListSnapshot].self, from: data)
+    {
+      modelSnapshots = decoded
+    }
   }
 
   func handleOnAppear() {
@@ -189,6 +335,9 @@ final class ProvidersSettingsViewModel: ObservableObject {
     loadOllamaPromptOverridesIfNeeded()
     loadChatCLIPromptOverridesIfNeeded()
     loadMiniMaxPromptOverridesIfNeeded()
+    // Kick off background model-list refreshes for every provider. The UI
+    // re-renders the picker as each snapshot lands in `modelSnapshots`.
+    Task { await refreshAllProviderModels() }
   }
 
   func handleLocalTestCompletion() {

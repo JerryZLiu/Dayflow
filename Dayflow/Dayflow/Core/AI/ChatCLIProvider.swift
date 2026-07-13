@@ -25,9 +25,14 @@ final class ChatCLIProvider {
   let tool: ChatCLITool
   let runner = ChatCLIProcessRunner()
   let config = ChatCLIConfigManager.shared
+  /// When non-nil, this overrides whatever the CLI would otherwise pick as its
+  /// default model. The `LLMService` populates it from `UserDefaults`
+  /// (key: `llmCodexModel` / `llmClaudeModel`) based on which tool is active.
+  let defaultModel: String?
 
-  init(tool: ChatCLITool) {
+  init(tool: ChatCLITool, defaultModel: String? = nil) {
     self.tool = tool
+    self.defaultModel = defaultModel
     config.ensureWorkingDirectory()
   }
 

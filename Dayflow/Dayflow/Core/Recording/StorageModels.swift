@@ -115,6 +115,12 @@ struct TimelineCard: Codable, Sendable, Identifiable {
   let otherVideoSummaryURLs: [String]?  // For merged cards, subsequent video URLs
   let appSites: AppSites?
   let isBackupGenerated: Bool?
+  /// Which Dayflow provider produced this card. Persisted so the timeline
+  /// can show the badge without having to re-derive it. Optional for
+  /// backward-compatibility with rows saved before this field existed.
+  let providerId: String?
+  /// Which model the provider used.
+  let modelId: String?
 
   init(
     id: UUID = UUID(),
@@ -132,7 +138,9 @@ struct TimelineCard: Codable, Sendable, Identifiable {
     videoSummaryURL: String?,
     otherVideoSummaryURLs: [String]?,
     appSites: AppSites?,
-    isBackupGenerated: Bool? = nil
+    isBackupGenerated: Bool? = nil,
+    providerId: String? = nil,
+    modelId: String? = nil
   ) {
     self.id = id
     self.recordId = recordId
@@ -150,6 +158,8 @@ struct TimelineCard: Codable, Sendable, Identifiable {
     self.otherVideoSummaryURLs = otherVideoSummaryURLs
     self.appSites = appSites
     self.isBackupGenerated = isBackupGenerated
+    self.providerId = providerId
+    self.modelId = modelId
   }
 }
 
@@ -234,6 +244,12 @@ struct TimelineCardShell: Sendable {
   let appSites: AppSites?
   let isBackupGenerated: Bool?
   let idleMetadata: IdleCardMetadata?
+  /// Which Dayflow provider produced this card (e.g. "minimax"). Optional
+  /// for backward-compatibility with cards saved before the dashboard feature.
+  let providerId: String?
+  /// Which model the provider used (e.g. "MiniMax-M3"). Optional for the
+  /// same backward-compat reason.
+  let modelId: String?
   // No videoSummaryURL here, as it's added later
   // No batchId here, as it's passed as a separate parameter to the save function
 
@@ -248,7 +264,9 @@ struct TimelineCardShell: Sendable {
     distractions: [Distraction]?,
     appSites: AppSites?,
     isBackupGenerated: Bool? = nil,
-    idleMetadata: IdleCardMetadata? = nil
+    idleMetadata: IdleCardMetadata? = nil,
+    providerId: String? = nil,
+    modelId: String? = nil
   ) {
     self.startTimestamp = startTimestamp
     self.endTimestamp = endTimestamp
@@ -261,6 +279,8 @@ struct TimelineCardShell: Sendable {
     self.appSites = appSites
     self.isBackupGenerated = isBackupGenerated
     self.idleMetadata = idleMetadata
+    self.providerId = providerId
+    self.modelId = modelId
   }
 }
 

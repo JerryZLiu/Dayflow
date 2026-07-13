@@ -148,7 +148,9 @@ enum TimelineActivityLoader {
           videoSummaryURL: card.videoSummaryURL,
           screenshot: nil,
           appSites: card.appSites,
-          isBackupGenerated: card.isBackupGenerated
+          isBackupGenerated: card.isBackupGenerated,
+          providerId: card.providerId,
+          modelId: card.modelId
         )
       )
     }

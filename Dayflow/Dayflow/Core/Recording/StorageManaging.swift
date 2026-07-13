@@ -31,6 +31,10 @@ protocol StorageManaging: Sendable {
   func fetchTimelineCards(forBatch batchId: Int64) -> [TimelineCard]
   func fetchTimelineCard(byId id: Int64) -> TimelineCardWithTimestamps?
   func fetchLastTimelineCard(endingBefore: Date) -> TimelineCardWithTimestamps?
+  /// All non-deleted timeline cards across all days. Used by the dashboard
+  /// statistics view. Order: by `start_ts` descending so recent activity
+  /// surfaces first.
+  func fetchAllTimelineCards() async -> [TimelineCard]
 
   // Timeline Queries
   func fetchTimelineCards(forDay day: String) -> [TimelineCard]

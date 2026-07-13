@@ -224,10 +224,12 @@ extension ChatCLIProvider {
     let effort: String?
     switch tool {
     case .claude:
-      model = "haiku"
+      // Prefer the user-selected model from Settings; fall back to "haiku"
+      // (the cheapest vision-capable Claude) for users who haven't picked one.
+      model = defaultModel ?? "haiku"
       effort = nil
     case .codex:
-      model = "gpt-5.4-mini"
+      model = defaultModel ?? "gpt-5.4-mini"
       effort = "low"
     }
 

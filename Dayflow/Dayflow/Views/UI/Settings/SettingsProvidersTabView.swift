@@ -33,6 +33,10 @@ struct SettingsProvidersTabView: View {
         geminiModelSection
       } else if viewModel.currentProvider == "minimax" {
         minimaxModelSection
+      } else if viewModel.currentProvider == "ollama" {
+        ollamaModelSection
+      } else if viewModel.currentProvider == "chatgpt_claude" {
+        chatCLIModelSection
       }
 
       promptCustomizationSection
@@ -299,91 +303,280 @@ struct SettingsProvidersTabView: View {
     }
   }
 
-  // MARK: - Gemini model preference
+  // MARK: - Model picker (unified, live + curated)
 
-  private var geminiModelSection: some View {
+  /// Generic model picker section used by Gemini, MiniMax, Ollama, Codex and
+  /// Claude. Shows the model list pulled by `ModelCatalog` and lets the user
+  /// refresh it on demand.
+  @ViewBuilder
+  private func modelPickerSection(providerID: String, title: String, subtitle: String)
+    -> some View
+  {
+    let models = viewModel.models(for: providerID)
+    let isRefreshing = viewModel.isRefreshing(providerID)
+    let snapshot = viewModel.modelSnapshots[providerID]
+    let source = snapshot?.source
+    let fetchedAt = snapshot?.fetchedAt
+    let fetchError = snapshot?.fetchError
+
     SettingsSection(
-      title: "Gemini model preference",
-      subtitle: "Choose which Gemini model Dayflow should prioritize."
+      title: title,
+      subtitle: subtitle
     ) {
       VStack(alignment: .leading, spacing: 14) {
-        Picker("Gemini model", selection: $viewModel.selectedGeminiModel) {
-          ForEach(GeminiModel.allCases, id: \.self) { model in
-            Text(model.displayName).tag(model)
+        HStack(alignment: .top, spacing: 8) {
+          Picker(
+            "Model",
+            selection: Binding(
+              get: { viewModel.activeModelID(for: providerID) },
+              set: { viewModel.setSelectedModel($0, for: providerID) }
+            )
+          ) {
+            ForEach(models) { model in
+              HStack(spacing: 6) {
+                Text(model.displayName)
+                if model.isRecommended {
+                  Text("•")
+                    .foregroundColor(.orange)
+                    .help("Recommended for Dayflow")
+                }
+                if model.isDeprecated {
+                  Text("(deprecated)")
+                    .foregroundColor(.secondary)
+                    .font(.caption2)
+                }
+              }
+              .tag(model.id)
+            }
+          }
+          .pickerStyle(.menu)
+          .labelsHidden()
+          .environment(\.colorScheme, .light)
+          .disabled(models.isEmpty)
+
+          Button(action: {
+            Task { await viewModel.refreshModels(for: providerID, force: true) }
+          }) {
+            if isRefreshing {
+              ProgressView().scaleEffect(0.6).frame(width: 16, height: 16)
+            } else {
+              Image(systemName: "arrow.clockwise")
+            }
+          }
+          .buttonStyle(.borderless)
+          .help("Refresh model list from the provider")
+          .disabled(isRefreshing)
+        }
+
+        if models.isEmpty {
+          Text("No models yet. Click the refresh button to fetch the current list.")
+            .font(.custom("Figtree", size: 12))
+            .foregroundColor(SettingsStyle.secondary)
+            .padding(.top, 4)
+        } else {
+          // SwiftUI's `ForEach` overload resolution picks the `Binding<C>`
+          // initializer whenever the first argument is a `let`-bound array
+          // inside a `@ViewBuilder`. To dodge that, we iterate with
+          // `Array(models.enumerated())` and a manual row view, so the
+          // compiler unambiguously sees the random-access overload.
+          VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(models.prefix(6)), id: \.id) { m in
+              modelRow(m)
+            }
+            if models.count > 6 {
+              Text("+ \(models.count - 6) more in the menu above")
+                .font(.custom("Figtree", size: 11))
+                .foregroundColor(SettingsStyle.meta)
+            }
+          }
+          .padding(.top, 4)
+        }
+
+        if let source {
+          HStack(spacing: 6) {
+            Image(systemName: source == .live ? "antenna.radiowaves.left.and.right" : "books.vertical")
+              .font(.system(size: 10))
+              .foregroundColor(source == .live ? .green : .orange)
+            Text(
+              source == .live
+                ? "Live model list from provider"
+                : "Curated list (provider endpoint unreachable)"
+            )
+            .font(.custom("Figtree", size: 10))
+            .foregroundColor(SettingsStyle.meta)
           }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .environment(\.colorScheme, .light)
-        .onChange(of: viewModel.selectedGeminiModel) { _, newValue in
-          viewModel.persistGeminiModelSelection(newValue, source: "settings")
+        if let fetchedAt {
+          Text(
+            "Last refreshed \(fetchedAt, style: .relative) ago"
+          )
+          .font(.custom("Figtree", size: 10))
+          .foregroundColor(SettingsStyle.meta)
         }
-
-        Text(GeminiModelPreference(primary: viewModel.selectedGeminiModel).fallbackSummary)
-          .font(.custom("Figtree", size: 12))
-          .foregroundColor(SettingsStyle.secondary)
-
-        Text(
-          "Dayflow automatically downgrades if your chosen model is rate limited or unavailable."
-        )
-        .font(.custom("Figtree", size: 11))
-        .foregroundColor(SettingsStyle.meta)
+        if let fetchError {
+          Text(
+            "Note: \(fetchError). Showing the curated fallback list."
+          )
+          .font(.custom("Figtree", size: 10))
+          .foregroundColor(.orange)
+        }
       }
     }
   }
 
-  // MARK: - MiniMax model preference
+  private func formatContextWindow(_ tokens: Int) -> String {
+    if tokens >= 1_000_000 {
+      let millions = Double(tokens) / 1_000_000
+      return String(format: "%.1fM context", millions)
+    }
+    if tokens >= 1_000 {
+      return "\(tokens / 1_000)K context"
+    }
+    return "\(tokens) tokens"
+  }
+
+  /// Renders one model row in the provider-picker preview.
+  @ViewBuilder
+  private func modelRow(_ model: LLMModelOption) -> some View {
+    HStack(spacing: 6) {
+      if model.visionCapable {
+        Image(systemName: "eye")
+          .font(.system(size: 10))
+          .foregroundColor(.green)
+          .help("Vision-capable (supports screen images)")
+      } else {
+        Image(systemName: "text.alignleft")
+          .font(.system(size: 10))
+          .foregroundColor(.secondary)
+      }
+      Text(model.id)
+        .font(.custom("Figtree", size: 11))
+        .foregroundColor(.secondary)
+      if let ctx = model.contextWindow {
+        Text("· \(formatContextWindow(ctx))")
+          .font(.custom("Figtree", size: 11))
+          .foregroundColor(SettingsStyle.meta)
+      }
+      if model.isRecommended {
+        Text("· recommended")
+          .font(.custom("Figtree", size: 11))
+          .foregroundColor(.orange)
+      }
+      if model.isDeprecated {
+        Text("· deprecated")
+          .font(.custom("Figtree", size: 11))
+          .foregroundColor(.red)
+      }
+    }
+  }
+
+  // MARK: - Gemini model preference (live picker)
+
+  private var geminiModelSection: some View {
+    modelPickerSection(
+      providerID: "gemini",
+      title: "Gemini model",
+      subtitle: "Choose which Gemini model Dayflow should use. Refresh fetches Google's current list."
+    )
+  }
+
+  // MARK: - MiniMax model preference (live picker)
 
   private var minimaxModelSection: some View {
-    SettingsSection(
+    modelPickerSection(
+      providerID: "minimax",
       title: "MiniMax M3 model",
-      subtitle: "Dayflow defaults to MiniMax-M3. You can switch to another M-series model below."
+      subtitle: "Dayflow defaults to MiniMax-M3. Switch to any M-series model from MiniMax's catalog."
+    )
+  }
+
+  // MARK: - Ollama model preference (live picker)
+
+  private var ollamaModelSection: some View {
+    modelPickerSection(
+      providerID: "ollama",
+      title: "Local model (Ollama / LM Studio)",
+      subtitle:
+        "Picks a model from the running local server. Dayflow recommends any Qwen3-VL variant."
+    )
+  }
+
+  // MARK: - ChatCLI model preference (live picker, tool-specific)
+
+  private var chatCLIModelSection: some View {
+    SettingsSection(
+      title: "ChatGPT / Claude model",
+      subtitle: "Dayflow launches the Codex CLI or Claude Code CLI for these providers."
     ) {
       VStack(alignment: .leading, spacing: 14) {
-        TextField(
-          "Model ID",
-          text: Binding(
-            get: { viewModel.selectedMiniMaxModel },
-            set: { viewModel.selectedMiniMaxModel = $0 }
-          )
-        )
-        .textFieldStyle(.roundedBorder)
-        .onSubmit {
-          let trimmed = viewModel.selectedMiniMaxModel.trimmingCharacters(in: .whitespacesAndNewlines)
-          if !trimmed.isEmpty {
-            var pref = MiniMaxModelPreference.load()
-            pref.setModelId(trimmed)
-            pref.persist()
-            UserDefaults.standard.set(trimmed, forKey: "llmMiniMaxModelId")
+        // Picker per CLI tool.
+        chatCLIToolModelPicker(tool: .codex)
+        chatCLIToolModelPicker(tool: .claude)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func chatCLIToolModelPicker(tool: CLITool) -> some View {
+    let providerID: String = (tool == .codex) ? "codex" : "claude"
+    let title: String = (tool == .codex) ? "ChatGPT (Codex CLI) model" : "Claude (Code CLI) model"
+    let models = viewModel.models(for: providerID)
+    let isRefreshing = viewModel.isRefreshing(providerID)
+
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(alignment: .center, spacing: 8) {
+        Text(title)
+          .font(.custom("Figtree", size: 12))
+          .fontWeight(.semibold)
+          .foregroundColor(SettingsStyle.text)
+        Spacer()
+        Button(action: {
+          Task { await viewModel.refreshModels(for: providerID, force: true) }
+        }) {
+          if isRefreshing {
+            ProgressView().scaleEffect(0.6).frame(width: 14, height: 14)
+          } else {
+            Image(systemName: "arrow.clockwise").font(.system(size: 11))
           }
         }
+        .buttonStyle(.borderless)
+        .help("Refresh \(title) list")
+        .disabled(isRefreshing)
+      }
 
-        Text(
-          "Common M-series model IDs: MiniMax-M3 (default), MiniMax-M2.7, MiniMax-M2.7-highspeed, MiniMax-M2.5."
+      Picker(
+        "Model",
+        selection: Binding(
+          get: { viewModel.activeModelID(for: providerID) },
+          set: { viewModel.setSelectedModel($0, for: providerID) }
         )
-        .font(.custom("Figtree", size: 12))
-        .foregroundColor(SettingsStyle.secondary)
-
-        HStack(spacing: 8) {
-          SettingsSecondaryButton(
-            title: "Reset to M3",
-            action: {
-              var pref = MiniMaxModelPreference.load()
-              pref.reset()
-              pref.persist()
-              viewModel.selectedMiniMaxModel = MiniMaxProvider.defaultModelId
-              UserDefaults.standard.set(MiniMaxProvider.defaultModelId, forKey: "llmMiniMaxModelId")
+      ) {
+        ForEach(models) { model in
+          HStack(spacing: 4) {
+            Text(model.displayName)
+            if model.isRecommended {
+              Text("•")
+                .foregroundColor(.orange)
+                .help("Recommended")
             }
-          )
-          SettingsSecondaryButton(
-            title: "Open MiniMax docs",
-            action: {
-              if let url = URL(string: "https://platform.minimax.io/docs/api-reference/text-openai-api") {
-                NSWorkspace.shared.open(url)
-              }
+            if model.isDeprecated {
+              Text("(deprecated)")
+                .foregroundColor(.secondary)
+                .font(.caption2)
             }
-          )
+          }
+          .tag(model.id)
         }
+      }
+      .pickerStyle(.menu)
+      .labelsHidden()
+      .environment(\.colorScheme, .light)
+      .disabled(models.isEmpty)
+
+      if models.isEmpty {
+        Text("No models yet. Click refresh to load.")
+          .font(.custom("Figtree", size: 11))
+          .foregroundColor(SettingsStyle.secondary)
       }
     }
   }

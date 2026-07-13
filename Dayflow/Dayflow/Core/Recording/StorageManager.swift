@@ -510,11 +510,14 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
                   detailed_summary TEXT,
                   metadata TEXT,             -- For distractions JSON
                   video_summary_url TEXT,    -- Link to video summary on filesystem
+                  provider_id TEXT,          -- Which Dayflow provider produced this card
+                  model_id TEXT,             -- Which model the provider used
                   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
               );
               CREATE INDEX IF NOT EXISTS idx_timeline_cards_day ON timeline_cards(day);
               CREATE INDEX IF NOT EXISTS idx_timeline_cards_start_ts ON timeline_cards(start_ts);
               CREATE INDEX IF NOT EXISTS idx_timeline_cards_time_range ON timeline_cards(start_ts, end_ts);
+              CREATE INDEX IF NOT EXISTS idx_timeline_cards_provider_model ON timeline_cards(provider_id, model_id);
 
               -- Timeline review ratings: stores time-based review segments
               CREATE TABLE IF NOT EXISTS timeline_review_ratings (
@@ -699,6 +702,23 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
 
         print("✅ Added is_deleted column and composite indexes to timeline_cards")
       }
+
+      // Migration: Add provider_id / model_id columns to timeline_cards.
+      // These are populated by the LLMService on every card produced going
+      // forward, and are read by the dashboard statistics view.
+      if !timelineCardsColumns.contains("provider_id") {
+        try db.execute(
+          sql: "ALTER TABLE timeline_cards ADD COLUMN provider_id TEXT;")
+      }
+      if !timelineCardsColumns.contains("model_id") {
+        try db.execute(
+          sql: "ALTER TABLE timeline_cards ADD COLUMN model_id TEXT;")
+      }
+      try db.execute(
+        sql: """
+              CREATE INDEX IF NOT EXISTS idx_timeline_cards_provider_model
+              ON timeline_cards(provider_id, model_id);
+          """)
 
       let screenshotColumns = try db.columns(in: "screenshots").map { $0.name }
       if !screenshotColumns.contains("idle_seconds_at_capture") {

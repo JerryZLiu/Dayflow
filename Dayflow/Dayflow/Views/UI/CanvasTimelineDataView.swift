@@ -107,6 +107,31 @@ struct CanvasTimelineDataView: View {
   // between triggers and keeps the body's inline closures tiny (fixes a
   // Swift type-checker timeout that appeared when each closure inlined its
   // own copy of this calculation).
+  /// Compact "provider · model" string used in the per-card badge.
+  private func providerBadge(for activity: TimelineActivity) -> String? {
+    let rawProvider = (activity.providerId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let rawModel = (activity.modelId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    if rawProvider.isEmpty && rawModel.isEmpty { return nil }
+    let providerLabel: String
+    switch rawProvider {
+    case "gemini": providerLabel = "Gemini"
+    case "minimax": providerLabel = "MiniMax"
+    case "ollama": providerLabel = "Local"
+    case "chatgpt_claude":
+      // For ChatGPT/Claude CLI we also want to surface *which* tool produced
+      // the card. Fall back to a generic label if the model id doesn't tell
+      // us.
+      if rawModel.lowercased().contains("claude") { providerLabel = "Claude" }
+      else if rawModel.lowercased().contains("gpt") || rawModel.lowercased().contains("codex")
+      { providerLabel = "ChatGPT" }
+      else { providerLabel = "CLI" }
+    case "dayflow": providerLabel = "Dayflow Pro"
+    default: providerLabel = rawProvider.isEmpty ? "AI" : rawProvider
+    }
+    if rawModel.isEmpty { return providerLabel }
+    return "\(providerLabel) · \(rawModel)"
+  }
+
   private func nowCenteredTargetHourIndex() -> Int {
     let currentHour = Calendar.current.component(.hour, from: Date())
     let hoursSince4AM = currentHour >= 4 ? currentHour - 4 : (24 - 4) + currentHour
@@ -329,6 +354,7 @@ struct CanvasTimelineDataView: View {
             isSystemCategory: item.categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
               .caseInsensitiveCompare("System") == .orderedSame,
             isBackupGenerated: item.activity.isBackupGenerated == true,
+            providerBadge: providerBadge(for: item.activity),
             onTap: {
               if selectedCardId == item.id {
                 clearSelection()

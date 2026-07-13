@@ -32,10 +32,12 @@ extension ChatCLIProvider {
     let effort: String?
     switch tool {
     case .claude:
-      model = "sonnet"
+      // Prefer the user-selected model from Settings; fall back to the
+      // previous default ("sonnet") if nothing is configured.
+      model = defaultModel ?? "sonnet"
       effort = nil
     case .codex:
-      model = "gpt-5.4"
+      model = defaultModel ?? "gpt-5.4"
       effort = "low"
     }
 

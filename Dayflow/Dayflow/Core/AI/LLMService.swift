@@ -137,7 +137,18 @@ final class LLMService: LLMServicing {
       let preferredTool = UserDefaults.standard.string(forKey: "chatCLIPreferredTool") ?? "codex"
       tool = (preferredTool == "claude") ? .claude : .codex
     }
-    return ChatCLIProvider(tool: tool)
+    // Pull the user-selected model out of UserDefaults. The provider falls
+    // back to its built-in default if the key is missing or empty.
+    let defaults = UserDefaults.standard
+    let storedModel: String?
+    switch tool {
+    case .codex:
+      storedModel = defaults.string(forKey: "llmCodexModel")
+    case .claude:
+      storedModel = defaults.string(forKey: "llmClaudeModel")
+    }
+    let model = storedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return ChatCLIProvider(tool: tool, defaultModel: (model?.isEmpty == false) ? model : nil)
   }
 
   private func resolvedChatCLITool(for providerID: LLMProviderID, override: ChatCLITool? = nil)
@@ -168,6 +179,53 @@ final class LLMService: LLMServicing {
     )
   }
 
+  /// Stamp every card with the provider+model that produced it, so the
+  /// timeline / dashboard can show "made by Claude 4.5 Sonnet" without
+  /// having to re-derive it at render time.
+  private func attachMeta(
+    _ cards: [ActivityCardData], providerID: String, model: String
+  ) -> [ActivityCardData] {
+    return cards.map { card in
+      ActivityCardData(
+        startTime: card.startTime,
+        endTime: card.endTime,
+        category: card.category,
+        subcategory: card.subcategory,
+        title: card.title,
+        summary: card.summary,
+        detailedSummary: card.detailedSummary,
+        distractions: card.distractions,
+        appSites: card.appSites,
+        providerId: providerID,
+        modelId: model
+      )
+    }
+  }
+
+  /// Read the user-selected model for a given provider. We pull from
+  /// `UserDefaults` because the settings view-model persists the selection
+  /// there; this is the cheapest way to read it from a non-actor context.
+  private func resolvedModel(for providerID: LLMProviderID) -> String {
+    let defaults = UserDefaults.standard
+    switch providerID {
+    case .gemini:
+      return GeminiModelPreference.load().primary.rawValue
+    case .minimax:
+      return defaults.string(forKey: "llmMiniMaxModelId") ?? MiniMaxProvider.defaultModelId
+    case .ollama:
+      return defaults.string(forKey: "llmLocalModelId") ?? LocalModelPreferences.defaultModelId(
+        for: LocalEngine(rawValue: defaults.string(forKey: "llmLocalEngine") ?? "ollama") ?? .ollama)
+    case .chatGPTClaude:
+      let toolRaw = defaults.string(forKey: "chatCLIPreferredTool") ?? "codex"
+      if toolRaw == "claude" {
+        return defaults.string(forKey: "llmClaudeModel") ?? "claude-sonnet-4-5"
+      }
+      return defaults.string(forKey: "llmCodexModel") ?? "gpt-4o"
+    case .dayflow:
+      return "dayflow-managed"
+    }
+  }
+
   private func makeBatchProvider(
     for providerID: LLMProviderID,
     chatToolOverride: ChatCLITool? = nil
@@ -177,6 +235,8 @@ final class LLMService: LLMServicing {
       guard let provider = makeGeminiProvider() else { throw noProviderError() }
       let gemmaProvider = makeGemmaBackupProvider()
       let fallbackState = GemmaFallbackState()
+      let model = resolvedModel(for: .gemini)
+      let providerID = "gemini"
 
       return (
         actions: BatchProviderActions(
@@ -200,20 +260,23 @@ final class LLMService: LLMServicing {
           generateActivityCards: { [weak self] observations, context, batchId in
             if fallbackState.preferGemma, let gemmaProvider {
               fallbackState.usedGemmaForCardGeneration = true
-              return try await gemmaProvider.generateActivityCards(
+              let (cards, log) = try await gemmaProvider.generateActivityCards(
                 observations: observations, context: context, batchId: batchId)
+              return (self?.attachMeta(cards, providerID: providerID, model: model) ?? cards, log)
             }
 
             do {
-              return try await provider.generateActivityCards(
+              let (cards, log) = try await provider.generateActivityCards(
                 observations: observations, context: context, batchId: batchId)
+              return (self?.attachMeta(cards, providerID: providerID, model: model) ?? cards, log)
             } catch {
               guard let gemmaProvider else { throw error }
               fallbackState.preferGemma = true
               fallbackState.usedGemmaForCardGeneration = true
               self?.logGemmaFallback(operation: "generate_cards", error: error, batchId: batchId)
-              return try await gemmaProvider.generateActivityCards(
+              let (cards, log) = try await gemmaProvider.generateActivityCards(
                 observations: observations, context: context, batchId: batchId)
+              return (self?.attachMeta(cards, providerID: providerID, model: model) ?? cards, log)
             }
           }
         ), fallbackState: fallbackState
@@ -239,26 +302,44 @@ final class LLMService: LLMServicing {
       let endpoint =
         UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? "http://localhost:11434"
       let provider = makeOllamaProvider(endpoint: endpoint)
+      let model = resolvedModel(for: .ollama)
+      let providerID = "ollama"
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
-          generateActivityCards: provider.generateActivityCards
+          generateActivityCards: { [weak self] observations, context, batchId in
+            let (cards, log) = try await provider.generateActivityCards(
+              observations: observations, context: context, batchId: batchId)
+            return (self?.attachMeta(cards, providerID: providerID, model: model) ?? cards, log)
+          }
         ), fallbackState: nil
       )
     case .chatGPTClaude:
       let provider = makeChatCLIProvider(preferredToolOverride: chatToolOverride)
+      let model = resolvedModel(for: .chatGPTClaude)
+      let providerID = "chatgpt_claude"
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
-          generateActivityCards: provider.generateActivityCards
+          generateActivityCards: { [weak self] observations, context, batchId in
+            let (cards, log) = try await provider.generateActivityCards(
+              observations: observations, context: context, batchId: batchId)
+            return (self?.attachMeta(cards, providerID: providerID, model: model) ?? cards, log)
+          }
         ), fallbackState: nil
       )
     case .minimax:
       guard let provider = makeMiniMaxProvider() else { throw noProviderError() }
+      let model = resolvedModel(for: .minimax)
+      let providerID = "minimax"
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
-          generateActivityCards: provider.generateActivityCards
+          generateActivityCards: { [weak self] observations, context, batchId in
+            let (cards, log) = try await provider.generateActivityCards(
+              observations: observations, context: context, batchId: batchId)
+            return (self?.attachMeta(cards, providerID: providerID, model: model) ?? cards, log)
+          }
         ), fallbackState: nil
       )
     }
@@ -816,7 +897,9 @@ final class LLMService: LLMServicing {
                 detailedSummary: card.detailedSummary,
                 distractions: card.distractions,
                 appSites: card.appSites,
-                isBackupGenerated: isBackupGenerated ? true : nil
+                isBackupGenerated: isBackupGenerated ? true : nil,
+                providerId: card.providerId,
+                modelId: card.modelId
               )
             },
             batchId: batchId

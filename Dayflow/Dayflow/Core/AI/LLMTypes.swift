@@ -298,6 +298,39 @@ struct ActivityCardData: Codable {
   let detailedSummary: String
   let distractions: [Distraction]?
   let appSites: AppSites?
+  /// Which Dayflow provider produced this card ("gemini", "minimax",
+  /// "ollama", "chatgpt_claude", or "dayflow"). Optional so older rows
+  /// (saved before this field existed) still decode.
+  let providerId: String?
+  /// Which model the provider used (e.g. "MiniMax-M3", "claude-sonnet-4-5").
+  /// Optional for the same backward-compat reason.
+  let modelId: String?
+
+  init(
+    startTime: String,
+    endTime: String,
+    category: String,
+    subcategory: String,
+    title: String,
+    summary: String,
+    detailedSummary: String,
+    distractions: [Distraction]?,
+    appSites: AppSites?,
+    providerId: String? = nil,
+    modelId: String? = nil
+  ) {
+    self.startTime = startTime
+    self.endTime = endTime
+    self.category = category
+    self.subcategory = subcategory
+    self.title = title
+    self.summary = summary
+    self.detailedSummary = detailedSummary
+    self.distractions = distractions
+    self.appSites = appSites
+    self.providerId = providerId
+    self.modelId = modelId
+  }
 }
 
 // Distraction is defined in StorageManager.swift

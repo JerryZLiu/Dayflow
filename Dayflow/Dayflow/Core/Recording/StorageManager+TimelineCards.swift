@@ -97,14 +97,16 @@ extension StorageManager {
         sql: """
               INSERT INTO timeline_cards(
                   batch_id, start, end, start_ts, end_ts, day, title,
-                  summary, category, subcategory, detailed_summary, metadata
+                  summary, category, subcategory, detailed_summary, metadata,
+                  provider_id, model_id
                   -- video_summary_url is omitted here
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           """,
         arguments: [
           batchId, card.startTimestamp, card.endTimestamp, startTs, endTs, dayString, card.title,
           card.summary, card.category, card.subcategory, card.detailedSummary, metadataString,
+          card.providerId, card.modelId
         ])
       lastId = db.lastInsertedRowID
     }
@@ -468,6 +470,65 @@ extension StorageManager {
       }
     }
     return cards ?? []
+  }
+
+  /// All non-deleted timeline cards across every day, ordered by start_ts desc.
+  /// Used by the dashboard statistics view. Implementation mirrors
+  /// `fetchTimelineCardsByTimeRange` but skips the time-range filter.
+  func fetchAllTimelineCards() async -> [TimelineCard] {
+    let decoder = JSONDecoder()
+    return await withCheckedContinuation { continuation in
+      DispatchQueue.global(qos: .userInitiated).async {
+        let cards: [TimelineCard]? = try? self.timedRead("fetchAllTimelineCards") { db in
+          try Row.fetchAll(
+            db,
+            sql: """
+                  SELECT * FROM timeline_cards
+                  WHERE is_deleted = 0
+                  ORDER BY start_ts DESC
+              """
+          )
+          .map { row in
+            // Decode metadata JSON (supports object or legacy array)
+            var distractions: [Distraction]? = nil
+            var appSites: AppSites? = nil
+            var isBackupGenerated: Bool? = nil
+            if let metadataString: String = row["metadata"],
+              let jsonData = metadataString.data(using: .utf8)
+            {
+              if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
+                distractions = meta.distractions
+                appSites = meta.appSites
+                isBackupGenerated = meta.isBackupGenerated
+              } else if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
+                distractions = legacy
+              }
+            }
+
+            return TimelineCard(
+              recordId: row["id"],
+              batchId: row["batch_id"],
+              startTimestamp: row["start"] ?? "",
+              endTimestamp: row["end"] ?? "",
+              category: row["category"] ?? "Other",
+              subcategory: row["subcategory"] ?? "",
+              title: row["title"] ?? "",
+              summary: row["summary"] ?? "",
+              detailedSummary: row["detailed_summary"] ?? "",
+              day: row["day"] ?? "",
+              distractions: distractions,
+              videoSummaryURL: row["video_summary_url"],
+              otherVideoSummaryURLs: nil,
+              appSites: appSites,
+              isBackupGenerated: isBackupGenerated,
+              providerId: row["provider_id"],
+              modelId: row["model_id"]
+            )
+          }
+        }
+        continuation.resume(returning: cards ?? [])
+      }
+    }
   }
 
   func fetchTimelineCardsByTimeRange(from: Date, to: Date) -> [TimelineCard] {

@@ -19,6 +19,10 @@ struct CanvasActivityCard: View {
   let isSelected: Bool
   let isSystemCategory: Bool
   let isBackupGenerated: Bool
+  /// "MiniMax M3 · MiniMax-M3" — small text shown in the card footer so the
+  /// user always sees which provider/model produced this card. Optional
+  /// because older saved cards don't carry the metadata.
+  let providerBadge: String?
   let onTap: () -> Void
   // Raw values for pattern matching (may contain paths)
   let faviconPrimaryRaw: String?
@@ -140,19 +144,28 @@ struct CanvasActivityCard: View {
 
             Spacer()
 
-            HStack(spacing: 6) {
-              if isBackupGenerated {
-                backupIndicator
+            VStack(alignment: .trailing, spacing: 2) {
+              HStack(spacing: 6) {
+                if isBackupGenerated {
+                  backupIndicator
+                }
+                Text(time)
+                  .font(
+                    Font.custom("Figtree", size: secondaryFontSize)
+                      .weight(.medium)
+                  )
+                  .foregroundColor(style.time)
+                  .lineLimit(1)
+                  .truncationMode(.tail)
               }
-
-              Text(time)
-                .font(
-                  Font.custom("Figtree", size: secondaryFontSize)
-                    .weight(.medium)
-                )
-                .foregroundColor(style.time)
-                .lineLimit(1)
-                .truncationMode(.tail)
+              if let badge = providerBadge, !badge.isEmpty {
+                Text(badge)
+                  .font(.custom("Figtree", size: 9))
+                  .foregroundColor(.secondary)
+                  .lineLimit(1)
+                  .truncationMode(.tail)
+                  .help("This card was produced by \(badge)")
+              }
             }
           }
         }

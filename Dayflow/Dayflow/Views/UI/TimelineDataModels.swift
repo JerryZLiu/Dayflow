@@ -25,6 +25,11 @@ struct TimelineActivity: Identifiable {
   let screenshot: NSImage?
   let appSites: AppSites?
   let isBackupGenerated: Bool?
+  /// Which Dayflow provider produced this activity ("gemini", "minimax",
+  /// "ollama", "chatgpt_claude", "dayflow"). Optional for older rows.
+  let providerId: String?
+  /// Which model the provider used (e.g. "MiniMax-M3", "claude-sonnet-4-5").
+  let modelId: String?
 
   static func stableId(
     recordId: Int64?, batchId: Int64?, startTime: Date, endTime: Date, title: String,
@@ -64,7 +69,9 @@ struct TimelineActivity: Identifiable {
       videoSummaryURL: videoSummaryURL,
       screenshot: screenshot,
       appSites: appSites,
-      isBackupGenerated: isBackupGenerated
+      isBackupGenerated: isBackupGenerated,
+      providerId: providerId,
+      modelId: modelId
     )
   }
 
@@ -84,7 +91,9 @@ struct TimelineActivity: Identifiable {
       videoSummaryURL: newVideoSummaryURL,
       screenshot: screenshot,
       appSites: appSites,
-      isBackupGenerated: isBackupGenerated
+      isBackupGenerated: isBackupGenerated,
+      providerId: providerId,
+      modelId: modelId
     )
   }
 }
