@@ -82,6 +82,8 @@ extension MainView {
           .padding(15)
       case .chat:
         ChatPanelView()
+      case .agents:
+        AgentsView()
       case .daily:
         DailyView(selectedDate: $selectedDate)
       case .weekly:
@@ -373,6 +375,9 @@ extension MainView {
         hasAnyActivities: hasAnyActivities,
         onCategoryChange: { category, activity in
           handleCategoryChange(to: category, for: activity)
+        },
+        onTitleChange: { newTitle, activity in
+          handleTitleChange(to: newTitle, for: activity)
         },
         onNavigateToCategoryEditor: {
           showCategoryEditor = true
