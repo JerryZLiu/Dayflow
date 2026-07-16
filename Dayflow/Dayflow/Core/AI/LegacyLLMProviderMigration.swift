@@ -4,6 +4,11 @@ import Foundation
 /// This type only reads legacy values. Once `LLMProviderRoutingStore` writes V2 routing, none of
 /// these values participate in provider selection again.
 enum LegacyLLMProviderMigration {
+  private enum LegacyChatCLITool: String {
+    case codex
+    case claude
+  }
+
   enum ProviderType: Codable {
     case geminiDirect
     case dayflowBackend(endpoint: String = "")
@@ -13,10 +18,10 @@ enum LegacyLLMProviderMigration {
 
   struct Result: Equatable {
     let routing: LLMProviderRouting
-    let sharedPromptOverrides: ChatCLIPromptOverrides
+    let sharedPromptOverrides: ActivityCardPromptOverrides
     let dayflowEndpointOverride: String?
     let localEndpointOverride: String?
-    let completedChatCLIProvider: LLMProviderID?
+    let completedLegacyCLIProvider: LLMProviderID?
   }
 
   enum Key {
@@ -51,14 +56,14 @@ enum LegacyLLMProviderMigration {
       sharedPromptOverrides: sharedPromptOverrides(from: defaults),
       dayflowEndpointOverride: primary.dayflowEndpointOverride,
       localEndpointOverride: primary.localEndpointOverride,
-      completedChatCLIProvider: completedChatCLIProvider(
+      completedLegacyCLIProvider: completedLegacyCLIProvider(
         for: routing,
         defaults: defaults
       )
     )
   }
 
-  private static func completedChatCLIProvider(
+  private static func completedLegacyCLIProvider(
     for routing: LLMProviderRouting,
     defaults: UserDefaults
   ) -> LLMProviderID? {
@@ -96,7 +101,7 @@ enum LegacyLLMProviderMigration {
 
   private static func primarySelection(
     from providerType: ProviderType,
-    preferredChatCLITool: ChatCLITool
+    preferredChatCLITool: LegacyChatCLITool
   ) -> PrimarySelection {
     switch providerType {
     case .geminiDirect:
@@ -128,7 +133,7 @@ enum LegacyLLMProviderMigration {
 
   private static func providerID(
     from rawValue: String?,
-    combinedChatCLITool: ChatCLITool
+    combinedChatCLITool: LegacyChatCLITool
   ) -> LLMProviderID? {
     switch normalized(rawValue)?.lowercased() {
     case LLMProviderID.dayflow.rawValue:
@@ -150,19 +155,19 @@ enum LegacyLLMProviderMigration {
     }
   }
 
-  private static func preferredChatCLITool(from defaults: UserDefaults) -> ChatCLITool {
+  private static func preferredChatCLITool(from defaults: UserDefaults) -> LegacyChatCLITool {
     chatCLITool(from: defaults.string(forKey: Key.preferredChatCLITool), defaultingTo: .codex)
   }
 
   private static func chatCLITool(
     from rawValue: String?,
-    defaultingTo fallback: ChatCLITool
-  ) -> ChatCLITool {
+    defaultingTo fallback: LegacyChatCLITool
+  ) -> LegacyChatCLITool {
     guard let rawValue = normalized(rawValue)?.lowercased() else { return fallback }
-    return ChatCLITool(rawValue: rawValue) ?? fallback
+    return LegacyChatCLITool(rawValue: rawValue) ?? fallback
   }
 
-  private static func providerID(for tool: ChatCLITool) -> LLMProviderID {
+  private static func providerID(for tool: LegacyChatCLITool) -> LLMProviderID {
     switch tool {
     case .codex:
       return .chatGPT
@@ -172,12 +177,12 @@ enum LegacyLLMProviderMigration {
   }
 
   private static func sharedPromptOverrides(from defaults: UserDefaults)
-    -> ChatCLIPromptOverrides
+    -> ActivityCardPromptOverrides
   {
     guard let data = defaults.data(forKey: Key.sharedPromptOverrides),
-      let overrides = try? JSONDecoder().decode(ChatCLIPromptOverrides.self, from: data)
+      let overrides = try? JSONDecoder().decode(ActivityCardPromptOverrides.self, from: data)
     else {
-      return ChatCLIPromptOverrides()
+      return ActivityCardPromptOverrides()
     }
     return overrides
   }
