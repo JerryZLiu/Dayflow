@@ -197,6 +197,7 @@ extension ChatCLIProvider {
       "llm_decode_failed",
       [
         "provider": "chat_cli",
+        "provider_id": tool.providerID.rawValue,
         "operation": "parse_cards",
         "tool": tool.rawValue,
         "raw_output": output,
@@ -514,6 +515,7 @@ extension ChatCLIProvider {
       callGroupId: nil,
       attempt: attempt,
       provider: "chat_cli",
+      providerID: tool.providerID.rawValue,
       model: tool.rawValue,
       operation: operation,
       requestMethod: nil,
