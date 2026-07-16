@@ -60,17 +60,15 @@ enum LLMProviderRoutingStore {
     -> LegacyLLMProviderMigration.Result
   {
     let migration = LegacyLLMProviderMigration.migrate(from: defaults)
-    if !ChatCLIPromptPreferences.hasStoredOverrides(for: .codex, in: defaults) {
-      try ChatCLIPromptPreferences.saveVerified(
+    if !CodexPromptPreferences.hasStoredOverrides(in: defaults) {
+      try CodexPromptPreferences.saveVerified(
         migration.sharedPromptOverrides,
-        for: .codex,
         to: defaults
       )
     }
-    if !ChatCLIPromptPreferences.hasStoredOverrides(for: .claude, in: defaults) {
-      try ChatCLIPromptPreferences.saveVerified(
+    if !ClaudePromptPreferences.hasStoredOverrides(in: defaults) {
+      try ClaudePromptPreferences.saveVerified(
         migration.sharedPromptOverrides,
-        for: .claude,
         to: defaults
       )
     }
@@ -93,7 +91,7 @@ enum LLMProviderRoutingStore {
         throw LLMProviderRoutingStoreError.writeVerificationFailed
       }
     }
-    if let completedProvider = migration.completedChatCLIProvider,
+    if let completedProvider = migration.completedLegacyCLIProvider,
       !LLMProviderSetupPreferences.isComplete(completedProvider, in: defaults)
     {
       try LLMProviderSetupPreferences.markComplete(completedProvider, in: defaults)
