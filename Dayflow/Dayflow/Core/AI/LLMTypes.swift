@@ -22,17 +22,6 @@ enum DashboardChatProvider: String, Codable, CaseIterable {
     return DashboardChatProvider(rawValue: value) ?? .gemini
   }
 
-  var chatCLITool: ChatCLITool? {
-    switch self {
-    case .gemini:
-      return nil
-    case .codex:
-      return .codex
-    case .claude:
-      return .claude
-    }
-  }
-
   var analyticsProvider: String {
     rawValue
   }
