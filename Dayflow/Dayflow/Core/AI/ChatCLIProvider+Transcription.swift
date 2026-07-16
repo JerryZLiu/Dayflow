@@ -109,6 +109,7 @@ extension ChatCLIProvider {
       "llm_decode_failed",
       [
         "provider": "chat_cli",
+        "provider_id": tool.providerID.rawValue,
         "operation": "parse_segments",
         "tool": tool.rawValue,
         "raw_output": output,
