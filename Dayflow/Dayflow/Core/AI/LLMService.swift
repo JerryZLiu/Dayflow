@@ -154,17 +154,6 @@ final class LLMService: LLMServicing {
     return OllamaProvider(openAICompatible: runtimeConfiguration)
   }
 
-  private func makeChatCLIProvider(for providerID: LLMProviderID) -> ChatCLIProvider? {
-    switch providerID {
-    case .chatGPT:
-      return ChatCLIProvider(tool: .codex)
-    case .claude:
-      return ChatCLIProvider(tool: .claude)
-    default:
-      return nil
-    }
-  }
-
   private func providerLabel(for providerID: LLMProviderID) -> String {
     providerID.providerLabel
   }
@@ -256,8 +245,16 @@ final class LLMService: LLMServicing {
           generateActivityCards: provider.generateActivityCards
         ), fallbackState: nil
       )
-    case .chatGPT, .claude:
-      guard let provider = makeChatCLIProvider(for: providerID) else { throw noProviderError() }
+    case .chatGPT:
+      let provider = CodexProvider()
+      return (
+        actions: BatchProviderActions(
+          transcribeScreenshots: provider.transcribeScreenshots,
+          generateActivityCards: provider.generateActivityCards
+        ), fallbackState: nil
+      )
+    case .claude:
+      let provider = ClaudeProvider()
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
@@ -305,7 +302,6 @@ final class LLMService: LLMServicing {
         "operation": operation,
         "error_domain": nsError.domain,
         "error_code": nsError.code,
-        "error_message": nsError.localizedDescription,
         "batch_id": batchId as Any,
       ])
   }
@@ -331,7 +327,6 @@ final class LLMService: LLMServicing {
       "backup_provider_label": backupProviderLabel,
       "error_domain": nsError.domain,
       "error_code": nsError.code,
-      "error_message": nsError.localizedDescription,
     ]
   }
 
@@ -372,7 +367,6 @@ final class LLMService: LLMServicing {
         let backupError = error as NSError
         failureProps["backup_error_domain"] = backupError.domain
         failureProps["backup_error_code"] = backupError.code
-        failureProps["backup_error_message"] = backupError.localizedDescription
         AnalyticsService.shared.capture("llm_timeline_fallback_failed", failureProps)
         throw error
       }
@@ -545,8 +539,16 @@ final class LLMService: LLMServicing {
         },
         generateTextStreaming: nil
       )
-    case .chatGPT, .claude:
-      guard let provider = makeChatCLIProvider(for: providerID) else { throw noProviderError() }
+    case .chatGPT:
+      let provider = CodexProvider()
+      return TextProviderActions(
+        generateText: { prompt in
+          try await provider.generateText(prompt: prompt)
+        },
+        generateTextStreaming: provider.generateTextStreaming
+      )
+    case .claude:
+      let provider = ClaudeProvider()
       return TextProviderActions(
         generateText: { prompt in
           try await provider.generateText(prompt: prompt)
@@ -904,7 +906,6 @@ final class LLMService: LLMServicing {
           "analysis_batch_failed",
           [
             "batch_id": batchId,
-            "error_message": error.localizedDescription,
             "failure_kind": failureClassification.kind.rawValue,
             "processing_duration_seconds": Int(Date().timeIntervalSince(processingStartTime)),
             "llm_provider": primaryProviderID.analyticsName,
@@ -1189,10 +1190,16 @@ final class LLMService: LLMServicing {
         systemInstruction: request.systemInstruction ?? "",
         history: request.history
       )
-    case .codex, .claude:
-      let tool: ChatCLITool = request.provider == .claude ? .claude : .codex
-      let chatCLI = ChatCLIProvider(tool: tool)
-      return chatCLI.generateChatStreaming(prompt: request.prompt, sessionId: request.sessionId)
+    case .codex:
+      return CodexProvider().generateChatStreaming(
+        prompt: request.prompt,
+        sessionId: request.sessionId
+      )
+    case .claude:
+      return ClaudeProvider().generateChatStreaming(
+        prompt: request.prompt,
+        sessionId: request.sessionId
+      )
     }
   }
 }
