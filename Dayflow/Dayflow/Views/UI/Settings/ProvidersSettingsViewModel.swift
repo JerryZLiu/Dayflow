@@ -94,30 +94,34 @@ final class ProvidersSettingsViewModel: ObservableObject {
     didSet { persistOllamaPromptOverridesIfReady() }
   }
 
-  @Published var chatCLIPromptOverridesLoaded = false
-  @Published var isUpdatingChatCLIPromptState = false
-  @Published var useCustomChatCLITitlePrompt = false {
-    didSet { persistChatCLIPromptOverridesIfReady() }
+  @Published var agentPromptOverridesLoaded = false
+  @Published var isUpdatingAgentPromptState = false
+  @Published var useCustomAgentTitlePrompt = false {
+    didSet { persistAgentPromptOverridesIfReady() }
   }
-  @Published var useCustomChatCLISummaryPrompt = false {
-    didSet { persistChatCLIPromptOverridesIfReady() }
+  @Published var useCustomAgentSummaryPrompt = false {
+    didSet { persistAgentPromptOverridesIfReady() }
   }
-  @Published var useCustomChatCLIDetailedPrompt = false {
-    didSet { persistChatCLIPromptOverridesIfReady() }
+  @Published var useCustomAgentDetailedPrompt = false {
+    didSet { persistAgentPromptOverridesIfReady() }
   }
-  @Published var chatCLITitlePromptText = ChatCLIPromptDefaults.titleBlock {
-    didSet { persistChatCLIPromptOverridesIfReady() }
+  @Published var agentTitlePromptText = CodexPromptDefaults.titleBlock {
+    didSet { persistAgentPromptOverridesIfReady() }
   }
-  @Published var chatCLISummaryPromptText = ChatCLIPromptDefaults.summaryBlock {
-    didSet { persistChatCLIPromptOverridesIfReady() }
+  @Published var agentSummaryPromptText = CodexPromptDefaults.summaryBlock {
+    didSet { persistAgentPromptOverridesIfReady() }
   }
-  @Published var chatCLIDetailedPromptText = ChatCLIPromptDefaults.detailedSummaryBlock {
-    didSet { persistChatCLIPromptOverridesIfReady() }
+  @Published var agentDetailedPromptText = CodexPromptDefaults.detailedSummaryBlock {
+    didSet { persistAgentPromptOverridesIfReady() }
   }
-  @Published var selectedChatCLIPromptTool: ChatCLITool = .codex {
+  @Published var selectedAgentPromptProvider: LLMProviderID = .chatGPT {
     didSet {
-      guard oldValue != selectedChatCLIPromptTool else { return }
-      loadChatCLIPromptOverridesIfNeeded(force: true)
+      guard oldValue != selectedAgentPromptProvider else { return }
+      guard selectedAgentPromptProvider == .chatGPT || selectedAgentPromptProvider == .claude else {
+        selectedAgentPromptProvider = oldValue
+        return
+      }
+      loadAgentPromptOverridesIfNeeded(force: true)
     }
   }
 
@@ -167,10 +171,10 @@ final class ProvidersSettingsViewModel: ObservableObject {
     refreshUpgradeBannerState()
     loadGeminiPromptOverridesIfNeeded()
     loadOllamaPromptOverridesIfNeeded()
-    if let chatTool = currentProvider.chatCLITool {
-      selectedChatCLIPromptTool = chatTool
+    if currentProvider == .chatGPT || currentProvider == .claude {
+      selectedAgentPromptProvider = currentProvider
     } else {
-      loadChatCLIPromptOverridesIfNeeded()
+      loadAgentPromptOverridesIfNeeded()
     }
   }
 
@@ -203,9 +207,9 @@ final class ProvidersSettingsViewModel: ObservableObject {
       loadGeminiPromptOverridesIfNeeded(force: true)
     } else if provider == .local {
       loadOllamaPromptOverridesIfNeeded(force: true)
-    } else if let chatTool = provider.chatCLITool {
-      selectedChatCLIPromptTool = chatTool
-      loadChatCLIPromptOverridesIfNeeded(force: true)
+    } else if provider == .chatGPT || provider == .claude {
+      selectedAgentPromptProvider = provider
+      loadAgentPromptOverridesIfNeeded(force: true)
     }
     refreshUpgradeBannerState()
   }
@@ -306,7 +310,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
 
   var secondaryRoutingProviderId: LLMProviderID? { routing.secondary }
 
-  var hasChatCLIProviderInRouting: Bool {
+  var hasCodexOrClaudeProviderInRouting: Bool {
     routing.primary == .chatGPT || routing.primary == .claude
       || routing.secondary == .chatGPT || routing.secondary == .claude
   }
@@ -691,15 +695,13 @@ final class ProvidersSettingsViewModel: ObservableObject {
         UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
       properties["model_id"] =
         UserDefaults.standard.string(forKey: "llmLocalModelId") ?? "unknown"
-      properties["base_url"] =
-        UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? "unknown"
       let localAPIKey = (UserDefaults.standard.string(forKey: "llmLocalAPIKey") ?? "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
       properties["has_api_key"] = !localAPIKey.isEmpty
     } else if providerId == .chatGPT {
-      properties["chat_cli_tool"] = ChatCLITool.codex.rawValue
+      properties["chat_cli_tool"] = "codex"
     } else if providerId == .claude {
-      properties["chat_cli_tool"] = ChatCLITool.claude.rawValue
+      properties["chat_cli_tool"] = "claude"
     } else if providerId == .openAICompatible {
       properties["endpoint_kind"] = openAICompatiblePreset.rawValue
       properties["has_api_key"] =
@@ -847,17 +849,4 @@ enum ProviderRoutingRole {
   case primary
   case secondary
   case setupOnly
-}
-
-extension LLMProviderID {
-  fileprivate var chatCLITool: ChatCLITool? {
-    switch self {
-    case .chatGPT:
-      return .codex
-    case .claude:
-      return .claude
-    case .dayflow, .gemini, .openAICompatible, .local:
-      return nil
-    }
-  }
 }
