@@ -400,7 +400,7 @@ final class DailyRecapGenerator {
       throw DailyRecapGeneratorError.missingCodexCLI
     }
 
-    let provider = ChatCLIProvider(tool: .codex)
+    let provider = CodexProvider()
     let prompt = Self.makeLocalPrompt(day: context.sourceDayString, cards: context.cards)
     let (rawText, _) = try await provider.generateText(
       prompt: prompt,
@@ -420,7 +420,7 @@ final class DailyRecapGenerator {
       throw DailyRecapGeneratorError.missingClaudeCLI
     }
 
-    let provider = ChatCLIProvider(tool: .claude)
+    let provider = ClaudeProvider()
     let prompt = Self.makeLocalPrompt(day: context.sourceDayString, cards: context.cards)
     let (rawText, _) = try await provider.generateText(
       prompt: prompt,
