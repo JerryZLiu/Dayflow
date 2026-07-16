@@ -40,8 +40,8 @@ struct SettingsProvidersTabView: View {
       }
 
       primaryPromptCustomizationSection
-      if viewModel.hasChatCLIProviderInRouting {
-        chatCLIPromptCustomizationSection
+      if viewModel.hasCodexOrClaudeProviderInRouting {
+        agentPromptCustomizationSection
       }
     }
   }
@@ -432,8 +432,22 @@ struct SettingsProvidersTabView: View {
     }
   }
 
-  private var chatCLIPromptCustomizationSection: some View {
-    promptSection(
+  private var agentPromptCustomizationSection: some View {
+    let defaults: (titleBlock: String, summaryBlock: String, detailedSummaryBlock: String)
+    if viewModel.selectedAgentPromptProvider == .claude {
+      defaults = (
+        ClaudePromptDefaults.titleBlock,
+        ClaudePromptDefaults.summaryBlock,
+        ClaudePromptDefaults.detailedSummaryBlock
+      )
+    } else {
+      defaults = (
+        CodexPromptDefaults.titleBlock,
+        CodexPromptDefaults.summaryBlock,
+        CodexPromptDefaults.detailedSummaryBlock
+      )
+    }
+    return promptSection(
       title: "ChatGPT and Claude prompt customization",
       subtitle: "Keep independent card-generation prompts for each CLI provider.",
       intro:
@@ -442,27 +456,27 @@ struct SettingsProvidersTabView: View {
         promptEditorConfig(
           heading: "Card titles",
           description: "Shape how card titles read and tweak the example list.",
-          isEnabled: $viewModel.useCustomChatCLITitlePrompt,
-          text: $viewModel.chatCLITitlePromptText,
-          defaultText: ChatCLIPromptDefaults.titleBlock
+          isEnabled: $viewModel.useCustomAgentTitlePrompt,
+          text: $viewModel.agentTitlePromptText,
+          defaultText: defaults.titleBlock
         ),
         promptEditorConfig(
           heading: "Card summaries",
           description: "Control tone and style for the summary field.",
-          isEnabled: $viewModel.useCustomChatCLISummaryPrompt,
-          text: $viewModel.chatCLISummaryPromptText,
-          defaultText: ChatCLIPromptDefaults.summaryBlock
+          isEnabled: $viewModel.useCustomAgentSummaryPrompt,
+          text: $viewModel.agentSummaryPromptText,
+          defaultText: defaults.summaryBlock
         ),
         promptEditorConfig(
           heading: "Detailed summaries",
           description: "Define the minute-by-minute breakdown format and examples.",
-          isEnabled: $viewModel.useCustomChatCLIDetailedPrompt,
-          text: $viewModel.chatCLIDetailedPromptText,
-          defaultText: ChatCLIPromptDefaults.detailedSummaryBlock
+          isEnabled: $viewModel.useCustomAgentDetailedPrompt,
+          text: $viewModel.agentDetailedPromptText,
+          defaultText: defaults.detailedSummaryBlock
         ),
       ],
-      onReset: viewModel.resetChatCLIPromptOverrides,
-      showsChatCLIPicker: true
+      onReset: viewModel.resetAgentPromptOverrides,
+      showsAgentProviderPicker: true
     )
   }
 
@@ -492,14 +506,14 @@ struct SettingsProvidersTabView: View {
     intro: String,
     sections: [PromptEditorConfig],
     onReset: @escaping () -> Void,
-    showsChatCLIPicker: Bool = false
+    showsAgentProviderPicker: Bool = false
   ) -> some View {
     SettingsSection(title: title, subtitle: subtitle) {
       VStack(alignment: .leading, spacing: 18) {
-        if showsChatCLIPicker {
-          Picker("Provider", selection: $viewModel.selectedChatCLIPromptTool) {
-            Text("ChatGPT").tag(ChatCLITool.codex)
-            Text("Claude").tag(ChatCLITool.claude)
+        if showsAgentProviderPicker {
+          Picker("Provider", selection: $viewModel.selectedAgentPromptProvider) {
+            Text("ChatGPT").tag(LLMProviderID.chatGPT)
+            Text("Claude").tag(LLMProviderID.claude)
           }
           .pickerStyle(.segmented)
           .labelsHidden()
