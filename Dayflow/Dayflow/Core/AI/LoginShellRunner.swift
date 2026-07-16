@@ -26,8 +26,9 @@ struct LoginShellRunner {
 
   /// Get names of all MCP servers configured in Codex CLI.
   /// Used to generate `--config mcp_servers.<name>.enabled=false` flags.
-  static func getCodexMCPServerNames() -> [String] {
-    let result = run("codex mcp list --json", timeout: 10)
+  static func getCodexMCPServerNames(executableURL: URL) -> [String] {
+    let command = "\(shellEscape(executableURL.path)) mcp list --json"
+    let result = run(command, timeout: 10)
     guard result.exitCode == 0,
       let data = result.stdout.data(using: .utf8)
     else {
@@ -96,12 +97,20 @@ struct LoginShellRunner {
 
   /// Check if a CLI tool is installed by running `tool --version`
   static func isInstalled(_ toolName: String) -> Bool {
+    if toolName == "codex" {
+      return CodexExecutableResolver.shared.resolve() != nil
+    }
+
     let result = run("\(toolName) --version", timeout: 10)
     return result.exitCode == 0
   }
 
   /// Get version string of a CLI tool, or nil if not installed
   static func version(of toolName: String) -> String? {
+    if toolName == "codex" {
+      return CodexExecutableResolver.shared.resolve()?.versionSummary
+    }
+
     let result = run("\(toolName) --version", timeout: 10)
     guard result.exitCode == 0 else { return nil }
     let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
