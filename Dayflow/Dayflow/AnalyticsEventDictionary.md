@@ -6,7 +6,7 @@ This document lists manual events, properties, and code locations. All events re
 - Event names: snake_case
 - Screens: `screen_viewed` with `screen`
 - Common super properties (registered on boot): `app_version`, `build_number`, `os_version`, `device_model`, `locale`, `time_zone`
-- Person properties (identify): `analytics_opt_in`, `onboarding_status`, `current_llm_provider`, `recording_enabled`, `install_ts` (set once)
+- Person properties (identify): `analytics_opt_in`, `onboarding_status`, `current_llm_provider` (provider family), `current_llm_provider_id` (`dayflow|gemini|chatgpt|claude|openai_compatible|local`), `recording_enabled`, `install_ts` (set once)
 
 ## Lifecycle
 - app_opened
@@ -40,7 +40,7 @@ This document lists manual events, properties, and code locations. All events re
   - props: `source: hacker_news|x|friend|youtube|newsletter_blog|chatgpt_claude_ai|other`, `surface: onboarding_referral`, `detail?: string`
   - file: Views/Onboarding/OnboardingFlow.swift
 - llm_provider_selected
-  - props: `provider: dayflow|chatgpt_claude|gemini|ollama`, `local_engine?: ollama|lmstudio|custom`
+  - props: `provider: dayflow|gemini|chat_cli|openai_compatible|ollama`, `provider_id: dayflow|gemini|chatgpt|claude|openai_compatible|local`, `local_engine?: ollama|lmstudio|custom`
   - file: Views/Onboarding/OnboardingFlow.swift
 - dayflow_pro_selected
   - props: `surface: onboarding_dayflow_pro`, `flow_id: string`, `flow_variant: string`, `has_paid_ai: bool`, `selection_stage: started_sign_in|continued`
@@ -57,8 +57,11 @@ This document lists manual events, properties, and code locations. All events re
   - props: `provider: gemini`, `error_code?: enum|string`
   - files: Views/Onboarding/TestConnectionView.swift
 - chat_cli_test_started / chat_cli_test_succeeded / chat_cli_test_failed
-  - props: `provider: chatgpt_claude`, `tool: codex|claude`, `setup_step: test`, `duration_ms?: int`, `exit_code?: int`, `failure_reason?: auth_error|nonzero_exit_no_stderr|nonzero_exit_with_stderr|empty_response|unexpected_output|cli_not_found|execution_error`, `error_code?: int`, `error_domain?: string`
-  - file: Views/Onboarding/LLMProviderSetupView.swift
+  - props: `provider: chat_cli`, `provider_id: chatgpt|claude`, `tool: codex|claude`, `setup_step: test`, `duration_ms?: int`, `exit_code?: int`, `failure_reason?: auth_error|nonzero_exit_no_stderr|nonzero_exit_with_stderr|empty_response|unexpected_output|cli_not_found|execution_error`, `error_code?: int`, `error_domain?: string`
+  - file: Views/Onboarding/ChatCLITestView.swift
+- chat_cli_detection_checked / chat_cli_tool_selected
+  - props: `provider_id: chatgpt|claude`, `source: initial|manual_recheck|detection_step`, `setup_step: detect`, `selected_tool: codex|claude|none`, CLI availability/status fields
+  - file: Views/Onboarding/ProviderSetupState.swift
 - onboarding_completed
   - file: Views/Onboarding/OnboardingFlow.swift
 - onboarding_abandoned
@@ -78,8 +81,14 @@ This document lists manual events, properties, and code locations. All events re
   - props: `from: string`, `to: string`
   - file: Views/UI/SettingsView.swift
 - provider_setup_completed
-  - props: `provider: gemini|ollama|dayflow`
-  - file: Views/UI/SettingsView.swift
+  - props: `provider: dayflow|gemini|chat_cli|openai_compatible|ollama`, `provider_id: dayflow|gemini|chatgpt|claude|openai_compatible|local`, provider-specific non-secret configuration metadata
+  - file: Views/UI/Settings/ProvidersSettingsViewModel.swift
+- provider_primary_updated / provider_secondary_updated / provider_backup_updated
+  - props: exact provider IDs in `provider_id` and role-specific fields (`provider_id: none` when clearing backup); `swapped_with_secondary?: bool`, `mode?: set|swap_with_primary`
+  - file: Views/UI/Settings/ProvidersSettingsViewModel.swift
+- llm_provider_routing_save_failed
+  - props: `provider_id: dayflow|gemini|chatgpt|claude|openai_compatible|local`, `surface: onboarding`
+  - file: Views/Onboarding/OnboardingFlow.swift
 
 ## Navigation & Timeline
 - tab_selected
@@ -164,10 +173,19 @@ This document lists manual events, properties, and code locations. All events re
 
 ## AI / LLM / Analysis
 - analysis_job_started
-  - props: `provider: gemini|ollama|dayflow|chat_cli|unknown`
+  - props: compatibility family in `provider: gemini|ollama|dayflow|chat_cli|openai_compatible|unknown`, exact provider in `provider_id`
   - file: App/AppDelegate.swift
+- analysis_batch_started / analysis_batch_completed / analysis_batch_failed
+  - props: compatibility provider family in `llm_provider`, exact primary provider in `provider_id`, exact effective provider in `effective_provider_id` on completion, and exact configured backup in `backup_provider_id` on failure
+  - file: Core/AI/LLMService.swift
+- llm_timeline_fallback_attempted / llm_timeline_fallback_succeeded / llm_timeline_fallback_failed
+  - props: compatibility provider families plus exact `primary_provider_id` and `backup_provider_id`, with error domain/code/message metadata
+  - file: Core/AI/LLMService.swift
+- llm_decode_failed / llm_validation_failed
+  - props: compatibility family in `provider`, exact provider in `provider_id`, operation/validation type, and attempt
+  - files: Core/AI/ChatCLIProvider+Parsing.swift, Core/AI/ChatCLIProvider+Transcription.swift, System/AnalyticsService.swift
 - llm_api_call (sampled ~10%)
-  - props: `provider: string`, `model: string`, `latency_ms_bucket: <500ms|0.5-1.5s|>=1.5s`, `outcome: success|error`, `error_code?: int`
+  - props: `provider: string`, `provider_id?: dayflow|gemini|chatgpt|claude|openai_compatible|local`, `model: string`, `operation: string`, `latency_ms: int`, `outcome: success|error`, `error_code?: int`
   - file: Core/AI/LLMLogger.swift
 
 <!-- Storage-related events intentionally removed -->
