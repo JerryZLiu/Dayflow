@@ -114,60 +114,128 @@ extension ProvidersSettingsViewModel {
     ollamaPromptOverridesLoaded = true
   }
 
-  func loadChatCLIPromptOverridesIfNeeded(force: Bool = false) {
-    if chatCLIPromptOverridesLoaded && !force { return }
-    isUpdatingChatCLIPromptState = true
-    let overrides = ChatCLIPromptPreferences.load(for: selectedChatCLIPromptTool)
+  func loadAgentPromptOverridesIfNeeded(force: Bool = false) {
+    if agentPromptOverridesLoaded && !force { return }
+    isUpdatingAgentPromptState = true
+    let overrides: ActivityCardPromptOverrides
+    let defaults: (titleBlock: String, summaryBlock: String, detailedSummaryBlock: String)
+    switch selectedAgentPromptProvider {
+    case .chatGPT:
+      overrides = CodexPromptPreferences.load()
+      defaults = (
+        CodexPromptDefaults.titleBlock,
+        CodexPromptDefaults.summaryBlock,
+        CodexPromptDefaults.detailedSummaryBlock
+      )
+    case .claude:
+      overrides = ClaudePromptPreferences.load()
+      defaults = (
+        ClaudePromptDefaults.titleBlock,
+        ClaudePromptDefaults.summaryBlock,
+        ClaudePromptDefaults.detailedSummaryBlock
+      )
+    case .dayflow, .gemini, .openAICompatible, .local:
+      assertionFailure("Agent prompt editor only supports Codex and Claude")
+      overrides = ActivityCardPromptOverrides()
+      defaults = (
+        CodexPromptDefaults.titleBlock,
+        CodexPromptDefaults.summaryBlock,
+        CodexPromptDefaults.detailedSummaryBlock
+      )
+    }
 
     let trimmedTitle = overrides.titleBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedSummary = overrides.summaryBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedDetailed = overrides.detailedBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
 
-    useCustomChatCLITitlePrompt = trimmedTitle?.isEmpty == false
-    useCustomChatCLISummaryPrompt = trimmedSummary?.isEmpty == false
-    useCustomChatCLIDetailedPrompt = trimmedDetailed?.isEmpty == false
+    useCustomAgentTitlePrompt = trimmedTitle?.isEmpty == false
+    useCustomAgentSummaryPrompt = trimmedSummary?.isEmpty == false
+    useCustomAgentDetailedPrompt = trimmedDetailed?.isEmpty == false
 
-    chatCLITitlePromptText = trimmedTitle ?? ChatCLIPromptDefaults.titleBlock
-    chatCLISummaryPromptText = trimmedSummary ?? ChatCLIPromptDefaults.summaryBlock
-    chatCLIDetailedPromptText = trimmedDetailed ?? ChatCLIPromptDefaults.detailedSummaryBlock
+    agentTitlePromptText = trimmedTitle ?? defaults.titleBlock
+    agentSummaryPromptText = trimmedSummary ?? defaults.summaryBlock
+    agentDetailedPromptText = trimmedDetailed ?? defaults.detailedSummaryBlock
 
-    isUpdatingChatCLIPromptState = false
-    chatCLIPromptOverridesLoaded = true
+    isUpdatingAgentPromptState = false
+    agentPromptOverridesLoaded = true
   }
 
-  func persistChatCLIPromptOverridesIfReady() {
-    guard chatCLIPromptOverridesLoaded, !isUpdatingChatCLIPromptState else { return }
-    persistChatCLIPromptOverrides()
+  func persistAgentPromptOverridesIfReady() {
+    guard agentPromptOverridesLoaded, !isUpdatingAgentPromptState else { return }
+    persistAgentPromptOverrides()
   }
 
-  func persistChatCLIPromptOverrides() {
-    let overrides = ChatCLIPromptOverrides(
+  func persistAgentPromptOverrides() {
+    let overrides = ActivityCardPromptOverrides(
       titleBlock: normalizedOverride(
-        text: chatCLITitlePromptText, enabled: useCustomChatCLITitlePrompt),
+        text: agentTitlePromptText, enabled: useCustomAgentTitlePrompt),
       summaryBlock: normalizedOverride(
-        text: chatCLISummaryPromptText, enabled: useCustomChatCLISummaryPrompt),
+        text: agentSummaryPromptText, enabled: useCustomAgentSummaryPrompt),
       detailedBlock: normalizedOverride(
-        text: chatCLIDetailedPromptText, enabled: useCustomChatCLIDetailedPrompt)
+        text: agentDetailedPromptText, enabled: useCustomAgentDetailedPrompt)
     )
 
     if overrides.isEmpty {
-      ChatCLIPromptPreferences.reset(for: selectedChatCLIPromptTool)
+      switch selectedAgentPromptProvider {
+      case .chatGPT:
+        CodexPromptPreferences.reset()
+      case .claude:
+        ClaudePromptPreferences.reset()
+      case .dayflow, .gemini, .openAICompatible, .local:
+        assertionFailure("Agent prompt editor only supports Codex and Claude")
+      }
     } else {
-      ChatCLIPromptPreferences.save(overrides, for: selectedChatCLIPromptTool)
+      switch selectedAgentPromptProvider {
+      case .chatGPT:
+        CodexPromptPreferences.save(overrides)
+      case .claude:
+        ClaudePromptPreferences.save(overrides)
+      case .dayflow, .gemini, .openAICompatible, .local:
+        assertionFailure("Agent prompt editor only supports Codex and Claude")
+      }
     }
   }
 
-  func resetChatCLIPromptOverrides() {
-    isUpdatingChatCLIPromptState = true
-    useCustomChatCLITitlePrompt = false
-    useCustomChatCLISummaryPrompt = false
-    useCustomChatCLIDetailedPrompt = false
-    chatCLITitlePromptText = ChatCLIPromptDefaults.titleBlock
-    chatCLISummaryPromptText = ChatCLIPromptDefaults.summaryBlock
-    chatCLIDetailedPromptText = ChatCLIPromptDefaults.detailedSummaryBlock
-    ChatCLIPromptPreferences.reset(for: selectedChatCLIPromptTool)
-    isUpdatingChatCLIPromptState = false
-    chatCLIPromptOverridesLoaded = true
+  func resetAgentPromptOverrides() {
+    isUpdatingAgentPromptState = true
+    let defaults: (titleBlock: String, summaryBlock: String, detailedSummaryBlock: String)
+    switch selectedAgentPromptProvider {
+    case .chatGPT:
+      defaults = (
+        CodexPromptDefaults.titleBlock,
+        CodexPromptDefaults.summaryBlock,
+        CodexPromptDefaults.detailedSummaryBlock
+      )
+    case .claude:
+      defaults = (
+        ClaudePromptDefaults.titleBlock,
+        ClaudePromptDefaults.summaryBlock,
+        ClaudePromptDefaults.detailedSummaryBlock
+      )
+    case .dayflow, .gemini, .openAICompatible, .local:
+      assertionFailure("Agent prompt editor only supports Codex and Claude")
+      defaults = (
+        CodexPromptDefaults.titleBlock,
+        CodexPromptDefaults.summaryBlock,
+        CodexPromptDefaults.detailedSummaryBlock
+      )
+    }
+    useCustomAgentTitlePrompt = false
+    useCustomAgentSummaryPrompt = false
+    useCustomAgentDetailedPrompt = false
+    agentTitlePromptText = defaults.titleBlock
+    agentSummaryPromptText = defaults.summaryBlock
+    agentDetailedPromptText = defaults.detailedSummaryBlock
+    switch selectedAgentPromptProvider {
+    case .chatGPT:
+      CodexPromptPreferences.reset()
+    case .claude:
+      ClaudePromptPreferences.reset()
+    case .dayflow, .gemini, .openAICompatible, .local:
+      assertionFailure("Agent prompt editor only supports Codex and Claude")
+    }
+    isUpdatingAgentPromptState = false
+    agentPromptOverridesLoaded = true
   }
 
   func normalizedOverride(text: String, enabled: Bool) -> String? {
