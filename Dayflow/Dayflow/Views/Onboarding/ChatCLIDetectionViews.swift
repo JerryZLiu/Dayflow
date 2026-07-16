@@ -13,6 +13,15 @@ struct CLIDetector {
   /// Detect if a CLI tool is installed by running `tool --version` via login shell.
   /// This replicates exactly what happens when user types in Terminal.app.
   static func detect(tool: CLITool) async -> CLIDetectionReport {
+    if tool == .codex, let resolution = CodexExecutableResolver.shared.resolve() {
+      return CLIDetectionReport(
+        state: .installed(version: resolution.versionSummary),
+        resolvedPath: resolution.executableURL.path,
+        stdout: resolution.versionSummary,
+        stderr: nil
+      )
+    }
+
     let result = LoginShellRunner.run("\(tool.executableName) --version", timeout: 10)
 
     if result.exitCode == 0 {
@@ -30,13 +39,14 @@ struct CLIDetector {
     }
 
     let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+    let resolvedPath = tool == .codex ? nil : tool.executableName
     if message.isEmpty {
       return CLIDetectionReport(
-        state: .failed(message: "Exit code \(result.exitCode)"), resolvedPath: tool.executableName,
+        state: .failed(message: "Exit code \(result.exitCode)"), resolvedPath: resolvedPath,
         stdout: result.stdout, stderr: result.stderr)
     }
     return CLIDetectionReport(
-      state: .failed(message: message), resolvedPath: tool.executableName, stdout: result.stdout,
+      state: .failed(message: message), resolvedPath: resolvedPath, stdout: result.stdout,
       stderr: result.stderr)
   }
 
