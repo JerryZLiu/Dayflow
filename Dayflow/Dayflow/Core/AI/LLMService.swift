@@ -835,7 +835,10 @@ final class LLMService: LLMServicing {
         let usedGemmaForCardGeneration =
           activeContext.fallbackState?.usedGemmaForCardGeneration == true
         let isBackupGenerated = usedProviderBackup || usedGemmaForCardGeneration
-        // Note: card generation log is not persisted per-batch yet
+        // Persist the model's card-generation reasoning so the timeline can show
+        // "how Dayflow figured this out" without re-parsing logs (which may be pruned).
+        let cardReasoning = CardInsight.extractReasoning(
+          fromModelResponse: cardsResult.value.log.output)
 
         // Replace old cards with new ones in the time range
         let (insertedCardIds, deletedVideoPaths) = StorageManager.shared
@@ -853,7 +856,8 @@ final class LLMService: LLMServicing {
                 detailedSummary: card.detailedSummary,
                 distractions: card.distractions,
                 appSites: card.appSites,
-                isBackupGenerated: isBackupGenerated ? true : nil
+                isBackupGenerated: isBackupGenerated ? true : nil,
+                reasoning: cardReasoning
               )
             },
             batchId: batchId
