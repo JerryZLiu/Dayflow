@@ -177,15 +177,18 @@ This document lists manual events, properties, and code locations. All events re
   - file: App/AppDelegate.swift
 - analysis_batch_started / analysis_batch_completed / analysis_batch_failed
   - props: compatibility provider family in `llm_provider`, exact primary provider in `provider_id`, exact effective provider in `effective_provider_id` on completion, and exact configured backup in `backup_provider_id` on failure
+  - privacy: failures include a classified failure kind, never a raw error message
   - file: Core/AI/LLMService.swift
 - llm_timeline_fallback_attempted / llm_timeline_fallback_succeeded / llm_timeline_fallback_failed
-  - props: compatibility provider families plus exact `primary_provider_id` and `backup_provider_id`, with error domain/code/message metadata
+  - props: compatibility provider families plus exact `primary_provider_id` and `backup_provider_id`; safe error domain/code metadata only
   - file: Core/AI/LLMService.swift
 - llm_decode_failed / llm_validation_failed
-  - props: compatibility family in `provider`, exact provider in `provider_id`, operation/validation type, and attempt
+  - props: compatibility family in `provider`, exact provider in `provider_id`, operation/validation type, attempt, and output/detail presence or length metadata
+  - privacy: raw model output, stderr, validation text, and generated card content are never sent to analytics
   - files: Core/AI/ChatCLIProvider+Parsing.swift, Core/AI/ChatCLIProvider+Transcription.swift, System/AnalyticsService.swift
 - llm_api_call (sampled ~10%)
-  - props: `provider: string`, `provider_id?: dayflow|gemini|chatgpt|claude|openai_compatible|local`, `model: string`, `operation: string`, `latency_ms: int`, `outcome: success|error`, `error_code?: int`
+  - props: `provider: string`, `provider_id?: dayflow|gemini|chatgpt|claude|openai_compatible|local`, `model: string`, `operation: string`, `latency_ms: int`, `outcome: success|error`, `error_domain?: string`, `error_code?: int`, `http_status?: int`, `has_response_body?: bool`, `response_body_bytes?: int`
+  - privacy: request bodies, response bodies, and raw error messages stay local and are never sent to analytics
   - file: Core/AI/LLMLogger.swift
 
 <!-- Storage-related events intentionally removed -->
