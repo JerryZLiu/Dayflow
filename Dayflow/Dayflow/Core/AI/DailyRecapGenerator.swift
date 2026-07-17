@@ -218,29 +218,51 @@ final class DailyRecapGenerator {
     }
   }
 
-  static func makeCardsText(day: String, cards: [TimelineCard]) -> String {
-    let ordered = cards.sorted { lhs, rhs in
-      if lhs.startTimestamp == rhs.startTimestamp {
-        return lhs.endTimestamp < rhs.endTimestamp
+  // Rough ceiling on the activity log's size (~15K tokens). Normal days stay far
+  // below it; it only bites when something floods the day with cards (#285).
+  static let recapCardsTextMaxCharacters = 60_000
+
+  static func makeCardsText(
+    day: String, cards: [TimelineCard], maxCharacters: Int = recapCardsTextMaxCharacters
+  ) -> String {
+    let ordered = cards
+      .filter { $0.title != "Processing failed" }
+      .sorted { lhs, rhs in
+        if lhs.startTimestamp == rhs.startTimestamp {
+          return lhs.endTimestamp < rhs.endTimestamp
+        }
+        return lhs.startTimestamp < rhs.startTimestamp
       }
-      return lhs.startTimestamp < rhs.startTimestamp
-    }
 
     guard !ordered.isEmpty else {
       return "No timeline activities were recorded for \(day)."
     }
 
     var lines: [String] = ["Timeline activities for \(day):", ""]
+    var remaining = maxCharacters - lines.joined(separator: "\n").count
+    var includedCount = 0
+
     for (index, card) in ordered.enumerated() {
       let title = standupLine(from: card) ?? "Untitled activity"
       let start = humanReadableClockTime(card.startTimestamp)
       let end = humanReadableClockTime(card.endTimestamp)
-      lines.append("\(index + 1). \(start) - \(end): \(title)")
+      var entryLines = ["\(index + 1). \(start) - \(end): \(title)"]
 
       let summary = card.summary.trimmingCharacters(in: .whitespacesAndNewlines)
       if !summary.isEmpty, summary != title {
-        lines.append("   \(summary)")
+        entryLines.append("   \(summary)")
       }
+
+      let entryLength = entryLines.reduce(0) { $0 + $1.count + 1 }
+      guard entryLength <= remaining else { break }
+      lines.append(contentsOf: entryLines)
+      remaining -= entryLength
+      includedCount += 1
+    }
+
+    if includedCount < ordered.count {
+      let omitted = ordered.count - includedCount
+      lines.append("... and \(omitted) more activities omitted to stay within the model's context limit.")
     }
 
     return lines.joined(separator: "\n")
