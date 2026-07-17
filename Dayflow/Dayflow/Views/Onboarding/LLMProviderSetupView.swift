@@ -573,7 +573,7 @@ struct LLMProviderSetupView: View {
             }
           }
           .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.trailing, 2)
+          .padding(6)
         }
         .frame(maxHeight: 420)
 
