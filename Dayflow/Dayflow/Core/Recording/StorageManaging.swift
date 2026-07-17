@@ -35,6 +35,7 @@ protocol StorageManaging: Sendable {
   // Timeline Queries
   func fetchTimelineCards(forDay day: String) -> [TimelineCard]
   func fetchTimelineCardsByTimeRange(from: Date, to: Date) -> [TimelineCard]
+  func fetchTimelineCardsByTimeRange(from: Date, to: Date, deviceId: String?) -> [TimelineCard]
   func fetchTotalMinutesTracked(from: Date, to: Date) -> Double
   func fetchTotalMinutesTrackedForWeek(containing date: Date) -> Double
   func replaceTimelineCardsInRange(from: Date, to: Date, with: [TimelineCardShell], batchId: Int64)
@@ -46,7 +47,9 @@ protocol StorageManaging: Sendable {
   // Timeline review ratings (time-based)
   func fetchReviewRatingSegments(overlapping startTs: Int, endTs: Int)
     -> [TimelineReviewRatingSegment]
-  func applyReviewRating(startTs: Int, endTs: Int, rating: String)
+  func fetchReviewRatingSegments(overlapping startTs: Int, endTs: Int, deviceId: String)
+    -> [TimelineReviewRatingSegment]
+  func applyReviewRating(startTs: Int, endTs: Int, rating: String, deviceId: String)
   func hasAnyTimelineReviewRating() -> Bool
   func hasReviewRatingInRecentTimelineDays(days: Int) -> Bool
   func fetchUnreviewedTimelineCardCount(forDay day: String, coverageThreshold: Double) -> Int
@@ -67,6 +70,7 @@ protocol StorageManaging: Sendable {
   func fetchObservations(batchId: Int64) -> [Observation]
   func fetchObservations(startTs: Int, endTs: Int) -> [Observation]
   func fetchObservationsByTimeRange(from: Date, to: Date) -> [Observation]
+  func fetchObservationsByTimeRange(from: Date, to: Date, deviceId: String?) -> [Observation]
 
   // Helper for GeminiService – map file paths → timestamps
   func getTimestampsForVideoFiles(paths: [String]) -> [String: (startTs: Int, endTs: Int)]
@@ -93,15 +97,25 @@ protocol StorageManaging: Sendable {
   /// Save a screenshot to the database, returns the screenshot ID
   func saveScreenshot(url: URL, capturedAt: Date, idleSecondsAtCapture: Int?) -> Int64?
 
+  /// Atomically registers an imported screenshot. Repeated capture IDs return the existing row.
+  func saveImportedScreenshot(url: URL, metadata: CaptureImportMetadata) throws -> Int64
+
   /// Fetch screenshots that haven't been assigned to a batch yet
   func fetchUnprocessedScreenshots(since oldestTimestamp: Int) -> [Screenshot]
 
   /// Create a batch from screenshots, returns batch ID
   func saveBatchWithScreenshots(startTs: Int, endTs: Int, screenshotIds: [Int64]) -> Int64?
+  func deviceIdForBatch(_ batchId: Int64) -> String?
 
   /// Screenshots that belong to one batch, sorted by capture time
   func screenshotsForBatch(_ batchId: Int64) -> [Screenshot]
 
   /// Fetch screenshots within a time range (for timelapse generation)
   func fetchScreenshotsInTimeRange(startTs: Int, endTs: Int) -> [Screenshot]
+  func fetchScreenshotsInTimeRange(startTs: Int, endTs: Int, deviceId: String?) -> [Screenshot]
+
+  // Capture devices
+  func upsertCaptureDevice(_ device: CaptureDevice)
+  func fetchCaptureDevices(includeRevoked: Bool) -> [CaptureDevice]
+  func revokeCaptureDevice(id: String)
 }

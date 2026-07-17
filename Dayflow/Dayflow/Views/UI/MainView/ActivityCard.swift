@@ -641,7 +641,10 @@ private actor ActivityCardTimelapseGenerator {
     }
 
     let screenshots = storage.fetchScreenshotsInTimeRange(
-      startTs: timelineCard.startTs, endTs: timelineCard.endTs)
+      startTs: timelineCard.startTs,
+      endTs: timelineCard.endTs,
+      deviceId: timelineCard.deviceId
+    )
     guard !screenshots.isEmpty else {
       throw ActivityCardTimelapseError.noScreenshots
     }

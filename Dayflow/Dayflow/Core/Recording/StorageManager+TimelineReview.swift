@@ -13,7 +13,7 @@ extension StorageManager {
         try Row.fetchAll(
           db,
           sql: """
-                SELECT id, start_ts, end_ts, rating
+                SELECT id, device_id, start_ts, end_ts, rating
                 FROM timeline_review_ratings
                 WHERE NOT (end_ts <= ? OR start_ts >= ?)
                 ORDER BY start_ts ASC
@@ -21,6 +21,7 @@ extension StorageManager {
         ).map { row in
           TimelineReviewRatingSegment(
             id: row["id"],
+            deviceId: (row["device_id"] as String?) ?? LocalCaptureDevice.id,
             startTs: row["start_ts"],
             endTs: row["end_ts"],
             rating: row["rating"]
@@ -29,7 +30,35 @@ extension StorageManager {
       }) ?? []
   }
 
-  func applyReviewRating(startTs: Int, endTs: Int, rating: String) {
+  func fetchReviewRatingSegments(overlapping startTs: Int, endTs: Int, deviceId: String)
+    -> [TimelineReviewRatingSegment]
+  {
+    guard endTs > startTs else { return [] }
+
+    return
+      (try? timedRead("fetchReviewRatingSegments.device") { db in
+        try Row.fetchAll(
+          db,
+          sql: """
+                SELECT id, device_id, start_ts, end_ts, rating
+                FROM timeline_review_ratings
+                WHERE device_id = ?
+                  AND NOT (end_ts <= ? OR start_ts >= ?)
+                ORDER BY start_ts ASC
+            """, arguments: [deviceId, startTs, endTs]
+        ).map { row in
+          TimelineReviewRatingSegment(
+            id: row["id"],
+            deviceId: (row["device_id"] as String?) ?? LocalCaptureDevice.id,
+            startTs: row["start_ts"],
+            endTs: row["end_ts"],
+            rating: row["rating"]
+          )
+        }
+      }) ?? []
+  }
+
+  func applyReviewRating(startTs: Int, endTs: Int, rating: String, deviceId: String) {
     guard endTs > startTs else { return }
 
     try? timedWrite("applyReviewRating") { db in
@@ -38,9 +67,10 @@ extension StorageManager {
         sql: """
               SELECT id, start_ts, end_ts, rating
               FROM timeline_review_ratings
-              WHERE NOT (end_ts <= ? OR start_ts >= ?)
+              WHERE device_id = ?
+                AND NOT (end_ts <= ? OR start_ts >= ?)
               ORDER BY start_ts ASC
-          """, arguments: [startTs, endTs])
+          """, arguments: [deviceId, startTs, endTs])
 
       var deleteIds: [Int64] = []
       var fragments: [(start: Int, end: Int, rating: String)] = []
@@ -80,16 +110,16 @@ extension StorageManager {
       for fragment in fragments {
         try db.execute(
           sql: """
-                INSERT INTO timeline_review_ratings (start_ts, end_ts, rating)
-                VALUES (?, ?, ?)
-            """, arguments: [fragment.start, fragment.end, fragment.rating])
+                INSERT INTO timeline_review_ratings (device_id, start_ts, end_ts, rating)
+                VALUES (?, ?, ?, ?)
+            """, arguments: [deviceId, fragment.start, fragment.end, fragment.rating])
       }
 
       try db.execute(
         sql: """
-              INSERT INTO timeline_review_ratings (start_ts, end_ts, rating)
-              VALUES (?, ?, ?)
-          """, arguments: [startTs, endTs, rating])
+              INSERT INTO timeline_review_ratings (device_id, start_ts, end_ts, rating)
+              VALUES (?, ?, ?, ?)
+          """, arguments: [deviceId, startTs, endTs, rating])
     }
   }
 
@@ -145,17 +175,17 @@ extension StorageManager {
 
     let cardFetch =
       (try? timedRead("fetchUnreviewedTimelineCardCount.cards") {
-        db -> (cards: [(start: Int, end: Int)], invalidCount: Int) in
+        db -> (cards: [(deviceId: String, start: Int, end: Int)], invalidCount: Int) in
         var invalidCount = 0
         let rows = try Row.fetchAll(
           db,
           sql: """
-                SELECT start_ts, end_ts, category
+                SELECT device_id, start_ts, end_ts, category
                 FROM timeline_cards
                 WHERE start_ts >= ? AND start_ts < ?
                   AND is_deleted = 0
             """, arguments: [dayStartTs, dayEndTs])
-        let cards = rows.compactMap { row -> (start: Int, end: Int)? in
+        let cards = rows.compactMap { row -> (deviceId: String, start: Int, end: Int)? in
           let category: String = row["category"]
           if category.trimmingCharacters(in: .whitespacesAndNewlines)
             .caseInsensitiveCompare("System") == .orderedSame
@@ -166,7 +196,8 @@ extension StorageManager {
             invalidCount += 1
             return nil
           }
-          return (start: start, end: end)
+          let deviceId: String = (row["device_id"] as String?) ?? LocalCaptureDevice.id
+          return (deviceId: deviceId, start: start, end: end)
         }
         return (cards, invalidCount)
       })
@@ -179,23 +210,22 @@ extension StorageManager {
     }
 
     let ratingSegments = fetchReviewRatingSegments(overlapping: dayStartTs, endTs: dayEndTs)
-    let mergedSegments = mergeCoverageSegments(
-      segments: ratingSegments,
-      dayStartTs: dayStartTs,
-      dayEndTs: dayEndTs
-    )
+    let mergedSegmentsByDevice = Dictionary(grouping: ratingSegments, by: \.deviceId)
+      .mapValues {
+        mergeCoverageSegments(segments: $0, dayStartTs: dayStartTs, dayEndTs: dayEndTs)
+      }
 
     let sortedCards = cards.sorted { $0.start < $1.start }
-    var segmentIndex = 0
 
     for card in sortedCards {
       let duration = card.end - card.start
       if duration <= 0 { continue }
 
+      var segmentIndex = 0
       let covered = overlapSeconds(
         start: card.start,
         end: card.end,
-        segments: mergedSegments,
+        segments: mergedSegmentsByDevice[card.deviceId] ?? [],
         segmentIndex: &segmentIndex
       )
       let coverageRatio = Double(covered) / Double(duration)

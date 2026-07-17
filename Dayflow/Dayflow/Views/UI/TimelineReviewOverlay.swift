@@ -457,7 +457,12 @@ struct TimelineReviewOverlay: View {
 
     let startTs = Int(activity.startTime.timeIntervalSince1970)
     let endTs = Int(activity.endTime.timeIntervalSince1970)
-    StorageManager.shared.applyReviewRating(startTs: startTs, endTs: endTs, rating: rating.rawValue)
+    StorageManager.shared.applyReviewRating(
+      startTs: startTs,
+      endTs: endTs,
+      rating: rating.rawValue,
+      deviceId: activity.deviceId
+    )
     refreshRatingSummary()
 
     let exitOffset = swipeExitOffset(for: rating, predictedTranslation: predictedTranslation)
@@ -618,19 +623,24 @@ struct TimelineReviewOverlay: View {
     dayEndTs: Int
   ) -> [TimelineActivity] {
     guard ratingSegments.isEmpty == false else { return activities }
-    let mergedSegments = mergedCoverageSegments(
-      segments: ratingSegments, dayStartTs: dayStartTs, dayEndTs: dayEndTs)
-    guard mergedSegments.isEmpty == false else { return activities }
+    let mergedSegmentsByDevice = Dictionary(grouping: ratingSegments, by: \.deviceId)
+      .mapValues {
+        mergedCoverageSegments(segments: $0, dayStartTs: dayStartTs, dayEndTs: dayEndTs)
+      }
+    guard mergedSegmentsByDevice.values.contains(where: { !$0.isEmpty }) else { return activities }
 
     var unreviewed: [TimelineActivity] = []
-    var segmentIndex = 0
 
     for activity in activities {
       let start = Int(activity.startTime.timeIntervalSince1970)
       let end = Int(activity.endTime.timeIntervalSince1970)
       let duration = max(end - start, 1)
+      var segmentIndex = 0
       let covered = overlapSeconds(
-        start: start, end: end, segments: mergedSegments, segmentIndex: &segmentIndex)
+        start: start,
+        end: end,
+        segments: mergedSegmentsByDevice[activity.deviceId] ?? [],
+        segmentIndex: &segmentIndex)
       let coverageRatio = Double(covered) / Double(duration)
       if coverageRatio < 0.8 {
         unreviewed.append(activity)

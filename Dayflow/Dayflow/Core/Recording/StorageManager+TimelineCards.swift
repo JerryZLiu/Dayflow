@@ -2,6 +2,12 @@ import Foundation
 import GRDB
 import Sentry
 
+private struct BatchCaptureContext {
+  let deviceId: String
+  let platform: CapturePlatform
+  let timezoneId: String
+}
+
 extension StorageManager {
   func saveTimelineCardShell(batchId: Int64, card: TimelineCardShell) -> Int64? {
     let encoder = JSONEncoder()
@@ -11,6 +17,7 @@ extension StorageManager {
     guard let batchStartTs = getBatchStartTimestamp(batchId: batchId) else {
       return nil
     }
+    let captureContext = captureContext(forBatch: batchId)
     let baseDate = Date(timeIntervalSince1970: TimeInterval(batchStartTs))
 
     let timeFormatter = DateFormatter()
@@ -23,7 +30,8 @@ extension StorageManager {
       return nil
     }
 
-    let calendar = Calendar.current
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: captureContext.timezoneId) ?? .current
 
     let startComponents = calendar.dateComponents([.hour, .minute], from: startTime)
     guard let startHour = startComponents.hour, let startMinute = startComponents.minute else {
@@ -97,14 +105,16 @@ extension StorageManager {
         sql: """
               INSERT INTO timeline_cards(
                   batch_id, start, end, start_ts, end_ts, day, title,
-                  summary, category, subcategory, detailed_summary, metadata
+                  summary, category, subcategory, detailed_summary, metadata,
+                  device_id, source_platform, source_timezone_id
                   -- video_summary_url is omitted here
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           """,
         arguments: [
           batchId, card.startTimestamp, card.endTimestamp, startTs, endTs, dayString, card.title,
           card.summary, card.category, card.subcategory, card.detailedSummary, metadataString,
+          captureContext.deviceId, captureContext.platform.rawValue, captureContext.timezoneId,
         ])
       lastId = db.lastInsertedRowID
     }
@@ -131,7 +141,7 @@ extension StorageManager {
         let cardRow = try Row.fetchOne(
           db,
           sql: """
-                SELECT video_summary_url, start_ts, end_ts, batch_id
+                SELECT video_summary_url, start_ts, end_ts, batch_id, device_id, title
                 FROM timeline_cards
                 WHERE id = ?
                   AND is_deleted = 0
@@ -147,6 +157,8 @@ extension StorageManager {
       let startTs: Int = cardRow["start_ts"] ?? 0
       let endTs: Int = cardRow["end_ts"] ?? 0
       let batchId: Int64? = cardRow["batch_id"]
+      let deviceId: String = cardRow["device_id"] ?? LocalCaptureDevice.id
+      let title: String = cardRow["title"] ?? ""
 
       try db.execute(
         sql: """
@@ -159,6 +171,16 @@ extension StorageManager {
       )
 
       guard endTs > startTs else { return }
+
+      try persistTimelineOverride(
+        in: db,
+        deviceId: deviceId,
+        startTs: startTs,
+        endTs: endTs,
+        title: title,
+        kind: "deleted",
+        category: nil
+      )
 
       if let batchId {
         try db.execute(
@@ -174,10 +196,11 @@ extension StorageManager {
         try db.execute(
           sql: """
                 DELETE FROM observations
-                WHERE (start_ts < ? AND end_ts > ?)
-                   OR (start_ts >= ? AND start_ts < ?)
+                WHERE device_id = ?
+                  AND ((start_ts < ? AND end_ts > ?)
+                   OR (start_ts >= ? AND start_ts < ?))
             """,
-          arguments: [endTs, startTs, startTs, endTs]
+          arguments: [deviceId, endTs, startTs, startTs, endTs]
         )
       }
     }
@@ -190,12 +213,32 @@ extension StorageManager {
     guard trimmed.isEmpty == false else { return }
 
     try? timedWrite("updateTimelineCardCategory") { db in
+      guard
+        let row = try Row.fetchOne(
+          db,
+          sql: "SELECT device_id, start_ts, end_ts, title FROM timeline_cards WHERE id = ?",
+          arguments: [cardId]
+        )
+      else { return }
       try db.execute(
         sql: """
               UPDATE timeline_cards
               SET category = ?
               WHERE id = ?
           """, arguments: [trimmed, cardId])
+      let startTs: Int = row["start_ts"] ?? 0
+      let endTs: Int = row["end_ts"] ?? 0
+      if endTs > startTs {
+        try persistTimelineOverride(
+          in: db,
+          deviceId: row["device_id"] ?? LocalCaptureDevice.id,
+          startTs: startTs,
+          endTs: endTs,
+          title: row["title"] ?? "",
+          kind: "category",
+          category: trimmed
+        )
+      }
     }
   }
 
@@ -245,9 +288,10 @@ extension StorageManager {
         sql: """
               INSERT INTO timeline_cards(
                   batch_id, start, end, start_ts, end_ts, day, title,
-                  summary, category, subcategory, detailed_summary, metadata
+                  summary, category, subcategory, detailed_summary, metadata,
+                  device_id, source_platform, source_timezone_id
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           """,
         arguments: [
           nil,  // batch_id is NULL for onboarding card
@@ -262,6 +306,9 @@ extension StorageManager {
           "Setup",
           "",  // detailed_summary - empty string (not NULL, as GRDB decode expects non-optional)
           metadataString,
+          LocalCaptureDevice.id,
+          CapturePlatform.macOS.rawValue,
+          TimeZone.current.identifier,
         ])
     }
   }
@@ -344,7 +391,10 @@ extension StorageManager {
             videoSummaryURL: row["video_summary_url"],
             otherVideoSummaryURLs: nil,
             appSites: appSites,
-            isBackupGenerated: isBackupGenerated
+            isBackupGenerated: isBackupGenerated,
+            deviceId: row["device_id"] ?? LocalCaptureDevice.id,
+            platform: CapturePlatform(rawValue: row["source_platform"] ?? "") ?? .macOS,
+            sourceTimezoneId: row["source_timezone_id"]
           )
         }
       }) ?? []
@@ -459,7 +509,10 @@ extension StorageManager {
           videoSummaryURL: row["video_summary_url"],
           otherVideoSummaryURLs: nil,
           appSites: appSites,
-          isBackupGenerated: isBackupGenerated
+          isBackupGenerated: isBackupGenerated,
+          deviceId: row["device_id"] ?? LocalCaptureDevice.id,
+          platform: CapturePlatform(rawValue: row["source_platform"] ?? "") ?? .macOS,
+          sourceTimezoneId: row["source_timezone_id"]
         )
       }
     }
@@ -467,6 +520,10 @@ extension StorageManager {
   }
 
   func fetchTimelineCardsByTimeRange(from: Date, to: Date) -> [TimelineCard] {
+    fetchTimelineCardsByTimeRange(from: from, to: to, deviceId: nil)
+  }
+
+  func fetchTimelineCardsByTimeRange(from: Date, to: Date, deviceId: String?) -> [TimelineCard] {
     let decoder = JSONDecoder()
     let fromTs = Int(from.timeIntervalSince1970)
     let toTs = Int(to.timeIntervalSince1970)
@@ -477,15 +534,19 @@ extension StorageManager {
       // and should be visible in Week view too for parity. Rendering in
       // Week's card layer handles System cards via the generic category
       // palette (falls back to a neutral accent).
-      try Row.fetchAll(
+      let deviceClause = deviceId == nil ? "" : "AND device_id = ?"
+      var arguments: [(any DatabaseValueConvertible)?] = [toTs, fromTs, fromTs, toTs]
+      if let deviceId { arguments.append(deviceId) }
+      return try Row.fetchAll(
         db,
         sql: """
               SELECT * FROM timeline_cards
               WHERE ((start_ts < ? AND end_ts > ?)
                  OR (start_ts >= ? AND start_ts < ?))
                 AND is_deleted = 0
+                \(deviceClause)
               ORDER BY start_ts ASC
-          """, arguments: [toTs, fromTs, fromTs, toTs]
+          """, arguments: StatementArguments(arguments)
       )
       .map { row in
         // Decode metadata JSON (supports object or legacy array)
@@ -520,7 +581,10 @@ extension StorageManager {
           videoSummaryURL: row["video_summary_url"],
           otherVideoSummaryURLs: nil,
           appSites: appSites,
-          isBackupGenerated: isBackupGenerated
+          isBackupGenerated: isBackupGenerated,
+          deviceId: row["device_id"] ?? LocalCaptureDevice.id,
+          platform: CapturePlatform(rawValue: row["source_platform"] ?? "") ?? .macOS,
+          sourceTimezoneId: row["source_timezone_id"]
         )
       }
     }
@@ -531,22 +595,55 @@ extension StorageManager {
   func fetchTotalMinutesTracked(from: Date, to: Date) -> Double {
     let startTs = Int(from.timeIntervalSince1970)
     let endTs = Int(to.timeIntervalSince1970)
+    guard endTs > startTs else { return 0 }
 
-    let totalSeconds: Double? = try? timedRead("fetchTotalMinutesTracked") { db in
-      try Double.fetchOne(
+    let intervals: [(start: Int, end: Int)] =
+      (try? timedRead("fetchTotalMinutesTracked") { db in
+        try Row.fetchAll(
         db,
         sql: """
-              SELECT COALESCE(SUM(end_ts - start_ts), 0)
+              SELECT start_ts, end_ts
               FROM timeline_cards
-              WHERE start_ts >= ? AND start_ts < ?
-              AND is_deleted = 0
-              AND category != 'System'
+              WHERE end_ts > ? AND start_ts < ?
+                AND is_deleted = 0
+                AND category != 'System'
           """,
         arguments: [startTs, endTs]
-      )
+        ).compactMap { row in
+          guard let cardStart: Int = row["start_ts"], let cardEnd: Int = row["end_ts"] else {
+            return nil
+          }
+          let clippedStart = max(cardStart, startTs)
+          let clippedEnd = min(cardEnd, endTs)
+          guard clippedEnd > clippedStart else { return nil }
+          return (start: clippedStart, end: clippedEnd)
+        }
+      }) ?? []
+
+    return Double(Self.mergedIntervalDuration(intervals)) / 60.0
+  }
+
+  static func mergedIntervalDuration(_ intervals: [(start: Int, end: Int)]) -> Int {
+    let sorted = intervals.filter { $0.end > $0.start }.sorted {
+      $0.start == $1.start ? $0.end < $1.end : $0.start < $1.start
+    }
+    guard let first = sorted.first else { return 0 }
+
+    var total = 0
+    var currentStart = first.start
+    var currentEnd = first.end
+
+    for interval in sorted.dropFirst() {
+      if interval.start <= currentEnd {
+        currentEnd = max(currentEnd, interval.end)
+      } else {
+        total += currentEnd - currentStart
+        currentStart = interval.start
+        currentEnd = interval.end
+      }
     }
 
-    return (totalSeconds ?? 0) / 60.0
+    return total + currentEnd - currentStart
   }
 
   /// Returns total minutes of tracked activities for the week containing the given date.
@@ -725,7 +822,10 @@ extension StorageManager {
         detailedSummary: row["detailed_summary"],
         day: row["day"],
         distractions: distractions,
-        videoSummaryURL: row["video_summary_url"]
+        videoSummaryURL: row["video_summary_url"],
+        deviceId: row["device_id"] ?? LocalCaptureDevice.id,
+        platform: CapturePlatform(rawValue: row["source_platform"] ?? "") ?? .macOS,
+        sourceTimezoneId: row["source_timezone_id"]
       )
     }
   }
@@ -776,7 +876,10 @@ extension StorageManager {
         detailedSummary: row["detailed_summary"],
         day: row["day"],
         distractions: distractions,
-        videoSummaryURL: row["video_summary_url"]
+        videoSummaryURL: row["video_summary_url"],
+        deviceId: row["device_id"] ?? LocalCaptureDevice.id,
+        platform: CapturePlatform(rawValue: row["source_platform"] ?? "") ?? .macOS,
+        sourceTimezoneId: row["source_timezone_id"]
       )
     }
   }
@@ -797,6 +900,9 @@ extension StorageManager {
     timeFormatter.locale = Locale(identifier: "en_US_POSIX")
 
     try? timedWrite("replaceTimelineCardsInRange(\(newCards.count)_cards)") { db in
+      let captureContext = try batchCaptureContext(in: db, batchId: batchId)
+      let sourceTimeZone = TimeZone(identifier: captureContext.timezoneId) ?? .current
+      timeFormatter.timeZone = sourceTimeZone
       // First, fetch the video paths that will be soft-deleted
       // Note: We exclude error cards (category='System') from other batches to preserve them
       let videoRows = try Row.fetchAll(
@@ -807,8 +913,9 @@ extension StorageManager {
                  OR (start_ts >= ? AND start_ts < ?))
                  AND video_summary_url IS NOT NULL
                  AND is_deleted = 0
+                 AND device_id = ?
                  AND (category != 'System' OR batch_id = ?)
-          """, arguments: [toTs, fromTs, fromTs, toTs, batchId])
+          """, arguments: [toTs, fromTs, fromTs, toTs, captureContext.deviceId, batchId])
 
       videoPaths = videoRows.compactMap { $0["video_summary_url"] as? String }
 
@@ -820,8 +927,9 @@ extension StorageManager {
               WHERE ((start_ts < ? AND end_ts > ?)
                  OR (start_ts >= ? AND start_ts < ?))
                  AND is_deleted = 0
+                 AND device_id = ?
                  AND (category != 'System' OR batch_id = ?)
-          """, arguments: [toTs, fromTs, fromTs, toTs, batchId])
+          """, arguments: [toTs, fromTs, fromTs, toTs, captureContext.deviceId, batchId])
 
       for _ in cardsToDelete {
         // Cards being deleted - no-op needed, just iterating to trigger side effects
@@ -836,8 +944,9 @@ extension StorageManager {
               WHERE ((start_ts < ? AND end_ts > ?)
                  OR (start_ts >= ? AND start_ts < ?))
                  AND is_deleted = 0
+                 AND device_id = ?
                  AND (category != 'System' OR batch_id = ?)
-          """, arguments: [toTs, fromTs, fromTs, toTs, batchId])
+          """, arguments: [toTs, fromTs, fromTs, toTs, captureContext.deviceId, batchId])
 
       // Verify soft deletion (count remaining active cards)
       let remainingCount =
@@ -848,7 +957,8 @@ extension StorageManager {
                 WHERE ((start_ts < ? AND end_ts > ?)
                    OR (start_ts >= ? AND start_ts < ?))
                    AND is_deleted = 0
-            """, arguments: [toTs, fromTs, fromTs, toTs]) ?? 0
+                   AND device_id = ?
+            """, arguments: [toTs, fromTs, fromTs, toTs, captureContext.deviceId]) ?? 0
 
       if remainingCount > 0 {
       } else {
@@ -868,7 +978,8 @@ extension StorageManager {
         }
 
         // Resolve clock-only timestamps by picking the nearest day to the window midpoint
-        let calendar = Calendar.current
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = sourceTimeZone
         let anchor = from.addingTimeInterval(to.timeIntervalSince(from) / 2.0)
 
         let resolveClock: (Int, Int) -> Date = { hour, minute in
@@ -915,6 +1026,18 @@ extension StorageManager {
 
         let endTs = Int(endDate.timeIntervalSince1970)
 
+        let override = try matchingTimelineOverride(
+          in: db,
+          deviceId: captureContext.deviceId,
+          startTs: startTs,
+          endTs: endTs,
+          title: card.title
+        )
+        if override.kind == "deleted" {
+          continue
+        }
+        let effectiveCategory = override.category ?? card.category
+
         // Calculate the day string using 4 AM boundary rules
         let (dayString, _, _) = startDate.getDayInfoFor4AMBoundary()
 
@@ -922,13 +1045,15 @@ extension StorageManager {
           sql: """
                 INSERT INTO timeline_cards(
                     batch_id, start, end, start_ts, end_ts, day, title,
-                    summary, category, subcategory, detailed_summary, metadata
+                    summary, category, subcategory, detailed_summary, metadata,
+                    device_id, source_platform, source_timezone_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
           arguments: [
             batchId, card.startTimestamp, card.endTimestamp, startTs, endTs, dayString, card.title,
-            card.summary, card.category, card.subcategory, card.detailedSummary, metadataString,
+            card.summary, effectiveCategory, card.subcategory, card.detailedSummary, metadataString,
+            captureContext.deviceId, captureContext.platform.rawValue, captureContext.timezoneId,
           ])
 
         // Capture the ID of the inserted card
@@ -941,5 +1066,117 @@ extension StorageManager {
   }
 
   // Note: Transcript storage methods removed in favor of Observations table
+
+  private func captureContext(forBatch batchId: Int64) -> BatchCaptureContext {
+    (try? timedRead("captureContext(forBatch)") { db in
+      try batchCaptureContext(in: db, batchId: batchId)
+    }) ?? BatchCaptureContext(
+      deviceId: LocalCaptureDevice.id,
+      platform: .macOS,
+      timezoneId: TimeZone.current.identifier
+    )
+  }
+
+  private func batchCaptureContext(in db: Database, batchId: Int64) throws
+    -> BatchCaptureContext
+  {
+    let row = try Row.fetchOne(
+      db,
+      sql: """
+            SELECT b.device_id, b.source_platform,
+              COALESCE(
+                (SELECT s.timezone_id
+                 FROM batch_screenshots bs
+                 JOIN screenshots s ON s.id = bs.screenshot_id
+                 WHERE bs.batch_id = b.id AND s.timezone_id IS NOT NULL
+                 ORDER BY s.captured_at ASC
+                 LIMIT 1),
+                ?
+              ) AS timezone_id
+            FROM analysis_batches b
+            WHERE b.id = ?
+        """,
+      arguments: [TimeZone.current.identifier, batchId]
+    )
+
+    let platformRaw: String = row?["source_platform"] ?? CapturePlatform.macOS.rawValue
+    return BatchCaptureContext(
+      deviceId: row?["device_id"] ?? LocalCaptureDevice.id,
+      platform: CapturePlatform(rawValue: platformRaw) ?? .macOS,
+      timezoneId: row?["timezone_id"] ?? TimeZone.current.identifier
+    )
+  }
+
+  private func persistTimelineOverride(
+    in db: Database,
+    deviceId: String,
+    startTs: Int,
+    endTs: Int,
+    title: String,
+    kind: String,
+    category: String?
+  ) throws {
+    let fingerprint = normalizedTimelineTitle(title)
+    let now = Int(Date().timeIntervalSince1970)
+    try db.execute(
+      sql: """
+            DELETE FROM timeline_card_overrides
+            WHERE device_id = ?
+              AND override_kind = ?
+              AND NOT (end_ts <= ? OR start_ts >= ?)
+        """,
+      arguments: [deviceId, kind, startTs, endTs]
+    )
+    try db.execute(
+      sql: """
+            INSERT INTO timeline_card_overrides(
+              id, device_id, start_ts, end_ts, title_fingerprint,
+              override_kind, category, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+      arguments: [
+        UUID().uuidString.lowercased(), deviceId, startTs, endTs, fingerprint,
+        kind, category, now, now,
+      ]
+    )
+  }
+
+  private func matchingTimelineOverride(
+    in db: Database,
+    deviceId: String,
+    startTs: Int,
+    endTs: Int,
+    title: String
+  ) throws -> (kind: String?, category: String?) {
+    let duration = max(1, endTs - startTs)
+    let fingerprint = normalizedTimelineTitle(title)
+    let rows = try Row.fetchAll(
+      db,
+      sql: """
+            SELECT override_kind, category, start_ts, end_ts, title_fingerprint
+            FROM timeline_card_overrides
+            WHERE device_id = ?
+              AND NOT (end_ts <= ? OR start_ts >= ?)
+            ORDER BY updated_at DESC
+        """,
+      arguments: [deviceId, startTs, endTs]
+    )
+
+    for row in rows {
+      let overrideStart: Int = row["start_ts"]
+      let overrideEnd: Int = row["end_ts"]
+      let overlap = max(0, min(endTs, overrideEnd) - max(startTs, overrideStart))
+      let storedFingerprint: String? = row["title_fingerprint"]
+      let titleMatches = storedFingerprint == fingerprint
+      if titleMatches || Double(overlap) / Double(duration) >= 0.6 {
+        return (row["override_kind"], row["category"])
+      }
+    }
+    return (nil, nil)
+  }
+
+  private func normalizedTimelineTitle(_ title: String) -> String {
+    title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+  }
 
 }

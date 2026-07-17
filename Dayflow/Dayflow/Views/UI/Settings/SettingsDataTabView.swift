@@ -12,6 +12,7 @@ struct SettingsDataTabView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: SettingsStyle.sectionSpacing) {
+      AndroidSyncSettingsSection()
       exportSection
       backupRestoreSection
       reprocessSection

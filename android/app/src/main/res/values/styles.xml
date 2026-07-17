@@ -1,0 +1,9 @@
+<resources>
+  <style name="Theme.DayflowCapture" parent="android:style/Theme.Material.Light.NoActionBar">
+    <item name="android:fontFamily">sans</item>
+    <item name="android:windowLightStatusBar">true</item>
+    <item name="android:navigationBarColor">#F7F7F5</item>
+    <item name="android:statusBarColor">#F7F7F5</item>
+  </style>
+</resources>
+

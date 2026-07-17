@@ -56,6 +56,10 @@ struct CanvasActivityCard: View {
     TimelineTypography.cardSecondaryTextFontSize(for: fontSize)
   }
 
+  private var canShowContent: Bool {
+    height >= max(20, fontSize + (verticalPadding * 2))
+  }
+
   private var backupIndicator: some View {
     Text("!")
       .font(Font.custom("Figtree", size: 9).weight(.semibold))
@@ -88,7 +92,7 @@ struct CanvasActivityCard: View {
       }
     }) {
       HStack(alignment: .top, spacing: isFailedCard ? 10 : iconTextSpacing) {
-        if durationMinutes >= 10 {
+        if canShowContent {
           if isFailedCard {
             VStack(alignment: .leading, spacing: 4) {
               HStack(alignment: .top, spacing: 8) {
@@ -137,22 +141,26 @@ struct CanvasActivityCard: View {
                   .weight(fontWeight.fontWeight)
               )
               .foregroundColor(style.text)
+              .lineLimit(isCompactCard ? 1 : nil)
+              .truncationMode(.tail)
 
             Spacer()
 
-            HStack(spacing: 6) {
-              if isBackupGenerated {
-                backupIndicator
-              }
+            if !isCompactCard {
+              HStack(spacing: 6) {
+                if isBackupGenerated {
+                  backupIndicator
+                }
 
-              Text(time)
-                .font(
-                  Font.custom("Figtree", size: secondaryFontSize)
-                    .weight(.medium)
-                )
-                .foregroundColor(style.time)
-                .lineLimit(1)
-                .truncationMode(.tail)
+                Text(time)
+                  .font(
+                    Font.custom("Figtree", size: secondaryFontSize)
+                      .weight(.medium)
+                  )
+                  .foregroundColor(style.time)
+                  .lineLimit(1)
+                  .truncationMode(.tail)
+              }
             }
           }
         }

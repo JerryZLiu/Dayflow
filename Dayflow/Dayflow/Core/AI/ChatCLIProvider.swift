@@ -148,7 +148,8 @@ final class ChatCLIProvider {
       let pixelsWide = rep?.pixelsWide ?? Int(image.size.width)
       let pixelsHigh = rep?.pixelsHigh ?? Int(image.size.height)
 
-      let maxHeight: Double = 720.0
+      let isTallPortrait = pixelsHigh > pixelsWide * 2
+      let maxHeight: Double = isTallPortrait ? 1280.0 : 720.0
       if pixelsHigh <= Int(maxHeight) {
         // No resize needed; just copy to temp to keep paths isolated.
         try fm.copyItem(at: src, to: dst)

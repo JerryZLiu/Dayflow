@@ -23,6 +23,12 @@
 	<string>$(DAYFLOW_BACKEND_URL)</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Dayflow uses screen access to create your timeline. Recordings stay on your Mac and you can pause or delete them anytime.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Dayflow receives encrypted screenshots from your paired Android device on your local network.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_dayflow-sync._tcp</string>
+	</array>
 	<key>SUAllowsAutomaticUpdates</key>
 	<true/>
 	<key>SUAutomaticallyUpdate</key>

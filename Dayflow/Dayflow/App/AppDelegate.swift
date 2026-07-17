@@ -26,6 +26,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     nil
   private var statusBar: StatusBarController!
   private var recorder: ScreenRecorder!
+  private let androidSyncServer = AndroidSyncServer.shared
   private var analyticsSub: AnyCancellable?
   private var analyticsPreferenceObserver: NSObjectProtocol?
   private var powerObserver: NSObjectProtocol?
@@ -78,6 +79,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     UserDefaults.standard.set(build, forKey: "lastRunBuild")
     statusBar = StatusBarController()
+    androidSyncServer.start()
     LaunchAtLoginManager.shared.bootstrapDefaultPreference()
     deepLinkRouter = AppDeepLinkRouter()
 

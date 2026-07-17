@@ -567,6 +567,7 @@ final class LLMService: LLMServicing {
       }
 
       let (_, batchStartTs, batchEndTs, _) = batchInfo
+      let batchDeviceId = StorageManager.shared.deviceIdForBatch(batchId) ?? LocalCaptureDevice.id
       let processingStartTime = Date()
       let primaryProviderID = LLMProviderID.from(providerType)
       let primaryProviderLabel = providerLabel(for: primaryProviderID)
@@ -694,7 +695,8 @@ final class LLMService: LLMServicing {
         // Fetch observations from the recent batching window (instead of just current batch).
         let recentObservations = StorageManager.shared.fetchObservationsByTimeRange(
           from: windowStartTime,
-          to: currentTime
+          to: currentTime,
+          deviceId: batchDeviceId
         )
 
         print("[DEBUG] LLMService fetched \(recentObservations.count) observations")
@@ -706,7 +708,8 @@ final class LLMService: LLMServicing {
         // Fetch existing timeline cards that overlap with the recent batching window.
         let existingTimelineCards = StorageManager.shared.fetchTimelineCardsByTimeRange(
           from: windowStartTime,
-          to: currentTime
+          to: currentTime,
+          deviceId: batchDeviceId
         )
 
         // Convert TimelineCards to ActivityCardData for context

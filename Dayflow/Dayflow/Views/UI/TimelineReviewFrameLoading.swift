@@ -16,13 +16,20 @@ actor TimelineReviewScreenshotSource {
       let timelineCard = storage.fetchTimelineCard(byId: recordId)
     {
       let screenshots = storage.fetchScreenshotsInTimeRange(
-        startTs: timelineCard.startTs, endTs: timelineCard.endTs)
+        startTs: timelineCard.startTs,
+        endTs: timelineCard.endTs,
+        deviceId: timelineCard.deviceId
+      )
       if screenshots.isEmpty == false { return screenshots }
     }
     let startTs = Int(activity.startTime.timeIntervalSince1970)
     let endTs = Int(activity.endTime.timeIntervalSince1970)
     guard endTs > startTs else { return [] }
-    return storage.fetchScreenshotsInTimeRange(startTs: startTs, endTs: endTs)
+    return storage.fetchScreenshotsInTimeRange(
+      startTs: startTs,
+      endTs: endTs,
+      deviceId: activity.deviceId
+    )
   }
 
   func previewScreenshotURL(for activity: TimelineActivity) -> URL? {

@@ -160,44 +160,68 @@ struct CanvasTimelineDataView: View {
   // then flashes to 10 AM" flicker can't happen — the ScrollView stays
   // invisible until the first auto-scroll lands, then fades in.
   private var dayTimelineScrollContainer: some View {
-    ScrollViewReader { proxy in
-      ScrollView(.vertical, showsIndicators: false) {
-        timelineScrollContent()
-      }
-      .background(Color.clear)
-      .opacity(hasPerformedInitialScroll ? 1 : 0)
-      .onChange(of: scrollToNowTick) {
-        scrollToNowCenteredHour(with: proxy)
-      }
-      .onChange(of: positionedActivities.count) {
-        guard !didInitialScrollInView, timelineIsToday(selectedDate) else { return }
-        didInitialScrollInView = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-          scrollToNowCenteredHour(with: proxy)
-          revealInitialScroll()
+    VStack(spacing: 0) {
+      deviceLaneHeader
+      ScrollViewReader { proxy in
+        ScrollView(.vertical, showsIndicators: false) {
+          timelineScrollContent()
         }
-      }
-      .onAppear {
-        if timelineIsToday(selectedDate) {
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        .background(Color.clear)
+        .opacity(hasPerformedInitialScroll ? 1 : 0)
+        .onChange(of: scrollToNowTick) {
+          scrollToNowCenteredHour(with: proxy)
+        }
+        .onChange(of: positionedActivities.count) {
+          guard !didInitialScrollInView, timelineIsToday(selectedDate) else { return }
+          didInitialScrollInView = true
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             scrollToNowCenteredHour(with: proxy)
             revealInitialScroll()
           }
-        } else {
-          // Past day: nothing to auto-scroll to. Reveal immediately so the
-          // user sees the day's content as soon as it loads rather than
-          // staring at a blank ScrollView.
-          revealInitialScroll()
         }
-      }
-      .onChange(of: selectedDate) { _, newDate in
-        guard timelineIsToday(newDate) else { return }
-        didInitialScrollInView = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-          scrollToNowCenteredHour(with: proxy, animated: true)
+        .onAppear {
+          if timelineIsToday(selectedDate) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+              scrollToNowCenteredHour(with: proxy)
+              revealInitialScroll()
+            }
+          } else {
+            revealInitialScroll()
+          }
+        }
+        .onChange(of: selectedDate) { _, newDate in
+          guard timelineIsToday(newDate) else { return }
+          didInitialScrollInView = false
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            scrollToNowCenteredHour(with: proxy, animated: true)
+          }
         }
       }
     }
+  }
+
+  private var deviceLaneHeader: some View {
+    HStack(spacing: 0) {
+      Color.clear.frame(width: CanvasConfig.timeColumnWidth)
+      deviceLaneLabel("Mac", systemImage: "laptopcomputer")
+      Rectangle()
+        .fill(Color.black.opacity(0.08))
+        .frame(width: 1, height: 18)
+      deviceLaneLabel("Android", systemImage: "smartphone")
+    }
+    .frame(height: 30)
+    .padding(.leading, contentLeadingInset)
+  }
+
+  private func deviceLaneLabel(_ title: String, systemImage: String) -> some View {
+    HStack(spacing: 6) {
+      Image(systemName: systemImage)
+        .font(.system(size: 11, weight: .medium))
+      Text(title)
+        .font(.custom("Figtree", size: 12).weight(.semibold))
+    }
+    .foregroundStyle(Color(hex: "594838").opacity(0.82))
+    .frame(maxWidth: .infinity)
   }
 
   private func revealInitialScroll() {
@@ -308,8 +332,9 @@ struct CanvasTimelineDataView: View {
     .pointingHandCursor(enabled: selectedCardId != nil || selectedActivity != nil)
   }
 
-  private var cardsLayer: some View {
-    GeometryReader { geo in
+  private func cardsLayer(for platform: CapturePlatform) -> some View {
+    let laneActivities = positionedActivities.filter { $0.activity.platform == platform }
+    return GeometryReader { geo in
       ZStack(alignment: .topLeading) {
         Color.clear
           .contentShape(Rectangle())
@@ -317,7 +342,7 @@ struct CanvasTimelineDataView: View {
             clearSelection()
           }
           .pointingHandCursor(enabled: selectedCardId != nil || selectedActivity != nil)
-        ForEach(Array(positionedActivities.enumerated()), id: \.element.id) { index, item in
+        ForEach(Array(laneActivities.enumerated()), id: \.element.id) { index, item in
           let isVisible = cardEntranceProgress[item.id] ?? false
           CanvasActivityCard(
             title: item.title,
@@ -388,7 +413,11 @@ struct CanvasTimelineDataView: View {
   private var mainTimelineRow: some View {
     HStack(spacing: 0) {
       timeColumn
-      cardsLayer
+      cardsLayer(for: .macOS)
+      Rectangle()
+        .fill(Color.black.opacity(0.08))
+        .frame(width: 1)
+      cardsLayer(for: .android)
     }
   }
 
@@ -641,7 +670,10 @@ struct CanvasTimelineDataView: View {
       // Mitigation transform: resolve visual overlaps by trimming larger cards
       // so that smaller cards "win". This is a display-only fix to handle
       // upstream card-generation overlap bugs without touching stored data.
-      let segments = TimelineActivityLoader.resolveDisplaySegments(from: payload.activities)
+      let segments = Dictionary(grouping: payload.activities, by: \.deviceId)
+        .values
+        .flatMap { TimelineActivityLoader.resolveDisplaySegments(from: $0) }
+        .sorted { $0.start < $1.start }
       let recordingProjection = TimelineActivityLoader.recordingProjectionWindow(
         for: payload.timelineDate,
         displaySegments: segments,

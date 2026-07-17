@@ -199,7 +199,7 @@ final class DayflowBackendProvider {
 
   private static func jpegData(
     for screenshot: Screenshot,
-    maxHeight: CGFloat = 720,
+    maxHeight: CGFloat? = nil,
     quality: CGFloat = 0.85
   ) -> Data? {
     let url = URL(fileURLWithPath: screenshot.filePath)
@@ -212,14 +212,15 @@ final class DayflowBackendProvider {
       ?? image.representations.first
     let pixelsWide = rep?.pixelsWide ?? Int(image.size.width)
     let pixelsHigh = rep?.pixelsHigh ?? Int(image.size.height)
+    let effectiveMaxHeight = maxHeight ?? (screenshot.platform == .android ? 1280 : 720)
 
-    if pixelsHigh <= Int(maxHeight) {
+    if pixelsHigh <= Int(effectiveMaxHeight) {
       return try? Data(contentsOf: url)
     }
 
-    let scale = maxHeight / CGFloat(pixelsHigh)
+    let scale = effectiveMaxHeight / CGFloat(pixelsHigh)
     let targetWidth = max(2, Int((CGFloat(pixelsWide) * scale).rounded(.toNearestOrAwayFromZero)))
-    let targetHeight = Int(maxHeight)
+    let targetHeight = Int(effectiveMaxHeight)
 
     guard
       let bitmap = NSBitmapImageRep(

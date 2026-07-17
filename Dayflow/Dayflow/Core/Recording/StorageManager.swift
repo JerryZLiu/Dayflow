@@ -619,6 +619,37 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
               ON day_goal_categories(day, kind, sort_order);
           """)
 
+      // Capture devices and durable user edits are shared by local and imported timelines.
+      try db.execute(
+        sql: """
+              CREATE TABLE IF NOT EXISTS capture_devices (
+                  id TEXT NOT NULL PRIMARY KEY,
+                  platform TEXT NOT NULL,
+                  display_name TEXT NOT NULL,
+                  model TEXT,
+                  os_version TEXT,
+                  paired_at INTEGER,
+                  last_seen_at INTEGER,
+                  is_revoked INTEGER NOT NULL DEFAULT 0
+              );
+              CREATE INDEX IF NOT EXISTS idx_capture_devices_platform
+              ON capture_devices(platform, is_revoked);
+
+              CREATE TABLE IF NOT EXISTS timeline_card_overrides (
+                  id TEXT NOT NULL PRIMARY KEY,
+                  device_id TEXT NOT NULL,
+                  start_ts INTEGER NOT NULL,
+                  end_ts INTEGER NOT NULL,
+                  title_fingerprint TEXT,
+                  override_kind TEXT NOT NULL CHECK(override_kind IN ('category', 'deleted')),
+                  category TEXT,
+                  created_at INTEGER NOT NULL,
+                  updated_at INTEGER NOT NULL
+              );
+              CREATE INDEX IF NOT EXISTS idx_timeline_card_overrides_device_time
+              ON timeline_card_overrides(device_id, start_ts, end_ts);
+          """)
+
       // LLM calls logging table
       try db.execute(
         sql: """
@@ -709,6 +740,96 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
             """)
         print("✅ Added idle_seconds_at_capture column to screenshots")
       }
+
+      let screenshotColumnDefinitions: [(String, String)] = [
+        ("capture_id", "TEXT"),
+        ("device_id", "TEXT"),
+        ("source_platform", "TEXT NOT NULL DEFAULT 'macos'"),
+        ("session_id", "TEXT"),
+        ("sequence", "INTEGER"),
+        ("timezone_id", "TEXT"),
+        ("utc_offset_seconds", "INTEGER"),
+        ("foreground_app_id", "TEXT"),
+        ("foreground_app_name", "TEXT"),
+        ("orientation", "TEXT NOT NULL DEFAULT 'unknown'"),
+        ("pixel_width", "INTEGER"),
+        ("pixel_height", "INTEGER"),
+        ("capture_kind", "TEXT NOT NULL DEFAULT 'image'"),
+        ("content_sha256", "TEXT"),
+        ("received_at", "INTEGER"),
+      ]
+      for (name, definition) in screenshotColumnDefinitions where !screenshotColumns.contains(name) {
+        try db.execute(sql: "ALTER TABLE screenshots ADD COLUMN \(name) \(definition)")
+      }
+
+      let batchColumns = try db.columns(in: "analysis_batches").map { $0.name }
+      if !batchColumns.contains("device_id") {
+        try db.execute(sql: "ALTER TABLE analysis_batches ADD COLUMN device_id TEXT")
+      }
+      if !batchColumns.contains("source_platform") {
+        try db.execute(
+          sql: "ALTER TABLE analysis_batches ADD COLUMN source_platform TEXT NOT NULL DEFAULT 'macos'")
+      }
+
+      let observationColumns = try db.columns(in: "observations").map { $0.name }
+      if !observationColumns.contains("device_id") {
+        try db.execute(sql: "ALTER TABLE observations ADD COLUMN device_id TEXT")
+      }
+
+      if !timelineCardsColumns.contains("device_id") {
+        try db.execute(sql: "ALTER TABLE timeline_cards ADD COLUMN device_id TEXT")
+      }
+      if !timelineCardsColumns.contains("source_platform") {
+        try db.execute(
+          sql: "ALTER TABLE timeline_cards ADD COLUMN source_platform TEXT NOT NULL DEFAULT 'macos'")
+      }
+      if !timelineCardsColumns.contains("source_timezone_id") {
+        try db.execute(sql: "ALTER TABLE timeline_cards ADD COLUMN source_timezone_id TEXT")
+      }
+
+      let reviewColumns = try db.columns(in: "timeline_review_ratings").map { $0.name }
+      if !reviewColumns.contains("device_id") {
+        try db.execute(sql: "ALTER TABLE timeline_review_ratings ADD COLUMN device_id TEXT")
+      }
+
+      let localDevice = LocalCaptureDevice.current
+      let now = Int(Date().timeIntervalSince1970)
+      try db.execute(
+        sql: """
+              INSERT INTO capture_devices(
+                id, platform, display_name, model, os_version, last_seen_at, is_revoked
+              ) VALUES (?, ?, ?, ?, ?, ?, 0)
+              ON CONFLICT(id) DO UPDATE SET
+                display_name = excluded.display_name,
+                os_version = excluded.os_version,
+                last_seen_at = excluded.last_seen_at
+          """,
+        arguments: [
+          localDevice.id, localDevice.platform.rawValue, localDevice.displayName,
+          localDevice.model, localDevice.osVersion, now,
+        ]
+      )
+      try db.execute(sql: "UPDATE screenshots SET device_id = ? WHERE device_id IS NULL", arguments: [localDevice.id])
+      try db.execute(sql: "UPDATE analysis_batches SET device_id = ? WHERE device_id IS NULL", arguments: [localDevice.id])
+      try db.execute(sql: "UPDATE observations SET device_id = ? WHERE device_id IS NULL", arguments: [localDevice.id])
+      try db.execute(sql: "UPDATE timeline_cards SET device_id = ? WHERE device_id IS NULL", arguments: [localDevice.id])
+      try db.execute(sql: "UPDATE timeline_review_ratings SET device_id = ? WHERE device_id IS NULL", arguments: [localDevice.id])
+
+      try db.execute(
+        sql: """
+              CREATE UNIQUE INDEX IF NOT EXISTS idx_screenshots_device_capture
+              ON screenshots(device_id, capture_id)
+              WHERE capture_id IS NOT NULL;
+              CREATE INDEX IF NOT EXISTS idx_screenshots_device_time
+              ON screenshots(device_id, captured_at, is_deleted);
+              CREATE INDEX IF NOT EXISTS idx_analysis_batches_device_time
+              ON analysis_batches(device_id, batch_start_ts, batch_end_ts);
+              CREATE INDEX IF NOT EXISTS idx_observations_device_time
+              ON observations(device_id, start_ts, end_ts);
+              CREATE INDEX IF NOT EXISTS idx_timeline_cards_device_time
+              ON timeline_cards(device_id, start_ts, end_ts)
+              WHERE is_deleted = 0;
+          """)
 
       let dayGoalColumns = try db.columns(in: "day_goals").map { $0.name }
       if !dayGoalColumns.contains("is_skipped") {

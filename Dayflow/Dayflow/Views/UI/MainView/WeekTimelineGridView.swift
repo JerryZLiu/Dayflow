@@ -44,6 +44,30 @@ struct WeekPositionedActivity: Identifiable {
   let faviconSecondaryHost: String?
 }
 
+private enum WeekDeviceFilter: String, CaseIterable, Identifiable {
+  case all
+  case mac
+  case android
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .all: return "All"
+    case .mac: return "Mac"
+    case .android: return "Android"
+    }
+  }
+
+  func includes(_ platform: CapturePlatform) -> Bool {
+    switch self {
+    case .all: return true
+    case .mac: return platform == .macOS
+    case .android: return platform == .android
+    }
+  }
+}
+
 // Published by the week view's cards layer; consumed locally to drive the
 // weekly-hours-footer overlap check (mirrors the day view's equivalent key).
 private struct WeekCardsLayerFramePreferenceKey: PreferenceKey {
@@ -89,6 +113,7 @@ struct WeekTimelineGridView: View {
   // sequenced one runloop after scrollToRelevantHour so the scroll offset
   // has committed before content becomes visible.
   @State private var hasPerformedInitialScroll: Bool = false
+  @State private var deviceFilter: WeekDeviceFilter = .all
 
   // Hover-expand state. Parent owns it so the whole grid animates coherently.
   @State private var hoveredCardID: String?
@@ -149,6 +174,7 @@ struct WeekTimelineGridView: View {
       let dayWidth = gridWidth / 7
 
       VStack(alignment: .leading, spacing: WeekTimelineConfig.headerSpacing) {
+        weekDeviceFilter
         weekHeader(dayWidth: dayWidth)
           .frame(height: WeekTimelineConfig.weekHeaderHeight, alignment: .topLeading)
 
@@ -228,6 +254,9 @@ struct WeekTimelineGridView: View {
     .onChange(of: appState.isRecording) {
       loadActivities(trigger: "recordingStateChanged")
     }
+    .onChange(of: deviceFilter) {
+      loadActivities(trigger: "deviceFilterChanged")
+    }
     .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification))
     { _ in
       loadActivities(trigger: "appBecameActive")
@@ -260,6 +289,22 @@ struct WeekTimelineGridView: View {
         .frame(width: dayWidth, alignment: .center)
       }
     }
+  }
+
+  private var weekDeviceFilter: some View {
+    HStack(spacing: 0) {
+      Spacer(minLength: WeekTimelineConfig.timeColumnWidth)
+      Picker("Device", selection: $deviceFilter) {
+        ForEach(WeekDeviceFilter.allCases) { option in
+          Text(option.title).tag(option)
+        }
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
+      .frame(width: 220)
+    }
+    .frame(height: 26)
+    .padding(.trailing, 6)
   }
 
   @ViewBuilder
@@ -417,6 +462,12 @@ struct WeekTimelineGridView: View {
           }
         }
         .frame(width: cardWidth)
+        .overlay(alignment: .topTrailing) {
+          Image(systemName: item.activity.platform == .android ? "smartphone" : "laptopcomputer")
+            .font(.system(size: 8, weight: .semibold))
+            .foregroundStyle(Color.black.opacity(0.45))
+            .padding(4)
+        }
         .position(x: cardXPosition, y: item.yPosition + cardEffectiveHeight / 2)
         .animation(isHov ? hoverAnimation : collapseAnimation, value: hoveredCardID)
       }
@@ -498,6 +549,7 @@ struct WeekTimelineGridView: View {
     )
     let requestedWeekRange = TimelineWeekRange.containing(requestedSelectedDate)
     let requestedWeekID = DateFormatter.yyyyMMdd.string(from: requestedWeekRange.weekStart)
+    let requestedDeviceFilter = deviceFilter
 
     // Preview short-circuit: skip DB entirely when fake data is injected.
     if let preview = previewPositionedActivities {
@@ -528,6 +580,7 @@ struct WeekTimelineGridView: View {
       let overallStart = CFAbsoluteTimeGetCurrent()
       let fetchStart = CFAbsoluteTimeGetCurrent()
       let activities = TimelineActivityLoader.activities(in: requestedWeekRange)
+        .filter { requestedDeviceFilter.includes($0.platform) }
       let fetchMs = Int((CFAbsoluteTimeGetCurrent() - fetchStart) * 1000)
       let weekDays = requestedWeekRange.days
       let dayLookup = Dictionary(
@@ -541,7 +594,10 @@ struct WeekTimelineGridView: View {
         let dayActivities = activities.filter {
           $0.startTime.getDayInfoFor4AMBoundary().dayString == day.dayString
         }
-        let segments = TimelineActivityLoader.resolveDisplaySegments(from: dayActivities)
+        let segments = Dictionary(grouping: dayActivities, by: \.deviceId)
+          .values
+          .flatMap { TimelineActivityLoader.resolveDisplaySegments(from: $0) }
+          .sorted { $0.start < $1.start }
 
         for segment in segments {
           let durationMinutes = max(0, segment.end.timeIntervalSince(segment.start) / 60)

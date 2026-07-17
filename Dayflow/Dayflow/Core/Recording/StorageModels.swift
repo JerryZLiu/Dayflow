@@ -49,12 +49,35 @@ struct DailyStandupEntry: Codable, Sendable {
 struct Observation: Codable, Sendable {
   let id: Int64?
   let batchId: Int64
+  let deviceId: String
   let startTs: Int
   let endTs: Int
   let observation: String
   let metadata: String?
   let llmModel: String?
   let createdAt: Date?
+
+  init(
+    id: Int64?,
+    batchId: Int64,
+    deviceId: String = LocalCaptureDevice.id,
+    startTs: Int,
+    endTs: Int,
+    observation: String,
+    metadata: String?,
+    llmModel: String?,
+    createdAt: Date?
+  ) {
+    self.id = id
+    self.batchId = batchId
+    self.deviceId = deviceId
+    self.startTs = startTs
+    self.endTs = endTs
+    self.observation = observation
+    self.metadata = metadata
+    self.llmModel = llmModel
+    self.createdAt = createdAt
+  }
 }
 
 // Re-add Distraction struct, as it's used by TimelineCard
@@ -115,6 +138,9 @@ struct TimelineCard: Codable, Sendable, Identifiable {
   let otherVideoSummaryURLs: [String]?  // For merged cards, subsequent video URLs
   let appSites: AppSites?
   let isBackupGenerated: Bool?
+  let deviceId: String
+  let platform: CapturePlatform
+  let sourceTimezoneId: String?
 
   init(
     id: UUID = UUID(),
@@ -132,7 +158,10 @@ struct TimelineCard: Codable, Sendable, Identifiable {
     videoSummaryURL: String?,
     otherVideoSummaryURLs: [String]?,
     appSites: AppSites?,
-    isBackupGenerated: Bool? = nil
+    isBackupGenerated: Bool? = nil,
+    deviceId: String = LocalCaptureDevice.id,
+    platform: CapturePlatform = .macOS,
+    sourceTimezoneId: String? = nil
   ) {
     self.id = id
     self.recordId = recordId
@@ -150,6 +179,9 @@ struct TimelineCard: Codable, Sendable, Identifiable {
     self.otherVideoSummaryURLs = otherVideoSummaryURLs
     self.appSites = appSites
     self.isBackupGenerated = isBackupGenerated
+    self.deviceId = deviceId
+    self.platform = platform
+    self.sourceTimezoneId = sourceTimezoneId
   }
 }
 
@@ -198,6 +230,7 @@ struct TimelineCardDebugEntry: Sendable {
 
 struct TimelineReviewRatingSegment: Sendable {
   let id: Int64
+  let deviceId: String
   let startTs: Int
   let endTs: Int
   let rating: String
@@ -311,4 +344,7 @@ struct TimelineCardWithTimestamps {
   let day: String
   let distractions: [Distraction]?
   let videoSummaryURL: String?
+  let deviceId: String
+  let platform: CapturePlatform
+  let sourceTimezoneId: String?
 }

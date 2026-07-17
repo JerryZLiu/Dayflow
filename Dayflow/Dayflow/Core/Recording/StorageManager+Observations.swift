@@ -6,16 +6,21 @@ extension StorageManager {
   func saveObservations(batchId: Int64, observations: [Observation]) {
     guard !observations.isEmpty else { return }
     try? timedWrite("saveObservations(\(observations.count)_items)") { db in
+      let batchDeviceId = try String.fetchOne(
+        db,
+        sql: "SELECT device_id FROM analysis_batches WHERE id = ?",
+        arguments: [batchId]
+      ) ?? LocalCaptureDevice.id
       for obs in observations {
         try db.execute(
           sql: """
                 INSERT INTO observations(
-                    batch_id, start_ts, end_ts, observation, metadata, llm_model
+                    batch_id, device_id, start_ts, end_ts, observation, metadata, llm_model
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
           arguments: [
-            batchId, obs.startTs, obs.endTs, obs.observation,
+            batchId, batchDeviceId, obs.startTs, obs.endTs, obs.observation,
             obs.metadata, obs.llmModel,
           ])
       }
@@ -35,6 +40,7 @@ extension StorageManager {
         Observation(
           id: row["id"],
           batchId: row["batch_id"],
+          deviceId: row["device_id"] ?? LocalCaptureDevice.id,
           startTs: row["start_ts"],
           endTs: row["end_ts"],
           observation: row["observation"],
@@ -47,23 +53,32 @@ extension StorageManager {
   }
 
   func fetchObservationsByTimeRange(from: Date, to: Date) -> [Observation] {
+    fetchObservationsByTimeRange(from: from, to: to, deviceId: nil)
+  }
+
+  func fetchObservationsByTimeRange(from: Date, to: Date, deviceId: String?) -> [Observation] {
     let fromTs = Int(from.timeIntervalSince1970)
     let toTs = Int(to.timeIntervalSince1970)
 
     return
       (try? db.read { db in
-        try Row.fetchAll(
+        let deviceClause = deviceId == nil ? "" : "AND device_id = ?"
+        var arguments: [(any DatabaseValueConvertible)?] = [toTs, fromTs, fromTs, toTs]
+        if let deviceId { arguments.append(deviceId) }
+        return try Row.fetchAll(
           db,
           sql: """
                 SELECT * FROM observations 
-                WHERE (start_ts < ? AND end_ts > ?) 
-                   OR (start_ts >= ? AND start_ts < ?)
+                WHERE ((start_ts < ? AND end_ts > ?) 
+                   OR (start_ts >= ? AND start_ts < ?))
+                  \(deviceClause)
                 ORDER BY start_ts ASC
-            """, arguments: [toTs, fromTs, fromTs, toTs]
+            """, arguments: StatementArguments(arguments)
         ).map { row in
           Observation(
             id: row["id"],
             batchId: row["batch_id"],
+            deviceId: row["device_id"] ?? LocalCaptureDevice.id,
             startTs: row["start_ts"],
             endTs: row["end_ts"],
             observation: row["observation"],
@@ -139,6 +154,7 @@ extension StorageManager {
         Observation(
           id: row["id"],
           batchId: row["batch_id"],
+          deviceId: row["device_id"] ?? LocalCaptureDevice.id,
           startTs: row["start_ts"],
           endTs: row["end_ts"],
           observation: row["observation"],

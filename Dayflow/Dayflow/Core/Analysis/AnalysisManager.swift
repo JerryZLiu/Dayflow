@@ -42,7 +42,7 @@ final class AnalysisManager: AnalysisManaging {
   // Video Processing Constants - removed old summary generation
 
   private let checkInterval: TimeInterval = 60  // every minute
-  private let maxLookback: TimeInterval = 24 * 60 * 60  // only last 24h
+  private let maxLookback: TimeInterval = 7 * 24 * 60 * 60
   // Note: target batch duration and max gap are controlled via llmService.batchingConfig.
 
   private var analysisTimer: Timer?
@@ -427,7 +427,8 @@ final class AnalysisManager: AnalysisManaging {
       return
     }
 
-    let minimumDurationSeconds: TimeInterval = 300.0  // 5 minutes
+    let isAndroidBatch = screenshotsInBatch.first?.platform == .android
+    let minimumDurationSeconds: TimeInterval = isAndroidBatch ? 30.0 : 300.0
 
     if totalDurationSeconds < minimumDurationSeconds {
       print(
@@ -561,7 +562,8 @@ final class AnalysisManager: AnalysisManaging {
 
         let screenshots = self.store.fetchScreenshotsInTimeRange(
           startTs: timelineCard.startTs,
-          endTs: timelineCard.endTs
+          endTs: timelineCard.endTs,
+          deviceId: timelineCard.deviceId
         )
 
         if screenshots.isEmpty {
@@ -613,6 +615,7 @@ final class AnalysisManager: AnalysisManaging {
 
     /// Number of screenshots in the batch
     var count: Int { screenshots.count }
+    var platform: CapturePlatform { screenshots.first?.platform ?? .macOS }
   }
 
   private func fetchUnprocessedScreenshots() -> [Screenshot] {
@@ -621,6 +624,21 @@ final class AnalysisManager: AnalysisManaging {
   }
 
   private func createScreenshotBatches(from screenshots: [Screenshot]) -> [ScreenshotBatch] {
+    guard !screenshots.isEmpty else { return [] }
+
+    let grouped = Dictionary(grouping: screenshots, by: \.deviceId)
+    return grouped.values.flatMap { deviceScreenshots in
+      guard deviceScreenshots.first?.platform == .android else {
+        return createDesktopScreenshotBatches(from: deviceScreenshots)
+      }
+      return createAndroidScreenshotBatches(from: deviceScreenshots)
+    }
+    .sorted { $0.start < $1.start }
+  }
+
+  private func createDesktopScreenshotBatches(from screenshots: [Screenshot])
+    -> [ScreenshotBatch]
+  {
     guard !screenshots.isEmpty else { return [] }
 
     let ordered = screenshots.sorted { $0.capturedAt < $1.capturedAt }
@@ -677,6 +695,106 @@ final class AnalysisManager: AnalysisManaging {
     }
 
     return batches
+  }
+
+  private func createAndroidScreenshotBatches(from screenshots: [Screenshot])
+    -> [ScreenshotBatch]
+  {
+    let ordered = screenshots.sorted { $0.capturedAt < $1.capturedAt }
+    guard !ordered.isEmpty else { return [] }
+
+    let config = llmService.batchingConfig
+    let now = Int(Date().timeIntervalSince1970)
+    var sessions: [[Screenshot]] = []
+    var current: [Screenshot] = []
+
+    for screenshot in ordered {
+      guard let previous = current.last else {
+        current = [screenshot]
+        continue
+      }
+
+      let gap = TimeInterval(screenshot.capturedAt - previous.capturedAt)
+      let span = TimeInterval(screenshot.capturedAt - (current.first?.capturedAt ?? screenshot.capturedAt))
+      if gap > config.maxGap || span > config.targetDuration {
+        sessions.append(current)
+        current = [screenshot]
+      } else {
+        current.append(screenshot)
+      }
+    }
+
+    if !current.isEmpty {
+      sessions.append(current)
+    }
+
+    var readySessions: [[Screenshot]] = []
+    var skippedShortBatches: [ScreenshotBatch] = []
+    for (index, session) in sessions.enumerated() {
+      guard let first = session.first, let last = session.last else { continue }
+      let isLatest = index == sessions.count - 1
+      let isSettled = !isLatest || now - last.capturedAt >= Int(config.maxGap)
+        || last.capturedAt - first.capturedAt >= Int(config.targetDuration)
+      guard isSettled else { continue }
+
+      if last.capturedAt - first.capturedAt < 30 {
+        skippedShortBatches.append(
+          ScreenshotBatch(screenshots: session, start: first.capturedAt, end: last.capturedAt)
+        )
+      } else {
+        readySessions.append(session)
+      }
+    }
+
+    var batches = skippedShortBatches
+    var aggregate: [Screenshot] = []
+    for session in readySessions {
+      guard let first = session.first, let last = session.last else { continue }
+      if let aggregateStart = aggregate.first?.capturedAt,
+        last.capturedAt - aggregateStart > 30 * 60 || aggregate.count + session.count > 90
+      {
+        if let aggregateFirst = aggregate.first, let aggregateLast = aggregate.last {
+          batches.append(
+            ScreenshotBatch(
+              screenshots: aggregate,
+              start: aggregateFirst.capturedAt,
+              end: aggregateLast.capturedAt
+            )
+          )
+        }
+        aggregate = []
+      }
+      aggregate.append(contentsOf: session)
+
+      let activeSeconds = activeDuration(of: aggregate, maxGap: Int(config.maxGap))
+      let oldestAge = now - (aggregate.first?.capturedAt ?? first.capturedAt)
+      if activeSeconds >= 5 * 60 || oldestAge >= 30 * 60 || aggregate.count >= 60 {
+        batches.append(
+          ScreenshotBatch(
+            screenshots: aggregate,
+            start: aggregate.first?.capturedAt ?? first.capturedAt,
+            end: aggregate.last?.capturedAt ?? last.capturedAt
+          )
+        )
+        aggregate = []
+      }
+    }
+
+    if let first = aggregate.first, let last = aggregate.last,
+      now - first.capturedAt >= 30 * 60
+    {
+      batches.append(
+        ScreenshotBatch(screenshots: aggregate, start: first.capturedAt, end: last.capturedAt)
+      )
+    }
+    return batches
+  }
+
+  private func activeDuration(of screenshots: [Screenshot], maxGap: Int) -> Int {
+    guard screenshots.count > 1 else { return 0 }
+    return zip(screenshots, screenshots.dropFirst()).reduce(0) { total, pair in
+      total + min(maxGap, max(0, pair.1.capturedAt - pair.0.capturedAt))
+    }
   }
 
   private func saveScreenshotBatch(_ batch: ScreenshotBatch) -> Int64? {

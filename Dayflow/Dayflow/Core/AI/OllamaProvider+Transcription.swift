@@ -535,7 +535,7 @@ extension OllamaProvider {
   }
 
   private func loadScreenshotDataForOllama(
-    _ screenshot: Screenshot, maxHeight: Double = 720, jpegQuality: CGFloat = 0.85
+    _ screenshot: Screenshot, maxHeight: Double? = nil, jpegQuality: CGFloat = 0.85
   ) -> Data? {
     let url = URL(fileURLWithPath: screenshot.filePath)
 
@@ -548,14 +548,15 @@ extension OllamaProvider {
       ?? image.representations.first
     let pixelsWide = rep?.pixelsWide ?? Int(image.size.width)
     let pixelsHigh = rep?.pixelsHigh ?? Int(image.size.height)
+    let effectiveMaxHeight = maxHeight ?? (screenshot.platform == .android ? 1280 : 720)
 
-    if pixelsHigh <= Int(maxHeight) {
+    if pixelsHigh <= Int(effectiveMaxHeight) {
       return try? Data(contentsOf: url)
     }
 
-    let scale = maxHeight / Double(pixelsHigh)
+    let scale = effectiveMaxHeight / Double(pixelsHigh)
     let targetW = max(2, Int((Double(pixelsWide) * scale).rounded(.toNearestOrAwayFromZero)))
-    let targetH = Int(maxHeight)
+    let targetH = Int(effectiveMaxHeight)
 
     guard
       let bitmap = NSBitmapImageRep(
