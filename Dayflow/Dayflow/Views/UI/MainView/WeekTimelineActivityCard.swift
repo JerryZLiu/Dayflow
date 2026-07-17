@@ -33,6 +33,7 @@ struct WeekTimelineActivityCard: View {
   let faviconPrimaryHost: String?
   let faviconSecondaryHost: String?
   let statusLine: String?
+  let failureCount: Int
   let isRetryActive: Bool
   let onHoverChanged: (Bool) -> Void
   let onTap: () -> Void
@@ -48,6 +49,11 @@ struct WeekTimelineActivityCard: View {
   // as long as the title string stays canonical.
   private var isFailedCard: Bool {
     title == "Processing failed"
+  }
+
+  private var displayTitle: String {
+    guard isFailedCard, failureCount > 1 else { return title }
+    return "\(title) · \(failureCount) intervals"
   }
 
   // Title font size is a single constant across every card in the grid — no
@@ -130,7 +136,7 @@ struct WeekTimelineActivityCard: View {
       }
 
       VStack(alignment: .leading, spacing: 2) {
-        Text(title)
+        Text(displayTitle)
           .font(.custom("Figtree", size: titleFontSize).weight(.semibold))
           .foregroundColor(palette.title)
           .multilineTextAlignment(.leading)
@@ -214,7 +220,7 @@ struct WeekTimelineActivityCard: View {
       }
 
       VStack(alignment: .leading, spacing: 2) {
-        Text(title)
+        Text(displayTitle)
           .font(.custom("Figtree", size: titleFontSize).weight(.semibold))
           .multilineTextAlignment(.leading)
           .fixedSize(horizontal: false, vertical: true)
