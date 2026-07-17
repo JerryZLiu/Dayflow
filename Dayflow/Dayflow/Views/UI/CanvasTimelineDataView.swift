@@ -44,6 +44,8 @@ private struct CanvasPositionedActivity: Identifiable {
   // Normalized hosts for network fetch (just domain)
   let faviconPrimaryHost: String?
   let faviconSecondaryHost: String?
+  let failureCount: Int
+  let batchIds: [Int64]
 }
 
 struct CanvasTimelineDataView: View {
@@ -341,7 +343,8 @@ struct CanvasTimelineDataView: View {
             faviconSecondaryRaw: item.faviconSecondaryRaw,
             faviconPrimaryHost: item.faviconPrimaryHost,
             faviconSecondaryHost: item.faviconSecondaryHost,
-            statusLine: retryCoordinator.statusLine(for: item.activity.batchId),
+            statusLine: retryCoordinator.statusLine(for: item.batchIds),
+            failureCount: item.failureCount,
             fontSize: cardTextFontSize,
             fontWeight: cardTextFontWeight,
             iconLeadingInset: cardIconLeadingInset,
@@ -672,7 +675,9 @@ struct CanvasTimelineDataView: View {
           faviconPrimaryRaw: primaryRaw,
           faviconSecondaryRaw: secondaryRaw,
           faviconPrimaryHost: primaryHost,
-          faviconSecondaryHost: secondaryHost
+          faviconSecondaryHost: secondaryHost,
+          failureCount: seg.failureCount,
+          batchIds: seg.batchIds
         )
       }
 
