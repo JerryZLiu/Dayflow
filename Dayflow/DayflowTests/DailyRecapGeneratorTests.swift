@@ -8,7 +8,7 @@ final class DailyRecapGeneratorTests: XCTestCase {
     LLMOutputLanguagePreferences.override = ""
   }
 
-  func testMakeLocalPromptPlacesLanguageSectionBeforeOutputFormat() {
+  func testMakeLocalPromptPlacesLanguageSectionBeforeOutputFormat() throws {
     LLMOutputLanguagePreferences.override = "Japanese"
 
     let prompt = DailyRecapGenerator.makeLocalPrompt(
