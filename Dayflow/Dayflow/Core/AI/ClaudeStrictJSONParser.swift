@@ -36,6 +36,8 @@ enum ClaudeStrictJSONParserError: Error, Equatable, LocalizedError {
   }
 }
 
+/// Retired strict parser retained for reference and isolated tooling. Production Claude and
+/// ChatGPT generation intentionally use the tolerant parsers in `AgentCLISupporting` instead.
 extension ClaudeProvider {
   func parseClaudeCardsStrict(from output: String, stderr: String) throws -> [ActivityCardData] {
     do {

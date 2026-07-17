@@ -51,7 +51,8 @@ struct ClaudeOutputValidationOptions {
   }
 }
 
-/// Strict structural validation for Claude activity-card output.
+/// Retired strict validator retained for reference and isolated tooling. Production Claude and
+/// ChatGPT generation intentionally use the v2.0.0 validators in `AgentCLISupporting` instead.
 ///
 /// Validation never rewrites timestamps, changes semantic fields, drops cards, or fills gaps.
 enum ClaudeOutputValidator {
