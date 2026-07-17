@@ -374,96 +374,113 @@ extension StorageManager {
 
   func performPurgeIfNeeded() {
     do {
-      let limit = StoragePreferences.recordingsLimitBytes
-
-      if limit == Int64.max {
-        return  // Unlimited storage - skip purge
-      }
-
       cleanupRecordingStragglers()
 
-      // Check current size after cleaning orphans
-      let currentSize = try fileMgr.allocatedSizeOfDirectory(at: root)
-
-      // Clean up if above limit
-      if currentSize > limit {
-        var freedSpace: Int64 = 0
-        var passCount = 0
-
-        while currentSize - freedSpace > limit {
-          var deletedThisPass = 0
-          var freedThisPass: Int64 = 0
-
-          try timedWrite("purgeScreenshots") { db in
-            // Get oldest active screenshots
-            let oldScreenshots = try Row.fetchAll(
-              db,
-              sql: """
-                    SELECT id, file_path, file_size
-                    FROM screenshots
-                    WHERE is_deleted = 0
-                    ORDER BY captured_at ASC
-                    LIMIT 500
-                """)
-
-            guard !oldScreenshots.isEmpty else { return }
-
-            for screenshot in oldScreenshots {
-              guard let id: Int64 = screenshot["id"],
-                let path: String = screenshot["file_path"]
-              else { continue }
-
-              // Mark as deleted in DB first (safer ordering)
-              try db.execute(
-                sql: """
-                      UPDATE screenshots
-                      SET is_deleted = 1
-                      WHERE id = ?
-                  """, arguments: [id])
-
-              // Then delete physical file
-              if fileMgr.fileExists(atPath: path) {
-                var fileSize: Int64 = 0
-                if let storedSize: Int64 = screenshot["file_size"] {
-                  fileSize = storedSize
-                }
-                if fileSize == 0,
-                  let attrs = try? fileMgr.attributesOfItem(atPath: path),
-                  let size = attrs[.size] as? NSNumber
-                {
-                  fileSize = size.int64Value
-                }
-
-                do {
-                  try fileMgr.removeItem(atPath: path)
-                  freedThisPass += fileSize
-                  deletedThisPass += 1
-                } catch {
-                  print("⚠️ Failed to delete screenshot at \(path): \(error)")
-                }
-              } else {
-                deletedThisPass += 1
-              }
-            }
-          }
-
-          if deletedThisPass == 0 {
-            break
-          }
-
-          freedSpace += freedThisPass
-          passCount += 1
-
-          if passCount > 200 {
-            break
-          }
-        }
-      }
+      try purgeScreenshots(
+        platform: .macOS,
+        limit: StoragePreferences.recordingsLimitBytes
+      )
+      try purgeScreenshots(
+        platform: .android,
+        limit: StoragePreferences.androidRecordingsLimitBytes
+      )
 
       cleanupRecordingStragglers()
     } catch {
       print("❌ Purge error: \(error)")
     }
+  }
+
+  private func purgeScreenshots(platform: CapturePlatform, limit: Int64) throws {
+    guard limit != Int64.max else { return }
+
+    var currentSize = recordingUsageBytes(for: platform)
+    var passCount = 0
+
+    while currentSize > limit, passCount < 200 {
+      var deletedThisPass = 0
+      var freedThisPass: Int64 = 0
+
+      try timedWrite("purgeScreenshots.\(platform.rawValue)") { db in
+        let oldScreenshots = try Row.fetchAll(
+          db,
+          sql: """
+                SELECT id, file_path, file_size
+                FROM screenshots
+                WHERE is_deleted = 0
+                  AND COALESCE(source_platform, 'macos') = ?
+                ORDER BY captured_at ASC
+                LIMIT 500
+            """,
+          arguments: [platform.rawValue]
+        )
+
+        for screenshot in oldScreenshots {
+          guard let id: Int64 = screenshot["id"],
+            let path: String = screenshot["file_path"]
+          else { continue }
+
+          var fileSize: Int64 = screenshot["file_size"] ?? 0
+          if fileSize == 0,
+            let attrs = try? fileMgr.attributesOfItem(atPath: path),
+            let size = attrs[.size] as? NSNumber
+          {
+            fileSize = size.int64Value
+          }
+
+          try db.execute(
+            sql: "UPDATE screenshots SET is_deleted = 1 WHERE id = ?",
+            arguments: [id]
+          )
+
+          if fileMgr.fileExists(atPath: path) {
+            do {
+              try fileMgr.removeItem(atPath: path)
+            } catch {
+              print("⚠️ Failed to delete screenshot at \(path): \(error)")
+              try db.execute(
+                sql: "UPDATE screenshots SET is_deleted = 0 WHERE id = ?",
+                arguments: [id]
+              )
+              continue
+            }
+          }
+
+          freedThisPass += fileSize
+          deletedThisPass += 1
+        }
+      }
+
+      guard deletedThisPass > 0 else { break }
+      currentSize = max(0, currentSize - freedThisPass)
+      passCount += 1
+    }
+  }
+
+  func recordingUsageBytes(for platform: CapturePlatform) -> Int64 {
+    (try? timedRead("recordingUsageBytes.\(platform.rawValue)") { db in
+      let screenshots = try Row.fetchAll(
+        db,
+        sql: """
+              SELECT file_path, file_size
+              FROM screenshots
+              WHERE is_deleted = 0
+                AND COALESCE(source_platform, 'macos') = ?
+          """,
+        arguments: [platform.rawValue]
+      )
+
+      return screenshots.reduce(into: Int64(0)) { total, screenshot in
+        if let storedSize: Int64 = screenshot["file_size"], storedSize > 0 {
+          total += storedSize
+        } else if let path: String = screenshot["file_path"],
+          let attrs = try? fileMgr.attributesOfItem(atPath: path),
+          let size = attrs[.size] as? NSNumber
+        {
+          total += size.int64Value
+        }
+      }
+    }) ?? 0
   }
 
   func cleanupRecordingStragglers() {

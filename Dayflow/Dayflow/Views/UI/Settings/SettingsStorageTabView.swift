@@ -87,11 +87,19 @@ struct SettingsStorageTabView: View {
     ) {
       VStack(alignment: .leading, spacing: 0) {
         usageRow(
-          category: .recordings,
-          label: "Recordings",
-          size: viewModel.recordingsUsageBytes,
-          limitIndex: viewModel.recordingsLimitIndex,
-          limitBytes: viewModel.recordingsLimitBytes,
+          category: .macRecordings,
+          label: "Mac recordings",
+          size: viewModel.macRecordingsUsageBytes,
+          limitIndex: viewModel.macRecordingsLimitIndex,
+          limitBytes: viewModel.macRecordingsLimitBytes,
+          action: viewModel.openRecordingsFolder
+        )
+        usageRow(
+          category: .androidRecordings,
+          label: "Android recordings",
+          size: viewModel.androidRecordingsUsageBytes,
+          limitIndex: viewModel.androidRecordingsLimitIndex,
+          limitBytes: viewModel.androidRecordingsLimitBytes,
           action: viewModel.openRecordingsFolder
         )
         usageRow(

@@ -8,11 +8,14 @@ final class StorageSettingsViewModel: ObservableObject {
   @Published var isRefreshingStorage = false
   @Published var storagePermissionGranted: Bool?
   @Published var lastStorageCheck: Date?
-  @Published var recordingsUsageBytes: Int64 = 0
+  @Published var macRecordingsUsageBytes: Int64 = 0
+  @Published var androidRecordingsUsageBytes: Int64 = 0
   @Published var timelapseUsageBytes: Int64 = 0
-  @Published var recordingsLimitBytes: Int64
+  @Published var macRecordingsLimitBytes: Int64
+  @Published var androidRecordingsLimitBytes: Int64
   @Published var timelapsesLimitBytes: Int64
-  @Published var recordingsLimitIndex: Int
+  @Published var macRecordingsLimitIndex: Int
+  @Published var androidRecordingsLimitIndex: Int
   @Published var timelapsesLimitIndex: Int
   @Published var showLimitConfirmation = false
   @Published var pendingLimit: PendingLimit?
@@ -26,11 +29,14 @@ final class StorageSettingsViewModel: ObservableObject {
 
   init() {
     let recordingsLimit = StoragePreferences.recordingsLimitBytes
+    let androidRecordingsLimit = StoragePreferences.androidRecordingsLimitBytes
     let timelapseLimit = StoragePreferences.timelapsesLimitBytes
 
-    recordingsLimitBytes = recordingsLimit
+    macRecordingsLimitBytes = recordingsLimit
+    androidRecordingsLimitBytes = androidRecordingsLimit
     timelapsesLimitBytes = timelapseLimit
-    recordingsLimitIndex = Self.indexForLimit(recordingsLimit)
+    macRecordingsLimitIndex = Self.indexForLimit(recordingsLimit)
+    androidRecordingsLimitIndex = Self.indexForLimit(androidRecordingsLimit)
     timelapsesLimitIndex = Self.indexForLimit(timelapseLimit)
   }
 
@@ -68,38 +74,40 @@ final class StorageSettingsViewModel: ObservableObject {
 
     Task.detached(priority: .utility) { [weak self] in
       let permission = CGPreflightScreenCaptureAccess()
-      let recordingsURL = StorageManager.shared.recordingsRoot
-
-      let recordingsSize = StorageSettingsViewModel.directorySize(at: recordingsURL)
+      let macRecordingsSize = StorageManager.shared.recordingUsageBytes(for: .macOS)
+      let androidRecordingsSize = StorageManager.shared.recordingUsageBytes(for: .android)
       let timelapseSize = TimelapseStorageManager.shared.currentUsageBytes()
 
       await MainActor.run {
         guard let self else { return }
         self.storagePermissionGranted = permission
-        self.recordingsUsageBytes = recordingsSize
+        self.macRecordingsUsageBytes = macRecordingsSize
+        self.androidRecordingsUsageBytes = androidRecordingsSize
         self.timelapseUsageBytes = timelapseSize
         self.lastStorageCheck = Date()
         self.isRefreshingStorage = false
 
         let recordingsLimit = StoragePreferences.recordingsLimitBytes
+        let androidRecordingsLimit = StoragePreferences.androidRecordingsLimitBytes
         let timelapseLimit = StoragePreferences.timelapsesLimitBytes
-        self.recordingsLimitBytes = recordingsLimit
+        self.macRecordingsLimitBytes = recordingsLimit
+        self.androidRecordingsLimitBytes = androidRecordingsLimit
         self.timelapsesLimitBytes = timelapseLimit
-        self.recordingsLimitIndex = Self.indexForLimit(recordingsLimit)
+        self.macRecordingsLimitIndex = Self.indexForLimit(recordingsLimit)
+        self.androidRecordingsLimitIndex = Self.indexForLimit(androidRecordingsLimit)
         self.timelapsesLimitIndex = Self.indexForLimit(timelapseLimit)
       }
     }
   }
 
   func storageFooterText() -> String {
-    let recordingsText =
-      recordingsLimitBytes == Int64.max
-      ? "Unlimited" : usageFormatter.string(fromByteCount: recordingsLimitBytes)
+    let macText = limitDescription(macRecordingsLimitBytes)
+    let androidText = limitDescription(androidRecordingsLimitBytes)
     let timelapsesText =
       timelapsesLimitBytes == Int64.max
       ? "Unlimited" : usageFormatter.string(fromByteCount: timelapsesLimitBytes)
     return
-      "Recording cap: \(recordingsText) • Timelapse cap: \(timelapsesText). Lowering a cap immediately deletes the oldest files for that type. Timeline card text stays preserved. Please avoid deleting files manually so you do not remove Dayflow's database."
+      "Mac cap: \(macText) • Android cap: \(androidText) • Timelapse cap: \(timelapsesText). Lowering a cap immediately deletes the oldest files for that type. Timeline card text stays preserved. Please avoid deleting files manually so you do not remove Dayflow's database."
   }
 
   func handleLimitSelection(for category: StorageCategory, index: Int) {
@@ -123,10 +131,14 @@ final class StorageSettingsViewModel: ObservableObject {
     let previousBytes = limitBytes(for: category)
 
     switch category {
-    case .recordings:
-      StorageManager.shared.updateStorageLimit(bytes: newBytes)
-      recordingsLimitBytes = newBytes
-      recordingsLimitIndex = index
+    case .macRecordings:
+      StorageManager.shared.updateStorageLimit(bytes: newBytes, platform: .macOS)
+      macRecordingsLimitBytes = newBytes
+      macRecordingsLimitIndex = index
+    case .androidRecordings:
+      StorageManager.shared.updateStorageLimit(bytes: newBytes, platform: .android)
+      androidRecordingsLimitBytes = newBytes
+      androidRecordingsLimitIndex = index
     case .timelapses:
       TimelapseStorageManager.shared.updateLimit(bytes: newBytes)
       timelapsesLimitBytes = newBytes
@@ -169,9 +181,14 @@ final class StorageSettingsViewModel: ObservableObject {
 
   private func limitBytes(for category: StorageCategory) -> Int64 {
     switch category {
-    case .recordings: return recordingsLimitBytes
+    case .macRecordings: return macRecordingsLimitBytes
+    case .androidRecordings: return androidRecordingsLimitBytes
     case .timelapses: return timelapsesLimitBytes
     }
+  }
+
+  private func limitDescription(_ bytes: Int64) -> String {
+    bytes == Int64.max ? "Unlimited" : usageFormatter.string(fromByteCount: bytes)
   }
 
   private static func indexForLimit(_ bytes: Int64) -> Int {
@@ -187,29 +204,6 @@ final class StorageSettingsViewModel: ObservableObject {
       }
     }
     return storageOptions.count - 1
-  }
-
-  nonisolated private static func directorySize(at url: URL) -> Int64 {
-    let fileManager = FileManager.default
-    guard
-      let enumerator = fileManager.enumerator(
-        at: url, includingPropertiesForKeys: [.fileAllocatedSizeKey, .totalFileAllocatedSizeKey],
-        options: [.skipsHiddenFiles])
-    else {
-      return 0
-    }
-    var total: Int64 = 0
-    for case let fileURL as URL in enumerator {
-      do {
-        let values = try fileURL.resourceValues(forKeys: [
-          .totalFileAllocatedSizeKey, .fileAllocatedSizeKey,
-        ])
-        total += Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
-      } catch {
-        continue
-      }
-    }
-    return total
   }
 
   static let storageOptions: [StorageLimitOption] = [
@@ -236,19 +230,22 @@ struct StorageLimitOption: Identifiable {
 }
 
 enum StorageCategory {
-  case recordings
+  case macRecordings
+  case androidRecordings
   case timelapses
 
   var analyticsKey: String {
     switch self {
-    case .recordings: return "recordings"
+    case .macRecordings: return "mac_recordings"
+    case .androidRecordings: return "android_recordings"
     case .timelapses: return "timelapses"
     }
   }
 
   var displayName: String {
     switch self {
-    case .recordings: return "Recordings"
+    case .macRecordings: return "Mac recordings"
+    case .androidRecordings: return "Android recordings"
     case .timelapses: return "Timelapses"
     }
   }

@@ -753,9 +753,16 @@ extension StorageManager {
       }) ?? []
   }
 
-  func updateStorageLimit(bytes: Int64) {
-    let previous = StoragePreferences.recordingsLimitBytes
-    StoragePreferences.recordingsLimitBytes = bytes
+  func updateStorageLimit(bytes: Int64, platform: CapturePlatform = .macOS) {
+    let previous: Int64
+    switch platform {
+    case .macOS:
+      previous = StoragePreferences.recordingsLimitBytes
+      StoragePreferences.recordingsLimitBytes = bytes
+    case .android:
+      previous = StoragePreferences.androidRecordingsLimitBytes
+      StoragePreferences.androidRecordingsLimitBytes = bytes
+    }
 
     if bytes < previous {
       purgeIfNeeded()
