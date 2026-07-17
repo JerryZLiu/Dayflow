@@ -311,13 +311,14 @@ struct ActivityCard: View {
               .weight(.semibold)
           )
           .foregroundColor(.black)
-          .onTapGesture(count: 2) { startTitleEdit(for: activity) }
+          .onTapGesture { startTitleEdit(for: activity) }
 
         if isHoveringTitle && !isFailedCard(activity) {
           Button(action: { startTitleEdit(for: activity) }) {
-            Image(systemName: "pencil")
-              .font(.system(size: 12, weight: .medium))
-              .foregroundColor(Color(red: 0.55, green: 0.55, blue: 0.55))
+            Image("CategorySwapButton")
+              .resizable()
+              .renderingMode(.original)
+              .frame(width: 24, height: 24)
           }
           .buttonStyle(PlainButtonStyle())
           .pointingHandCursorOnHover(reassertOnPressEnd: true)
