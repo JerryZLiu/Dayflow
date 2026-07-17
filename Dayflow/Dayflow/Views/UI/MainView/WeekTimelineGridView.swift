@@ -42,6 +42,8 @@ struct WeekPositionedActivity: Identifiable {
   let faviconSecondaryRaw: String?
   let faviconPrimaryHost: String?
   let faviconSecondaryHost: String?
+  let failureCount: Int
+  let batchIds: [Int64]
 }
 
 // Published by the week view's cards layer; consumed locally to drive the
@@ -404,8 +406,9 @@ struct WeekTimelineGridView: View {
           faviconSecondaryRaw: item.faviconSecondaryRaw,
           faviconPrimaryHost: item.faviconPrimaryHost,
           faviconSecondaryHost: item.faviconSecondaryHost,
-          statusLine: retryCoordinator.statusLine(for: item.activity.batchId),
-          isRetryActive: retryCoordinator.isActive(batchId: item.activity.batchId),
+          statusLine: retryCoordinator.statusLine(for: item.batchIds),
+          failureCount: item.failureCount,
+          isRetryActive: retryCoordinator.isActive(batchIds: item.batchIds),
           onHoverChanged: { hovering in
             scheduleHoverChange(cardID: item.id, hovering: hovering)
           }
@@ -564,7 +567,9 @@ struct WeekTimelineGridView: View {
               faviconPrimaryRaw: primaryRaw,
               faviconSecondaryRaw: secondaryRaw,
               faviconPrimaryHost: FaviconService.normalizedHost(from: primaryRaw),
-              faviconSecondaryHost: FaviconService.normalizedHost(from: secondaryRaw)
+              faviconSecondaryHost: FaviconService.normalizedHost(from: secondaryRaw),
+              failureCount: segment.failureCount,
+              batchIds: segment.batchIds
             )
           )
         }
