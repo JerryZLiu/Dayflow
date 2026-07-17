@@ -156,6 +156,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Start notification service for journal reminders
     NotificationService.shared.start()
 
+    // Start the productivity stats engine and the distraction nudge service.
+    ProductivityStats.shared.start()
+    DistractionNudgeService.shared.start()
+
     // Start daily recap generation scheduler (checks every 5 minutes)
     DailyRecapScheduler.shared.start()
 
