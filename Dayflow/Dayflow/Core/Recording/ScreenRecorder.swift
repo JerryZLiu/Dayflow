@@ -233,7 +233,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         false, onScreenWindowsOnly: true)
       cachedContent = content
 
-      // 2. Choose display: prefer requested → active → first
+      // 2. Choose display: prefer requested → active. Defer if preferred is missing from the snapshot.
       let displaysByID: [CGDirectDisplayID: SCDisplay] = Dictionary(
         uniqueKeysWithValues: content.displays.map { ($0.displayID, $0) }
       )
@@ -242,20 +242,30 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       }
       let preferredID = requestedDisplayID ?? trackerID
 
-      let display: SCDisplay
-      if let pid = preferredID, let scd = displaysByID[pid] {
-        display = scd
+      let display: SCDisplay?
+      if let pid = preferredID {
+        display = displaysByID[pid]
+        if display == nil {
+          requestedDisplayID = pid
+          dbg("setupCapture: preferred display \(pid) not in snapshot (count=\(content.displays.count)); deferring")
+        } else {
+          requestedDisplayID = nil
+        }
       } else if let first = content.displays.first {
         display = first
+        requestedDisplayID = nil
       } else {
         throw ScreenRecorderError.noDisplay
       }
 
       cachedDisplay = display
-      currentDisplayID = display.displayID
-      requestedDisplayID = nil
+      currentDisplayID = display?.displayID
 
-      dbg("Setup complete - display \(display.displayID) (\(display.width)x\(display.height))")
+      if let d = display {
+        dbg("Setup complete - display \(d.displayID) (\(d.width)x\(d.height))")
+      } else {
+        dbg("Setup complete - awaiting display availability")
+      }
 
       // 3. Start capture timer
       q.async { [weak self] in
@@ -470,17 +480,19 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         false, onScreenWindowsOnly: true)
       cachedContent = content
 
-      // Prefer requested display (from active display tracking) over current
+      // Prefer requested display over current; hold if missing from snapshot.
       let targetID = requestedDisplayID ?? currentDisplayID
 
-      if let id = targetID,
-        let display = content.displays.first(where: { $0.displayID == id })
-      {
-        cachedDisplay = display
-        currentDisplayID = id
-        if requestedDisplayID == id { requestedDisplayID = nil }
-        dbg("Switched to display \(id)")
-      } else if let first = content.displays.first {
+      if let id = targetID {
+        if let display = content.displays.first(where: { $0.displayID == id }) {
+          cachedDisplay = display
+          currentDisplayID = id
+          if requestedDisplayID == id { requestedDisplayID = nil }
+          dbg("Switched to display \(id)")
+        } else {
+          dbg("refreshDisplay: target \(id) not in snapshot (count=\(content.displays.count)); keeping current")
+        }
+      } else if let first = content.displays.first, cachedDisplay == nil {
         cachedDisplay = first
         currentDisplayID = first.displayID
       }
@@ -546,7 +558,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       return
     }
 
-    guard currentDisplayID != nil, state == .capturing else {
+    guard state == .capturing else {
       dbg("Active display changed while not capturing – will switch on next start")
       return
     }
@@ -563,6 +575,18 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
   private func registerForSleepAndLock() {
     let nc = NSWorkspace.shared.notificationCenter
     let dnc = DistributedNotificationCenter.default()
+
+    // Screen configuration changed — recover any deferred display selection.
+    NotificationCenter.default.addObserver(
+      forName: NSApplication.didChangeScreenParametersNotification,
+      object: nil, queue: nil
+    ) { [weak self] _ in
+      self?.q.async { [weak self] in
+        guard let self, self.state == .capturing else { return }
+        dbg("didChangeScreenParameters – refreshing display selection")
+        Task { await self.refreshDisplay() }
+      }
+    }
 
     // System will sleep
     nc.addObserver(
