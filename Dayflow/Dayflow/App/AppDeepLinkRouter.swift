@@ -6,6 +6,7 @@ final class AppDeepLinkRouter {
     case startRecording = "start-recording"
     case stopRecording = "stop-recording"
     case referral = "referral"
+    case exportTimeline = "export-timeline"
 
     init?(identifier: String) {
       switch identifier.lowercased() {
@@ -15,6 +16,8 @@ final class AppDeepLinkRouter {
         self = .stopRecording
       case Self.referral.rawValue, "claim", "r":
         self = .referral
+      case Self.exportTimeline.rawValue, "export":
+        self = .exportTimeline
       default:
         return nil
       }
@@ -71,6 +74,8 @@ final class AppDeepLinkRouter {
       stopRecording()
     case .referral:
       saveReferralCode(from: url)
+    case .exportTimeline:
+      exportTimeline(from: url)
     }
   }
 
@@ -104,6 +109,19 @@ final class AppDeepLinkRouter {
       return
     }
     DayflowAuthManager.shared.setPendingReferralCode(code)
+  }
+
+  private func exportTimeline(from url: URL) {
+    switch TimelineExportRequest.parse(url: url) {
+    case .success(let request):
+      // Run off the main thread. Use a GCD queue rather than Task.detached so the synchronous
+      // database reads and file write don't occupy a Swift cooperative thread.
+      DispatchQueue.global(qos: .userInitiated).async {
+        TimelineExportService.run(request)
+      }
+    case .failure(let error):
+      print("[DeepLink] export-timeline: \(error)")
+    }
   }
 
 }

@@ -103,39 +103,15 @@ final class OtherSettingsViewModel: ObservableObject {
     exportErrorMessage = nil
 
     Task.detached(priority: .userInitiated) { [start, end] in
-      let calendar = Calendar.current
-      let dayFormatter = DateFormatter()
-      dayFormatter.dateFormat = "yyyy-MM-dd"
-
-      var cursor = start
-      let endDate = end
-
-      var sections: [String] = []
-      var totalActivities = 0
-      var dayCount = 0
-
-      while cursor <= endDate {
-        let dayString = dayFormatter.string(from: cursor)
-        let cards = StorageManager.shared.fetchTimelineCards(forDay: dayString)
-        totalActivities += cards.count
-        let section = TimelineClipboardFormatter.makeMarkdown(for: cursor, cards: cards)
-        sections.append(section)
-        dayCount += 1
-
-        guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
-        cursor = next
-      }
-
-      let divider = "\n\n---\n\n"
-      let exportText = sections.joined(separator: divider)
+      let output = TimelineRangeExport.build(startDay: start, endDay: end)
 
       await MainActor.run {
         self.presentSavePanelAndWrite(
-          exportText: exportText,
+          exportText: output.markdown,
           startDate: start,
           endDate: end,
-          dayCount: dayCount,
-          activityCount: totalActivities
+          dayCount: output.dayCount,
+          activityCount: output.activityCount
         )
       }
     }
@@ -182,14 +158,11 @@ final class OtherSettingsViewModel: ObservableObject {
     dayCount: Int,
     activityCount: Int
   ) {
-    let dayFormatter = DateFormatter()
-    dayFormatter.dateFormat = "yyyy-MM-dd"
-
     let savePanel = NSSavePanel()
     savePanel.title = "Export timeline"
     savePanel.prompt = "Export"
     savePanel.nameFieldStringValue =
-      "Dayflow timeline \(dayFormatter.string(from: startDate)) to \(dayFormatter.string(from: endDate)).md"
+      TimelineRangeExport.defaultFileName(startDay: startDate, endDay: endDate)
     savePanel.allowedContentTypes = [.text, .plainText]
     savePanel.canCreateDirectories = true
 
@@ -212,12 +185,13 @@ final class OtherSettingsViewModel: ObservableObject {
       AnalyticsService.shared.capture(
         "timeline_exported",
         [
-          "start_day": dayFormatter.string(from: startDate),
-          "end_day": dayFormatter.string(from: endDate),
+          "start_day": DateFormatter.yyyyMMdd.string(from: startDate),
+          "end_day": DateFormatter.yyyyMMdd.string(from: endDate),
           "day_count": dayCount,
           "activity_count": activityCount,
           "format": "markdown",
           "file_extension": url.pathExtension.lowercased(),
+          "source": "ui",
         ])
     } catch {
       exportStatusMessage = nil
