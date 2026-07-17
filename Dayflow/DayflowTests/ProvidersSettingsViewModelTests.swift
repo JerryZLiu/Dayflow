@@ -105,4 +105,48 @@ final class ProvidersSettingsViewModelTests: XCTestCase {
     XCTAssertTrue(viewModel.handleProviderSetupCompletion(.claude))
     XCTAssertEqual(viewModel.primaryRoutingProviderId, .claude)
   }
+
+  func testSwitchingPromptProviderLoadsThatProvidersOverrides() {
+    CodexPromptPreferences.save(ActivityCardPromptOverrides(titleBlock: "Codex title"))
+    ClaudePromptPreferences.save(ActivityCardPromptOverrides(titleBlock: "Claude title"))
+
+    let viewModel = ProvidersSettingsViewModel()
+    viewModel.loadAgentPromptOverridesIfNeeded(force: true)
+    XCTAssertEqual(viewModel.agentTitlePromptText, "Codex title")
+
+    viewModel.selectedAgentPromptProvider = .claude
+    XCTAssertEqual(viewModel.agentTitlePromptText, "Claude title")
+  }
+
+  func testEditingClaudePromptDoesNotMutateCodexPrompt() {
+    let viewModel = ProvidersSettingsViewModel()
+    viewModel.loadAgentPromptOverridesIfNeeded(force: true)
+    viewModel.selectedAgentPromptProvider = .claude
+    viewModel.useCustomAgentTitlePrompt = true
+    viewModel.agentTitlePromptText = "Claude-only edited title"
+
+    viewModel.selectedAgentPromptProvider = .chatGPT
+    XCTAssertFalse(viewModel.useCustomAgentTitlePrompt)
+    XCTAssertEqual(viewModel.agentTitlePromptText, CodexPromptDefaults.titleBlock)
+    XCTAssertTrue(CodexPromptPreferences.load().isEmpty)
+
+    viewModel.selectedAgentPromptProvider = .claude
+    XCTAssertTrue(viewModel.useCustomAgentTitlePrompt)
+    XCTAssertEqual(viewModel.agentTitlePromptText, "Claude-only edited title")
+  }
+
+  func testResetRestoresOnlyTheSelectedProvidersDefaults() {
+    let codexOverrides = ActivityCardPromptOverrides(titleBlock: "Codex title")
+    let claudeOverrides = ActivityCardPromptOverrides(titleBlock: "Claude title")
+    CodexPromptPreferences.save(codexOverrides)
+    ClaudePromptPreferences.save(claudeOverrides)
+
+    let viewModel = ProvidersSettingsViewModel()
+    viewModel.selectedAgentPromptProvider = .claude
+    viewModel.resetAgentPromptOverrides()
+
+    XCTAssertEqual(viewModel.agentTitlePromptText, ClaudePromptDefaults.titleBlock)
+    XCTAssertTrue(ClaudePromptPreferences.load().isEmpty)
+    XCTAssertEqual(CodexPromptPreferences.load(), codexOverrides)
+  }
 }
