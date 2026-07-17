@@ -427,6 +427,21 @@ final class AnalysisManager: AnalysisManaging {
       return
     }
 
+    if screenshotsInBatch.allSatisfy({ $0.kind == .redacted }) {
+      if handleRedactedBatch(batchId: batchId, screenshots: screenshotsInBatch) {
+        completion?(.success(()))
+      } else {
+        let error = NSError(
+          domain: "AnalysisManager",
+          code: 5,
+          userInfo: [NSLocalizedDescriptionKey: "Could not save metadata-only activity"]
+        )
+        markBatchFailed(batchId: batchId, reason: error.localizedDescription)
+        completion?(.failure(error))
+      }
+      return
+    }
+
     let isAndroidBatch = screenshotsInBatch.first?.platform == .android
     let minimumDurationSeconds: TimeInterval = isAndroidBatch ? 30.0 : 300.0
 
@@ -716,7 +731,8 @@ final class AnalysisManager: AnalysisManaging {
 
       let gap = TimeInterval(screenshot.capturedAt - previous.capturedAt)
       let span = TimeInterval(screenshot.capturedAt - (current.first?.capturedAt ?? screenshot.capturedAt))
-      if gap > config.maxGap || span > config.targetDuration {
+      let changedCaptureMode = androidBatchKey(for: screenshot) != androidBatchKey(for: previous)
+      if gap > config.maxGap || span > config.targetDuration || changedCaptureMode {
         sessions.append(current)
         current = [screenshot]
       } else {
@@ -750,8 +766,12 @@ final class AnalysisManager: AnalysisManaging {
     var aggregate: [Screenshot] = []
     for session in readySessions {
       guard let first = session.first, let last = session.last else { continue }
+      let changedCaptureMode = aggregate.first.map {
+        androidBatchKey(for: $0) != androidBatchKey(for: first)
+      } ?? false
       if let aggregateStart = aggregate.first?.capturedAt,
-        last.capturedAt - aggregateStart > 30 * 60 || aggregate.count + session.count > 90
+        changedCaptureMode || last.capturedAt - aggregateStart > 30 * 60
+          || aggregate.count + session.count > 90
       {
         if let aggregateFirst = aggregate.first, let aggregateLast = aggregate.last {
           batches.append(
@@ -790,6 +810,11 @@ final class AnalysisManager: AnalysisManaging {
     return batches
   }
 
+  private func androidBatchKey(for screenshot: Screenshot) -> String {
+    guard screenshot.kind == .redacted else { return "visual" }
+    return "redacted:\(screenshot.foregroundAppId ?? screenshot.foregroundAppName ?? "unknown")"
+  }
+
   private func activeDuration(of screenshots: [Screenshot], maxGap: Int) -> Int {
     guard screenshots.count > 1 else { return 0 }
     return zip(screenshots, screenshots.dropFirst()).reduce(0) { total, pair in
@@ -801,6 +826,55 @@ final class AnalysisManager: AnalysisManaging {
     let ids = batch.screenshots.map { $0.id }
     return store.saveBatchWithScreenshots(
       startTs: batch.start, endTs: batch.end, screenshotIds: ids)
+  }
+
+  private func handleRedactedBatch(batchId: Int64, screenshots: [Screenshot]) -> Bool {
+    let ordered = screenshots.sorted { $0.capturedAt < $1.capturedAt }
+    guard let first = ordered.first, let last = ordered.last else { return false }
+
+    let appName = first.foregroundAppName ?? first.foregroundAppId ?? "Excluded app"
+    let startDate = first.capturedDate
+    let endDate = Date(timeIntervalSince1970: TimeInterval(max(first.capturedAt + 1, last.capturedAt + 10)))
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(identifier: first.timezoneId ?? "") ?? .current
+    formatter.dateFormat = "h:mm a"
+
+    let summary = "Only \(appName) usage time was recorded; no screenshot was captured."
+    let observation = Observation(
+      id: nil,
+      batchId: batchId,
+      deviceId: first.deviceId,
+      startTs: first.capturedAt,
+      endTs: Int(endDate.timeIntervalSince1970),
+      observation: summary,
+      metadata: first.foregroundAppId,
+      llmModel: "metadata-only",
+      createdAt: Date()
+    )
+    store.saveObservations(batchId: batchId, observations: [observation])
+
+    let card = TimelineCardShell(
+      startTimestamp: formatter.string(from: startDate),
+      endTimestamp: formatter.string(from: endDate),
+      category: "Uncategorized",
+      subcategory: "App usage only",
+      title: appName,
+      summary: summary,
+      detailedSummary: summary,
+      distractions: nil,
+      appSites: AppSites(primary: appName, secondary: nil)
+    )
+    let result = store.replaceTimelineCardsInRange(
+      from: startDate,
+      to: endDate,
+      with: [card],
+      batchId: batchId
+    )
+    guard !result.insertedIds.isEmpty else { return false }
+
+    store.updateBatchStatus(batchId: batchId, status: "analyzed")
+    return true
   }
 
   private func handleIdleBatch(

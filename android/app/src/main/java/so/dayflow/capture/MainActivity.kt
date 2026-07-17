@@ -3,9 +3,12 @@ package so.dayflow.capture
 import android.Manifest
 import android.app.AppOpsManager
 import android.app.NotificationManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.os.PowerManager
@@ -15,6 +18,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,12 +35,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BatterySaver
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Computer
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -65,8 +72,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -78,6 +89,7 @@ import so.dayflow.capture.capture.CaptureService
 import so.dayflow.capture.capture.CaptureState
 import so.dayflow.capture.capture.ContinuousCaptureAccessibilityService
 import so.dayflow.capture.capture.RecordingState
+import so.dayflow.capture.data.CaptureEntity
 
 class MainActivity : ComponentActivity() {
   private var usageAccessGranted by mutableStateOf(false)
@@ -206,11 +218,18 @@ private fun DayflowCaptureScreen(
   val pairing by model.pairing.collectAsState()
   val pendingCount by model.pendingCount.collectAsState(initial = 0)
   val pendingBytes by model.pendingBytes.collectAsState(initial = 0)
+  val pendingImageCount by model.pendingImageCount.collectAsState(initial = 0)
+  val recentImages by model.recentImages.collectAsState(initial = emptyList())
   val blockedApps by model.blockedApps.collectAsState()
   val installedApps by model.installedApps.collectAsState()
+  val context = LocalContext.current
+  val clipboardManager = remember(context) {
+    context.getSystemService(ClipboardManager::class.java)
+  }
   var scansQr by remember { mutableStateOf(false) }
   var pairingError by remember { mutableStateOf<String?>(null) }
   var selectsExcludedApps by remember { mutableStateOf(false) }
+  var previewCapture by remember { mutableStateOf<CaptureEntity?>(null) }
 
   if (scansQr) {
     QrScannerView(
@@ -245,6 +264,58 @@ private fun DayflowCaptureScreen(
         OutlinedButton(onClick = { onAction(CaptureActions.STOP) }, enabled = recording != RecordingState.STOPPED) {
           Icon(Icons.Rounded.Stop, null)
           Text(stringResource(R.string.stop_capture), Modifier.padding(start = 6.dp))
+        }
+      }
+
+      SectionCard(stringResource(R.string.upload_storage)) {
+        SettingRow(
+          icon = Icons.Rounded.Folder,
+          title = stringResource(R.string.pending_images, pendingImageCount),
+          detail = model.captureStoragePath
+        )
+        Text(
+          stringResource(R.string.upload_storage_detail),
+          style = MaterialTheme.typography.bodySmall,
+          color = Color(0xFF777773)
+        )
+        if (recentImages.isNotEmpty()) {
+          Text(stringResource(R.string.recent_image_previews), fontWeight = FontWeight.Medium)
+          LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(recentImages, key = { it.captureId }) { capture ->
+              val preview = remember(capture.captureId, capture.filePath) {
+                decodePreview(capture.filePath, 320)
+              }
+              Column(
+                modifier = Modifier.clickable(enabled = preview != null) {
+                  previewCapture = capture
+                },
+                horizontalAlignment = Alignment.CenterHorizontally
+              ) {
+                if (preview != null) {
+                  Image(
+                    bitmap = preview,
+                    contentDescription = capture.foregroundAppName,
+                    modifier = Modifier.size(width = 104.dp, height = 164.dp)
+                      .clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Crop
+                  )
+                }
+                Text(
+                  capture.foregroundAppName ?: stringResource(R.string.unknown_app),
+                  style = MaterialTheme.typography.bodySmall,
+                  modifier = Modifier.padding(top = 4.dp)
+                )
+              }
+            }
+          }
+        }
+        OutlinedButton(onClick = {
+          clipboardManager.setPrimaryClip(
+            ClipData.newPlainText(context.getString(R.string.upload_storage), model.captureStoragePath)
+          )
+        }) {
+          Icon(Icons.Rounded.ContentCopy, null)
+          Text(stringResource(R.string.copy_path), Modifier.padding(start = 6.dp))
         }
       }
 
@@ -364,7 +435,50 @@ private fun DayflowCaptureScreen(
       }
     )
   }
+
+  previewCapture?.let { capture ->
+    val preview = remember(capture.captureId, capture.filePath) {
+      decodePreview(capture.filePath, 1200)
+    }
+    AlertDialog(
+      onDismissRequest = { previewCapture = null },
+      title = { Text(capture.foregroundAppName ?: stringResource(R.string.image_preview)) },
+      text = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+          if (preview != null) {
+            Image(
+              bitmap = preview,
+              contentDescription = capture.foregroundAppName,
+              modifier = Modifier.fillMaxWidth().height(520.dp),
+              contentScale = ContentScale.Fit
+            )
+          }
+          Text(capture.filePath, style = MaterialTheme.typography.bodySmall)
+        }
+      },
+      confirmButton = {
+        TextButton(onClick = { previewCapture = null }) {
+          Text(stringResource(R.string.close_preview))
+        }
+      }
+    )
+  }
 }
+
+private fun decodePreview(path: String, maxDimension: Int) = runCatching {
+  val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+  BitmapFactory.decodeFile(path, bounds)
+  if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+
+  var sampleSize = 1
+  while (maxOf(bounds.outWidth, bounds.outHeight) / sampleSize > maxDimension * 2) {
+    sampleSize *= 2
+  }
+  BitmapFactory.decodeFile(
+    path,
+    BitmapFactory.Options().apply { inSampleSize = sampleSize }
+  )?.asImageBitmap()
+}.getOrNull()
 
 @Composable
 private fun StatusCard(state: RecordingState, message: String?, count: Int, bytes: Long) {
@@ -410,7 +524,7 @@ private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Un
 private fun SettingRow(icon: ImageVector, title: String, detail: String) {
   Row(verticalAlignment = Alignment.CenterVertically) {
     Icon(icon, null, tint = Color(0xFF555550))
-    Column(Modifier.padding(start = 10.dp)) {
+    Column(Modifier.padding(start = 10.dp).weight(1f)) {
       Text(title, fontWeight = FontWeight.Medium)
       Text(detail, style = MaterialTheme.typography.bodySmall, color = Color(0xFF777773))
     }

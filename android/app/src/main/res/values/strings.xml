@@ -11,6 +11,14 @@
   <string name="state_paused">已暂停</string>
   <string name="state_error">发生错误</string>
   <string name="queue_status">%1$d 个待同步 · %2$s</string>
+  <string name="upload_storage">待上传图片</string>
+  <string name="pending_images">%1$d 张图片等待上传</string>
+  <string name="upload_storage_detail">图片保存在 Dayflow 私有目录，其他应用无法读取；同步成功后保留 24 小时再自动删除。</string>
+  <string name="copy_path">复制路径</string>
+  <string name="recent_image_previews">最近暂存图片（点击放大）</string>
+  <string name="image_preview">图片预览</string>
+  <string name="close_preview">关闭</string>
+  <string name="unknown_app">未知应用</string>
 
   <string name="mac_connection">Mac 连接</string>
   <string name="no_mac_paired">尚未配对 Mac</string>
@@ -36,8 +44,8 @@
 
   <string name="privacy">隐私</string>
   <string name="excluded_apps">排除的应用</string>
-  <string name="excluded_apps_detail">勾选后，打开这些应用时截图会自动隐藏</string>
-  <string name="automatic_sensitive_protection">密码管理器、银行和钱包类应用仍会自动保护</string>
+  <string name="excluded_apps_detail">勾选后，打开这些应用时不会截屏，只记录应用名称和使用时间</string>
+  <string name="automatic_sensitive_protection">Dayflow 自身始终忽略；密码管理器、银行和钱包类应用也会自动关闭截图</string>
   <string name="select_apps">选择应用</string>
   <string name="select_apps_title">选择不记录的应用</string>
   <string name="no_apps_found">没有读取到可启动的应用</string>

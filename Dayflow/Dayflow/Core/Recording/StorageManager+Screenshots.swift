@@ -24,13 +24,19 @@ extension StorageManager {
     formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.timeZone = TimeZone(identifier: metadata.timezoneId) ?? .current
     formatter.dateFormat = "yyyy-MM-dd"
+    let day = formatter.string(from: date)
+
+    formatter.dateFormat = "yyyyMMdd_HHmmssSSS"
+    let timestamp = formatter.string(from: date)
+    let sequenceSuffix = metadata.sequence.map { String(format: "s%06lld", $0) }
+      ?? "c\(safeCaptureId)"
 
     let directory = root
       .appendingPathComponent("android", isDirectory: true)
       .appendingPathComponent(safeDeviceId, isDirectory: true)
-      .appendingPathComponent(formatter.string(from: date), isDirectory: true)
+      .appendingPathComponent(day, isDirectory: true)
     try fileMgr.createDirectory(at: directory, withIntermediateDirectories: true)
-    return directory.appendingPathComponent("\(safeCaptureId).jpg")
+    return directory.appendingPathComponent("\(timestamp)_\(sequenceSuffix).jpg")
   }
 
   func existingCaptureIds(deviceId: String, captureIds: [String]) -> Set<String> {
@@ -88,11 +94,31 @@ extension StorageManager {
   }
 
   func saveImportedScreenshot(url: URL, metadata: CaptureImportMetadata) throws -> Int64 {
-    let timestamp = Int(metadata.capturedAtUTCMS / 1000)
     let storedFileSize = metadata.byteLength ?? {
       let attributes = try? fileMgr.attributesOfItem(atPath: url.path)
       return (attributes?[.size] as? NSNumber)?.int64Value
     }()
+
+    return try insertImportedCapture(
+      filePath: url.path,
+      fileSize: storedFileSize,
+      metadata: metadata
+    )
+  }
+
+  func saveImportedCapture(metadata: CaptureImportMetadata) throws -> Int64 {
+    guard metadata.kind == .redacted else {
+      throw CocoaError(.fileReadCorruptFile)
+    }
+    return try insertImportedCapture(filePath: "", fileSize: nil, metadata: metadata)
+  }
+
+  private func insertImportedCapture(
+    filePath: String,
+    fileSize: Int64?,
+    metadata: CaptureImportMetadata
+  ) throws -> Int64 {
+    let timestamp = Int(metadata.capturedAtUTCMS / 1000)
 
     return try timedWrite("saveImportedScreenshot") { db in
       if let existing = try Int64.fetchOne(
@@ -114,7 +140,7 @@ extension StorageManager {
               ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           """,
         arguments: [
-          timestamp, url.path, storedFileSize, metadata.captureId, metadata.deviceId,
+          timestamp, filePath, fileSize, metadata.captureId, metadata.deviceId,
           metadata.platform.rawValue, metadata.sessionId, metadata.sequence,
           metadata.timezoneId, metadata.utcOffsetSeconds, metadata.foregroundAppId,
           metadata.foregroundAppName, metadata.orientation.rawValue, metadata.pixelWidth,

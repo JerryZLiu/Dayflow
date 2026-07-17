@@ -700,7 +700,10 @@ final class LLMService: LLMServicing {
         let batchStartDate = Date(timeIntervalSince1970: TimeInterval(batchStartTs))
 
         // Try screenshot-based transcription first (new system)
-        let screenshots = StorageManager.shared.screenshotsForBatch(batchId)
+        let screenshots = StorageManager.shared.screenshotsForBatch(batchId).filter { screenshot in
+          screenshot.kind != .redacted
+            || FileManager.default.fileExists(atPath: screenshot.filePath)
+        }
         var observations: [Observation]
         var transcribeLog: LLMCall
 

@@ -115,10 +115,10 @@ fun CaptureEntity.toWire() = CaptureMetadataWire(
   foregroundAppId = foregroundAppId,
   foregroundAppName = foregroundAppName,
   orientation = orientation,
-  pixelWidth = pixelWidth,
-  pixelHeight = pixelHeight,
+  pixelWidth = pixelWidth.takeIf { it > 0 },
+  pixelHeight = pixelHeight.takeIf { it > 0 },
   kind = captureKind,
-  mimeType = mimeType,
-  byteLength = byteLength,
-  sha256 = sha256
+  mimeType = mimeType.takeIf { it.isNotBlank() },
+  byteLength = byteLength.takeIf { it > 0 },
+  sha256 = sha256.takeIf { it.isNotBlank() }
 )

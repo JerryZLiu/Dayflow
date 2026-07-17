@@ -74,13 +74,18 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         try {
           for (capture in uploads) {
             val file = File(capture.filePath)
-            require(file.isFile) { "Missing capture ${capture.captureId}" }
+            val imageBase64 = if (capture.filePath.isBlank() && capture.captureKind == "redacted") {
+              null
+            } else {
+              require(file.isFile) { "Missing capture ${capture.captureId}" }
+              Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+            }
             val response = client.send(
               SyncRequest(
                 kind = "upload",
                 requestId = UUID.randomUUID().toString(),
                 metadata = capture.toWire(),
-                imageBase64 = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+                imageBase64 = imageBase64
               )
             )
             response.requireSuccess()

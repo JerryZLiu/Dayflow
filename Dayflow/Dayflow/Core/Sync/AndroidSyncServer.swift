@@ -236,12 +236,22 @@ final class AndroidSyncServer: ObservableObject, @unchecked Sendable {
       missing = captureIds.filter { !existing.contains($0) }
 
     case .upload:
-      guard let metadata = request.metadata, metadata.platform == .android,
-        let encodedImage = request.imageBase64,
-        let imageData = Data(base64Encoded: encodedImage),
-        imageData.count <= 8 * 1024 * 1024
-      else {
+      guard let metadata = request.metadata, metadata.platform == .android else {
         throw SyncError.invalidRequest("Invalid screenshot upload")
+      }
+      let imageData: Data?
+      if let encodedImage = request.imageBase64 {
+        guard let decodedImage = Data(base64Encoded: encodedImage),
+          decodedImage.count <= 8 * 1024 * 1024
+        else {
+          throw SyncError.invalidRequest("Invalid screenshot upload")
+        }
+        imageData = decodedImage
+      } else {
+        guard metadata.kind == .redacted else {
+          throw SyncError.invalidRequest("Screenshot data is required")
+        }
+        imageData = nil
       }
       try importCapture(metadata: metadata, imageData: imageData)
       acceptedCaptureId = metadata.captureId
@@ -261,7 +271,15 @@ final class AndroidSyncServer: ObservableObject, @unchecked Sendable {
     )
   }
 
-  private func importCapture(metadata: CaptureImportMetadata, imageData: Data) throws {
+  private func importCapture(metadata: CaptureImportMetadata, imageData: Data?) throws {
+    guard let imageData else {
+      guard metadata.kind == .redacted else {
+        throw SyncError.invalidRequest("Only redacted captures may omit image data")
+      }
+      _ = try StorageManager.shared.saveImportedCapture(metadata: metadata)
+      return
+    }
+
     if let expectedHash = metadata.sha256?.lowercased() {
       let actualHash = SHA256.hash(data: imageData).map { String(format: "%02x", $0) }.joined()
       guard actualHash == expectedHash else { throw SyncError.checksumMismatch }

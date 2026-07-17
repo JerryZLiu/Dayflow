@@ -21,6 +21,8 @@ class CaptureRepository(
 ) {
   val pendingCount = dao.pendingCount()
   val pendingBytes = dao.pendingBytes()
+  val pendingImageCount = dao.pendingImageCount()
+  val recentImages = dao.recentImages()
 
   suspend fun enqueue(
     bitmap: Bitmap,
@@ -63,6 +65,39 @@ class CaptureRepository(
     entity
   }
 
+  suspend fun enqueueMetadata(
+    sessionId: String,
+    sequence: Long,
+    foregroundAppId: String,
+    foregroundAppName: String
+  ): CaptureEntity = withContext(Dispatchers.IO) {
+    val now = System.currentTimeMillis()
+    val zone = ZoneId.systemDefault()
+    val offset = zone.rules.getOffset(Instant.ofEpochMilli(now)).totalSeconds
+    val entity = CaptureEntity(
+      captureId = UUID.randomUUID().toString(),
+      deviceId = DeviceIdentity.id(context),
+      sessionId = sessionId,
+      sequence = sequence,
+      capturedAtUTCMS = now,
+      timezoneId = zone.id,
+      utcOffsetSeconds = offset,
+      foregroundAppId = foregroundAppId,
+      foregroundAppName = foregroundAppName,
+      orientation = "unknown",
+      pixelWidth = 0,
+      pixelHeight = 0,
+      captureKind = "redacted",
+      mimeType = "",
+      byteLength = 0,
+      sha256 = "",
+      filePath = ""
+    )
+    dao.insert(entity)
+    scheduleSync()
+    entity
+  }
+
   fun scheduleSync(force: Boolean = false) {
     val builder = OneTimeWorkRequestBuilder<SyncWorker>()
     if (!force) builder.setInitialDelay(2, TimeUnit.SECONDS)
@@ -77,7 +112,9 @@ class CaptureRepository(
   suspend fun cleanup() = withContext(Dispatchers.IO) {
     val now = System.currentTimeMillis()
     val acknowledged = dao.expiredAcknowledged(now)
-    acknowledged.forEach { File(it.filePath).delete() }
+    acknowledged.forEach { capture ->
+      if (capture.filePath.isNotBlank()) File(capture.filePath).delete()
+    }
     if (acknowledged.isNotEmpty()) dao.delete(acknowledged.map { it.captureId })
 
     val sevenDaysAgo = now - TimeUnit.DAYS.toMillis(7)

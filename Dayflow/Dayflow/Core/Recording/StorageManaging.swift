@@ -101,6 +101,9 @@ protocol StorageManaging: Sendable {
   /// Atomically registers an imported screenshot. Repeated capture IDs return the existing row.
   func saveImportedScreenshot(url: URL, metadata: CaptureImportMetadata) throws -> Int64
 
+  /// Atomically registers an imported capture that intentionally has no screenshot file.
+  func saveImportedCapture(metadata: CaptureImportMetadata) throws -> Int64
+
   /// Fetch screenshots that haven't been assigned to a batch yet
   func fetchUnprocessedScreenshots(since oldestTimestamp: Int) -> [Screenshot]
 

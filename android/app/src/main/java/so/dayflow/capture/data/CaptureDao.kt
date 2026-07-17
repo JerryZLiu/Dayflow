@@ -20,6 +20,12 @@ interface CaptureDao {
   @Query("SELECT COALESCE(SUM(byteLength), 0) FROM captures WHERE state != 'acknowledged'")
   fun pendingBytes(): Flow<Long>
 
+  @Query("SELECT COUNT(*) FROM captures WHERE state != 'acknowledged' AND filePath != ''")
+  fun pendingImageCount(): Flow<Int>
+
+  @Query("SELECT * FROM captures WHERE filePath != '' ORDER BY capturedAtUTCMS DESC LIMIT :limit")
+  fun recentImages(limit: Int = 6): Flow<List<CaptureEntity>>
+
   @Query("SELECT COALESCE(SUM(byteLength), 0) FROM captures WHERE state != 'acknowledged'")
   suspend fun pendingByteCount(): Long
 

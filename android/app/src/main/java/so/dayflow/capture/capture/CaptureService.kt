@@ -127,11 +127,41 @@ class CaptureService : LifecycleService() {
     val power = getSystemService(PowerManager::class.java)
     if (!power.isInteractive || !processing.compareAndSet(false, true)) return
 
+    lifecycleScope.launch(Dispatchers.Default) {
+      val foregroundApp = appReader.current()
+      if (foregroundApp?.packageName == packageName) {
+        processing.set(false)
+        return@launch
+      }
+      if (foregroundApp != null && privacy.isBlocked(foregroundApp)) {
+        sequence += 1
+        try {
+          app.repository.enqueueMetadata(
+            sessionId = sessionId,
+            sequence = sequence,
+            foregroundAppId = foregroundApp.packageName,
+            foregroundAppName = foregroundApp.label
+          )
+        } finally {
+          processing.set(false)
+        }
+        return@launch
+      }
+      mainHandler.post { requestScreenshot(foregroundApp) }
+    }
+  }
+
+  private fun requestScreenshot(foregroundApp: ForegroundApp?) {
+    if (!running || pauseState.isPaused) {
+      processing.set(false)
+      return
+    }
+
     val requested = ContinuousCaptureAccessibilityService.takeScreenshot(
       onSuccess = { bitmap ->
         lifecycleScope.launch(Dispatchers.Default) {
           try {
-            processBitmap(bitmap)
+            processBitmap(bitmap, foregroundApp)
           } finally {
             bitmap.recycle()
             processing.set(false)
@@ -149,22 +179,16 @@ class CaptureService : LifecycleService() {
     }
   }
 
-  private suspend fun processBitmap(source: Bitmap) {
+  private suspend fun processBitmap(source: Bitmap, foregroundApp: ForegroundApp?) {
     val queuedBytes = app.database.captureDao().pendingByteCount()
     if (queuedBytes >= MAX_QUEUE_BYTES) {
       setPauseReason(CapturePauseReason.QUEUE_FULL, true)
       return
     }
 
-    val foregroundApp = appReader.current()
-    val blocked = privacy.isBlocked(foregroundApp)
     val scaled = scaleForUpload(source)
     val captureKind: String
-    val output = if (blocked) {
-      captureKind = "redacted"
-      if (scaled !== source) scaled.recycle()
-      privatePlaceholder(source.width, source.height)
-    } else if (scaled.isNearlyBlack()) {
+    val output = if (scaled.isNearlyBlack()) {
       captureKind = "unavailable"
       if (scaled !== source) scaled.recycle()
       privatePlaceholder(source.width, source.height, getString(R.string.capture_unavailable))

@@ -2,6 +2,7 @@ package so.dayflow.capture
 
 import android.app.Application
 import android.content.Intent
+import java.io.File
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +26,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   val pairing = app.pairingStore.pairing
   val pendingCount = app.repository.pendingCount
   val pendingBytes = app.repository.pendingBytes
+  val pendingImageCount = app.repository.pendingImageCount
+  val recentImages = app.repository.recentImages
+  val captureStoragePath = File(application.filesDir, "captures").absolutePath
   val blockedApps = _blockedApps.asStateFlow()
   val installedApps = _installedApps.asStateFlow()
 
