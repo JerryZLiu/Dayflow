@@ -2,7 +2,7 @@ import XCTest
 
 @testable import Dayflow
 
-final class ChatCLIPromptPreferencesTests: XCTestCase {
+final class ProviderPromptPreferencesTests: XCTestCase {
   private final class IgnoringUserDefaults: UserDefaults {
     var ignoredWriteKeys: Set<String> = []
 
@@ -24,104 +24,104 @@ final class ChatCLIPromptPreferencesTests: XCTestCase {
 
   func testChatGPTAndClaudeOverridesRoundTripIndependently() throws {
     let defaults = try makeDefaults()
-    let chatGPT = ChatCLIPromptOverrides(
+    let chatGPT = ActivityCardPromptOverrides(
       titleBlock: "ChatGPT title",
       summaryBlock: "ChatGPT summary",
       detailedBlock: "ChatGPT details"
     )
-    let claude = ChatCLIPromptOverrides(
+    let claude = ActivityCardPromptOverrides(
       titleBlock: "Claude title",
       summaryBlock: "Claude summary",
       detailedBlock: "Claude details"
     )
 
-    ChatCLIPromptPreferences.save(chatGPT, for: .codex, to: defaults)
-    ChatCLIPromptPreferences.save(claude, for: .claude, to: defaults)
+    CodexPromptPreferences.save(chatGPT, to: defaults)
+    ClaudePromptPreferences.save(claude, to: defaults)
 
-    XCTAssertEqual(ChatCLIPromptPreferences.load(for: .codex, from: defaults), chatGPT)
-    XCTAssertEqual(ChatCLIPromptPreferences.load(for: .claude, from: defaults), claude)
+    XCTAssertEqual(CodexPromptPreferences.load(from: defaults), chatGPT)
+    XCTAssertEqual(ClaudePromptPreferences.load(from: defaults), claude)
   }
 
   func testResetOnlyClearsTheSelectedProviderPrompt() throws {
     let defaults = try makeDefaults()
-    let chatGPT = ChatCLIPromptOverrides(titleBlock: "ChatGPT title")
-    let claude = ChatCLIPromptOverrides(titleBlock: "Claude title")
-    ChatCLIPromptPreferences.save(chatGPT, for: .codex, to: defaults)
-    ChatCLIPromptPreferences.save(claude, for: .claude, to: defaults)
+    let chatGPT = ActivityCardPromptOverrides(titleBlock: "ChatGPT title")
+    let claude = ActivityCardPromptOverrides(titleBlock: "Claude title")
+    CodexPromptPreferences.save(chatGPT, to: defaults)
+    ClaudePromptPreferences.save(claude, to: defaults)
 
-    ChatCLIPromptPreferences.reset(for: .codex, in: defaults)
+    CodexPromptPreferences.reset(in: defaults)
 
-    XCTAssertTrue(ChatCLIPromptPreferences.load(for: .codex, from: defaults).isEmpty)
-    XCTAssertEqual(ChatCLIPromptPreferences.load(for: .claude, from: defaults), claude)
+    XCTAssertTrue(CodexPromptPreferences.load(from: defaults).isEmpty)
+    XCTAssertEqual(ClaudePromptPreferences.load(from: defaults), claude)
   }
 
   func testCorruptProviderPromptFallsBackToDefaultsWithoutAffectingOtherProvider() throws {
     let defaults = try makeDefaults()
-    let claude = ChatCLIPromptOverrides(titleBlock: "Claude title")
+    let claude = ActivityCardPromptOverrides(titleBlock: "Claude title")
     defaults.set(Data("not-json".utf8), forKey: "chatGPTPromptOverrides")
-    ChatCLIPromptPreferences.save(claude, for: .claude, to: defaults)
+    ClaudePromptPreferences.save(claude, to: defaults)
 
-    XCTAssertTrue(ChatCLIPromptPreferences.load(for: .codex, from: defaults).isEmpty)
-    XCTAssertEqual(ChatCLIPromptPreferences.load(for: .claude, from: defaults), claude)
+    XCTAssertTrue(CodexPromptPreferences.load(from: defaults).isEmpty)
+    XCTAssertEqual(ClaudePromptPreferences.load(from: defaults), claude)
   }
 
   func testPromptSectionsUseOnlyTheProvidedProviderOverrides() {
-    let chatGPT = ChatCLIPromptOverrides(
+    let chatGPT = ActivityCardPromptOverrides(
       titleBlock: "ChatGPT-only title",
       summaryBlock: nil,
       detailedBlock: nil
     )
-    let claude = ChatCLIPromptOverrides(
+    let claude = ActivityCardPromptOverrides(
       titleBlock: nil,
       summaryBlock: "Claude-only summary",
       detailedBlock: nil
     )
 
-    let chatGPTSections = ChatCLIPromptSections(overrides: chatGPT)
-    let claudeSections = ChatCLIPromptSections(overrides: claude)
+    let chatGPTSections = CodexPromptSections(overrides: chatGPT)
+    let claudeSections = ClaudePromptSections(overrides: claude)
 
     XCTAssertEqual(chatGPTSections.title, "ChatGPT-only title")
-    XCTAssertEqual(chatGPTSections.summary, ChatCLIPromptDefaults.summaryBlock)
-    XCTAssertEqual(claudeSections.title, ChatCLIPromptDefaults.titleBlock)
+    XCTAssertEqual(chatGPTSections.summary, CodexPromptDefaults.summaryBlock)
+    XCTAssertEqual(claudeSections.title, ClaudePromptDefaults.titleBlock)
     XCTAssertEqual(claudeSections.summary, "Claude-only summary")
   }
 
   func testWhitespaceOnlyOverrideUsesDefaultBlock() {
-    let overrides = ChatCLIPromptOverrides(
+    let overrides = ActivityCardPromptOverrides(
       titleBlock: "  \n  ",
       summaryBlock: "Custom summary",
       detailedBlock: nil
     )
 
-    let sections = ChatCLIPromptSections(overrides: overrides)
+    let sections = CodexPromptSections(overrides: overrides)
 
-    XCTAssertEqual(sections.title, ChatCLIPromptDefaults.titleBlock)
+    XCTAssertEqual(sections.title, CodexPromptDefaults.titleBlock)
     XCTAssertEqual(sections.summary, "Custom summary")
-    XCTAssertEqual(sections.detailedSummary, ChatCLIPromptDefaults.detailedSummaryBlock)
+    XCTAssertEqual(sections.detailedSummary, CodexPromptDefaults.detailedSummaryBlock)
   }
 
   func testVerifiedSaveReportsAWriteThatDoesNotStick() throws {
     let defaults = try makeIgnoringDefaults()
     defaults.ignoredWriteKeys = ["chatGPTPromptOverrides"]
-    let overrides = ChatCLIPromptOverrides(titleBlock: "ChatGPT title")
+    let overrides = ActivityCardPromptOverrides(titleBlock: "ChatGPT title")
 
     XCTAssertThrowsError(
-      try ChatCLIPromptPreferences.saveVerified(overrides, for: .codex, to: defaults)
+      try CodexPromptPreferences.saveVerified(overrides, to: defaults)
     ) { error in
-      guard case ChatCLIPromptPreferencesError.writeVerificationFailed = error else {
+      guard case ProviderPromptPreferencesError.writeVerificationFailed = error else {
         return XCTFail("Unexpected error: \(error)")
       }
     }
   }
 
   private func makeDefaults() throws -> UserDefaults {
-    let suiteName = "ChatCLIPromptPreferencesTests.\(UUID().uuidString)"
+    let suiteName = "ProviderPromptPreferencesTests.\(UUID().uuidString)"
     suiteNames.append(suiteName)
     return try XCTUnwrap(UserDefaults(suiteName: suiteName))
   }
 
   private func makeIgnoringDefaults() throws -> IgnoringUserDefaults {
-    let suiteName = "ChatCLIPromptPreferencesTests.\(UUID().uuidString)"
+    let suiteName = "ProviderPromptPreferencesTests.\(UUID().uuidString)"
     suiteNames.append(suiteName)
     return try XCTUnwrap(IgnoringUserDefaults(suiteName: suiteName))
   }

@@ -54,6 +54,7 @@ struct AndroidSyncSettingsSection: View {
 
         if showsPairingCode {
           pairingCode
+            .id(server.pairingRevision)
             .transition(.opacity.combined(with: .scale(scale: 0.96)))
         }
 

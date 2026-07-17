@@ -54,6 +54,7 @@ final class AndroidSyncServer: ObservableObject, @unchecked Sendable {
   @Published private(set) var port: UInt16?
   @Published private(set) var lastError: String?
   @Published private(set) var lastSyncAt: Date?
+  @Published private(set) var pairingRevision = 0
 
   private let queue = DispatchQueue(label: "com.dayflow.android-sync", qos: .utility)
   private let fileManager = FileManager.default
@@ -106,6 +107,7 @@ final class AndroidSyncServer: ObservableObject, @unchecked Sendable {
     stateLock.lock()
     sharedKeyData = newKey
     stateLock.unlock()
+    pairingRevision &+= 1
   }
 
   func pairingPayload() -> AndroidPairingPayload? {

@@ -6,8 +6,6 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.projection.MediaProjectionManager
-import android.media.projection.MediaProjectionConfig
 import android.net.Uri
 import android.os.Bundle
 import android.os.PowerManager
@@ -16,6 +14,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,11 +24,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BatterySaver
 import androidx.compose.material.icons.rounded.Add
@@ -47,11 +49,11 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -71,27 +73,17 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import so.dayflow.capture.capture.CaptureActions
+import so.dayflow.capture.capture.CapturePreferences
 import so.dayflow.capture.capture.CaptureService
+import so.dayflow.capture.capture.CaptureState
+import so.dayflow.capture.capture.ContinuousCaptureAccessibilityService
 import so.dayflow.capture.capture.RecordingState
 
 class MainActivity : ComponentActivity() {
   private var usageAccessGranted by mutableStateOf(false)
   private var batteryUnrestricted by mutableStateOf(false)
   private var notificationsGranted by mutableStateOf(false)
-
-  private val projectionLauncher = registerForActivityResult(
-    ActivityResultContracts.StartActivityForResult()
-  ) { result ->
-    if (result.resultCode == RESULT_OK && result.data != null) {
-      ContextCompat.startForegroundService(
-        this,
-        Intent(this, CaptureService::class.java)
-          .setAction(CaptureActions.START)
-          .putExtra(CaptureActions.EXTRA_RESULT_CODE, result.resultCode)
-          .putExtra(CaptureActions.EXTRA_RESULT_DATA, result.data)
-      )
-    }
-  }
+  private var accessibilityGranted by mutableStateOf(false)
 
   private val permissionLauncher = registerForActivityResult(
     ActivityResultContracts.RequestMultiplePermissions()
@@ -109,16 +101,18 @@ class MainActivity : ComponentActivity() {
           usageAccessGranted = usageAccessGranted,
           batteryUnrestricted = batteryUnrestricted,
           notificationsGranted = notificationsGranted,
-          onStart = {
-            val manager = getSystemService(MediaProjectionManager::class.java)
-            projectionLauncher.launch(
-              manager.createScreenCaptureIntent(
-                MediaProjectionConfig.createConfigForDefaultDisplay()
-              )
-            )
-          },
+          accessibilityGranted = accessibilityGranted,
+          onStart = { requestCapture() },
           onAction = { action ->
-            startService(Intent(this, CaptureService::class.java).setAction(action))
+            val serviceIntent = Intent(this, CaptureService::class.java).setAction(action)
+            if (action == CaptureActions.RESUME) {
+              ContextCompat.startForegroundService(this, serviceIntent)
+            } else {
+              startService(serviceIntent)
+            }
+          },
+          onAccessibilitySettings = {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
           },
           onUsageSettings = {
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
@@ -135,11 +129,25 @@ class MainActivity : ComponentActivity() {
         )
       }
     }
+    if (CapturePreferences.isRecordingDesired(this) &&
+      !CapturePreferences.isManuallyPaused(this) &&
+      ContinuousCaptureAccessibilityService.isEnabled(this) &&
+      CaptureState.state.value != RecordingState.RECORDING &&
+      CaptureState.state.value != RecordingState.PAUSED
+    ) {
+      window.decorView.post { ContinuousCaptureAccessibilityService.ensureCaptureRunning(this) }
+    }
   }
 
   override fun onResume() {
     super.onResume()
     refreshPermissionState()
+    if (CapturePreferences.isRecordingDesired(this) &&
+      !CapturePreferences.isManuallyPaused(this) &&
+      accessibilityGranted
+    ) {
+      ContinuousCaptureAccessibilityService.ensureCaptureRunning(this)
+    }
   }
 
   private fun refreshPermissionState() {
@@ -149,6 +157,21 @@ class MainActivity : ComponentActivity() {
       this,
       Manifest.permission.POST_NOTIFICATIONS
     ) == PackageManager.PERMISSION_GRANTED
+    accessibilityGranted = ContinuousCaptureAccessibilityService.isEnabled(this)
+  }
+
+  private fun requestCapture() {
+    CapturePreferences.setRecordingDesired(this, true)
+    CapturePreferences.setManuallyPaused(this, false)
+    if (!ContinuousCaptureAccessibilityService.isEnabled(this)) {
+      CaptureState.update(RecordingState.ERROR, getString(R.string.enable_accessibility_service))
+      startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+      return
+    }
+    ContextCompat.startForegroundService(
+      this,
+      Intent(this, CaptureService::class.java).setAction(CaptureActions.START)
+    )
   }
 
   private fun hasUsageAccess(): Boolean {
@@ -170,8 +193,10 @@ private fun DayflowCaptureScreen(
   usageAccessGranted: Boolean,
   batteryUnrestricted: Boolean,
   notificationsGranted: Boolean,
+  accessibilityGranted: Boolean,
   onStart: () -> Unit,
   onAction: (String) -> Unit,
+  onAccessibilitySettings: () -> Unit,
   onUsageSettings: () -> Unit,
   onBatterySettings: () -> Unit,
   onNotificationPermission: () -> Unit
@@ -182,10 +207,10 @@ private fun DayflowCaptureScreen(
   val pendingCount by model.pendingCount.collectAsState(initial = 0)
   val pendingBytes by model.pendingBytes.collectAsState(initial = 0)
   val blockedApps by model.blockedApps.collectAsState()
+  val installedApps by model.installedApps.collectAsState()
   var scansQr by remember { mutableStateOf(false) }
   var pairingError by remember { mutableStateOf<String?>(null) }
-  var addsBlockedApp by remember { mutableStateOf(false) }
-  var blockedAppInput by remember { mutableStateOf("") }
+  var selectsExcludedApps by remember { mutableStateOf(false) }
 
   if (scansQr) {
     QrScannerView(
@@ -248,6 +273,12 @@ private fun DayflowCaptureScreen(
       }
 
       SectionCard(stringResource(R.string.device_access)) {
+        PermissionRow(
+          stringResource(R.string.continuous_capture_access),
+          accessibilityGranted,
+          Icons.Rounded.Security,
+          onAccessibilitySettings
+        )
         PermissionRow(stringResource(R.string.usage_access), usageAccessGranted, Icons.Rounded.Security, onUsageSettings)
         PermissionRow(stringResource(R.string.unrestricted_battery), batteryUnrestricted, Icons.Rounded.BatterySaver, onBatterySettings)
         PermissionRow(
@@ -264,49 +295,72 @@ private fun DayflowCaptureScreen(
           title = stringResource(R.string.excluded_apps),
           detail = stringResource(R.string.excluded_apps_detail)
         )
-        blockedApps.forEach { value ->
+        Text(
+          stringResource(R.string.automatic_sensitive_protection),
+          style = MaterialTheme.typography.bodySmall,
+          color = Color(0xFF777773)
+        )
+        installedApps.filter { blockedApps.contains(it.packageName) }.forEach { app ->
           Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
           ) {
-            Text(value, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-            IconButton(onClick = { model.removeBlockedApp(value) }) {
-              Icon(Icons.Rounded.DeleteOutline, stringResource(R.string.remove_excluded_app, value))
+            Column(Modifier.weight(1f)) {
+              Text(app.label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+              Text(app.packageName, style = MaterialTheme.typography.bodySmall, color = Color(0xFF777773))
+            }
+            IconButton(onClick = { model.setAppExcluded(app.packageName, false) }) {
+              Icon(Icons.Rounded.DeleteOutline, stringResource(R.string.remove_excluded_app, app.label))
             }
           }
         }
-        OutlinedButton(onClick = { addsBlockedApp = true }) {
+        OutlinedButton(onClick = {
+          model.refreshInstalledApps()
+          selectsExcludedApps = true
+        }) {
           Icon(Icons.Rounded.Add, null)
-          Text(stringResource(R.string.add_app_keyword), Modifier.padding(start = 6.dp))
+          Text(stringResource(R.string.select_apps), Modifier.padding(start = 6.dp))
         }
       }
     }
   }
 
-  if (addsBlockedApp) {
+  if (selectsExcludedApps) {
     AlertDialog(
-      onDismissRequest = { addsBlockedApp = false },
-      title = { Text(stringResource(R.string.exclude_app_title)) },
+      onDismissRequest = { selectsExcludedApps = false },
+      title = { Text(stringResource(R.string.select_apps_title)) },
       text = {
-        OutlinedTextField(
-          value = blockedAppInput,
-          onValueChange = { blockedAppInput = it },
-          singleLine = true,
-          label = { Text(stringResource(R.string.package_or_app_name)) }
-        )
+        if (installedApps.isEmpty()) {
+          Text(stringResource(R.string.no_apps_found))
+        } else {
+          LazyColumn(Modifier.fillMaxWidth().heightIn(max = 440.dp)) {
+            items(installedApps, key = { it.packageName }) { app ->
+              val excluded = blockedApps.contains(app.packageName)
+              Row(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .clickable { model.setAppExcluded(app.packageName, !excluded) }
+                  .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+              ) {
+                Checkbox(checked = excluded, onCheckedChange = null)
+                Column(Modifier.padding(start = 8.dp)) {
+                  Text(app.label, fontWeight = FontWeight.Medium)
+                  Text(
+                    app.packageName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF777773)
+                  )
+                }
+              }
+            }
+          }
+        }
       },
       confirmButton = {
-        TextButton(
-          onClick = {
-            model.addBlockedApp(blockedAppInput)
-            blockedAppInput = ""
-            addsBlockedApp = false
-          },
-          enabled = blockedAppInput.isNotBlank()
-        ) { Text(stringResource(R.string.add)) }
-      },
-      dismissButton = {
-        TextButton(onClick = { addsBlockedApp = false }) { Text(stringResource(R.string.cancel)) }
+        TextButton(onClick = { selectsExcludedApps = false }) {
+          Text(stringResource(R.string.done))
+        }
       }
     )
   }

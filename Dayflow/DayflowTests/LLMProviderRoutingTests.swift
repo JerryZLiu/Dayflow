@@ -225,7 +225,7 @@ final class LLMProviderRoutingTests: XCTestCase {
     try setLegacyProviderType(.dayflowBackend(endpoint: "https://example.com/api"), in: defaults)
     defaults.set("chatgpt_claude", forKey: LegacyLLMProviderMigration.Key.backupProvider)
     defaults.set("claude", forKey: LegacyLLMProviderMigration.Key.backupChatCLITool)
-    let sharedOverrides = ChatCLIPromptOverrides(
+    let sharedOverrides = ActivityCardPromptOverrides(
       titleBlock: "Legacy title",
       summaryBlock: "Legacy summary",
       detailedBlock: "Legacy details"
@@ -239,8 +239,8 @@ final class LLMProviderRoutingTests: XCTestCase {
     let routing = try LLMProviderRoutingStore.load(from: defaults)
 
     XCTAssertEqual(routing, LLMProviderRouting(primary: .dayflow, secondary: .claude))
-    XCTAssertEqual(ChatCLIPromptPreferences.load(for: .codex, from: defaults), sharedOverrides)
-    XCTAssertEqual(ChatCLIPromptPreferences.load(for: .claude, from: defaults), sharedOverrides)
+    XCTAssertEqual(CodexPromptPreferences.load(from: defaults), sharedOverrides)
+    XCTAssertEqual(ClaudePromptPreferences.load(from: defaults), sharedOverrides)
     XCTAssertEqual(DayflowEndpointPreferences.load(from: defaults), "https://example.com/api")
     XCTAssertEqual(
       defaults.writtenKeys,
@@ -255,7 +255,7 @@ final class LLMProviderRoutingTests: XCTestCase {
 
   func testExplicitSaveStillMigratesLegacyArtifactsBeforeWritingRequestedRoute() throws {
     let defaults = try makeRecordingDefaults()
-    let sharedOverrides = ChatCLIPromptOverrides(titleBlock: "Legacy title")
+    let sharedOverrides = ActivityCardPromptOverrides(titleBlock: "Legacy title")
     defaults.set(
       try JSONEncoder().encode(sharedOverrides),
       forKey: LegacyLLMProviderMigration.Key.sharedPromptOverrides
@@ -271,8 +271,8 @@ final class LLMProviderRoutingTests: XCTestCase {
       try LLMProviderRoutingStore.load(from: defaults),
       LLMProviderRouting(primary: .openAICompatible, secondary: .claude)
     )
-    XCTAssertEqual(ChatCLIPromptPreferences.load(for: .codex, from: defaults), sharedOverrides)
-    XCTAssertEqual(ChatCLIPromptPreferences.load(for: .claude, from: defaults), sharedOverrides)
+    XCTAssertEqual(CodexPromptPreferences.load(from: defaults), sharedOverrides)
+    XCTAssertEqual(ClaudePromptPreferences.load(from: defaults), sharedOverrides)
     XCTAssertEqual(defaults.writtenKeys.last, LLMProviderRoutingStore.storageKey)
   }
 
@@ -282,15 +282,14 @@ final class LLMProviderRoutingTests: XCTestCase {
       .dayflowBackend(endpoint: "https://legacy.example/api"),
       in: defaults
     )
-    let sharedOverrides = ChatCLIPromptOverrides(titleBlock: "Legacy title")
+    let sharedOverrides = ActivityCardPromptOverrides(titleBlock: "Legacy title")
     defaults.set(
       try JSONEncoder().encode(sharedOverrides),
       forKey: LegacyLLMProviderMigration.Key.sharedPromptOverrides
     )
-    let existingChatGPTOverrides = ChatCLIPromptOverrides(titleBlock: "Exact ChatGPT title")
-    try ChatCLIPromptPreferences.saveVerified(
+    let existingChatGPTOverrides = ActivityCardPromptOverrides(titleBlock: "Exact ChatGPT title")
+    try CodexPromptPreferences.saveVerified(
       existingChatGPTOverrides,
-      for: .codex,
       to: defaults
     )
     try DayflowEndpointPreferences.saveVerified(
@@ -303,10 +302,10 @@ final class LLMProviderRoutingTests: XCTestCase {
 
     XCTAssertEqual(routing, LLMProviderRouting(primary: .dayflow))
     XCTAssertEqual(
-      ChatCLIPromptPreferences.load(for: .codex, from: defaults),
+      CodexPromptPreferences.load(from: defaults),
       existingChatGPTOverrides
     )
-    XCTAssertEqual(ChatCLIPromptPreferences.load(for: .claude, from: defaults), sharedOverrides)
+    XCTAssertEqual(ClaudePromptPreferences.load(from: defaults), sharedOverrides)
     XCTAssertEqual(DayflowEndpointPreferences.load(from: defaults), "https://exact.example/api")
     XCTAssertEqual(
       defaults.writtenKeys,
@@ -357,7 +356,7 @@ final class LLMProviderRoutingTests: XCTestCase {
 
   func testPromptWriteFailureLeavesRouteAbsent() throws {
     let defaults = try makeRecordingDefaults()
-    let sharedOverrides = ChatCLIPromptOverrides(titleBlock: "Legacy title")
+    let sharedOverrides = ActivityCardPromptOverrides(titleBlock: "Legacy title")
     defaults.set(
       try JSONEncoder().encode(sharedOverrides),
       forKey: LegacyLLMProviderMigration.Key.sharedPromptOverrides
@@ -414,7 +413,7 @@ final class LLMProviderRoutingTests: XCTestCase {
     let corruptRouting = Data("corrupt-v2".utf8)
     defaults.set(corruptRouting, forKey: LLMProviderRoutingStore.storageKey)
     defaults.set("claude", forKey: LegacyLLMProviderMigration.Key.selectedProvider)
-    let sharedOverrides = ChatCLIPromptOverrides(titleBlock: "Should not import")
+    let sharedOverrides = ActivityCardPromptOverrides(titleBlock: "Should not import")
     defaults.set(
       try JSONEncoder().encode(sharedOverrides),
       forKey: LegacyLLMProviderMigration.Key.sharedPromptOverrides
@@ -424,8 +423,8 @@ final class LLMProviderRoutingTests: XCTestCase {
       XCTAssertEqual(error as? LLMProviderRoutingStoreError, .corruptStoredValue)
     }
     XCTAssertEqual(defaults.data(forKey: LLMProviderRoutingStore.storageKey), corruptRouting)
-    XCTAssertTrue(ChatCLIPromptPreferences.load(for: .codex, from: defaults).isEmpty)
-    XCTAssertTrue(ChatCLIPromptPreferences.load(for: .claude, from: defaults).isEmpty)
+    XCTAssertTrue(CodexPromptPreferences.load(from: defaults).isEmpty)
+    XCTAssertTrue(ClaudePromptPreferences.load(from: defaults).isEmpty)
     XCTAssertNil(DayflowEndpointPreferences.load(from: defaults))
   }
 
@@ -435,15 +434,15 @@ final class LLMProviderRoutingTests: XCTestCase {
     try LLMProviderRoutingStore.save(existing, to: defaults)
     defaults.set("claude", forKey: LegacyLLMProviderMigration.Key.selectedProvider)
     defaults.set(
-      try JSONEncoder().encode(ChatCLIPromptOverrides(titleBlock: "Should not import")),
+      try JSONEncoder().encode(ActivityCardPromptOverrides(titleBlock: "Should not import")),
       forKey: LegacyLLMProviderMigration.Key.sharedPromptOverrides
     )
 
     let loaded = try LLMProviderRoutingStore.load(from: defaults)
 
     XCTAssertEqual(loaded, existing)
-    XCTAssertTrue(ChatCLIPromptPreferences.load(for: .codex, from: defaults).isEmpty)
-    XCTAssertTrue(ChatCLIPromptPreferences.load(for: .claude, from: defaults).isEmpty)
+    XCTAssertTrue(CodexPromptPreferences.load(from: defaults).isEmpty)
+    XCTAssertTrue(ClaudePromptPreferences.load(from: defaults).isEmpty)
   }
 
   func testMigrationLeavesEveryLegacyValueByteForByteUnchanged() throws {
@@ -451,7 +450,7 @@ final class LLMProviderRoutingTests: XCTestCase {
     let providerData = try JSONEncoder().encode(
       LegacyLLMProviderMigration.ProviderType.chatGPTClaude)
     let promptData = try JSONEncoder().encode(
-      ChatCLIPromptOverrides(
+      ActivityCardPromptOverrides(
         titleBlock: "Legacy title",
         summaryBlock: "Legacy summary",
         detailedBlock: "Legacy details"

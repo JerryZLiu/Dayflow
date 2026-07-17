@@ -22,7 +22,4 @@ object CaptureActions {
   const val PAUSE = "so.dayflow.capture.PAUSE"
   const val RESUME = "so.dayflow.capture.RESUME"
   const val STOP = "so.dayflow.capture.STOP"
-  const val EXTRA_RESULT_CODE = "projection-result-code"
-  const val EXTRA_RESULT_DATA = "projection-result-data"
 }
-

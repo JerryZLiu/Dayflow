@@ -22,6 +22,12 @@
   <string name="remove_pairing">删除配对</string>
 
   <string name="device_access">设备权限</string>
+  <string name="continuous_capture_access">Dayflow 持续记录</string>
+  <string name="accessibility_service_label">Dayflow 持续记录</string>
+  <string name="accessibility_service_description">仅在你启用记录时定期截取屏幕，用于生成个人时间线；不会读取界面内容、点击或控制设备。</string>
+  <string name="enable_accessibility_service">请先在无障碍设置中开启“Dayflow 持续记录”，只需开启一次</string>
+  <string name="accessibility_service_not_ready">持续记录服务正在连接，请稍候</string>
+  <string name="accessibility_service_ended">持续记录服务已断开，重新启用后会自动继续</string>
   <string name="usage_access">使用情况访问权限</string>
   <string name="unrestricted_battery">不受电池限制</string>
   <string name="notifications">通知权限</string>
@@ -30,7 +36,12 @@
 
   <string name="privacy">隐私</string>
   <string name="excluded_apps">排除的应用</string>
-  <string name="excluded_apps_detail">应用名称或包名匹配时，截图会自动隐藏</string>
+  <string name="excluded_apps_detail">勾选后，打开这些应用时截图会自动隐藏</string>
+  <string name="automatic_sensitive_protection">密码管理器、银行和钱包类应用仍会自动保护</string>
+  <string name="select_apps">选择应用</string>
+  <string name="select_apps_title">选择不记录的应用</string>
+  <string name="no_apps_found">没有读取到可启动的应用</string>
+  <string name="done">完成</string>
   <string name="remove_excluded_app">移除 %1$s</string>
   <string name="add_app_keyword">添加应用或关键词</string>
   <string name="exclude_app_title">排除一个应用</string>
@@ -40,15 +51,16 @@
   <string name="close_scanner">关闭扫码</string>
 
   <string name="screen_locked">屏幕已锁定</string>
-  <string name="capture_permission_denied">未获得屏幕录制权限</string>
+  <string name="screen_locked_auto_resume">屏幕已锁定，解锁后将自动继续</string>
+  <string name="capture_paused_manually">已手动暂停</string>
   <string name="queue_limit_reached">待同步数据已达到 10 GB，录制已暂停</string>
   <string name="private_app_hidden">敏感应用已隐藏</string>
   <string name="capture_unavailable">当前画面无法记录</string>
   <string name="capture_notification_paused">Dayflow 录制已暂停</string>
   <string name="capture_notification_active">Dayflow 正在记录</string>
-  <string name="capture_notification_detail">截图会保存在手机中，Mac 可用时自动同步</string>
-  <string name="capture_channel">屏幕记录</string>
+  <string name="capture_notification_detail">持续记录已开启；息屏暂停，解锁后自动继续</string>
+  <string name="capture_channel">持续记录</string>
   <string name="restart_channel">重新开始记录</string>
   <string name="restart_capture_title">重新开始 Dayflow 记录</string>
-  <string name="restart_capture_detail">手机重启后，需要再次允许屏幕录制</string>
+  <string name="restart_capture_detail">请确认“Dayflow 持续记录”无障碍服务仍处于开启状态</string>
 </resources>

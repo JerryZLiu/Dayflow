@@ -40,10 +40,10 @@ final class ChatCLIEffortTests: XCTestCase {
     )
   }
 
-  func testClaudeActivityCardsUseSonnetAtMediumEffort() {
-    let configuration = ChatCLIProvider.activityCardModelConfiguration(for: .claude)
+  func testClaudeActivityCardsUseConfiguredSonnetAtLowEffort() {
+    let configuration = ClaudeProvider.activityCardModelConfiguration()
 
-    XCTAssertEqual(configuration.model, "sonnet")
-    XCTAssertEqual(configuration.reasoningEffort, "medium")
+    XCTAssertEqual(configuration.model, "claude-sonnet-5")
+    XCTAssertEqual(configuration.reasoningEffort, "low")
   }
 }

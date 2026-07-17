@@ -3,11 +3,13 @@ package so.dayflow.capture.sync
 import android.content.Context
 import android.os.Build
 import android.util.Base64
+import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import javax.crypto.AEADBadTagException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import so.dayflow.capture.DayflowCaptureApp
@@ -26,8 +28,12 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
       return@withContext Result.success()
     }
 
+    Log.i(TAG, "Starting sync for ${pending.size} pending captures")
     val endpoint = MacDiscovery(applicationContext).find(pairing)
-      ?: return@withContext Result.retry()
+      ?: run {
+        Log.w(TAG, "Paired Mac could not be discovered")
+        return@withContext Result.retry()
+      }
 
     runCatching {
       EncryptedSyncClient(endpoint, pairing).use { client ->
@@ -92,10 +98,22 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
       }
       app.repository.cleanup()
       Result.success()
-    }.getOrElse { Result.retry() }
+    }.getOrElse { error ->
+      Log.e(TAG, "Sync failed", error)
+      if (error is AEADBadTagException) {
+        app.pairingStore.clear()
+        Result.failure()
+      } else {
+        Result.retry()
+      }
+    }
   }
 
   private fun so.dayflow.capture.data.SyncResponse.requireSuccess() {
     check(ok) { error ?: "Dayflow sync failed" }
+  }
+
+  private companion object {
+    const val TAG = "DayflowSync"
   }
 }

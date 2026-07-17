@@ -63,13 +63,13 @@ class CaptureRepository(
     entity
   }
 
-  fun scheduleSync() {
-    val request = OneTimeWorkRequestBuilder<SyncWorker>()
-      .setInitialDelay(2, TimeUnit.SECONDS)
-      .build()
+  fun scheduleSync(force: Boolean = false) {
+    val builder = OneTimeWorkRequestBuilder<SyncWorker>()
+    if (!force) builder.setInitialDelay(2, TimeUnit.SECONDS)
+    val request = builder.build()
     WorkManager.getInstance(context).enqueueUniqueWork(
       "dayflow-sync",
-      ExistingWorkPolicy.KEEP,
+      if (force) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
       request
     )
   }
