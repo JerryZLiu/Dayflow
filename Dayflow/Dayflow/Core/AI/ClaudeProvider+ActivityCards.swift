@@ -2,9 +2,15 @@ import Foundation
 
 private enum ClaudeCardGenerationError: LocalizedError {
   case empty
+  case validationFailed(String)
 
   var errorDescription: String? {
-    "No cards returned."
+    switch self {
+    case .empty:
+      return "No cards returned."
+    case .validationFailed(let details):
+      return details
+    }
   }
 }
 
@@ -14,7 +20,7 @@ extension ClaudeProvider {
   static func activityCardModelConfiguration() -> (
     model: String, reasoningEffort: String?
   ) {
-    (model: "claude-sonnet-5", reasoningEffort: "low")
+    (model: "claude-sonnet", reasoningEffort: "low")
   }
 
   func generateActivityCards(
@@ -28,82 +34,73 @@ extension ClaudeProvider {
     var run: ChatCLIRunResult?
     var accumulatedUsage: TokenUsage?
     var attempt = 1
+    var currentPrompt = prompt
 
     do {
       let profile = Self.optimizedCardGenerationCLIProfile()
       let sessionID = UUID().uuidString
       let sessionCleanup = ClaudeSessionCleanup(sessionID: sessionID)
       defer { sessionCleanup.cleanup() }
-      let initialRun = try await runOptimizedClaudeTurn(
-        prompt: prompt,
-        model: model,
-        reasoningEffort: effort,
-        profile: profile,
-        sessionMode: .start(id: sessionID)
-      )
-      run = initialRun
-      accumulatedUsage = initialRun.usage
+      let maxAttempts = 3
 
-      try validateSuccessfulClaudeProcess(initialRun)
-
-      let cards: [ActivityCardData]
-      let finalRun: ChatCLIRunResult
-      let totalUsage: TokenUsage?
-      do {
-        cards = try validatedClaudeCards(
-          from: initialRun,
-          observations: observations,
-          context: context
-        )
-        finalRun = initialRun
-        totalUsage = accumulatedUsage
-      } catch {
-        attempt = 2
-        let correctionPrompt = buildCardsCorrectionPrompt(
-          validationError: error.localizedDescription
-        )
-        print(
-          "[ClaudeProvider] Card output failed strict validation; continuing the same session once"
-        )
-        let correctionRun = try await runOptimizedClaudeTurn(
-          prompt: correctionPrompt,
+      for currentAttempt in 1...maxAttempts {
+        attempt = currentAttempt
+        let sessionMode: ClaudeCLISessionMode =
+          currentAttempt == 1 ? .start(id: sessionID) : .resume(id: sessionID)
+        let currentRun = try await runOptimizedClaudeTurn(
+          prompt: currentPrompt,
           model: model,
           reasoningEffort: effort,
           profile: profile,
-          sessionMode: .resume(id: sessionID)
+          sessionMode: sessionMode
         )
-        run = correctionRun
-        accumulatedUsage = Self.combinedTokenUsage(accumulatedUsage, correctionRun.usage)
-        try validateSuccessfulClaudeProcess(correctionRun)
-        cards = try validatedClaudeCards(
-          from: correctionRun,
-          observations: observations,
-          context: context
+        run = currentRun
+        accumulatedUsage = Self.combinedTokenUsage(accumulatedUsage, currentRun.usage)
+        try validateSuccessfulClaudeProcess(currentRun)
+
+        let cards: [ActivityCardData]
+        do {
+          cards = try validatedClaudeCards(
+            from: currentRun,
+            context: context,
+            batchId: batchId,
+            model: model,
+            attempt: attempt
+          )
+        } catch {
+          guard currentAttempt < maxAttempts else { throw error }
+          currentPrompt = buildCardsCorrectionPrompt(
+            validationError: error.localizedDescription
+          )
+          print(
+            "[ClaudeProvider] Card output failed validation; continuing the same session"
+          )
+          continue
+        }
+
+        logSuccess(
+          ctx: makeCtx(
+            batchId: batchId,
+            operation: "generate_cards",
+            model: model,
+            startedAt: callStart,
+            attempt: attempt
+          ),
+          finishedAt: currentRun.finishedAt,
+          stdout: currentRun.stdout,
+          stderr: currentRun.stderr,
+          responseHeaders: tokenHeaders(from: accumulatedUsage)
         )
-        finalRun = correctionRun
-        totalUsage = accumulatedUsage
+        let llmCall = makeLLMCall(
+          start: callStart,
+          end: currentRun.finishedAt,
+          input: currentPrompt,
+          output: currentRun.stdout
+        )
+        return (cards, llmCall)
       }
 
-      logSuccess(
-        ctx: makeCtx(
-          batchId: batchId,
-          operation: "generate_cards",
-          model: model,
-          startedAt: callStart,
-          attempt: attempt
-        ),
-        finishedAt: finalRun.finishedAt,
-        stdout: finalRun.stdout,
-        stderr: finalRun.stderr,
-        responseHeaders: tokenHeaders(from: totalUsage)
-      )
-      let llmCall = makeLLMCall(
-        start: callStart,
-        end: finalRun.finishedAt,
-        input: prompt,
-        output: finalRun.stdout
-      )
-      return (cards, llmCall)
+      throw ClaudeCardGenerationError.empty
     } catch {
       let nsError = error as NSError
       let partialStdout =
@@ -133,37 +130,56 @@ extension ClaudeProvider {
 
   private func validatedClaudeCards(
     from run: ChatCLIRunResult,
-    observations: [Observation],
-    context: ActivityGenerationContext
+    context: ActivityGenerationContext,
+    batchId: Int64?,
+    model: String,
+    attempt: Int
   ) throws -> [ActivityCardData] {
-    let parsedCards = try parseClaudeCardsStrict(from: run.stdout, stderr: run.stderr)
+    let parsedCards = try parseCards(from: run.stdout, stderr: run.stderr)
     guard !parsedCards.isEmpty else { throw ClaudeCardGenerationError.empty }
 
-    try validateClaudeCardCategories(parsedCards, descriptors: context.categories)
-    try ClaudeOutputValidator.validateActivityCards(
-      parsedCards,
+    let normalizedCards = normalizeCards(parsedCards, descriptors: context.categories)
+    let (coverageValid, coverageError) = validateTimeCoverage(
       existingCards: context.existingCards,
-      observations: observations
+      newCards: normalizedCards
     )
-    return parsedCards
-  }
+    let (durationValid, durationError) = validateTimeline(normalizedCards)
 
-  private func validateClaudeCardCategories(
-    _ cards: [ActivityCardData],
-    descriptors: [LLMCategoryDescriptor]
-  ) throws {
-    guard !descriptors.isEmpty else { return }
-    let allowed = Set(descriptors.map(\.name))
-    if let card = cards.first(where: { !allowed.contains($0.category) }) {
-      throw NSError(
-        domain: "ClaudeProvider",
-        code: -97,
-        userInfo: [
-          NSLocalizedDescriptionKey:
-            "Card '\(card.title)' must use one configured category exactly as written. Got '\(card.category)'."
-        ]
+    var validationErrors: [String] = []
+    if !coverageValid, let coverageError {
+      AnalyticsService.shared.captureValidationFailure(
+        provider: "chat_cli",
+        providerID: providerID,
+        operation: "generate_activity_cards",
+        validationType: "time_coverage",
+        attempt: attempt,
+        model: model,
+        batchId: batchId,
+        errorDetail: coverageError
+      )
+      validationErrors.append(coverageError)
+    }
+    if !durationValid, let durationError {
+      AnalyticsService.shared.captureValidationFailure(
+        provider: "chat_cli",
+        providerID: providerID,
+        operation: "generate_activity_cards",
+        validationType: "duration",
+        attempt: attempt,
+        model: model,
+        batchId: batchId,
+        errorDetail: durationError
+      )
+      validationErrors.append(durationError)
+    }
+
+    guard validationErrors.isEmpty else {
+      throw ClaudeCardGenerationError.validationFailed(
+        validationErrors.joined(separator: "\n\n")
       )
     }
+
+    return normalizedCards
   }
 
 }
