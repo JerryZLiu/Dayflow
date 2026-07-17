@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-private final class ChatCLIStreamingDebugSink: @unchecked Sendable {
+private final class AgentCLIStreamingDebugSink: @unchecked Sendable {
   private let lock = NSLock()
   private var shellCommand: String?
   private var environmentOverrides: [String: String] = [:]
@@ -21,15 +21,14 @@ private final class ChatCLIStreamingDebugSink: @unchecked Sendable {
   }
 }
 
-final class ChatCLIProvider {
-  let tool: ChatCLITool
-  let runner = ChatCLIProcessRunner()
-  let config = ChatCLIConfigManager.shared
+protocol AgentCLISupporting: AnyObject {
+  var providerID: LLMProviderID { get }
+  var cliTool: ChatCLITool { get }
+  var runner: ChatCLIProcessRunner { get }
+  var config: ChatCLIConfigManager { get }
+}
 
-  init(tool: ChatCLITool) {
-    self.tool = tool
-    config.ensureWorkingDirectory()
-  }
+extension AgentCLISupporting {
 
   /// Run the CLI and clean up temp files after.
   func runAndScrub(
@@ -42,7 +41,7 @@ final class ChatCLIProvider {
       cleanupImages()
     }
     return try runner.run(
-      tool: tool, prompt: prompt, workingDirectory: config.workingDirectory,
+      tool: cliTool, prompt: prompt, workingDirectory: config.workingDirectory,
       imagePaths: preparedImages, model: model, reasoningEffort: reasoningEffort,
       disableTools: disableTools)
   }
@@ -54,10 +53,10 @@ final class ChatCLIProvider {
     var collectedText = ""
     var sawTextDelta = false
     var capturedSessionId = sessionId
-    let debugSink = ChatCLIStreamingDebugSink()
+    let debugSink = AgentCLIStreamingDebugSink()
 
     let stream = runner.runStreaming(
-      tool: tool,
+      tool: cliTool,
       prompt: prompt,
       workingDirectory: config.workingDirectory,
       model: model,

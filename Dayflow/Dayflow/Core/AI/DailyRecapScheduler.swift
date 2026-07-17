@@ -282,7 +282,6 @@ final class DailyRecapScheduler: @unchecked Sendable {
             "failure_reason": "api_error",
             "error_domain": nsError.domain,
             "error_code": nsError.code,
-            "error_message": String(nsError.localizedDescription.prefix(500)),
           ],
           uniquingKeysWith: { _, new in new }
         ))

@@ -3,20 +3,24 @@ import Foundation
 import SwiftUI
 
 struct LLMProviderSetupView: View {
-  let providerType: String  // "ollama" or "gemini"
+  let providerType: LLMProviderID
   let onBack: () -> Void
-  let onComplete: () -> Void
-
-  var activeProviderType: String { providerType }
+  let onComplete: () -> Bool
 
   var headerTitle: String {
-    switch activeProviderType {
-    case "ollama":
+    switch providerType {
+    case .local:
       return "Use local AI"
-    case "chatgpt_claude":
-      return "Connect ChatGPT or Claude"
-    default:
+    case .chatGPT:
+      return "Connect ChatGPT"
+    case .claude:
+      return "Connect Claude"
+    case .openAICompatible:
+      return "Connect an AI endpoint"
+    case .gemini:
       return "Gemini"
+    case .dayflow:
+      return "Dayflow Pro"
     }
   }
 
@@ -100,10 +104,27 @@ struct LLMProviderSetupView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .onAppear {
-      setupState.configureSteps(for: activeProviderType)
+      setupState.configureSteps(for: providerType)
       animateAppearance()
     }
     .preferredColorScheme(.light)
+    .alert(
+      "Couldn't finish setup",
+      isPresented: Binding(
+        get: { setupState.saveErrorMessage != nil },
+        set: { isPresented in
+          if !isPresented {
+            setupState.saveErrorMessage = nil
+          }
+        }
+      )
+    ) {
+      Button("OK", role: .cancel) {
+        setupState.saveErrorMessage = nil
+      }
+    } message: {
+      Text(setupState.saveErrorMessage ?? "Please try again.")
+    }
   }
 
   var nextButtonText: String {
@@ -119,10 +140,7 @@ struct LLMProviderSetupView: View {
   var nextButton: some View {
     if setupState.isLastStep {
       DayflowSurfaceButton(
-        action: {
-          saveConfiguration()
-          onComplete()
-        },
+        action: completeSetup,
         content: {
           HStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill").font(.system(size: 14))
@@ -335,6 +353,8 @@ struct LLMProviderSetupView: View {
         )
         .onChange(of: setupState.apiKey) { _, _ in
           setupState.clearGeminiAPIKeySaveError()
+          setupState.hasTestedConnection = false
+          setupState.testSuccessful = false
         }
 
         if let message = setupState.geminiAPIKeySaveError {
@@ -429,7 +449,7 @@ struct LLMProviderSetupView: View {
               .multilineTextAlignment(.leading)
               .lineLimit(nil)
             // Additional guidance for the local intro step only
-            if step.id == "intro" && providerType == "ollama" {
+            if step.id == "intro" && providerType == .local {
               (Text("Advanced users can pick any ") + Text("vision-capable").fontWeight(.bold)
                 + Text(
                   " LLM, but we strongly recommend using Qwen3-VL 4B based on our internal benchmarks."
@@ -446,14 +466,15 @@ struct LLMProviderSetupView: View {
         ScrollView(.vertical, showsIndicators: true) {
           VStack(alignment: .leading, spacing: 16) {
             if title == "Testing" || title == "Test Connection" {
-              if providerType == "gemini" {
+              if providerType == .gemini {
                 TestConnectionView(
+                  apiKey: setupState.apiKey,
                   onTestComplete: { success in
                     setupState.hasTestedConnection = true
                     setupState.testSuccessful = success
                   }
                 )
-              } else if providerType == "chatgpt_claude" {
+              } else if providerType == .chatGPT || providerType == .claude {
                 ChatCLITestView(
                   selectedTool: setupState.preferredCLITool,
                   onTestComplete: { success in
@@ -461,6 +482,53 @@ struct LLMProviderSetupView: View {
                     setupState.testSuccessful = success
                   }
                 )
+              } else if providerType == .openAICompatible {
+                VStack(alignment: .leading, spacing: 12) {
+                  Picker("Endpoint", selection: $setupState.openAICompatiblePreset) {
+                    Text("OpenRouter").tag(OpenAICompatiblePreset.openRouter)
+                    Text("Custom").tag(OpenAICompatiblePreset.custom)
+                  }
+                  .pickerStyle(.segmented)
+                  .frame(maxWidth: 380)
+                  .onChange(of: setupState.openAICompatiblePreset) { _, preset in
+                    if preset == .openRouter {
+                      setupState.openAICompatibleBaseURL =
+                        OpenAICompatibleConfiguration.openRouterBaseURL
+                    }
+                    setupState.hasTestedConnection = false
+                    setupState.testSuccessful = false
+                  }
+
+                  LocalLLMTestView(
+                    baseURL: $setupState.openAICompatibleBaseURL,
+                    modelId: $setupState.openAICompatibleModelID,
+                    apiKey: $setupState.openAICompatibleAPIKey,
+                    engine: .custom,
+                    buttonLabel: "Test endpoint",
+                    basePlaceholder: OpenAICompatibleConfiguration.openRouterBaseURL,
+                    modelPlaceholder: "openai/gpt-5.4",
+                    credentialStorageDescription:
+                      "Stored safely in Keychain and sent only to this endpoint as a Bearer token.",
+                    requiresMeaningfulResponse: true,
+                    enforcesLocalLatencyLimit: false,
+                    onTestComplete: { success in
+                      setupState.hasTestedConnection = true
+                      setupState.testSuccessful = success
+                    }
+                  )
+                  .onChange(of: setupState.openAICompatibleBaseURL) {
+                    setupState.hasTestedConnection = false
+                    setupState.testSuccessful = false
+                  }
+                  .onChange(of: setupState.openAICompatibleModelID) {
+                    setupState.hasTestedConnection = false
+                    setupState.testSuccessful = false
+                  }
+                  .onChange(of: setupState.openAICompatibleAPIKey) {
+                    setupState.hasTestedConnection = false
+                    setupState.testSuccessful = false
+                  }
+                }
               } else {
                 // Engine selection: LM Studio or Custom
                 VStack(alignment: .leading, spacing: 12) {
@@ -489,11 +557,23 @@ struct LLMProviderSetupView: View {
                     setupState.testSuccessful = success
                   }
                 )
+                .onChange(of: setupState.localBaseURL) {
+                  setupState.hasTestedConnection = false
+                  setupState.testSuccessful = false
+                }
+                .onChange(of: setupState.localModelId) {
+                  setupState.hasTestedConnection = false
+                  setupState.testSuccessful = false
+                }
+                .onChange(of: setupState.localAPIKey) {
+                  setupState.hasTestedConnection = false
+                  setupState.testSuccessful = false
+                }
               }
             }
           }
           .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.trailing, 2)
+          .padding(6)
         }
         .frame(maxHeight: 420)
 
@@ -614,48 +694,71 @@ struct LLMProviderSetupView: View {
   }
 
   func handleContinue() {
-    // Persist local config immediately after a successful local test when user advances
-    if activeProviderType == "ollama" {
-      if case .information(let title, _) = setupState.currentStep.contentType,
-        title == "Testing" || title == "Test Connection",
-        setupState.testSuccessful
-      {
-        persistLocalSettings()
-      }
-    }
-
     if setupState.isLastStep {
-      saveConfiguration()
-      onComplete()
+      completeSetup()
     } else {
       setupState.markCurrentStepCompleted()
       setupState.goNext()
     }
   }
 
-  func saveConfiguration() {
+  @discardableResult
+  func saveConfiguration() -> Bool {
+    setupState.saveErrorMessage = nil
+    guard setupState.testSuccessful else {
+      setupState.saveErrorMessage = "Test this provider successfully before completing setup."
+      return false
+    }
+
     // Save API key to keychain for Gemini
-    if activeProviderType == "gemini" && !setupState.apiKey.isEmpty {
+    if providerType == .gemini {
       let cleanedKey = setupState.apiKey.components(separatedBy: .whitespacesAndNewlines).joined()
-      KeychainManager.shared.store(cleanedKey, for: "gemini")
+      if !cleanedKey.isEmpty {
+        guard KeychainManager.shared.store(cleanedKey, for: "gemini") else {
+          let message =
+            "Couldn't save your API key to Keychain. Please unlock Keychain and try again."
+          setupState.geminiAPIKeySaveError = message
+          setupState.saveErrorMessage = message
+          return false
+        }
+      }
       GeminiModelPreference(primary: setupState.geminiModel).save()
     }
 
     // Save local endpoint for local engine selection
-    if activeProviderType == "ollama" {
+    if providerType == .local {
       persistLocalSettings()
     }
 
-    // Mark setup as complete
-    UserDefaults.standard.set(true, forKey: "\(activeProviderType)SetupComplete")
+    if providerType == .openAICompatible {
+      guard persistOpenAICompatibleSettings() else {
+        setupState.saveErrorMessage =
+          "Dayflow couldn't save this endpoint configuration. Your previous configuration is still active."
+        return false
+      }
+    }
+
+    do {
+      try LLMProviderSetupPreferences.markComplete(providerType)
+      return true
+    } catch {
+      setupState.saveErrorMessage =
+        "Dayflow couldn't finish saving this provider. Please try again."
+      return false
+    }
   }
 
-  // Persist provider choice + local settings without marking setup complete
+  func completeSetup() {
+    guard saveConfiguration() else { return }
+    guard onComplete() else {
+      setupState.saveErrorMessage =
+        "The provider is configured, but Dayflow couldn't update your routing. Your previous selection is still active."
+      return
+    }
+  }
+
   func persistLocalSettings() {
     let endpoint = setupState.localBaseURL
-    let type = LLMProviderType.ollamaLocal(endpoint: endpoint)
-    type.persist()
-    // Store model id for local engines
     UserDefaults.standard.set(setupState.localModelId, forKey: "llmLocalModelId")
     LocalModelPreferences.syncPreset(for: setupState.localEngine, modelId: setupState.localModelId)
     // Store local engine selection for header/model defaults
@@ -663,6 +766,42 @@ struct LLMProviderSetupView: View {
     // Also store the endpoint explicitly for other parts of the app if needed
     UserDefaults.standard.set(endpoint, forKey: "llmLocalBaseURL")
     persistLocalAPIKey(setupState.localAPIKey)
+  }
+
+  func persistOpenAICompatibleSettings() -> Bool {
+    let configuration = OpenAICompatibleConfiguration(
+      preset: setupState.openAICompatiblePreset,
+      baseURL: setupState.openAICompatibleBaseURL,
+      modelID: setupState.openAICompatibleModelID
+    )
+    guard configuration.isComplete else { return false }
+
+    let key = setupState.openAICompatibleAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    let previousKey = KeychainManager.shared.retrieve(
+      for: OpenAICompatiblePreferences.keychainProvider)
+    if key.isEmpty {
+      guard KeychainManager.shared.delete(for: OpenAICompatiblePreferences.keychainProvider) else {
+        return false
+      }
+    } else if !KeychainManager.shared.store(
+      key,
+      for: OpenAICompatiblePreferences.keychainProvider
+    ) {
+      return false
+    }
+
+    guard OpenAICompatiblePreferences.save(configuration) else {
+      if let previousKey {
+        _ = KeychainManager.shared.store(
+          previousKey,
+          for: OpenAICompatiblePreferences.keychainProvider
+        )
+      } else {
+        _ = KeychainManager.shared.delete(for: OpenAICompatiblePreferences.keychainProvider)
+      }
+      return false
+    }
+    return true
   }
 
   func persistLocalAPIKey(_ value: String) {

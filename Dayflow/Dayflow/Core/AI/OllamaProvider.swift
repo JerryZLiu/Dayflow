@@ -8,9 +8,13 @@ import Foundation
 
 final class OllamaProvider {
   let endpoint: String
+  private let injectedRuntimeConfiguration: OpenAICompatibleRuntimeConfiguration?
   let screenshotInterval: TimeInterval = 10  // seconds between screenshots
   // Read persisted local settings
   var savedModelId: String {
+    if let injectedRuntimeConfiguration {
+      return injectedRuntimeConfiguration.modelID
+    }
     if let m = UserDefaults.standard.string(forKey: "llmLocalModelId"), !m.isEmpty {
       return m
     }
@@ -19,12 +23,15 @@ final class OllamaProvider {
     return LocalModelPreferences.defaultModelId(for: engine)
   }
   var isLMStudio: Bool {
-    (UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama") == "lmstudio"
+    guard injectedRuntimeConfiguration == nil else { return false }
+    return (UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama") == "lmstudio"
   }
   var isCustomEngine: Bool {
-    (UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama") == "custom"
+    guard injectedRuntimeConfiguration == nil else { return false }
+    return (UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama") == "custom"
   }
   var customAPIKey: String? {
+    guard injectedRuntimeConfiguration == nil else { return nil }
     let trimmed =
       UserDefaults.standard.string(forKey: "llmLocalAPIKey")?.trimmingCharacters(
         in: .whitespacesAndNewlines) ?? ""
@@ -33,11 +40,44 @@ final class OllamaProvider {
 
   // Get the actual local engine type for analytics tracking
   var localEngine: String {
-    UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
+    if let injectedRuntimeConfiguration {
+      return injectedRuntimeConfiguration.analyticsProvider
+    }
+    return UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
+  }
+
+  var providerID: LLMProviderID {
+    injectedRuntimeConfiguration == nil ? .local : .openAICompatible
+  }
+
+  var authorizationBearerToken: String? {
+    if let injectedRuntimeConfiguration {
+      return injectedRuntimeConfiguration.bearerToken
+    }
+    if isLMStudio {
+      return "lm-studio"
+    }
+    if isCustomEngine {
+      return customAPIKey
+    }
+    return nil
+  }
+
+  var promptOverrides: OllamaPromptOverrides {
+    guard injectedRuntimeConfiguration == nil else {
+      return OllamaPromptOverrides()
+    }
+    return OllamaPromptPreferences.load()
   }
 
   init(endpoint: String = "http://localhost:1234") {
     self.endpoint = endpoint
+    self.injectedRuntimeConfiguration = nil
+  }
+
+  init(openAICompatible configuration: OpenAICompatibleRuntimeConfiguration) {
+    self.endpoint = configuration.endpoint
+    self.injectedRuntimeConfiguration = configuration
   }
 
   // Strip user references from observations to prevent LLM from using third-person language

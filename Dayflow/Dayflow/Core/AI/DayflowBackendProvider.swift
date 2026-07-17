@@ -382,7 +382,6 @@ final class DayflowBackendProvider {
       failureProps["response_bytes"] = responseByteCount
       failureProps["error_domain"] = nsError.domain
       failureProps["error_code"] = nsError.code
-      failureProps["error_message"] = String(nsError.localizedDescription.prefix(500))
       if let httpStatusCode {
         failureProps["http_status"] = httpStatusCode
       } else if nsError.code >= 100, nsError.code <= 599 {
@@ -560,7 +559,6 @@ final class DayflowBackendProvider {
       failureProps["response_bytes"] = responseByteCount
       failureProps["error_domain"] = nsError.domain
       failureProps["error_code"] = nsError.code
-      failureProps["error_message"] = String(nsError.localizedDescription.prefix(500))
       if let httpStatusCode {
         failureProps["http_status"] = httpStatusCode
       } else if nsError.code >= 100, nsError.code <= 599 {
@@ -709,7 +707,6 @@ final class DayflowBackendProvider {
       failureProps["response_bytes"] = responseByteCount
       failureProps["error_domain"] = nsError.domain
       failureProps["error_code"] = nsError.code
-      failureProps["error_message"] = String(nsError.localizedDescription.prefix(500))
       if let httpStatusCode {
         failureProps["http_status"] = httpStatusCode
       } else if nsError.code >= 100, nsError.code <= 599 {
@@ -730,7 +727,7 @@ final class DayflowBackendProvider {
       code: -1,
       userInfo: [
         NSLocalizedDescriptionKey:
-          "Text generation is not yet supported with Dayflow Backend. Please configure Gemini, Ollama, or ChatGPT/Claude CLI in Settings."
+          "Text generation is not yet supported with Dayflow Backend. Please configure Gemini, ChatGPT, Claude, an OpenAI-compatible endpoint, or Local in Settings."
       ]
     )
   }

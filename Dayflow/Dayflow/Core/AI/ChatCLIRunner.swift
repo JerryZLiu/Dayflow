@@ -15,6 +15,15 @@ import Foundation
 enum ChatCLITool: String, Codable {
   case codex
   case claude
+
+  var providerID: LLMProviderID {
+    switch self {
+    case .codex:
+      return .chatGPT
+    case .claude:
+      return .claude
+    }
+  }
 }
 
 /// Events emitted during JSONL streaming from CLI tools
@@ -50,14 +59,25 @@ struct ChatCLIRunResult {
 struct TokenUsage: Sendable {
   let input: Int
   let cachedInput: Int
+  let cacheCreationInput: Int
   let output: Int
 
-  static var zero: TokenUsage { TokenUsage(input: 0, cachedInput: 0, output: 0) }
+  init(input: Int, cachedInput: Int, cacheCreationInput: Int = 0, output: Int) {
+    self.input = input
+    self.cachedInput = cachedInput
+    self.cacheCreationInput = cacheCreationInput
+    self.output = output
+  }
+
+  static var zero: TokenUsage {
+    TokenUsage(input: 0, cachedInput: 0, cacheCreationInput: 0, output: 0)
+  }
 
   func adding(_ other: TokenUsage?) -> TokenUsage {
     guard let other else { return self }
     return TokenUsage(
       input: input + other.input, cachedInput: cachedInput + other.cachedInput,
+      cacheCreationInput: cacheCreationInput + other.cacheCreationInput,
       output: output + other.output)
   }
 }

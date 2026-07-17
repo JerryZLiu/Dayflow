@@ -51,16 +51,29 @@ struct SettingsView: View {
     contentWithLifecycle
       .sheet(
         item: Binding(
-          get: { providersViewModel.setupModalProvider.map { ProviderSetupWrapper(id: $0) } },
-          set: { providersViewModel.setupModalProvider = $0?.id }
+          get: {
+            providersViewModel.setupModalProvider.map {
+              ProviderSetupWrapper(providerID: $0)
+            }
+          },
+          set: { wrapper in
+            if let wrapper {
+              providersViewModel.setupModalProvider = wrapper.providerID
+            } else {
+              providersViewModel.cancelProviderSetup()
+            }
+          }
         )
       ) { wrapper in
         LLMProviderSetupView(
-          providerType: wrapper.id,
-          onBack: { providersViewModel.setupModalProvider = nil },
+          providerType: wrapper.providerID,
+          onBack: { providersViewModel.cancelProviderSetup() },
           onComplete: {
-            providersViewModel.handleProviderSetupCompletion(wrapper.id)
-            providersViewModel.setupModalProvider = nil
+            let succeeded = providersViewModel.handleProviderSetupCompletion(wrapper.providerID)
+            if succeeded {
+              providersViewModel.cancelProviderSetup()
+            }
+            return succeeded
           }
         )
         .frame(minWidth: 900, minHeight: 650)
@@ -258,7 +271,9 @@ struct SettingsView: View {
 }
 
 private struct ProviderSetupWrapper: Identifiable {
-  let id: String
+  let providerID: LLMProviderID
+
+  var id: String { providerID.rawValue }
 }
 
 struct SettingsView_Previews: PreviewProvider {

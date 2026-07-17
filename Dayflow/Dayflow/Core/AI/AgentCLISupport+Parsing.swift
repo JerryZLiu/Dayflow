@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-extension ChatCLIProvider {
+extension AgentCLISupporting {
   // MARK: - Parsing
 
   /// Strip OSC (Operating System Command) escape sequences from CLI output.
@@ -85,6 +85,40 @@ extension ChatCLIProvider {
     return nil
   }
 
+  func parseVideoTimestamp(_ timestamp: String) -> Int {
+    let components = timestamp.components(separatedBy: ":")
+
+    if components.count == 3 {
+      guard let hours = Int(components[0]),
+        let minutes = Int(components[1]),
+        let seconds = Int(components[2])
+      else {
+        return 0
+      }
+      return hours * 3600 + minutes * 60 + seconds
+    }
+
+    if components.count == 2 {
+      guard let minutes = Int(components[0]),
+        let seconds = Int(components[1])
+      else {
+        return 0
+      }
+      return minutes * 60 + seconds
+    }
+
+    return 0
+  }
+
+  func formatTimestampForPrompt(_ unixTime: Int) -> String {
+    let date = Date(timeIntervalSince1970: TimeInterval(unixTime))
+    let formatter = DateFormatter()
+    formatter.dateFormat = "h:mm a"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone.current
+    return formatter.string(from: date)
+  }
+
   func parseCards(from output: String, stderr: String) throws -> [ActivityCardData] {
     // Try parsing without modifications first, OSC stripping is a fallback
     guard let data = output.data(using: .utf8) else {
@@ -95,7 +129,7 @@ extension ChatCLIProvider {
     let decoder = JSONDecoder()
 
     // Strategy 1: {"cards":[...]}
-    if let envelope = try? decoder.decode(ChatCLICardsEnvelope.self, from: data) {
+    if let envelope = try? decoder.decode(AgentCLICardsEnvelope.self, from: data) {
       let cards: [ActivityCardData?] = envelope.cards.map { item in
         guard let start = item.normalizedStart, let end = item.normalizedEnd else { return nil }
         return ActivityCardData(
@@ -150,7 +184,7 @@ extension ChatCLIProvider {
         .trimmingCharacters(in: .whitespacesAndNewlines)
 
       if let slicedData = sliced.data(using: .utf8) {
-        if let envelope = try? decoder.decode(ChatCLICardsEnvelope.self, from: slicedData) {
+        if let envelope = try? decoder.decode(AgentCLICardsEnvelope.self, from: slicedData) {
           let cards: [ActivityCardData?] = envelope.cards.map { item in
             guard let start = item.normalizedStart, let end = item.normalizedEnd else { return nil }
             return ActivityCardData(
@@ -192,16 +226,14 @@ extension ChatCLIProvider {
       }
     }
 
-    // Log full raw output to PostHog for debugging decode failures
     AnalyticsService.shared.capture(
       "llm_decode_failed",
       [
         "provider": "chat_cli",
+        "provider_id": providerID.rawValue,
         "operation": "parse_cards",
-        "tool": tool.rawValue,
-        "raw_output": output,
+        "tool": cliTool.rawValue,
         "output_length": output.count,
-        "stderr": stderr,
         "stderr_length": stderr.count,
       ])
 
@@ -213,15 +245,6 @@ extension ChatCLIProvider {
     throw NSError(
       domain: "ChatCLI", code: -32,
       userInfo: [NSLocalizedDescriptionKey: "Failed to decode activity cards"])
-  }
-
-  struct SegmentMergeResponse: Codable {
-    struct Segment: Codable {
-      let start: String
-      let end: String
-      let description: String
-    }
-    let segments: [Segment]
   }
 
   func formatSeconds(_ seconds: TimeInterval) -> String {
@@ -298,11 +321,6 @@ extension ChatCLIProvider {
     }
   }
 
-  struct TimeRange {
-    let start: Double
-    let end: Double
-  }
-
   func timeToMinutes(_ timeStr: String) -> Double {
     let trimmed = timeStr.trimmingCharacters(in: .whitespacesAndNewlines)
     if trimmed.contains("AM") || trimmed.contains("PM") {
@@ -320,16 +338,16 @@ extension ChatCLIProvider {
     }
   }
 
-  func mergeOverlappingRanges(_ ranges: [TimeRange]) -> [TimeRange] {
+  func mergeOverlappingRanges(_ ranges: [AgentCLITimeRange]) -> [AgentCLITimeRange] {
     guard !ranges.isEmpty else { return [] }
     let sorted = ranges.sorted { $0.start < $1.start }
-    var merged: [TimeRange] = []
+    var merged: [AgentCLITimeRange] = []
     for range in sorted {
       if merged.isEmpty || range.start > merged.last!.end + 1 {
         merged.append(range)
       } else {
         let last = merged.removeLast()
-        merged.append(TimeRange(start: last.start, end: max(last.end, range.end)))
+        merged.append(AgentCLITimeRange(start: last.start, end: max(last.end, range.end)))
       }
     }
     return merged
@@ -340,22 +358,22 @@ extension ChatCLIProvider {
   {
     guard !existingCards.isEmpty else { return (true, nil) }
 
-    var inputRanges: [TimeRange] = []
+    var inputRanges: [AgentCLITimeRange] = []
     for card in existingCards {
       let startMin = timeToMinutes(card.startTime)
       var endMin = timeToMinutes(card.endTime)
       if endMin < startMin { endMin += 24 * 60 }
-      inputRanges.append(TimeRange(start: startMin, end: endMin))
+      inputRanges.append(AgentCLITimeRange(start: startMin, end: endMin))
     }
     let mergedInputRanges = mergeOverlappingRanges(inputRanges)
 
-    var outputRanges: [TimeRange] = []
+    var outputRanges: [AgentCLITimeRange] = []
     for card in newCards {
       let startMin = timeToMinutes(card.startTime)
       var endMin = timeToMinutes(card.endTime)
       if endMin < startMin { endMin += 24 * 60 }
       guard endMin - startMin >= 0.1 else { continue }
-      outputRanges.append(TimeRange(start: startMin, end: endMin))
+      outputRanges.append(AgentCLITimeRange(start: startMin, end: endMin))
     }
 
     let flexibility = 3.0  // minutes
@@ -506,7 +524,9 @@ extension ChatCLIProvider {
     return sections.joined(separator: "\n\n")
   }
 
-  func makeCtx(batchId: Int64?, operation: String, startedAt: Date, attempt: Int = 1)
+  func makeCtx(
+    batchId: Int64?, operation: String, model: String, startedAt: Date, attempt: Int = 1
+  )
     -> LLMCallContext
   {
     LLMCallContext(
@@ -514,7 +534,8 @@ extension ChatCLIProvider {
       callGroupId: nil,
       attempt: attempt,
       provider: "chat_cli",
-      model: tool.rawValue,
+      providerID: providerID.rawValue,
+      model: model,
       operation: operation,
       requestMethod: nil,
       requestURL: nil,
@@ -529,6 +550,7 @@ extension ChatCLIProvider {
     return [
       "x-usage-input": String(usage.input),
       "x-usage-cached-input": String(usage.cachedInput),
+      "x-usage-cache-creation-input": String(usage.cacheCreationInput),
       "x-usage-output": String(usage.output),
     ]
   }
@@ -546,14 +568,15 @@ extension ChatCLIProvider {
 
   func logFailure(
     ctx: LLMCallContext, finishedAt: Date, error: Error, stdout: String? = nil,
-    stderr: String? = nil, run: ChatCLIRunResult? = nil
+    stderr: String? = nil, run: ChatCLIRunResult? = nil, usage: TokenUsage? = nil
   ) {
     let http: LLMHTTPInfo?
     let out = stdout ?? ""
     let err = stderr ?? ""
-    let commandDebug = chatCLICommandDebugText(for: run)
+    let commandDebug = cliCommandDebugText(for: run)
+    let usageHeaders = tokenHeaders(from: usage ?? run?.usage)
 
-    if out.isEmpty && err.isEmpty && commandDebug.isEmpty {
+    if out.isEmpty && err.isEmpty && commandDebug.isEmpty && usageHeaders == nil {
       http = nil
     } else {
       let sections = [
@@ -563,7 +586,10 @@ extension ChatCLIProvider {
       ].compactMap { $0 }
       let combined = sections.joined(separator: "\n\n")
       http = LLMHTTPInfo(
-        httpStatus: nil, responseHeaders: nil, responseBody: combined.data(using: .utf8))
+        httpStatus: nil,
+        responseHeaders: usageHeaders,
+        responseBody: combined.isEmpty ? nil : combined.data(using: .utf8)
+      )
     }
 
     LLMLogger.logFailure(
@@ -571,7 +597,7 @@ extension ChatCLIProvider {
       errorCode: (error as NSError).code, errorMessage: error.localizedDescription)
   }
 
-  func chatCLICommandDebugText(for run: ChatCLIRunResult?) -> String {
+  func cliCommandDebugText(for run: ChatCLIRunResult?) -> String {
     guard let run else { return "" }
 
     var sections: [String] = []

@@ -1,25 +1,25 @@
 import AppKit
 import Foundation
 
-extension ChatCLIProvider {
-  // MARK: - Activity Cards
+extension CodexProvider {
+  // MARK: - Codex activity cards
 
   func generateActivityCards(
     observations: [Observation], context: ActivityGenerationContext, batchId: Int64?
   ) async throws -> (cards: [ActivityCardData], log: LLMCall) {
     enum CardParseError: LocalizedError {
-      case empty(rawOutput: String)
-      case decodeFailure(rawOutput: String)
-      case validationFailed(details: String, rawOutput: String)
+      case empty
+      case decodeFailure
+      case validationFailed(details: String)
 
       var errorDescription: String? {
         switch self {
-        case .empty(let rawOutput):
-          return "No cards returned.\n\n📄 RAW OUTPUT:\n" + rawOutput
-        case .decodeFailure(let rawOutput):
-          return "Failed to decode cards.\n\n📄 RAW OUTPUT:\n" + rawOutput
-        case .validationFailed(let details, let rawOutput):
-          return details + "\n\n📄 RAW OUTPUT:\n" + rawOutput
+        case .empty:
+          return "No cards returned."
+        case .decodeFailure:
+          return "Failed to decode cards."
+        case .validationFailed(let details):
+          return details
         }
       }
     }
@@ -28,16 +28,9 @@ extension ChatCLIProvider {
     let basePrompt = buildCardsPrompt(observations: observations, context: context)
     var actualPromptUsed = basePrompt
 
-    let model: String
-    let effort: String?
-    switch tool {
-    case .claude:
-      model = "sonnet"
-      effort = nil
-    case .codex:
-      model = "gpt-5.4"
-      effort = "low"
-    }
+    let modelConfiguration = Self.activityCardModelConfiguration()
+    let model = modelConfiguration.model
+    let effort = modelConfiguration.reasoningEffort
 
     var lastError: Error?
     var lastRun: ChatCLIRunResult?
@@ -54,7 +47,7 @@ extension ChatCLIProvider {
         lastRun = run
         lastRawOutput = run.stdout
         let cards = try parseCards(from: run.stdout, stderr: run.stderr)
-        guard !cards.isEmpty else { throw CardParseError.empty(rawOutput: run.stdout) }
+        guard !cards.isEmpty else { throw CardParseError.empty }
 
         let normalizedCards = normalizeCards(cards, descriptors: context.categories)
         let (coverageValid, coverageError) = validateTimeCoverage(
@@ -66,7 +59,8 @@ extension ChatCLIProvider {
           let finishedAt = run.finishedAt
           logSuccess(
             ctx: makeCtx(
-              batchId: batchId, operation: "generate_cards", startedAt: callStart, attempt: attempt),
+              batchId: batchId, operation: "generate_cards", model: model,
+              startedAt: callStart, attempt: attempt),
             finishedAt: finishedAt, stdout: run.stdout, stderr: run.stderr,
             responseHeaders: tokenHeaders(from: run.usage))
           let llmCall = makeLLMCall(
@@ -79,6 +73,7 @@ extension ChatCLIProvider {
         if !coverageValid, let coverageError {
           AnalyticsService.shared.captureValidationFailure(
             provider: "chat_cli",
+            providerID: providerID,
             operation: "generate_activity_cards",
             validationType: "time_coverage",
             attempt: attempt,
@@ -91,6 +86,7 @@ extension ChatCLIProvider {
         if !durationValid, let durationError {
           AnalyticsService.shared.captureValidationFailure(
             provider: "chat_cli",
+            providerID: providerID,
             operation: "generate_activity_cards",
             validationType: "duration",
             attempt: attempt,
@@ -101,7 +97,7 @@ extension ChatCLIProvider {
           errorMessages.append(durationError)
         }
         let combinedError = errorMessages.joined(separator: "\n\n")
-        lastError = CardParseError.validationFailed(details: combinedError, rawOutput: run.stdout)
+        lastError = CardParseError.validationFailed(details: combinedError)
         if sessionId == nil {
           actualPromptUsed =
             basePrompt + "\n\nPREVIOUS ATTEMPT FAILED - CRITICAL REQUIREMENTS NOT MET:\n\n"
@@ -130,26 +126,34 @@ extension ChatCLIProvider {
     }
 
     let finishedAt = lastRun?.finishedAt ?? Date()
-    let finalError = lastError ?? CardParseError.decodeFailure(rawOutput: lastRawOutput)
+    let finalError = lastError ?? CardParseError.decodeFailure
     let finalStderr =
       lastRun?.stderr
       ?? (lastError as NSError?)?.userInfo["partialStderr"] as? String
     let finalRun =
       lastRun
-      ?? runResultFromStreamingError(
+      ?? codexRunResultFromStreamingError(
         finalError,
         stdout: lastRawOutput,
         stderr: finalStderr ?? "",
         startedAt: callStart,
         finishedAt: finishedAt)
     logFailure(
-      ctx: makeCtx(batchId: batchId, operation: "generate_cards", startedAt: callStart, attempt: 3),
+      ctx: makeCtx(
+        batchId: batchId, operation: "generate_cards", model: model,
+        startedAt: callStart, attempt: 3),
       finishedAt: finishedAt, error: finalError, stdout: lastRawOutput, stderr: finalStderr,
       run: finalRun)
     throw finalError
   }
 
-  private func runResultFromStreamingError(
+  static func activityCardModelConfiguration() -> (
+    model: String, reasoningEffort: String?
+  ) {
+    return (model: "gpt-5.6-sol", reasoningEffort: "low")
+  }
+
+  private func codexRunResultFromStreamingError(
     _ error: Error,
     stdout: String,
     stderr: String,

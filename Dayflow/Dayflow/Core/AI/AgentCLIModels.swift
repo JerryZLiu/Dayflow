@@ -1,5 +1,5 @@
 //
-//  ChatCLIProvider.swift
+//  AgentCLIModels.swift
 //  Dayflow
 //
 //  High-level LLM provider that uses ChatCLIRunner for CLI execution.
@@ -8,7 +8,7 @@
 import AppKit
 import Foundation
 
-struct ChatCLIObservationsEnvelope: Codable {
+struct AgentCLIObservationsEnvelope: Codable {
   struct Item: Codable {
     let start: String
     let end: String
@@ -17,7 +17,7 @@ struct ChatCLIObservationsEnvelope: Codable {
   let observations: [Item]
 }
 
-struct ChatCLICardsEnvelope: Codable {
+struct AgentCLICardsEnvelope: Codable {
   struct Item: Codable {
     let start: String?
     let end: String?
@@ -35,4 +35,19 @@ struct ChatCLICardsEnvelope: Codable {
     var normalizedEnd: String? { end ?? endTime }
   }
   let cards: [Item]
+}
+
+struct SegmentMergeResponse: Codable {
+  struct Segment: Codable {
+    let start: String
+    let end: String
+    let description: String
+  }
+
+  let segments: [Segment]
+}
+
+struct AgentCLITimeRange {
+  let start: Double
+  let end: Double
 }

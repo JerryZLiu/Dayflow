@@ -15,6 +15,49 @@ extension StorageManager {
     )
   }
 
+  /// Number of distinct timeline days with recorded activity, excluding the
+  /// given day. Used to hold the daily goal prompt back until a new user has
+  /// actually used Dayflow for a few days.
+  func countDistinctTimelineDays(excludingDay day: String) -> Int {
+    (try? timedRead("countDistinctTimelineDays") { db in
+      try Int.fetchOne(
+        db,
+        sql: """
+              SELECT COUNT(DISTINCT day)
+              FROM timeline_cards
+              WHERE is_deleted = 0 AND day != ?
+          """,
+        arguments: [day]
+      ) ?? 0
+    }) ?? 0
+  }
+
+  /// How many of the most recent day-goal answers before the given day were
+  /// skips, counting back from the newest until the first confirmed plan.
+  /// Days with no row (app not opened, so no prompt) don't affect the streak.
+  func consecutiveSkippedDayGoalCount(before day: String, limit: Int) -> Int {
+    (try? timedRead("consecutiveSkippedDayGoalCount") { db in
+      let skipFlags = try Int.fetchAll(
+        db,
+        sql: """
+              SELECT is_skipped
+              FROM day_goals
+              WHERE day < ?
+              ORDER BY day DESC
+              LIMIT ?
+          """,
+        arguments: [day, limit]
+      )
+
+      var streak = 0
+      for flag in skipFlags {
+        guard flag != 0 else { break }
+        streak += 1
+      }
+      return streak
+    }) ?? 0
+  }
+
   func saveDayGoalPlan(_ plan: DayGoalPlan) {
     let now = Int(Date().timeIntervalSince1970)
     let createdAt = plan.createdAt > 0 ? plan.createdAt : now

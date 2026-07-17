@@ -340,14 +340,6 @@ extension ChatView {
 
   func applySelectedProvider(_ provider: DashboardChatProvider) {
     selectedProviderRaw = provider.rawValue
-    switch provider {
-    case .gemini:
-      break
-    case .codex:
-      chatCLIPreferredTool = "codex"
-    case .claude:
-      chatCLIPreferredTool = "claude"
-    }
   }
 
   func isProviderAvailable(_ provider: DashboardChatProvider) -> Bool {

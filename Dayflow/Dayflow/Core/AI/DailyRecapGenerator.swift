@@ -400,7 +400,7 @@ final class DailyRecapGenerator {
       throw DailyRecapGeneratorError.missingCodexCLI
     }
 
-    let provider = ChatCLIProvider(tool: .codex)
+    let provider = CodexProvider()
     let prompt = Self.makeLocalPrompt(day: context.sourceDayString, cards: context.cards)
     let (rawText, _) = try await provider.generateText(
       prompt: prompt,
@@ -420,7 +420,7 @@ final class DailyRecapGenerator {
       throw DailyRecapGeneratorError.missingClaudeCLI
     }
 
-    let provider = ChatCLIProvider(tool: .claude)
+    let provider = ClaudeProvider()
     let prompt = Self.makeLocalPrompt(day: context.sourceDayString, cards: context.cards)
     let (rawText, _) = try await provider.generateText(
       prompt: prompt,
@@ -476,14 +476,10 @@ final class DailyRecapGenerator {
   }
 
   private func resolvedDayflowEndpoint() -> String? {
-    let savedEndpoint: String?
-    if case .dayflowBackend(let endpoint) = LLMProviderType.load() {
-      savedEndpoint = endpoint
-    } else {
-      savedEndpoint = nil
-    }
-
-    return DayflowBackendConfiguration.endpoint(legacySavedEndpoint: savedEndpoint)
+    _ = try? LLMProviderRoutingStore.load()
+    return DayflowBackendConfiguration.endpoint(
+      legacySavedEndpoint: DayflowEndpointPreferences.load()
+    )
   }
 
   private func makeDraft(

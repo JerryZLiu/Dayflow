@@ -1,44 +1,69 @@
 import Foundation
 
-struct ChatCLIPromptOverrides: Codable, Equatable {
-  var titleBlock: String?
-  var summaryBlock: String?
-  var detailedBlock: String?
+enum CodexPromptPreferences {
+  private static let overridesKey = "chatGPTPromptOverrides"
 
-  var isEmpty: Bool {
-    let values = [titleBlock, summaryBlock, detailedBlock]
-    return values.allSatisfy { value in
-      let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-      return trimmed.isEmpty
-    }
+  static func hasStoredOverrides(
+    in defaults: UserDefaults = .standard
+  ) -> Bool {
+    defaults.object(forKey: overridesKey) != nil
   }
-}
 
-enum ChatCLIPromptPreferences {
-  private static let overridesKey = "chatCLIPromptOverrides"
-  private static let store = UserDefaults.standard
-
-  static func load() -> ChatCLIPromptOverrides {
-    guard let data = store.data(forKey: overridesKey) else {
-      return ChatCLIPromptOverrides()
+  static func load(
+    from defaults: UserDefaults = .standard
+  ) -> ActivityCardPromptOverrides {
+    guard let data = defaults.data(forKey: overridesKey) else {
+      return ActivityCardPromptOverrides()
     }
-    guard let overrides = try? JSONDecoder().decode(ChatCLIPromptOverrides.self, from: data) else {
-      return ChatCLIPromptOverrides()
+    guard let overrides = try? JSONDecoder().decode(ActivityCardPromptOverrides.self, from: data) else {
+      return ActivityCardPromptOverrides()
     }
     return overrides
   }
 
-  static func save(_ overrides: ChatCLIPromptOverrides) {
-    guard let data = try? JSONEncoder().encode(overrides) else { return }
-    store.set(data, forKey: overridesKey)
+  static func save(
+    _ overrides: ActivityCardPromptOverrides,
+    to defaults: UserDefaults = .standard
+  ) {
+    try? saveVerified(overrides, to: defaults)
   }
 
-  static func reset() {
-    store.removeObject(forKey: overridesKey)
+  static func reset(
+    in defaults: UserDefaults = .standard
+  ) {
+    defaults.removeObject(forKey: overridesKey)
   }
+
+  static func saveVerified(
+    _ overrides: ActivityCardPromptOverrides,
+    to defaults: UserDefaults
+  ) throws {
+    let previousValue = defaults.object(forKey: overridesKey)
+    let data: Data
+    do {
+      data = try JSONEncoder().encode(overrides)
+    } catch {
+      throw ProviderPromptPreferencesError.encodingFailed
+    }
+
+    defaults.set(data, forKey: overridesKey)
+    guard load(from: defaults) == overrides else {
+      restore(previousValue, forKey: overridesKey, in: defaults)
+      throw ProviderPromptPreferencesError.writeVerificationFailed
+    }
+  }
+
+  private static func restore(_ value: Any?, forKey key: String, in defaults: UserDefaults) {
+    if let value {
+      defaults.set(value, forKey: key)
+    } else {
+      defaults.removeObject(forKey: key)
+    }
+  }
+
 }
 
-enum ChatCLIPromptDefaults {
+enum CodexPromptDefaults {
   static let titleBlock = """
     TITLE GUIDELINES
     Core principle: If you read this title next week, would you know what you actually did?
@@ -167,18 +192,18 @@ enum ChatCLIPromptDefaults {
     """
 }
 
-struct ChatCLIPromptSections {
+struct CodexPromptSections {
   let title: String
   let summary: String
   let detailedSummary: String
 
-  init(overrides: ChatCLIPromptOverrides) {
-    self.title = ChatCLIPromptSections.compose(
-      defaultBlock: ChatCLIPromptDefaults.titleBlock, custom: overrides.titleBlock)
-    self.summary = ChatCLIPromptSections.compose(
-      defaultBlock: ChatCLIPromptDefaults.summaryBlock, custom: overrides.summaryBlock)
-    self.detailedSummary = ChatCLIPromptSections.compose(
-      defaultBlock: ChatCLIPromptDefaults.detailedSummaryBlock, custom: overrides.detailedBlock)
+  init(overrides: ActivityCardPromptOverrides) {
+    self.title = CodexPromptSections.compose(
+      defaultBlock: CodexPromptDefaults.titleBlock, custom: overrides.titleBlock)
+    self.summary = CodexPromptSections.compose(
+      defaultBlock: CodexPromptDefaults.summaryBlock, custom: overrides.summaryBlock)
+    self.detailedSummary = CodexPromptSections.compose(
+      defaultBlock: CodexPromptDefaults.detailedSummaryBlock, custom: overrides.detailedBlock)
   }
 
   private static func compose(defaultBlock: String, custom: String?) -> String {

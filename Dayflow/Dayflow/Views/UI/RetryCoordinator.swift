@@ -34,9 +34,53 @@ final class RetryCoordinator: ObservableObject {
     }
   }
 
+  func statusLine(for batchIds: [Int64]) -> String? {
+    let batchIds = Array(Set(batchIds))
+    guard !batchIds.isEmpty else { return nil }
+    if batchIds.count == 1 {
+      return statusLine(for: batchIds[0])
+    }
+
+    if let activeBatchId, batchIds.contains(activeBatchId) {
+      return statusLine(for: activeBatchId)
+    }
+
+    let groupStatuses = batchIds.compactMap { statuses[$0] }
+    guard !groupStatuses.isEmpty else { return nil }
+
+    if groupStatuses.contains(.failed) {
+      return "Status: Failed - retry stopped"
+    }
+
+    let queued = groupStatuses.compactMap { status -> (position: Int, total: Int)? in
+      guard case .queued(let position, let total) = status else { return nil }
+      return (position, total)
+    }
+
+    if let first = queued.min(by: { $0.position < $1.position }),
+      let last = queued.max(by: { $0.position < $1.position })
+    {
+      if first.position == last.position {
+        return "Status: Queued (\(first.position) of \(first.total))"
+      }
+      return "Status: Queued (\(first.position)-\(last.position) of \(first.total))"
+    }
+
+    if groupStatuses.contains(.stopped) {
+      return "Status: Stopped - earlier batch failed"
+    }
+
+    return nil
+  }
+
   func isActive(batchId: Int64?) -> Bool {
     guard let batchId else { return false }
     return activeBatchId == batchId
+  }
+
+  func isActive(batchIds: [Int64]) -> Bool {
+    guard let activeBatchId else { return false }
+    return batchIds.contains(activeBatchId)
   }
 
   func startRetry(for dayString: String, onBatchCompleted: @escaping (Int64) -> Void) {

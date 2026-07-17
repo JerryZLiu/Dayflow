@@ -27,6 +27,7 @@ struct CanvasActivityCard: View {
   let faviconPrimaryHost: String?
   let faviconSecondaryHost: String?
   let statusLine: String?
+  let failureCount: Int
   let fontSize: CGFloat
   let fontWeight: TimelineCardTextWeight
   let iconLeadingInset: CGFloat
@@ -41,6 +42,11 @@ struct CanvasActivityCard: View {
 
   private var isFailedCard: Bool {
     title == "Processing failed"
+  }
+
+  private var displayTitle: String {
+    guard isFailedCard, failureCount > 1 else { return title }
+    return "\(title) · \(failureCount) intervals"
   }
 
   private var isCompactCard: Bool {
@@ -106,7 +112,7 @@ struct CanvasActivityCard: View {
           if isFailedCard {
             VStack(alignment: .leading, spacing: 4) {
               HStack(alignment: .top, spacing: 8) {
-                Text(title)
+                Text(displayTitle)
                   .font(
                     Font.custom("Figtree", size: primaryFontSize)
                       .weight(fontWeight.fontWeight)

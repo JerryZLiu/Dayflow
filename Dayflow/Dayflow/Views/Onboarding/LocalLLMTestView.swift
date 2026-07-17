@@ -61,6 +61,9 @@ struct LocalLLMTestView: View {
   let buttonLabel: String
   let basePlaceholder: String?
   let modelPlaceholder: String?
+  let credentialStorageDescription: String
+  let requiresMeaningfulResponse: Bool
+  let enforcesLocalLatencyLimit: Bool
   let onTestComplete: (Bool) -> Void
 
   init(
@@ -72,6 +75,10 @@ struct LocalLLMTestView: View {
     buttonLabel: String = "Test Local API",
     basePlaceholder: String? = nil,
     modelPlaceholder: String? = nil,
+    credentialStorageDescription: String =
+      "Stored locally in UserDefaults and sent as a Bearer token for custom endpoints.",
+    requiresMeaningfulResponse: Bool = false,
+    enforcesLocalLatencyLimit: Bool = true,
     onTestComplete: @escaping (Bool) -> Void
   ) {
     _baseURL = baseURL
@@ -82,6 +89,9 @@ struct LocalLLMTestView: View {
     self.buttonLabel = buttonLabel
     self.basePlaceholder = basePlaceholder
     self.modelPlaceholder = modelPlaceholder
+    self.credentialStorageDescription = credentialStorageDescription
+    self.requiresMeaningfulResponse = requiresMeaningfulResponse
+    self.enforcesLocalLatencyLimit = enforcesLocalLatencyLimit
     self.onTestComplete = onTestComplete
   }
 
@@ -127,11 +137,9 @@ struct LocalLLMTestView: View {
             SecureField("sk-live-...", text: $apiKey)
               .textFieldStyle(.roundedBorder)
               .disableAutocorrection(true)
-            Text(
-              "Stored locally in UserDefaults and sent as a Bearer token for custom endpoints (LiteLLM, OpenRouter, etc.)"
-            )
-            .font(.custom("Figtree", size: 11))
-            .foregroundColor(SettingsStyle.meta)
+            Text(credentialStorageDescription)
+              .font(.custom("Figtree", size: 11))
+              .foregroundColor(SettingsStyle.meta)
           }
         }
       }
@@ -204,7 +212,7 @@ struct LocalLLMTestView: View {
     URLSession.shared.dataTask(with: request) { data, response, error in
       DispatchQueue.main.async {
         let duration = Date().timeIntervalSince(startedAt)
-        if duration > LocalLLMTestConstants.maxLatency {
+        if enforcesLocalLatencyLimit && duration > LocalLLMTestConstants.maxLatency {
           self.resultMessage = LocalLLMTestConstants.slowMachineMessage
           self.success = false
           self.isTesting = false
@@ -224,7 +232,18 @@ struct LocalLLMTestView: View {
           return
         }
         if http.statusCode == 200 {
-          // Success: don't print raw response body; keep UI clean
+          if requiresMeaningfulResponse {
+            let decoded = try? JSONDecoder().decode(OllamaProvider.ChatResponse.self, from: data)
+            let content = decoded?.choices.first?.message.content.trimmingCharacters(
+              in: .whitespacesAndNewlines)
+            guard let content, !content.isEmpty else {
+              self.resultMessage = "The endpoint returned an empty or unsupported response."
+              self.success = false
+              self.isTesting = false
+              self.onTestComplete(false)
+              return
+            }
+          }
           self.resultMessage = nil
           self.success = true
           self.isTesting = false

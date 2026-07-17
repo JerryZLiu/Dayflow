@@ -2,8 +2,32 @@ import Foundation
 
 struct TimelineDisplaySegment {
   let activity: TimelineActivity
+  private(set) var activities: [TimelineActivity]
   var start: Date
   var end: Date
+
+  init(activity: TimelineActivity, start: Date, end: Date) {
+    self.activity = activity
+    self.activities = [activity]
+    self.start = start
+    self.end = end
+  }
+
+  var failureCount: Int {
+    guard activity.title == "Processing failed" else { return 0 }
+    return activities.count
+  }
+
+  var batchIds: [Int64] {
+    var seen = Set<Int64>()
+    return activities.compactMap(\.batchId).filter { seen.insert($0).inserted }
+  }
+
+  mutating func appendFailure(_ activity: TimelineActivity) {
+    activities.append(activity)
+    start = min(start, activity.startTime)
+    end = max(end, activity.endTime)
+  }
 }
 
 struct TimelineRecordingProjectionWindow {
@@ -12,6 +36,9 @@ struct TimelineRecordingProjectionWindow {
 }
 
 enum TimelineActivityLoader {
+  private static let failedTitle = "Processing failed"
+  private static let failureGroupingGapTolerance: TimeInterval = 60
+
   private static let timeFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.dateFormat = "h:mm a"
@@ -162,12 +189,35 @@ enum TimelineActivityLoader {
   static func resolveDisplaySegments(from activities: [TimelineActivity])
     -> [TimelineDisplaySegment]
   {
-    var segments = activities.map {
-      TimelineDisplaySegment(activity: $0, start: $0.startTime, end: $0.endTime)
+    let sortedActivities = activities.sorted { lhs, rhs in
+      if lhs.startTime == rhs.startTime {
+        return lhs.endTime < rhs.endTime
+      }
+      return lhs.startTime < rhs.startTime
     }
-    guard segments.count > 1 else { return segments }
 
-    segments.sort { $0.start < $1.start }
+    var segments: [TimelineDisplaySegment] = []
+    segments.reserveCapacity(sortedActivities.count)
+
+    for activity in sortedActivities {
+      if activity.title == failedTitle,
+        let lastIndex = segments.indices.last,
+        segments[lastIndex].activity.title == failedTitle,
+        activity.startTime.timeIntervalSince(segments[lastIndex].end)
+          <= failureGroupingGapTolerance
+      {
+        segments[lastIndex].appendFailure(activity)
+      } else {
+        segments.append(
+          TimelineDisplaySegment(
+            activity: activity,
+            start: activity.startTime,
+            end: activity.endTime
+          ))
+      }
+    }
+
+    guard segments.count > 1 else { return segments }
 
     var changed = true
     var passes = 0

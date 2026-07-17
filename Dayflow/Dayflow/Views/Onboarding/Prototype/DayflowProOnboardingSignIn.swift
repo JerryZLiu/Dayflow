@@ -75,7 +75,13 @@ struct DayflowProOnboardingSignInPanel: View {
   var body: some View {
     VStack(alignment: .leading, spacing: scaled(18)) {
       HStack(alignment: .center, spacing: scaled(14)) {
-        ProviderIconView(icon: "dayflow_asset", scale: layoutScale)
+        Image("DayflowLogo")
+          .resizable()
+          .renderingMode(.original)
+          .interpolation(.high)
+          .antialiased(true)
+          .scaledToFit()
+          .frame(width: scaled(40), height: scaled(40))
 
         VStack(alignment: .leading, spacing: scaled(4)) {
           Text("Sign up / Sign in to Dayflow")

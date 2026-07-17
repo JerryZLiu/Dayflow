@@ -14,6 +14,7 @@ struct OnboardingPrototypeVideoIntroStep: View {
   @State private var player: AVPlayer?
   @State private var hasStartedPlayback = false
   @State private var hasCompletedPlayback = false
+  @State private var isDoubleSpeed = false
   @State private var playbackTimer: Timer?
   @State private var timeObserverToken: Any?
   @State private var endObserverToken: NSObjectProtocol?
@@ -28,12 +29,47 @@ struct OnboardingPrototypeVideoIntroStep: View {
           .ignoresSafeArea()
       }
     }
+    .overlay(alignment: .bottomTrailing) {
+      if player != nil && !hasCompletedPlayback {
+        speedToggleButton
+          .padding(.trailing, 24)
+          .padding(.bottom, 24)
+      }
+    }
     .onAppear {
       setupVideo()
     }
     .onDisappear {
       cleanup()
     }
+  }
+
+  private var speedToggleButton: some View {
+    Button(action: toggleSpeed) {
+      Text("2x")
+        .font(.custom("Figtree", size: 13))
+        .fontWeight(.semibold)
+        .foregroundColor(isDoubleSpeed ? Color(red: 0.25, green: 0.17, blue: 0) : .white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(
+          Capsule()
+            .fill(isDoubleSpeed ? Color.white.opacity(0.92) : Color.black.opacity(0.35))
+        )
+    }
+    .buttonStyle(.plain)
+    .pointingHandCursor()
+    .accessibilityLabel(isDoubleSpeed ? "Play at normal speed" : "Play at double speed")
+  }
+
+  private var currentRate: Float {
+    isDoubleSpeed ? 2.0 : 1.0
+  }
+
+  private func toggleSpeed() {
+    isDoubleSpeed.toggle()
+    guard !hasCompletedPlayback else { return }
+    player?.rate = currentRate
   }
 
   private func setupVideo() {

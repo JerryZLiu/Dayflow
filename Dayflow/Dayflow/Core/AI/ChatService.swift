@@ -445,12 +445,26 @@ final class ChatService: ObservableObject {
         systemInstruction: buildGeminiSystemInstruction(),
         history: conversationHistory
       )
-    case .codex, .claude:
+    case .codex:
       let prompt: String
       if isResume {
         prompt = conversationHistory.last?.content ?? ""
       } else {
-        prompt = buildCLIPrompt()
+        prompt = buildCodexPrompt()
+      }
+      return DashboardChatRequest(
+        provider: provider,
+        prompt: prompt,
+        sessionId: isResume ? currentSessionId : nil,
+        systemInstruction: nil,
+        history: []
+      )
+    case .claude:
+      let prompt: String
+      if isResume {
+        prompt = conversationHistory.last?.content ?? ""
+      } else {
+        prompt = buildClaudePrompt()
       }
       return DashboardChatRequest(
         provider: provider,
@@ -462,8 +476,8 @@ final class ChatService: ObservableObject {
     }
   }
 
-  private func buildCLIPrompt() -> String {
-    let systemPrompt = ChatPromptBuilder.cliSystemPrompt()
+  private func buildCodexPrompt() -> String {
+    let systemPrompt = ChatPromptBuilder.codexSystemPrompt()
 
     var prompt = systemPrompt + "\n\n"
 
@@ -472,7 +486,24 @@ final class ChatService: ObservableObject {
       prompt += "## User Memory\n\(memoryBlob)\n\n"
     }
 
-    // Add conversation history
+    for entry in conversationHistory {
+      prompt += "\(entry.role.promptLabel): \(entry.content)\n\n"
+    }
+
+    prompt += "Assistant:"
+    return prompt
+  }
+
+  private func buildClaudePrompt() -> String {
+    let systemPrompt = ChatPromptBuilder.claudeSystemPrompt()
+
+    var prompt = systemPrompt + "\n\n"
+
+    let memoryBlob = DashboardChatMemoryStore.load()
+    if !memoryBlob.isEmpty {
+      prompt += "## User Memory\n\(memoryBlob)\n\n"
+    }
+
     for entry in conversationHistory {
       prompt += "\(entry.role.promptLabel): \(entry.content)\n\n"
     }

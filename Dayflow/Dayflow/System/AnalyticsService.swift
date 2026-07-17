@@ -305,6 +305,7 @@ final class AnalyticsService {
   /// Track LLM validation failures (time coverage, duration, parse errors)
   func captureValidationFailure(
     provider: String,
+    providerID: LLMProviderID,
     operation: String,
     validationType: String,
     attempt: Int,
@@ -314,6 +315,7 @@ final class AnalyticsService {
   ) {
     var props: [String: Any] = [
       "provider": provider,
+      "provider_id": providerID.rawValue,
       "operation": operation,
       "validation_type": validationType,
       "attempt": attempt,
@@ -321,8 +323,10 @@ final class AnalyticsService {
     if let model = model { props["model"] = model }
     if let batchId = batchId { props["batch_id"] = batchId }
     if let errorDetail = errorDetail {
-      // Truncate long error details to avoid bloating events
-      props["error_detail"] = String(errorDetail.prefix(500))
+      props["has_error_detail"] = true
+      props["error_detail_length"] = errorDetail.count
+    } else {
+      props["has_error_detail"] = false
     }
     capture("llm_validation_failed", props)
   }

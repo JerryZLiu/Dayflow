@@ -60,6 +60,24 @@ extension MainView {
       return
     }
 
+    // New users: wait until Dayflow has real data (3 prior days of activity)
+    // before asking them to set targets. Not marked handled, so the prompt
+    // starts appearing the day the threshold is crossed.
+    let activeDays = StorageManager.shared.countDistinctTimelineDays(excludingDay: promptDay)
+    guard activeDays >= FeatureAccessRequirements.dayGoalRequiredActiveDays else {
+      return
+    }
+
+    // Prompt fatigue: if the last 5 answers were all skips, stop auto-prompting.
+    // Confirming a goal later (via "Set goals") breaks the streak and resumes.
+    let skipStreak = StorageManager.shared.consecutiveSkippedDayGoalCount(
+      before: promptDay,
+      limit: FeatureAccessRequirements.dayGoalMaxConsecutiveSkips
+    )
+    guard skipStreak < FeatureAccessRequirements.dayGoalMaxConsecutiveSkips else {
+      return
+    }
+
     selectedActivity = nil
     setSelectedDate(today)
     setTimelineMode(.day)

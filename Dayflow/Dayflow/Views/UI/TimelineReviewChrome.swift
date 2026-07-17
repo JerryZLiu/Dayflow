@@ -412,10 +412,11 @@ struct TrackpadScrollHandler: NSViewRepresentable {
   }
   func makeNSView(context: Context) -> NSView {
     let view = NSView()
-    context.coordinator.startMonitoring()
+    context.coordinator.startMonitoring(in: view)
     return view
   }
   func updateNSView(_ nsView: NSView, context: Context) {
+    context.coordinator.monitoredView = nsView
     context.coordinator.shouldHandleScroll = shouldHandleScroll
     context.coordinator.onScrollBegan = onScrollBegan
     context.coordinator.onScrollChanged = onScrollChanged
@@ -430,6 +431,7 @@ struct TrackpadScrollHandler: NSViewRepresentable {
     var onScrollBegan: () -> Void
     var onScrollChanged: (CGSize) -> Void
     var onScrollEnded: () -> Void
+    weak var monitoredView: NSView?
     private var monitor: Any?
     private var isTracking = false
 
@@ -443,15 +445,23 @@ struct TrackpadScrollHandler: NSViewRepresentable {
       self.onScrollEnded = onScrollEnded
     }
 
-    func startMonitoring() {
+    func startMonitoring(in view: NSView) {
+      monitoredView = view
       guard monitor == nil else { return }
       monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { [weak self] event in
         guard let self else { return event }
+        guard let monitoredView = self.monitoredView, let window = monitoredView.window else {
+          self.isTracking = false
+          return event
+        }
+        guard event.window === window,
+          monitoredView.bounds.contains(monitoredView.convert(event.locationInWindow, from: nil))
+        else {
+          self.finishTracking()
+          return event
+        }
         if event.momentumPhase != [] {
-          if self.isTracking {
-            self.isTracking = false
-            self.onScrollEnded()
-          }
+          self.finishTracking()
           return event
         }
         var deltaX = event.scrollingDeltaX
@@ -464,14 +474,14 @@ struct TrackpadScrollHandler: NSViewRepresentable {
         let scaledDelta = CGSize(width: deltaX * scale, height: deltaY * scale)
         guard self.shouldHandleScroll(scaledDelta) else {
           if event.phase == .ended || event.phase == .cancelled {
-            if self.isTracking {
-              self.isTracking = false
-              self.onScrollEnded()
-            }
+            self.finishTracking()
           }
           return event
         }
-        if event.phase == .began || event.phase == .mayBegin {
+        if event.phase == .began {
+          self.isTracking = true
+          self.onScrollBegan()
+        } else if event.phase == .mayBegin {
           if self.isTracking == false {
             self.isTracking = true
             self.onScrollBegan()
@@ -482,19 +492,25 @@ struct TrackpadScrollHandler: NSViewRepresentable {
         }
         self.onScrollChanged(scaledDelta)
         if event.phase == .ended || event.phase == .cancelled {
-          if self.isTracking {
-            self.isTracking = false
-            self.onScrollEnded()
-          }
+          self.finishTracking()
         }
         return nil
       }
     }
+
+    private func finishTracking() {
+      guard isTracking else { return }
+      isTracking = false
+      onScrollEnded()
+    }
+
     func stopMonitoring() {
       if let monitor {
         NSEvent.removeMonitor(monitor)
         self.monitor = nil
       }
+      isTracking = false
+      monitoredView = nil
     }
   }
 }

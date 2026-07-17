@@ -251,8 +251,7 @@ struct DayflowApp: App {
             forKey: CategoryStore.StoreKeys.onboardingAppliedCategoryPreset)
           UserDefaults.standard.removeObject(
             forKey: CategoryStore.StoreKeys.onboardingCategoriesCustomized)
-          // Reset the selected LLM provider to default
-          UserDefaults.standard.set("gemini", forKey: "selectedLLMProvider")
+          UserDefaults.standard.removeObject(forKey: "onboardingSelectedProviderID")
           // Force quit and restart the app to show onboarding
           Task { @MainActor in
             AppDelegate.allowTermination = true

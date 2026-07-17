@@ -32,6 +32,10 @@ struct SettingsAccountSection: View {
         isAuthSheetPresented = false
       }
       .frame(width: 430)
+      // Sheets get their own window, so force light like the What's New sheet does —
+      // otherwise dark mode renders white text on the sheet's white background.
+      .environment(\.colorScheme, .light)
+      .preferredColorScheme(.light)
     }
     .task {
       authManager.loadStoredSessionIfNeeded()

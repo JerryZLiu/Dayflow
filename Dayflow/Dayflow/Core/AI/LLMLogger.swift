@@ -10,6 +10,7 @@ struct LLMCallContext: Sendable {
   let callGroupId: String?
   let attempt: Int
   let provider: String
+  var providerID: String? = nil
   let model: String?
   let operation: String
   let requestMethod: String?
@@ -47,12 +48,16 @@ enum LLMLogger {
 
       if let batchId = ctx.batchId { props["batch_id"] = batchId }
       if let groupId = ctx.callGroupId { props["group_id"] = groupId }
+      if let providerID = ctx.providerID { props["provider_id"] = providerID }
 
       // Bubble token usage if present in response headers (non-HTTP calls may stuff them here).
       if let headers = http.responseHeaders {
         if let v = headers["x-usage-input"], let n = Int(v) { props["usage_input_tokens"] = n }
         if let v = headers["x-usage-cached-input"], let n = Int(v) {
           props["usage_cached_input_tokens"] = n
+        }
+        if let v = headers["x-usage-cache-creation-input"], let n = Int(v) {
+          props["usage_cache_creation_input_tokens"] = n
         }
         if let v = headers["x-usage-output"], let n = Int(v) { props["usage_output_tokens"] = n }
       }
@@ -81,13 +86,25 @@ enum LLMLogger {
 
       if let batchId = ctx.batchId { props["batch_id"] = batchId }
       if let groupId = ctx.callGroupId { props["group_id"] = groupId }
+      if let providerID = ctx.providerID { props["provider_id"] = providerID }
+      if let errorDomain, !errorDomain.isEmpty { props["error_domain"] = errorDomain }
       if let errorCode { props["error_code"] = errorCode }
-      if let errorMessage, !errorMessage.isEmpty { props["error_message"] = errorMessage }
-      if let body = http?.responseBody,
-        let bodyStr = String(data: body, encoding: .utf8),
-        !bodyStr.isEmpty
-      {
-        props["response_body"] = bodyStr
+      if let httpStatus = http?.httpStatus { props["http_status"] = httpStatus }
+      if let headers = http?.responseHeaders {
+        if let v = headers["x-usage-input"], let n = Int(v) { props["usage_input_tokens"] = n }
+        if let v = headers["x-usage-cached-input"], let n = Int(v) {
+          props["usage_cached_input_tokens"] = n
+        }
+        if let v = headers["x-usage-cache-creation-input"], let n = Int(v) {
+          props["usage_cache_creation_input_tokens"] = n
+        }
+        if let v = headers["x-usage-output"], let n = Int(v) { props["usage_output_tokens"] = n }
+      }
+      if let body = http?.responseBody {
+        props["has_response_body"] = true
+        props["response_body_bytes"] = body.count
+      } else {
+        props["has_response_body"] = false
       }
 
       AnalyticsService.shared.capture("llm_api_call", props)

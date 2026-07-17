@@ -150,8 +150,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       flushPendingDeepLinks()
     }
 
-    // Start the Gemini analysis background job
-    setupGeminiAnalysis()
+    // Start the provider-routed analysis background job
+    setupTimelineAnalysis()
 
     // Start inactivity monitoring for idle reset
     InactivityMonitor.shared.start()
@@ -254,23 +254,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     NSApp.setActivationPolicy(showDockIcon ? .regular : .accessory)
   }
 
-  // Start Gemini analysis as a background task
-  private func setupGeminiAnalysis() {
+  // Start timeline analysis as a background task
+  private func setupTimelineAnalysis() {
     // Perform after a short delay to ensure other initialization completes
     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
       AnalysisManager.shared.startAnalysisJob()
-      print("AppDelegate: Gemini analysis job started")
+      print("AppDelegate: LLM analysis job started")
+      let providerID = (try? LLMProviderRoutingStore.load())?.primary
       AnalyticsService.shared.capture(
         "analysis_job_started",
         [
-          "provider": {
-            switch LLMProviderType.load() {
-            case .geminiDirect: return "gemini"
-            case .dayflowBackend: return "dayflow"
-            case .ollamaLocal: return "ollama"
-            case .chatGPTClaude: return "chat_cli"
-            }
-          }()
+          "provider": providerID?.analyticsName ?? "unknown",
+          "provider_id": providerID?.rawValue ?? "unknown",
         ])
     }
   }
