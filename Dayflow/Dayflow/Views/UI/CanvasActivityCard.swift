@@ -49,15 +49,25 @@ struct CanvasActivityCard: View {
 
   private var verticalPadding: CGFloat {
     guard !isFailedCard else { return 0 }
-    return isCompactCard ? compactVerticalPadding : normalVerticalPadding
+    guard isCompactCard else { return normalVerticalPadding }
+    return min(compactVerticalPadding, max(0, (height - primaryFontSize) / 2))
+  }
+
+  private var primaryFontSize: CGFloat {
+    guard isCompactCard else { return fontSize }
+    return min(fontSize, max(8, height - 2))
   }
 
   private var secondaryFontSize: CGFloat {
-    TimelineTypography.cardSecondaryTextFontSize(for: fontSize)
+    TimelineTypography.cardSecondaryTextFontSize(for: primaryFontSize)
   }
 
   private var canShowContent: Bool {
-    height >= max(20, fontSize + (verticalPadding * 2))
+    height >= 8
+  }
+
+  private var canShowFavicon: Bool {
+    height >= faviconSize + 2
   }
 
   private var backupIndicator: some View {
@@ -98,7 +108,7 @@ struct CanvasActivityCard: View {
               HStack(alignment: .top, spacing: 8) {
                 Text(title)
                   .font(
-                    Font.custom("Figtree", size: fontSize)
+                    Font.custom("Figtree", size: primaryFontSize)
                       .weight(fontWeight.fontWeight)
                   )
                   .foregroundColor(style.text)
@@ -124,7 +134,9 @@ struct CanvasActivityCard: View {
               }
             }
           } else {
-            if showTimelineAppIcons && (faviconPrimaryRaw != nil || faviconSecondaryRaw != nil) {
+            if canShowFavicon && showTimelineAppIcons
+              && (faviconPrimaryRaw != nil || faviconSecondaryRaw != nil)
+            {
               FaviconImageView(
                 primaryRaw: faviconPrimaryRaw,
                 secondaryRaw: faviconSecondaryRaw,
@@ -137,7 +149,7 @@ struct CanvasActivityCard: View {
 
             Text(title)
               .font(
-                Font.custom("Figtree", size: fontSize)
+                Font.custom("Figtree", size: primaryFontSize)
                   .weight(fontWeight.fontWeight)
               )
               .foregroundColor(style.text)
