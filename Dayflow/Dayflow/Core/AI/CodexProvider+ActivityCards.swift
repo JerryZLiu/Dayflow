@@ -29,8 +29,9 @@ extension CodexProvider {
     var actualPromptUsed = basePrompt
 
     let modelConfiguration = Self.activityCardModelConfiguration()
-    let model = modelConfiguration.model
-    let effort = modelConfiguration.reasoningEffort
+    let legacyModelConfiguration = Self.legacyActivityCardModelConfiguration()
+    var model = modelConfiguration.model
+    var effort = modelConfiguration.reasoningEffort
 
     var lastError: Error?
     var lastRun: ChatCLIRunResult?
@@ -122,6 +123,23 @@ extension CodexProvider {
             + error.localizedDescription + " — retrying")
         actualPromptUsed = basePrompt
         sessionId = nil
+        if attempt < 3,
+          Self.shouldUseLegacyModel(
+            after: error,
+            currentModel: model,
+            fallbackModel: legacyModelConfiguration.model
+          )
+        {
+          captureLegacyModelFallback(
+            operation: "generate_activity_cards",
+            fromModel: model,
+            toModel: legacyModelConfiguration.model,
+            batchId: batchId
+          )
+          model = legacyModelConfiguration.model
+          effort = legacyModelConfiguration.reasoningEffort
+          print("[ChatCLI] Codex is outdated; retrying card generation with \(model)")
+        }
       }
     }
 
@@ -151,6 +169,12 @@ extension CodexProvider {
     model: String, reasoningEffort: String?
   ) {
     return (model: "gpt-5.6-sol", reasoningEffort: "low")
+  }
+
+  static func legacyActivityCardModelConfiguration() -> (
+    model: String, reasoningEffort: String?
+  ) {
+    return (model: "gpt-5.4", reasoningEffort: "low")
   }
 
   private func codexRunResultFromStreamingError(
