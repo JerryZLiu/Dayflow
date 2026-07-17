@@ -65,7 +65,6 @@ final class CodexExecutableResolver: @unchecked Sendable {
   private let versionProbe: VersionProbe
   private let lock = NSLock()
   private var cachedResolution: Resolution?
-  private var rejectedPaths = Set<String>()
 
   init(
     candidateProvider: @escaping CandidateProvider = CodexExecutableResolver.defaultCandidates,
@@ -79,14 +78,42 @@ final class CodexExecutableResolver: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
 
-    if let cachedResolution {
+    return resolveLocked()
+  }
+
+  func replacementIfUnavailable(_ currentResolution: Resolution) -> Resolution? {
+    lock.lock()
+    defer { lock.unlock() }
+
+    guard versionProbe(currentResolution.executableURL) == nil else {
+      return nil
+    }
+
+    let unavailablePath = Self.standardizedPath(currentResolution.executableURL)
+    if cachedResolution.map({ Self.standardizedPath($0.executableURL) }) == unavailablePath {
+      cachedResolution = nil
+    }
+
+    return resolveLocked(excludingPaths: [unavailablePath])
+  }
+
+  func invalidate() {
+    lock.lock()
+    cachedResolution = nil
+    lock.unlock()
+  }
+
+  private func resolveLocked(excludingPaths: Set<String> = []) -> Resolution? {
+    if let cachedResolution,
+      !excludingPaths.contains(Self.standardizedPath(cachedResolution.executableURL))
+    {
       return cachedResolution
     }
 
     var seenPaths = Set<String>()
     let candidates = candidateProvider().filter { candidate in
       let path = Self.standardizedPath(candidate.executableURL)
-      guard !rejectedPaths.contains(path), seenPaths.insert(path).inserted else {
+      guard !excludingPaths.contains(path), seenPaths.insert(path).inserted else {
         return false
       }
       return true
@@ -128,30 +155,12 @@ final class CodexExecutableResolver: @unchecked Sendable {
     return cachedResolution
   }
 
-  func reject(_ executableURL: URL) {
-    lock.lock()
-    defer { lock.unlock() }
-
-    let path = Self.standardizedPath(executableURL)
-    rejectedPaths.insert(path)
-    if cachedResolution.map({ Self.standardizedPath($0.executableURL) }) == path {
-      cachedResolution = nil
-    }
-  }
-
-  func invalidate() {
-    lock.lock()
-    cachedResolution = nil
-    rejectedPaths.removeAll()
-    lock.unlock()
-  }
-
   private func isPreferred(
     _ candidate: RankedResolution,
     over current: RankedResolution
   ) -> Bool {
     switch (candidate.semanticVersion, current.semanticVersion) {
-    case let (candidateVersion?, currentVersion?):
+    case (let candidateVersion?, let currentVersion?):
       if candidateVersion != currentVersion {
         return candidateVersion > currentVersion
       }
