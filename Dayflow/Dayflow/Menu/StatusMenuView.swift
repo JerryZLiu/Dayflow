@@ -6,6 +6,7 @@ struct StatusMenuView: View {
   let dismissMenu: () -> Void
   @ObservedObject private var appState = AppState.shared
   @ObservedObject private var pauseManager = PauseManager.shared
+  @ObservedObject private var miniTimer = MiniTimerWindowController.shared
   private let updaterManager = UpdaterManager.shared
 
   private var controlMode: RecordingControlMode {
@@ -24,6 +25,10 @@ struct StatusMenuView: View {
       MenuDivider()
 
       MenuRow(title: "Open Dayflow", assetImage: "DayflowLogo", action: openDayflow)
+      MenuRow(
+        title: miniTimer.isVisible ? "Hide Focus Timer" : "Show Focus Timer",
+        systemImage: "timer",
+        action: toggleFocusTimer)
       MenuRow(title: "Open Recordings", action: openRecordingsFolder)
       MenuRow(title: "Check for Updates", action: checkForUpdates)
 
@@ -61,6 +66,10 @@ struct StatusMenuView: View {
       MainWindowController.shared.showMainWindow()
       NSApp.activate(ignoringOtherApps: true)
     }
+  }
+
+  private func toggleFocusTimer() {
+    miniTimer.toggle()
   }
 
   private func openRecordingsFolder() {
