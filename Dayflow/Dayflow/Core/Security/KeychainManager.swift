@@ -114,13 +114,11 @@ final class KeychainManager {
 
       guard let apiKey = String(data: data, encoding: .utf8) else {
         print("❌ [KeychainManager] Failed to decode data as UTF-8 string")
-        print("   Raw data (hex): \(data.map { String(format: "%02x", $0) }.prefix(20).joined())")
         return nil
       }
 
       print("✅ [KeychainManager] Successfully retrieved key")
       print("   Key length: \(apiKey.count) characters")
-      print("   Key prefix: \(apiKey.prefix(8))...")
 
       return apiKey
     }
