@@ -23,7 +23,14 @@ interface CaptureDao {
   @Query("SELECT COUNT(*) FROM captures WHERE state != 'acknowledged' AND filePath != ''")
   fun pendingImageCount(): Flow<Int>
 
-  @Query("SELECT * FROM captures WHERE filePath != '' ORDER BY capturedAtUTCMS DESC LIMIT :limit")
+  @Query("""
+    SELECT * FROM captures
+    WHERE filePath != ''
+      AND foregroundAppName IS NOT NULL
+      AND foregroundAppId NOT IN ('so.dayflow.capture', 'com.android.intentresolver')
+    ORDER BY capturedAtUTCMS DESC
+    LIMIT :limit
+  """)
   fun recentImages(limit: Int = 6): Flow<List<CaptureEntity>>
 
   @Query("SELECT COALESCE(SUM(byteLength), 0) FROM captures WHERE state != 'acknowledged'")

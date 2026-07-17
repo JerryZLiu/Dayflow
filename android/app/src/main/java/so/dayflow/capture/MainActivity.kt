@@ -301,7 +301,8 @@ private fun DayflowCaptureScreen(
                   )
                 }
                 Text(
-                  capture.foregroundAppName ?: stringResource(R.string.unknown_app),
+                  capture.foregroundAppName ?: capture.foregroundAppId
+                    ?: stringResource(R.string.unknown_app),
                   style = MaterialTheme.typography.bodySmall,
                   modifier = Modifier.padding(top = 4.dp)
                 )

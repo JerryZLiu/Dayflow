@@ -128,8 +128,12 @@ class CaptureService : LifecycleService() {
     if (!power.isInteractive || !processing.compareAndSet(false, true)) return
 
     lifecycleScope.launch(Dispatchers.Default) {
+      if (app.hasVisibleActivity) {
+        processing.set(false)
+        return@launch
+      }
       val foregroundApp = appReader.current()
-      if (foregroundApp?.packageName == packageName) {
+      if (app.hasVisibleActivity || foregroundApp?.packageName == packageName) {
         processing.set(false)
         return@launch
       }
@@ -152,7 +156,7 @@ class CaptureService : LifecycleService() {
   }
 
   private fun requestScreenshot(foregroundApp: ForegroundApp?) {
-    if (!running || pauseState.isPaused) {
+    if (!running || pauseState.isPaused || app.hasVisibleActivity) {
       processing.set(false)
       return
     }

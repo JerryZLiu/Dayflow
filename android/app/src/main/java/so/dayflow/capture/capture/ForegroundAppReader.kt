@@ -8,26 +8,33 @@ data class ForegroundApp(val packageName: String, val label: String)
 
 class ForegroundAppReader(private val context: Context) {
   private val usage = context.getSystemService(UsageStatsManager::class.java)
+  private var lastQueryAtUTCMS = 0L
+  private var lastForegroundApp: ForegroundApp? = null
 
   fun current(): ForegroundApp? {
     val now = System.currentTimeMillis()
-    val events = usage.queryEvents(now - 60_000, now)
+    val queryStart = if (lastQueryAtUTCMS == 0L) now - INITIAL_LOOKBACK_MS else lastQueryAtUTCMS - 1_000
+    val events = usage.queryEvents(queryStart, now)
     val event = UsageEvents.Event()
-    var packageName: String? = null
+    var packageName = lastForegroundApp?.packageName
     while (events.hasNextEvent()) {
       events.getNextEvent(event)
-      if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED ||
-        event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND
-      ) {
+      if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) {
         packageName = event.packageName
       }
     }
-    val name = packageName ?: return null
+    lastQueryAtUTCMS = now
+    val name = packageName ?: return lastForegroundApp
+    if (name == lastForegroundApp?.packageName) return lastForegroundApp
     val label = runCatching {
       val info = context.packageManager.getApplicationInfo(name, 0)
       context.packageManager.getApplicationLabel(info).toString()
     }.getOrDefault(name)
-    return ForegroundApp(name, label)
+    return ForegroundApp(name, label).also { lastForegroundApp = it }
+  }
+
+  private companion object {
+    const val INITIAL_LOOKBACK_MS = 24 * 60 * 60 * 1_000L
   }
 }
 
@@ -57,4 +64,3 @@ class PrivacyPreferences(context: Context) {
     )
   }
 }
-
