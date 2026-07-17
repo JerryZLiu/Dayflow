@@ -323,8 +323,10 @@ final class AnalyticsService {
     if let model = model { props["model"] = model }
     if let batchId = batchId { props["batch_id"] = batchId }
     if let errorDetail = errorDetail {
-      // Truncate long error details to avoid bloating events
-      props["error_detail"] = String(errorDetail.prefix(500))
+      props["has_error_detail"] = true
+      props["error_detail_length"] = errorDetail.count
+    } else {
+      props["has_error_detail"] = false
     }
     capture("llm_validation_failed", props)
   }
