@@ -193,11 +193,11 @@ func makeTimelineActivities(from cards: [TimelineCard], for date: Date)
     var adjustedStartDate = finalStartDate
     var adjustedEndDate = finalEndDate
 
-    if calendar.component(.hour, from: finalStartDate) < 4 {
+    if calendar.component(.hour, from: finalStartDate) < DayBoundaryPreferences.boundaryHour {
       adjustedStartDate =
         calendar.date(byAdding: .day, value: 1, to: finalStartDate) ?? finalStartDate
     }
-    if calendar.component(.hour, from: finalEndDate) < 4 {
+    if calendar.component(.hour, from: finalEndDate) < DayBoundaryPreferences.boundaryHour {
       adjustedEndDate = calendar.date(byAdding: .day, value: 1, to: finalEndDate) ?? finalEndDate
     }
     if adjustedEndDate < adjustedStartDate {

@@ -136,7 +136,10 @@ final class ChatToolExecutor {
       return .failure(tool: .fetchTimeline, error: "Invalid date format. Use YYYY-MM-DD.")
     }
 
-    let cards = StorageManager.shared.fetchTimelineCards(forDay: dateString)
+    guard let storageDayString = storageDayString(forLabel: dateString) else {
+      return .failure(tool: .fetchTimeline, error: "Could not parse date")
+    }
+    let cards = StorageManager.shared.fetchTimelineCards(forDay: storageDayString)
 
     if cards.isEmpty {
       return ChatToolResult(
@@ -263,11 +266,12 @@ final class ChatToolExecutor {
 
   /// Convert "YYYY-MM-DD" to day boundaries (4 AM to 4 AM next day)
   private func dayBoundaries(for dateString: String) -> (start: Date, end: Date)? {
-    guard let date = chatToolDayFormatter.date(from: dateString) else { return nil }
+    guard let labelDate = chatToolDayFormatter.date(from: dateString) else { return nil }
+    let date = labelDate.timelineDateFromLabel()
 
     let calendar = Calendar.current
     var startComponents = calendar.dateComponents([.year, .month, .day], from: date)
-    startComponents.hour = 4
+    startComponents.hour = DayBoundaryPreferences.boundaryHour
     startComponents.minute = 0
     startComponents.second = 0
 
@@ -278,6 +282,11 @@ final class ChatToolExecutor {
     }
 
     return (dayStart, dayEnd)
+  }
+
+  private func storageDayString(forLabel dateString: String) -> String? {
+    guard let labelDate = chatToolDayFormatter.date(from: dateString) else { return nil }
+    return chatToolDayFormatter.string(from: labelDate.timelineDateFromLabel())
   }
 
   /// Format date for human-readable display

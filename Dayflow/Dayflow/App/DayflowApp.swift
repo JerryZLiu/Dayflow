@@ -319,6 +319,9 @@ extension Notification.Name {
   static let navigateToDaily = Notification.Name("navigateToDaily")
   static let navigateToWeekly = Notification.Name("navigateToWeekly")
   static let timelineDataUpdated = Notification.Name("timelineDataUpdated")
+  /// Posted when day-framing settings (boundary hour or start/end label mode)
+  /// change, so the timeline re-renders/reloads immediately without a restart.
+  static let dayFramingChanged = Notification.Name("dayFramingChanged")
   static let showTimelineFailureToast = Notification.Name("showTimelineFailureToast")
   static let showScreenRecordingPermissionNotice = Notification.Name(
     "showScreenRecordingPermissionNotice")

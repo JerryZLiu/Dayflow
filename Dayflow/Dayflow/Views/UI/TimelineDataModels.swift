@@ -123,7 +123,7 @@ struct DatePickerSheet: View {
       DatePicker(
         "",
         selection: $selectedDate,
-        in: ...Date(),  // Only allow past dates and today
+        in: ...timelineDisplayDate(from: Date()).timelineLabelDate(),
         displayedComponents: .date
       )
       .datePickerStyle(.graphical)

@@ -231,16 +231,16 @@ extension StorageManager {
 
     let calendar = Calendar.current
 
-    // Get 4 AM boundaries
+    // Get day-boundary bounds (boundary hour to boundary hour next day)
     var startComponents = calendar.dateComponents([.year, .month, .day], from: dayDate)
-    startComponents.hour = 4
+    startComponents.hour = DayBoundaryPreferences.boundaryHour
     startComponents.minute = 0
     startComponents.second = 0
     guard let dayStart = calendar.date(from: startComponents) else { return false }
 
     guard let nextDay = calendar.date(byAdding: .day, value: 1, to: dayDate) else { return false }
     var endComponents = calendar.dateComponents([.year, .month, .day], from: nextDay)
-    endComponents.hour = 4
+    endComponents.hour = DayBoundaryPreferences.boundaryHour
     endComponents.minute = 0
     endComponents.second = 0
     guard let dayEnd = calendar.date(from: endComponents) else { return false }

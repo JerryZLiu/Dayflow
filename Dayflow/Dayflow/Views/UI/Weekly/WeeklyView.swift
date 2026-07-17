@@ -74,6 +74,12 @@ struct WeeklyView: View {
     .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
       refreshWeeklyAccessState()
     }
+    .onReceive(NotificationCenter.default.publisher(for: .dayFramingChanged)) { _ in
+      weekRange = WeeklyDateRange.containingLabelDate(weekRange.weekStart)
+      Task {
+        await loadWeeklyData(for: weekRange, categories: categoryStore.categories)
+      }
+    }
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
       refreshWeeklyAccessState()
@@ -283,10 +289,11 @@ struct WeeklyView: View {
     var range = WeeklyDateRange.containing(Date())
 
     for _ in 0..<Self.defaultWeekSearchLimit {
+      let storageRange = range.storageRange
       let recordedMinutes = Int(
         StorageManager.shared.fetchTotalMinutesTracked(
-          from: range.weekStart,
-          to: range.weekEnd
+          from: storageRange.start,
+          to: storageRange.end
         ).rounded(.down)
       )
 
@@ -401,13 +408,15 @@ struct WeeklyView: View {
 
     let loadResult = await Task.detached(priority: .userInitiated) {
       let previousRange = range.shifted(byWeeks: -1)
+      let storageRange = range.storageRange
+      let previousStorageRange = previousRange.storageRange
       let cards = StorageManager.shared.fetchTimelineCardsByTimeRange(
-        from: range.weekStart,
-        to: range.weekEnd
+        from: storageRange.start,
+        to: storageRange.end
       )
       let previousCards = StorageManager.shared.fetchTimelineCardsByTimeRange(
-        from: previousRange.weekStart,
-        to: previousRange.weekEnd
+        from: previousStorageRange.start,
+        to: previousStorageRange.end
       )
       let snapshot = WeeklyDashboardBuilder.build(
         cards: cards,
@@ -417,8 +426,8 @@ struct WeeklyView: View {
       )
       let recordedMinutes = Int(
         StorageManager.shared.fetchTotalMinutesTracked(
-          from: range.weekStart,
-          to: range.weekEnd
+          from: storageRange.start,
+          to: storageRange.end
         ).rounded(.down)
       )
 

@@ -97,6 +97,7 @@ extension MainView {
 
   func loadWeeklyTrackedMinutes(trigger: String = "unspecified") {
     let requestedWeekRange = timelineWeekRange
+    let storageRange = requestedWeekRange.storageRange
     let requestedWeekStartDay = dayString(requestedWeekRange.weekStart)
     timelinePerfLog(
       "weeklyTrackedMinutes.schedule trigger=\(trigger) week=\(requestedWeekStartDay)"
@@ -105,8 +106,8 @@ extension MainView {
     Task.detached(priority: .userInitiated) {
       let fetchStart = CFAbsoluteTimeGetCurrent()
       let minutes = StorageManager.shared.fetchTotalMinutesTracked(
-        from: requestedWeekRange.weekStart,
-        to: requestedWeekRange.weekEnd
+        from: storageRange.start,
+        to: storageRange.end
       )
       let fetchMs = Int((CFAbsoluteTimeGetCurrent() - fetchStart) * 1000)
 
@@ -211,9 +212,10 @@ extension MainView {
 
       case .week:
         let weekRange = timelineWeekRange
+        let storageRange = weekRange.storageRange
         let cards = StorageManager.shared.fetchTimelineCardsByTimeRange(
-          from: weekRange.weekStart,
-          to: weekRange.weekEnd
+          from: storageRange.start,
+          to: storageRange.end
         )
         clipboardText = TimelineClipboardFormatter.makeClipboardText(
           for: weekRange,

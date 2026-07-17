@@ -86,8 +86,8 @@ struct DateNavigationControls: View {
     let now = Date()
     let calendar = Calendar.current
 
-    let displayDate = timelineDisplayDate(from: date, now: now)
-    let timelineToday = timelineDisplayDate(from: now, now: now)
+    let displayDate = timelineDisplayDate(from: date, now: now).timelineLabelDate()
+    let timelineToday = timelineDisplayDate(from: now, now: now).timelineLabelDate()
 
     if calendar.isDate(displayDate, inSameDayAs: timelineToday) {
       return cachedTodayDisplayFormatter.string(from: displayDate)

@@ -115,7 +115,7 @@ struct SettingsDataTabView: View {
 
   private var reprocessSection: some View {
     let normalizedDate = timelineDisplayDate(from: viewModel.reprocessDayDate)
-    let dayString = DateFormatter.yyyyMMdd.string(from: normalizedDate)
+    let displayDayString = normalizedDate.timelineLabelDayString
 
     return SettingsSection(
       title: "Reprocess day",
@@ -138,7 +138,7 @@ struct SettingsDataTabView: View {
 
         if isReprocessDatePickerExpanded {
           inlineCalendar(
-            date: $viewModel.reprocessDayDate,
+            date: timelineLabelDateBinding($viewModel.reprocessDayDate),
             disabled: viewModel.isReprocessingDay,
             onDateSelected: {
               withAnimation(.easeOut(duration: 0.2)) {
@@ -149,7 +149,7 @@ struct SettingsDataTabView: View {
           .transition(.move(edge: .top).combined(with: .opacity))
         }
 
-        Text(dayString)
+        Text(displayDayString)
           .font(.custom("Figtree", size: 12))
           .foregroundColor(SettingsStyle.meta)
 
@@ -193,7 +193,7 @@ struct SettingsDataTabView: View {
         Button("Reprocess", role: .destructive) { viewModel.reprocessSelectedDay() }
       } message: {
         Text(
-          "This will delete existing timeline cards for \(dayString) and re-run analysis. It can consume many API calls."
+          "This will delete existing timeline cards for \(displayDayString) and re-run analysis. It can consume many API calls."
         )
       }
     }
@@ -268,14 +268,21 @@ struct SettingsDataTabView: View {
   // MARK: - Helpers
 
   private func formattedTimelineDate(_ date: Date) -> String {
-    Self.dateLabelFormatter.string(from: timelineDisplayDate(from: date))
+    Self.dateLabelFormatter.string(from: timelineDisplayDate(from: date).timelineLabelDate())
   }
 
   private func exportDateBinding(for picker: ExportDatePicker) -> Binding<Date> {
     switch picker {
-    case .start: return $viewModel.exportStartDate
-    case .end: return $viewModel.exportEndDate
+    case .start: return timelineLabelDateBinding($viewModel.exportStartDate)
+    case .end: return timelineLabelDateBinding($viewModel.exportEndDate)
     }
+  }
+
+  private func timelineLabelDateBinding(_ storageDate: Binding<Date>) -> Binding<Date> {
+    Binding(
+      get: { timelineDisplayDate(from: storageDate.wrappedValue).timelineLabelDate() },
+      set: { storageDate.wrappedValue = normalizedTimelineDate($0.timelineDateFromLabel()) }
+    )
   }
 
   private static let dateLabelFormatter: DateFormatter = {
