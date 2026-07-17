@@ -278,7 +278,7 @@ final class AnalysisManager: AnalysisManaging {
           )
         }
 
-        self.queueLLMRequest(batchId: batchId)
+        self.queueLLMRequest(batchId: batchId, isReprocess: true)
 
         // Wait for batch to complete (check status periodically)
         var isCompleted = false
@@ -371,6 +371,7 @@ final class AnalysisManager: AnalysisManaging {
 
       self.queueLLMRequest(
         batchId: batchId,
+        isReprocess: true,
         progressHandler: stepHandler,
         completion: { result in
           DispatchQueue.main.async {
@@ -400,6 +401,7 @@ final class AnalysisManager: AnalysisManaging {
 
   private func queueLLMRequest(
     batchId: Int64,
+    isReprocess: Bool = false,
     progressHandler: ((LLMProcessingStep) -> Void)? = nil,
     completion: ((Result<Void, Error>) -> Void)? = nil
   ) {
@@ -473,7 +475,7 @@ final class AnalysisManager: AnalysisManaging {
 
     updateBatchStatus(batchId: batchId, status: "processing")
 
-    llmService.processBatch(batchId, progressHandler: progressHandler) {
+    llmService.processBatch(batchId, isReprocess: isReprocess, progressHandler: progressHandler) {
       [weak self] (result: Result<ProcessedBatchResult, Error>) in
       guard let self else { return }
 
