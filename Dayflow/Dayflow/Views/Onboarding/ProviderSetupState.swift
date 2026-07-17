@@ -499,7 +499,6 @@ extension ProviderSetupState {
       "local_engine_selected",
       [
         "engine": engine.rawValue,
-        "base_url": localBaseURL,
         "default_model": defaultModel,
         "has_api_key": !localAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
       ])
