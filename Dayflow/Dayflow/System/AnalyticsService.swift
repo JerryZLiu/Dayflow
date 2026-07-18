@@ -14,6 +14,87 @@ import AppKit
 import Foundation
 import PostHog
 
+/// Sanitized failure details help us debug provider and validation regressions. Before sending
+/// them through opt-in analytics, make every reasonable attempt to remove PII and content-bearing
+/// sections; raw errors stay local because this best-effort sanitizer cannot cover every shape.
+enum TelemetryErrorSanitizer {
+  private static let maximumLength = 500
+  private static let privateSectionMarkers = [
+    "\n\n📥 INPUT CARDS:",
+    "\n📥 INPUT CARDS:",
+    "\n\n📤 OUTPUT CARDS:",
+    "\n📤 OUTPUT CARDS:",
+    "\n\n📄 RAW OUTPUT:",
+    "\n📄 RAW OUTPUT:",
+    "\n\nRAW OUTPUT:",
+    "\nRAW OUTPUT:",
+  ]
+
+  static func sanitize(_ rawValue: String?) -> String? {
+    guard var value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !value.isEmpty
+    else { return nil }
+
+    for marker in privateSectionMarkers {
+      if let range = value.range(of: marker) {
+        value = String(value[..<range.lowerBound])
+      }
+    }
+
+    value = normalizeKnownValidationMessage(value)
+
+    let replacements: [(pattern: String, replacement: String)] = [
+      (#"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"#, "<redacted-email>"),
+      (
+        #"(?i)\b(api[_-]?key|access[_-]?token|token|authorization)\s*[:=]\s*[^\s,;]+"#,
+        "$1=<redacted>"
+      ),
+      (#"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+"#, "Bearer <redacted>"),
+      (#"\b(?:sk|phc|dfs)[-_A-Za-z0-9:.]{8,}\b"#, "<redacted-token>"),
+      (#"https?://[^\s]+"#, "<redacted-url>"),
+      (#"/(?:Users|private|var|tmp|Volumes)/[^\s,;]+"#, "<redacted-path>"),
+      (#"'[^\n]{1,512}'"#, "'<redacted>'"),
+    ]
+    for replacement in replacements {
+      value = value.replacingOccurrences(
+        of: replacement.pattern,
+        with: replacement.replacement,
+        options: .regularExpression
+      )
+    }
+
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    return String(trimmed.prefix(maximumLength))
+  }
+
+  private static func normalizeKnownValidationMessage(_ value: String) -> String {
+    let safePrefixes: [(prefix: String, replacement: String)] = [
+      (
+        "Segment end time must be after start time:",
+        "Segment end time must be after start time."
+      ),
+      (
+        "Segment start time must be >= 00:00:00",
+        "Segment starts before 00:00:00."
+      ),
+      (
+        "Segment out of bounds:",
+        "Segment is outside the recording duration."
+      ),
+    ]
+    if let match = safePrefixes.first(where: { value.hasPrefix($0.prefix) }) {
+      return match.replacement
+    }
+
+    return value.replacingOccurrences(
+      of: #"(?s)^Card ([0-9]+) .* is only ([0-9]+(?:\.[0-9]+)? minutes long)$"#,
+      with: "Card $1 is only $2",
+      options: .regularExpression
+    )
+  }
+}
+
 final class AnalyticsService {
   static let shared = AnalyticsService()
 
@@ -325,6 +406,10 @@ final class AnalyticsService {
     if let errorDetail = errorDetail {
       props["has_error_detail"] = true
       props["error_detail_length"] = errorDetail.count
+      if let sanitizedDetail = TelemetryErrorSanitizer.sanitize(errorDetail) {
+        props["error_detail"] = sanitizedDetail
+        props["error_detail_sanitized"] = true
+      }
     } else {
       props["has_error_detail"] = false
     }

@@ -691,28 +691,26 @@ struct ChatCLIProcessRunner {
         terminationStatus: process.terminationStatus,
         stderr: finalState.2,
         hasRetried: hasRetriedExecutableResolution
-      )
+      ),
+      let replacement = codexExecutableResolver.replacementIfUnavailable(codexExecutable)
     {
-      codexExecutableResolver.reject(codexExecutable.executableURL)
-      if let replacement = codexExecutableResolver.resolve() {
-        print(
-          "[ChatCLI] Retrying Codex with \(replacement.executableURL.path) after executable failure"
-        )
-        try await executeStreaming(
-          tool: tool,
-          prompt: prompt,
-          workingDirectory: workingDirectory,
-          model: model,
-          reasoningEffort: reasoningEffort,
-          sessionId: sessionId,
-          continuation: continuation,
-          onProcessStart: onProcessStart,
-          processEnvironment: processEnvironment,
-          hasRetriedInvalidTransport: hasRetriedInvalidTransport,
-          hasRetriedExecutableResolution: true
-        )
-        return
-      }
+      print(
+        "[ChatCLI] Retrying Codex with \(replacement.executableURL.path) after executable failure"
+      )
+      try await executeStreaming(
+        tool: tool,
+        prompt: prompt,
+        workingDirectory: workingDirectory,
+        model: model,
+        reasoningEffort: reasoningEffort,
+        sessionId: sessionId,
+        continuation: continuation,
+        onProcessStart: onProcessStart,
+        processEnvironment: processEnvironment,
+        hasRetriedInvalidTransport: hasRetriedInvalidTransport,
+        hasRetriedExecutableResolution: true
+      )
+      return
     }
 
     if process.terminationStatus != 0,
@@ -1325,29 +1323,27 @@ struct ChatCLIProcessRunner {
         terminationStatus: process.terminationStatus,
         stderr: stderr,
         hasRetried: hasRetriedExecutableResolution
-      )
+      ),
+      let replacement = codexExecutableResolver.replacementIfUnavailable(codexExecutable)
     {
-      codexExecutableResolver.reject(codexExecutable.executableURL)
-      if let replacement = codexExecutableResolver.resolve() {
-        print(
-          "[ChatCLI] Retrying Codex with \(replacement.executableURL.path) after executable failure"
-        )
-        return try run(
-          tool: tool,
-          prompt: prompt,
-          workingDirectory: workingDirectory,
-          imagePaths: imagePaths,
-          model: model,
-          reasoningEffort: reasoningEffort,
-          disableTools: disableTools,
-          claudeProfile: claudeProfile,
-          claudeSessionMode: claudeSessionMode,
-          processEnvironment: effectiveProcessEnvironment,
-          hasRetriedInvalidTransport: hasRetriedInvalidTransport,
-          hasRetriedExecutableResolution: true,
-          timeoutSeconds: timeoutSeconds
-        )
-      }
+      print(
+        "[ChatCLI] Retrying Codex with \(replacement.executableURL.path) after executable failure"
+      )
+      return try run(
+        tool: tool,
+        prompt: prompt,
+        workingDirectory: workingDirectory,
+        imagePaths: imagePaths,
+        model: model,
+        reasoningEffort: reasoningEffort,
+        disableTools: disableTools,
+        claudeProfile: claudeProfile,
+        claudeSessionMode: claudeSessionMode,
+        processEnvironment: effectiveProcessEnvironment,
+        hasRetriedInvalidTransport: hasRetriedInvalidTransport,
+        hasRetriedExecutableResolution: true,
+        timeoutSeconds: timeoutSeconds
+      )
     }
 
     if process.terminationStatus != 0,

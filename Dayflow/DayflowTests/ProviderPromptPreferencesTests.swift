@@ -86,18 +86,22 @@ final class ProviderPromptPreferencesTests: XCTestCase {
     XCTAssertEqual(claudeSections.summary, "Claude-only summary")
   }
 
-  func testWhitespaceOnlyOverrideUsesDefaultBlock() {
+  func testWhitespaceOnlyOverrideUsesProviderSpecificDefaultBlocks() {
     let overrides = ActivityCardPromptOverrides(
       titleBlock: "  \n  ",
       summaryBlock: "Custom summary",
       detailedBlock: nil
     )
 
-    let sections = CodexPromptSections(overrides: overrides)
+    let codexSections = CodexPromptSections(overrides: overrides)
+    let claudeSections = ClaudePromptSections(overrides: overrides)
 
-    XCTAssertEqual(sections.title, CodexPromptDefaults.titleBlock)
-    XCTAssertEqual(sections.summary, "Custom summary")
-    XCTAssertEqual(sections.detailedSummary, CodexPromptDefaults.detailedSummaryBlock)
+    XCTAssertEqual(codexSections.title, CodexPromptDefaults.titleBlock)
+    XCTAssertEqual(codexSections.summary, "Custom summary")
+    XCTAssertEqual(codexSections.detailedSummary, CodexPromptDefaults.detailedSummaryBlock)
+    XCTAssertEqual(claudeSections.title, ClaudePromptDefaults.titleBlock)
+    XCTAssertEqual(claudeSections.summary, "Custom summary")
+    XCTAssertEqual(claudeSections.detailedSummary, ClaudePromptDefaults.detailedSummaryBlock)
   }
 
   func testVerifiedSaveReportsAWriteThatDoesNotStick() throws {

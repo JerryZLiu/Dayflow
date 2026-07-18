@@ -44,6 +44,7 @@ enum LLMLogger {
         "latency_ms": latencyMs,
         "outcome": "success",
         "operation": ctx.operation,
+        "attempt": ctx.attempt,
       ]
 
       if let batchId = ctx.batchId { props["batch_id"] = batchId }
@@ -82,6 +83,7 @@ enum LLMLogger {
         "latency_ms": latencyMs,
         "outcome": "error",
         "operation": ctx.operation,
+        "attempt": ctx.attempt,
       ]
 
       if let batchId = ctx.batchId { props["batch_id"] = batchId }
@@ -89,6 +91,13 @@ enum LLMLogger {
       if let providerID = ctx.providerID { props["provider_id"] = providerID }
       if let errorDomain, !errorDomain.isEmpty { props["error_domain"] = errorDomain }
       if let errorCode { props["error_code"] = errorCode }
+      if let errorMessage {
+        props["error_message_length"] = errorMessage.count
+        if let sanitizedMessage = TelemetryErrorSanitizer.sanitize(errorMessage) {
+          props["error_message"] = sanitizedMessage
+          props["error_message_sanitized"] = true
+        }
+      }
       if let httpStatus = http?.httpStatus { props["http_status"] = httpStatus }
       if let headers = http?.responseHeaders {
         if let v = headers["x-usage-input"], let n = Int(v) { props["usage_input_tokens"] = n }

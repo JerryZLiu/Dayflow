@@ -6,7 +6,7 @@ extension ClaudeProvider {
   static func transcriptionModelConfiguration() -> (
     model: String, reasoningEffort: String?
   ) {
-    (model: "claude-sonnet-5", reasoningEffort: "low")
+    (model: "claude-sonnet", reasoningEffort: "low")
   }
 
   func transcribeScreenshots(
@@ -59,100 +59,95 @@ extension ClaudeProvider {
     var run: ChatCLIRunResult?
     var accumulatedUsage: TokenUsage?
     var attempt = 1
+    var currentPrompt = prompt
     do {
-      let profile = Self.optimizedTranscriptionCLIProfile().allowingRead(
-        at: preparedInput.contactSheetURL.path
-      )
       let sessionID = UUID().uuidString
       let sessionCleanup = ClaudeSessionCleanup(sessionID: sessionID)
       defer { sessionCleanup.cleanup() }
-      let initialRun = try await runOptimizedClaudeTurn(
-        prompt: prompt,
-        model: model,
-        reasoningEffort: effort,
-        profile: profile,
-        sessionMode: .start(id: sessionID)
-      )
-      run = initialRun
-      accumulatedUsage = initialRun.usage
+      let maxAttempts = 3
 
-      try validateSuccessfulClaudeProcess(initialRun)
-
-      let segments: [SegmentMergeResponse.Segment]
-      let finalRun: ChatCLIRunResult
-      let totalUsage: TokenUsage?
-      do {
-        segments = try validatedClaudeSegments(
-          from: initialRun,
-          durationSeconds: durationSeconds
-        )
-        finalRun = initialRun
-        totalUsage = accumulatedUsage
-      } catch {
-        attempt = 2
-        let correctionPrompt = buildTranscriptionCorrectionPrompt(
-          validationError: error.localizedDescription,
-          duration: durationString
-        )
-        print(
-          "[ClaudeProvider] Transcription output failed strict validation; continuing the same session once"
-        )
-        let correctionRun = try await runOptimizedClaudeTurn(
-          prompt: correctionPrompt,
+      for currentAttempt in 1...maxAttempts {
+        attempt = currentAttempt
+        let profile =
+          (currentAttempt == 1
+          ? Self.optimizedTranscriptionCLIProfile()
+          : Self.optimizedTranscriptionCorrectionCLIProfile())
+          .allowingRead(at: preparedInput.contactSheetURL.path)
+        let sessionMode: ClaudeCLISessionMode =
+          currentAttempt == 1 ? .start(id: sessionID) : .resume(id: sessionID)
+        let currentRun = try await runOptimizedClaudeTurn(
+          prompt: currentPrompt,
           model: model,
           reasoningEffort: effort,
-          profile: Self.optimizedTranscriptionCorrectionCLIProfile().allowingRead(
-            at: preparedInput.contactSheetURL.path
-          ),
-          sessionMode: .resume(id: sessionID)
+          profile: profile,
+          sessionMode: sessionMode
         )
-        run = correctionRun
-        accumulatedUsage = Self.combinedTokenUsage(accumulatedUsage, correctionRun.usage)
-        try validateSuccessfulClaudeProcess(correctionRun)
-        segments = try validatedClaudeSegments(
-          from: correctionRun,
-          durationSeconds: durationSeconds
-        )
-        finalRun = correctionRun
-        totalUsage = accumulatedUsage
+        run = currentRun
+        accumulatedUsage = Self.combinedTokenUsage(accumulatedUsage, currentRun.usage)
+        try validateSuccessfulClaudeProcess(currentRun)
+
+        do {
+          let segments = try validatedClaudeSegments(
+            from: currentRun,
+            durationSeconds: durationSeconds,
+            batchId: batchId,
+            model: model,
+            attempt: attempt
+          )
+          let observations = observations(
+            from: segments,
+            durationSeconds: durationSeconds,
+            batchStartTime: batchStartTime,
+            batchId: batchId,
+            model: model
+          )
+          guard !observations.isEmpty else {
+            throw NSError(
+              domain: "ClaudeProvider",
+              code: -99,
+              userInfo: [
+                NSLocalizedDescriptionKey: "No observations could be created from segments."
+              ]
+            )
+          }
+
+          logSuccess(
+            ctx: makeCtx(
+              batchId: batchId,
+              operation: "transcribe_screenshots",
+              model: model,
+              startedAt: callStart,
+              attempt: attempt
+            ),
+            finishedAt: currentRun.finishedAt,
+            stdout: currentRun.stdout,
+            stderr: currentRun.stderr,
+            responseHeaders: tokenHeaders(from: accumulatedUsage)
+          )
+          let llmCall = makeLLMCall(
+            start: callStart,
+            end: currentRun.finishedAt,
+            input: currentPrompt,
+            output: currentRun.stdout
+          )
+          return (observations, llmCall)
+        } catch {
+          guard currentAttempt < maxAttempts else { throw error }
+          currentPrompt = buildTranscriptionCorrectionPrompt(
+            validationError: error.localizedDescription,
+            duration: durationString
+          )
+          print(
+            "[ClaudeProvider] Transcription output failed validation; continuing the same session"
+          )
+        }
       }
 
-      let observations = observations(
-        from: segments,
-        batchStartTime: batchStartTime,
-        batchId: batchId,
-        model: model
+      throw NSError(
+        domain: "ClaudeProvider",
+        code: -99,
+        userInfo: [NSLocalizedDescriptionKey: "No observations could be created from segments."]
       )
-      guard !observations.isEmpty else {
-        throw NSError(
-          domain: "ClaudeProvider",
-          code: -99,
-          userInfo: [
-            NSLocalizedDescriptionKey: "No observations could be created from segments."
-          ]
-        )
-      }
-
-      logSuccess(
-        ctx: makeCtx(
-          batchId: batchId,
-          operation: "transcribe_screenshots",
-          model: model,
-          startedAt: callStart,
-          attempt: attempt
-        ),
-        finishedAt: finalRun.finishedAt,
-        stdout: finalRun.stdout,
-        stderr: finalRun.stderr,
-        responseHeaders: tokenHeaders(from: totalUsage)
-      )
-      let llmCall = makeLLMCall(
-        start: callStart,
-        end: finalRun.finishedAt,
-        input: prompt,
-        output: finalRun.stdout
-      )
-      return (observations, llmCall)
     } catch {
       let nsError = error as NSError
       let partialStdout =
@@ -182,13 +177,23 @@ extension ClaudeProvider {
 
   private func validatedClaudeSegments(
     from run: ChatCLIRunResult,
-    durationSeconds: Int
+    durationSeconds: Int,
+    batchId: Int64?,
+    model: String,
+    attempt: Int
   ) throws -> [SegmentMergeResponse.Segment] {
-    let segments = try parseClaudeSegmentsStrict(from: run.stdout, stderr: run.stderr)
-    if let validationError = ClaudeOutputValidator.validateExactSegments(
-      segments,
-      duration: TimeInterval(durationSeconds)
-    ) {
+    let segments = try parseSegments(from: run.stdout, stderr: run.stderr)
+    if let validationError = validateSegments(segments, duration: TimeInterval(durationSeconds)) {
+      AnalyticsService.shared.captureValidationFailure(
+        provider: "chat_cli",
+        providerID: providerID,
+        operation: "transcribe_screenshots",
+        validationType: "timeline",
+        attempt: attempt,
+        model: model,
+        batchId: batchId,
+        errorDetail: validationError
+      )
       throw NSError(
         domain: "ClaudeProvider",
         code: -98,
@@ -218,21 +223,37 @@ extension ClaudeProvider {
 
   private func observations(
     from segments: [SegmentMergeResponse.Segment],
+    durationSeconds: Int,
     batchStartTime: Date,
     batchId: Int64?,
     model: String
   ) -> [Observation] {
-    segments.map { segment in
+    let ordered = segments.sorted {
+      parseVideoTimestamp($0.start) < parseVideoTimestamp($1.start)
+    }
+    return ordered.compactMap { segment in
       let startSeconds = TimeInterval(parseVideoTimestamp(segment.start))
       let endSeconds = TimeInterval(parseVideoTimestamp(segment.end))
-      let startEpoch = Int(batchStartTime.addingTimeInterval(startSeconds).timeIntervalSince1970)
-      let endEpoch = Int(batchStartTime.addingTimeInterval(endSeconds).timeIntervalSince1970)
+      let clampedStart = max(0, startSeconds)
+      let clampedEnd = min(endSeconds, TimeInterval(durationSeconds))
+      guard clampedEnd > clampedStart else { return nil }
+
+      let description = segment.description.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !description.isEmpty else { return nil }
+
+      let startEpoch = Int(
+        batchStartTime.addingTimeInterval(clampedStart).timeIntervalSince1970
+      )
+      let endEpoch = max(
+        startEpoch + 1,
+        Int(batchStartTime.addingTimeInterval(clampedEnd).timeIntervalSince1970)
+      )
       return Observation(
         id: nil,
         batchId: batchId ?? -1,
         startTs: startEpoch,
         endTs: endEpoch,
-        observation: segment.description,
+        observation: description,
         metadata: nil,
         llmModel: model,
         createdAt: Date()

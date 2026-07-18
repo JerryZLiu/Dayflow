@@ -191,13 +191,21 @@ This document lists manual events, properties, and code locations. All events re
 - llm_timeline_fallback_attempted / llm_timeline_fallback_succeeded / llm_timeline_fallback_failed
   - props: compatibility provider families plus exact `primary_provider_id` and `backup_provider_id`; safe error domain/code metadata only
   - file: Core/AI/LLMService.swift
-- llm_decode_failed / llm_validation_failed
-  - props: compatibility family in `provider`, exact provider in `provider_id`, operation/validation type, attempt, and output/detail presence or length metadata
-  - privacy: raw model output, stderr, validation text, and generated card content are never sent to analytics
-  - files: Core/AI/ChatCLIProvider+Parsing.swift, Core/AI/ChatCLIProvider+Transcription.swift, System/AnalyticsService.swift
-- llm_api_call (sampled ~10%)
-  - props: `provider: string`, `provider_id?: dayflow|gemini|chatgpt|claude|openai_compatible|local`, `model: string`, `operation: string`, `latency_ms: int`, `outcome: success|error`, `error_domain?: string`, `error_code?: int`, `http_status?: int`, `has_response_body?: bool`, `response_body_bytes?: int`
-  - privacy: request bodies, response bodies, and raw error messages stay local and are never sent to analytics
+- llm_model_fallback
+  - props: compatibility family in `provider`, exact provider in `provider_id` when available, operation, `from_model`, `to_model`, reason, and optional batch ID
+  - privacy: model routing metadata only; prompts, responses, and raw errors are never included
+  - files: Core/AI/CodexProvider.swift, Core/AI/GeminiDirectProvider+Text.swift, Core/AI/GeminiDirectProvider+Transcription.swift, Core/AI/GeminiDirectProvider+ActivityCards.swift
+- llm_decode_failed
+  - props: compatibility family in `provider`, exact provider in `provider_id`, operation, attempt, and output/stderr presence or length metadata
+  - privacy: raw model output and stderr are never sent to analytics
+  - files: Core/AI/AgentCLISupport+Parsing.swift, Core/AI/AgentCLISupport+Transcription.swift
+- llm_validation_failed
+  - props: compatibility family in `provider`, exact provider in `provider_id`, operation, validation type, attempt, detail presence or length metadata, and an optional sanitized `error_detail`
+  - privacy: validation details are redacted and capped at 500 characters; raw model output, stderr, and generated card content are never sent to analytics
+  - files: Core/AI/CodexProvider+ActivityCards.swift, Core/AI/CodexProvider+Transcription.swift, Core/AI/ClaudeProvider+ActivityCards.swift, Core/AI/ClaudeProvider+Transcription.swift, System/AnalyticsService.swift
+- llm_api_call
+  - props: `provider: string`, `provider_id?: dayflow|gemini|chatgpt|claude|openai_compatible|local`, `model: string`, `operation: string`, `attempt: int`, `latency_ms: int`, `outcome: success|error`, `error_domain?: string`, `error_code?: int`, `error_message?: string`, `http_status?: int`, `has_response_body?: bool`, `response_body_bytes?: int`
+  - privacy: error messages are redacted and capped at 500 characters; request and response bodies stay local and are never sent to analytics
   - file: Core/AI/LLMLogger.swift
 
 <!-- Storage-related events intentionally removed -->
