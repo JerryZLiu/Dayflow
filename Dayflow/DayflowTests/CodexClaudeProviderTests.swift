@@ -41,17 +41,29 @@ final class CodexClaudeProviderTests: XCTestCase {
     )
   }
 
-  func testClaudeActivityCardsUseSonnetSlugAtLowEffort() {
+  func testClaudeActivityCardsUseSonnetAliasAtLowEffort() {
     let configuration = ClaudeProvider.activityCardModelConfiguration()
 
-    XCTAssertEqual(configuration.model, "claude-sonnet")
+    // Default for the Claude picker is the `sonnet` alias (which the
+    // Claude CLI resolves to the current Sonnet release on the
+    // user's account). The previous hard-coded value was
+    // `claude-sonnet`, which the CLI rejects with "It may not
+    // exist or you may not have access to it" — see the comment
+    // on `ClaudeProvider.activityCardModelConfiguration`.
+    XCTAssertEqual(configuration.model, "sonnet")
     XCTAssertEqual(configuration.reasoningEffort, "low")
   }
 
-  func testChatGPTActivityCardsUseGPT56SolAtLowEffort() {
+  func testChatGPTActivityCardsUseUserPickedModelAtLowEffort() {
     let configuration = CodexProvider.activityCardModelConfiguration()
 
-    XCTAssertEqual(configuration.model, "gpt-5.6-sol")
+    // The picker drives both `transcriptionModelConfiguration` and
+    // `activityCardModelConfiguration` — they read the same
+    // `CodexModelPreference`. The default is `gpt-5.6-luna` (the
+    // transcription-tuned variant). The previous hard-coded value
+    // was `gpt-5.6-sol`; that alias is still selectable from the
+    // picker, just no longer the default.
+    XCTAssertEqual(configuration.model, "gpt-5.6-luna")
     XCTAssertEqual(configuration.reasoningEffort, "low")
   }
 
@@ -109,10 +121,10 @@ final class CodexClaudeProviderTests: XCTestCase {
     )
   }
 
-  func testClaudeTranscriptionUsesSonnetSlugAtLowEffort() {
+  func testClaudeTranscriptionUsesSonnetAliasAtLowEffort() {
     let configuration = ClaudeProvider.transcriptionModelConfiguration()
 
-    XCTAssertEqual(configuration.model, "claude-sonnet")
+    XCTAssertEqual(configuration.model, "sonnet")
     XCTAssertEqual(configuration.reasoningEffort, "low")
   }
 
