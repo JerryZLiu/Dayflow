@@ -109,6 +109,39 @@ struct CanvasTimelineDataView: View {
   // between triggers and keeps the body's inline closures tiny (fixes a
   // Swift type-checker timeout that appeared when each closure inlined its
   // own copy of this calculation).
+  /// Compact "provider · model" string rendered on each card so the user
+  /// always sees which provider/model produced the card. Returns `nil` when
+  /// both fields are missing (older saved cards) so the card simply omits
+  /// the badge instead of showing a placeholder. Provider id is mapped to a
+  /// human label here so storage-level identifiers like "chatgpt_claude"
+  /// surface as "Claude" or "ChatGPT" based on the model name.
+  private func providerBadge(for activity: TimelineActivity) -> String? {
+    let rawProvider = (activity.providerId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let rawModel = (activity.modelId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    if rawProvider.isEmpty && rawModel.isEmpty { return nil }
+
+    let providerLabel: String
+    switch rawProvider {
+    case "gemini": providerLabel = "Gemini"
+    case "minimax": providerLabel = "MiniMax"
+    case "ollama": providerLabel = "Local"
+    case "chatgpt_claude":
+      // For the unified ChatGPT/Claude CLI we surface the specific tool
+      // based on which model produced the card so users see "Claude ·
+      // Sonnet" rather than the generic "chatgpt_claude" raw id.
+      if rawModel.lowercased().contains("claude") { providerLabel = "Claude" }
+      else if rawModel.lowercased().contains("gpt")
+        || rawModel.lowercased().contains("codex")
+      { providerLabel = "ChatGPT" }
+      else { providerLabel = "CLI" }
+    case "dayflow": providerLabel = "Dayflow Pro"
+    default: providerLabel = rawProvider.isEmpty ? "AI" : rawProvider
+    }
+
+    if rawModel.isEmpty { return providerLabel }
+    return "\(providerLabel) · \(rawModel)"
+  }
+
   private func nowCenteredTargetHourIndex() -> Int {
     let currentHour = Calendar.current.component(.hour, from: Date())
     let hoursSince4AM = currentHour >= 4 ? currentHour - 4 : (24 - 4) + currentHour
@@ -331,6 +364,7 @@ struct CanvasTimelineDataView: View {
             isSystemCategory: item.categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
               .caseInsensitiveCompare("System") == .orderedSame,
             isBackupGenerated: item.activity.isBackupGenerated == true,
+            providerBadge: providerBadge(for: item.activity),
             onTap: {
               if selectedCardId == item.id {
                 clearSelection()

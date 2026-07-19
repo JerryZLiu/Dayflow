@@ -56,6 +56,8 @@ enum DailyRecapProvider: String, Codable, CaseIterable, Sendable {
       return .local
     case .openAICompatible:
       return .none
+    case .minimax:
+      return .none
     }
   }
 

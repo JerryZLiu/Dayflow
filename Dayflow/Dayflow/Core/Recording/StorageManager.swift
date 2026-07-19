@@ -700,6 +700,33 @@ final class StorageManager: StorageManaging, @unchecked Sendable {
         print("✅ Added is_deleted column and composite indexes to timeline_cards")
       }
 
+      // Migration: add provider_id and model_id columns to timeline_cards
+      let timelineCardsColumnsForProvider = try db.columns(in: "timeline_cards").map { $0.name }
+      if !timelineCardsColumnsForProvider.contains("provider_id") {
+        try db.execute(
+          sql: """
+                ALTER TABLE timeline_cards ADD COLUMN provider_id TEXT;
+            """)
+        print("✅ Added provider_id column to timeline_cards")
+      }
+      if !timelineCardsColumnsForProvider.contains("model_id") {
+        try db.execute(
+          sql: """
+                ALTER TABLE timeline_cards ADD COLUMN model_id TEXT;
+            """)
+        print("✅ Added model_id column to timeline_cards")
+      }
+      if timelineCardsColumnsForProvider.contains("provider_id")
+        || timelineCardsColumnsForProvider.contains("model_id")
+      {
+        try db.execute(
+          sql: """
+                CREATE INDEX IF NOT EXISTS idx_timeline_cards_provider_model
+                ON timeline_cards(provider_id, model_id)
+                WHERE is_deleted = 0;
+            """)
+      }
+
       let screenshotColumns = try db.columns(in: "screenshots").map { $0.name }
       if !screenshotColumns.contains("idle_seconds_at_capture") {
         try db.execute(

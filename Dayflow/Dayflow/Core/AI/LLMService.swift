@@ -154,8 +154,61 @@ final class LLMService: LLMServicing {
     return OllamaProvider(openAICompatible: runtimeConfiguration)
   }
 
+  private func makeMiniMaxProvider() -> MiniMaxProvider? {
+    guard let key = KeychainManager.shared.retrieve(for: MiniMaxProvider.keychainKey),
+      !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else {
+      print("❌ [LLMService] MiniMax provider unavailable: missing API key")
+      return nil
+    }
+    return MiniMaxProvider()
+  }
+
   private func providerLabel(for providerID: LLMProviderID) -> String {
     providerID.providerLabel
+  }
+
+  /// Returns the model ID the provider should be stamped with on generated
+  /// cards. Falls back to the canonical provider ID when the user hasn't
+  /// chosen a specific model yet.
+  private func providerModelId(for providerID: LLMProviderID) -> String? {
+    switch providerID {
+    case .gemini:
+      return GeminiModelPreference.load().primary.rawValue
+    case .local:
+      return UserDefaults.standard.string(forKey: "llmLocalModelId")
+    case .openAICompatible:
+      return OpenAICompatiblePreferences.load()?.modelID
+    case .chatGPT:
+      return UserDefaults.standard.string(forKey: "llmCodexModel")
+    case .claude:
+      return UserDefaults.standard.string(forKey: "llmClaudeModel")
+    case .minimax:
+      return MiniMaxModelPreference.load().modelId
+    case .dayflow:
+      return nil
+    }
+  }
+
+  /// Reads the user-selected Chat CLI model from `UserDefaults` for the
+  /// given provider and returns a trimmed, non-empty value. Returns `nil`
+  /// when the key is unset or the stored value is whitespace-only so the
+  /// provider's `defaultModel` is `nil` and the static canonical default
+  /// is used. Mirrors v1's `makeChatCLIProvider` pass-through so Settings
+  /// selections actually reach the running provider.
+  private func resolvedChatCLIDefaultModel(for providerID: LLMProviderID) -> String? {
+    let key: String
+    switch providerID {
+    case .chatGPT:
+      key = "llmCodexModel"
+    case .claude:
+      key = "llmClaudeModel"
+    default:
+      return nil
+    }
+    guard let raw = UserDefaults.standard.string(forKey: key) else { return nil }
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
   }
 
   private func noProviderError() -> NSError {
@@ -246,7 +299,7 @@ final class LLMService: LLMServicing {
         ), fallbackState: nil
       )
     case .chatGPT:
-      let provider = CodexProvider()
+      let provider = CodexProvider(defaultModel: resolvedChatCLIDefaultModel(for: .chatGPT))
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
@@ -254,11 +307,25 @@ final class LLMService: LLMServicing {
         ), fallbackState: nil
       )
     case .claude:
-      let provider = ClaudeProvider()
+      let provider = ClaudeProvider(defaultModel: resolvedChatCLIDefaultModel(for: .claude))
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
           generateActivityCards: provider.generateActivityCards
+        ), fallbackState: nil
+      )
+    case .minimax:
+      guard let provider = makeMiniMaxProvider() else { throw noProviderError() }
+      return (
+        actions: BatchProviderActions(
+          transcribeScreenshots: { [provider] screenshots, batchStartTime, batchId in
+            try await provider.transcribeScreenshots(
+              screenshots, batchStartTime: batchStartTime, batchId: batchId)
+          },
+          generateActivityCards: { [provider] observations, context, batchId in
+            try await provider.generateActivityCards(
+              observations: observations, context: context, batchId: batchId)
+          }
         ), fallbackState: nil
       )
     }
@@ -540,7 +607,7 @@ final class LLMService: LLMServicing {
         generateTextStreaming: nil
       )
     case .chatGPT:
-      let provider = CodexProvider()
+      let provider = CodexProvider(defaultModel: resolvedChatCLIDefaultModel(for: .chatGPT))
       return TextProviderActions(
         generateText: { prompt in
           try await provider.generateText(prompt: prompt)
@@ -548,12 +615,20 @@ final class LLMService: LLMServicing {
         generateTextStreaming: provider.generateTextStreaming
       )
     case .claude:
-      let provider = ClaudeProvider()
+      let provider = ClaudeProvider(defaultModel: resolvedChatCLIDefaultModel(for: .claude))
       return TextProviderActions(
         generateText: { prompt in
           try await provider.generateText(prompt: prompt)
         },
         generateTextStreaming: provider.generateTextStreaming
+      )
+    case .minimax:
+      guard let provider = makeMiniMaxProvider() else { throw noProviderError() }
+      return TextProviderActions(
+        generateText: { prompt in
+          try await provider.generateText(prompt: prompt)
+        },
+        generateTextStreaming: nil
       )
     }
   }
@@ -853,7 +928,9 @@ final class LLMService: LLMServicing {
                 detailedSummary: card.detailedSummary,
                 distractions: card.distractions,
                 appSites: card.appSites,
-                isBackupGenerated: isBackupGenerated ? true : nil
+                isBackupGenerated: isBackupGenerated ? true : nil,
+                providerId: activeContext.id.providerLabel,
+                modelId: providerModelId(for: activeContext.id)
               )
             },
             batchId: batchId
@@ -1191,15 +1268,17 @@ final class LLMService: LLMServicing {
         history: request.history
       )
     case .codex:
-      return CodexProvider().generateChatStreaming(
-        prompt: request.prompt,
-        sessionId: request.sessionId
-      )
+      return CodexProvider(defaultModel: resolvedChatCLIDefaultModel(for: .chatGPT))
+        .generateChatStreaming(
+          prompt: request.prompt,
+          sessionId: request.sessionId
+        )
     case .claude:
-      return ClaudeProvider().generateChatStreaming(
-        prompt: request.prompt,
-        sessionId: request.sessionId
-      )
+      return ClaudeProvider(defaultModel: resolvedChatCLIDefaultModel(for: .claude))
+        .generateChatStreaming(
+          prompt: request.prompt,
+          sessionId: request.sessionId
+        )
     }
   }
 }
