@@ -20,7 +20,12 @@ extension ClaudeProvider {
   static func activityCardModelConfiguration() -> (
     model: String, reasoningEffort: String?
   ) {
-    (model: "claude-sonnet", reasoningEffort: "low")
+    // Mirrors `transcriptionModelConfiguration` — we always pass
+    // the user's selected alias to the CLI rather than a hard-coded
+    // model name. The Settings → Providers tab is what writes this
+    // preference; the catalog at `ChatCLIModelCatalog` powers the
+    // picker with the live display names.
+    (model: ClaudeModelPreference.load().primary.rawValue, reasoningEffort: "low")
   }
 
   func generateActivityCards(

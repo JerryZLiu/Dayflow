@@ -15,6 +15,15 @@ final class ProvidersSettingsViewModel: ObservableObject {
   @Published var providerRoutingErrorMessage: String?
 
   @Published var selectedGeminiModel: GeminiModel
+  @Published var selectedClaudeModel: ClaudeModel
+  @Published var selectedCodexModel: CodexModel
+  /// Live catalog of models the user can pick for the Chat CLI
+  /// providers, populated by `ChatCLIModelCatalog.discover()`. When
+  /// the catalog is empty (e.g. the CLI isn't installed), the
+  /// Settings UI falls back to the static enum lists.
+  @Published private(set) var chatCLIModelCatalog: ChatCLIModelCatalogResult =
+    .empty
+  @Published private(set) var isDiscoveringChatCLIModels = false
   @Published var localEngine: LocalEngine {
     didSet {
       guard oldValue != localEngine else { return }
@@ -133,6 +142,13 @@ final class ProvidersSettingsViewModel: ObservableObject {
     selectedGeminiModel = preference.primary
     savedGeminiModel = preference.primary
 
+    // Load the Chat CLI model picks up-front. The Settings UI uses
+    // these even before the catalog discovery completes, so the
+    // picker is never empty for a returning user.
+    selectedClaudeModel = ClaudeModelPreference.load().primary
+    selectedCodexModel = CodexModelPreference.load().primary
+    chatCLIModelCatalog = ChatCLIModelCatalog.cached() ?? .empty
+
     let rawEngine = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
     let engine = LocalEngine(rawValue: rawEngine) ?? .ollama
     localEngine = engine
@@ -173,6 +189,14 @@ final class ProvidersSettingsViewModel: ObservableObject {
     loadOllamaPromptOverridesIfNeeded()
     if currentProvider == .chatGPT || currentProvider == .claude {
       selectedAgentPromptProvider = currentProvider
+      // Probe the Chat CLI to populate the model picker. We only
+      // kick this off when one of the CLI providers is active — the
+      // Gemini/local/openai-compatible providers don't use it, so
+      // there's no point spending the API calls. Uses the 1-hour
+      // cache by default; the "Refresh" button forces a re-probe.
+      if chatCLIModelCatalog.claude.isEmpty && chatCLIModelCatalog.codex.isEmpty {
+        refreshChatCLIModelCatalog(force: false)
+      }
     } else {
       loadAgentPromptOverridesIfNeeded()
     }
@@ -722,6 +746,90 @@ final class ProvidersSettingsViewModel: ObservableObject {
           "source": source,
           "model": model.rawValue,
         ])
+    }
+  }
+
+  // MARK: - Chat CLI model selection (Claude / Codex)
+
+  /// Re-runs the CLI probe to discover the live model list. Wired to
+  /// the "Refresh" button in the Settings → Providers tab so users
+  /// can force a re-probe after upgrading their subscription tier
+  /// (which may unlock a model that wasn't available before).
+  func refreshChatCLIModelCatalog(force: Bool = true) {
+    guard !isDiscoveringChatCLIModels else { return }
+    isDiscoveringChatCLIModels = true
+    Task { [weak self] in
+      let result = await ChatCLIModelCatalog.discover(refresh: force)
+      await MainActor.run { [weak self] in
+        guard let self else { return }
+        self.chatCLIModelCatalog = result
+        self.isDiscoveringChatCLIModels = false
+      }
+    }
+  }
+
+  /// Persists the user's Claude model choice to `ClaudeModelPreference`
+  /// and updates the cached catalog pick so the next batch uses the
+  /// new model. No re-probe needed — the catalog already knows the
+  /// alias is valid for this account.
+  func persistClaudeModelSelection(_ model: ClaudeModel, source: String) {
+    ClaudeModelPreference(primary: model).save()
+
+    Task { @MainActor in
+      AnalyticsService.shared.capture(
+        "claude_model_selected",
+        [
+          "source": source,
+          "model": model.rawValue,
+        ])
+    }
+  }
+
+  /// Persists the user's Codex model choice. Mirrors
+  /// `persistClaudeModelSelection`.
+  func persistCodexModelSelection(_ model: CodexModel, source: String) {
+    CodexModelPreference(primary: model).save()
+
+    Task { @MainActor in
+      AnalyticsService.shared.capture(
+        "codex_model_selected",
+        [
+          "source": source,
+          "model": model.rawValue,
+        ])
+    }
+  }
+
+  /// Returns the picker rows for the Claude model section. Prefers
+  /// the live catalog (which has display names like "Claude Sonnet 5")
+  /// and falls back to the static enum list when the catalog is
+  /// empty (e.g. CLI not installed or probe hasn't run yet).
+  func claudeModelPickerRows() -> [DiscoveredChatCLIModel] {
+    let catalogRows = chatCLIModelCatalog.claude
+    if !catalogRows.isEmpty {
+      return catalogRows
+    }
+    return ClaudeModel.allCases.map { alias in
+      DiscoveredChatCLIModel(
+        id: alias.rawValue,
+        displayName: alias.displayName,
+        fullName: alias.rawValue
+      )
+    }
+  }
+
+  /// Same as `claudeModelPickerRows` but for Codex.
+  func codexModelPickerRows() -> [DiscoveredChatCLIModel] {
+    let catalogRows = chatCLIModelCatalog.codex
+    if !catalogRows.isEmpty {
+      return catalogRows
+    }
+    return CodexModel.allCases.map { alias in
+      DiscoveredChatCLIModel(
+        id: alias.rawValue,
+        displayName: alias.displayName,
+        fullName: alias.rawValue
+      )
     }
   }
 

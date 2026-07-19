@@ -6,13 +6,19 @@ extension CodexProvider {
   static func transcriptionModelConfiguration() -> (
     model: String, reasoningEffort: String?
   ) {
-    return (model: "gpt-5.6-luna", reasoningEffort: "low")
+    // Mirrors `ClaudeProvider.transcriptionModelConfiguration` — the
+    // primary model is whatever the user picked in Settings → Providers,
+    // loaded from `CodexModelPreference`. The legacy fallback stays
+    // hard-coded because the picker only exposes the primary slot; if
+    // the user's selected model errors out, Dayflow falls back to a
+    // known-good previous-generation model.
+    return (model: CodexModelPreference.load().primary.rawValue, reasoningEffort: "low")
   }
 
   static func legacyTranscriptionModelConfiguration() -> (
     model: String, reasoningEffort: String?
   ) {
-    return (model: "gpt-5.4-mini", reasoningEffort: "low")
+    return (model: CodexModel.gpt54Mini.rawValue, reasoningEffort: "low")
   }
 
   func transcribeScreenshots(

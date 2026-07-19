@@ -6,7 +6,16 @@ extension ClaudeProvider {
   static func transcriptionModelConfiguration() -> (
     model: String, reasoningEffort: String?
   ) {
-    (model: "claude-sonnet", reasoningEffort: "low")
+    // The Claude CLI's `--model` flag only accepts an alias
+    // (`sonnet`, `opus`, `fable`, `haiku`, …) or a full model name
+    // like `claude-fable-5`. Anything else returns "It may not exist
+    // or you may not have access to it" → exit 1. We persist the
+    // *alias* in `ClaudeModelPreference` because aliases track the
+    // latest release of each family automatically — Sonnet today
+    // becomes Sonnet 5.5 tomorrow without us bumping a stored
+    // version. The user picks the alias from the Settings → Providers
+    // tab; we send that exact string to the CLI.
+    (model: ClaudeModelPreference.load().primary.rawValue, reasoningEffort: "low")
   }
 
   func transcribeScreenshots(
