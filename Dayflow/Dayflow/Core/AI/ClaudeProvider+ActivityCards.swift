@@ -28,7 +28,7 @@ extension ClaudeProvider {
   ) async throws -> (cards: [ActivityCardData], log: LLMCall) {
     let callStart = Date()
     let prompt = buildCardsPrompt(observations: observations, context: context)
-    let modelConfiguration = Self.activityCardModelConfiguration()
+    let modelConfiguration = resolvedActivityCardModelConfiguration()
     let model = modelConfiguration.model
     let effort = modelConfiguration.reasoningEffort
     var run: ChatCLIRunResult?

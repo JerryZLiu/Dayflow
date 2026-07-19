@@ -8,7 +8,7 @@ extension ClaudeProvider {
       tool: .claude,
       prompt: prompt,
       workingDirectory: config.workingDirectory,
-      model: "sonnet",
+      model: resolvedChatStreamingModel,
       reasoningEffort: nil,
       sessionId: sessionId
     )
@@ -44,9 +44,14 @@ extension ClaudeProvider {
   }
 
   func generateText(prompt: String) async throws -> (text: String, log: LLMCall) {
+    // One-off text requests (dashboard chat, ad-hoc prompts) intentionally
+    // ignore `defaultModel`: the user-selected Claude model is reserved for
+    // timeline-bound operations (transcription + card generation) so we
+    // don't accidentally let a "fast" model setting degrade richer reasoning
+    // tasks. Fall back to the same stable default as generateChatStreaming.
     try await generateText(
       prompt: prompt,
-      model: "sonnet",
+      model: resolvedChatStreamingModel,
       reasoningEffort: "high",
       disableTools: false
     )

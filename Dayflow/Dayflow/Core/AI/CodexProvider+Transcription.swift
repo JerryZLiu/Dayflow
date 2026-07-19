@@ -55,7 +55,7 @@ extension CodexProvider {
       )
     }
 
-    let modelConfiguration = Self.transcriptionModelConfiguration()
+    let modelConfiguration = resolvedTranscriptionModelConfiguration()
     let legacyModelConfiguration = Self.legacyTranscriptionModelConfiguration()
     var model = modelConfiguration.model
     var effort = modelConfiguration.reasoningEffort

@@ -19,6 +19,11 @@ struct CanvasActivityCard: View {
   let isSelected: Bool
   let isSystemCategory: Bool
   let isBackupGenerated: Bool
+  /// Compact "Provider · Model" string shown in the card footer so the
+  /// user can see at a glance which model produced this card (e.g.
+  /// "Gemini · 2.5 Pro", "Claude · Sonnet"). Optional because older
+  /// saved cards don't carry the metadata; when nil the badge is hidden.
+  let providerBadge: String?
   let onTap: () -> Void
   // Raw values for pattern matching (may contain paths)
   let faviconPrimaryRaw: String?
@@ -146,19 +151,29 @@ struct CanvasActivityCard: View {
 
             Spacer()
 
-            HStack(spacing: 6) {
-              if isBackupGenerated {
-                backupIndicator
-              }
+            VStack(alignment: .trailing, spacing: 2) {
+              HStack(spacing: 6) {
+                if isBackupGenerated {
+                  backupIndicator
+                }
 
-              Text(time)
-                .font(
-                  Font.custom("Figtree", size: secondaryFontSize)
-                    .weight(.medium)
-                )
-                .foregroundColor(style.time)
-                .lineLimit(1)
-                .truncationMode(.tail)
+                Text(time)
+                  .font(
+                    Font.custom("Figtree", size: secondaryFontSize)
+                      .weight(.medium)
+                  )
+                  .foregroundColor(style.time)
+                  .lineLimit(1)
+                  .truncationMode(.tail)
+              }
+              if let badge = providerBadge, !badge.isEmpty {
+                Text(badge)
+                  .font(.custom("Figtree", size: 9))
+                  .foregroundColor(.secondary)
+                  .lineLimit(1)
+                  .truncationMode(.tail)
+                  .help("This card was produced by \(badge)")
+              }
             }
           }
         }

@@ -190,6 +190,27 @@ final class LLMService: LLMServicing {
     }
   }
 
+  /// Reads the user-selected Chat CLI model from `UserDefaults` for the
+  /// given provider and returns a trimmed, non-empty value. Returns `nil`
+  /// when the key is unset or the stored value is whitespace-only so the
+  /// provider's `defaultModel` is `nil` and the static canonical default
+  /// is used. Mirrors v1's `makeChatCLIProvider` pass-through so Settings
+  /// selections actually reach the running provider.
+  private func resolvedChatCLIDefaultModel(for providerID: LLMProviderID) -> String? {
+    let key: String
+    switch providerID {
+    case .chatGPT:
+      key = "llmCodexModel"
+    case .claude:
+      key = "llmClaudeModel"
+    default:
+      return nil
+    }
+    guard let raw = UserDefaults.standard.string(forKey: key) else { return nil }
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
   private func noProviderError() -> NSError {
     NSError(
       domain: "LLMService",
@@ -278,7 +299,7 @@ final class LLMService: LLMServicing {
         ), fallbackState: nil
       )
     case .chatGPT:
-      let provider = CodexProvider()
+      let provider = CodexProvider(defaultModel: resolvedChatCLIDefaultModel(for: .chatGPT))
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
@@ -286,7 +307,7 @@ final class LLMService: LLMServicing {
         ), fallbackState: nil
       )
     case .claude:
-      let provider = ClaudeProvider()
+      let provider = ClaudeProvider(defaultModel: resolvedChatCLIDefaultModel(for: .claude))
       return (
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
@@ -586,7 +607,7 @@ final class LLMService: LLMServicing {
         generateTextStreaming: nil
       )
     case .chatGPT:
-      let provider = CodexProvider()
+      let provider = CodexProvider(defaultModel: resolvedChatCLIDefaultModel(for: .chatGPT))
       return TextProviderActions(
         generateText: { prompt in
           try await provider.generateText(prompt: prompt)
@@ -594,7 +615,7 @@ final class LLMService: LLMServicing {
         generateTextStreaming: provider.generateTextStreaming
       )
     case .claude:
-      let provider = ClaudeProvider()
+      let provider = ClaudeProvider(defaultModel: resolvedChatCLIDefaultModel(for: .claude))
       return TextProviderActions(
         generateText: { prompt in
           try await provider.generateText(prompt: prompt)
@@ -1247,15 +1268,17 @@ final class LLMService: LLMServicing {
         history: request.history
       )
     case .codex:
-      return CodexProvider().generateChatStreaming(
-        prompt: request.prompt,
-        sessionId: request.sessionId
-      )
+      return CodexProvider(defaultModel: resolvedChatCLIDefaultModel(for: .chatGPT))
+        .generateChatStreaming(
+          prompt: request.prompt,
+          sessionId: request.sessionId
+        )
     case .claude:
-      return ClaudeProvider().generateChatStreaming(
-        prompt: request.prompt,
-        sessionId: request.sessionId
-      )
+      return ClaudeProvider(defaultModel: resolvedChatCLIDefaultModel(for: .claude))
+        .generateChatStreaming(
+          prompt: request.prompt,
+          sessionId: request.sessionId
+        )
     }
   }
 }

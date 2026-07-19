@@ -19,7 +19,7 @@ extension ClaudeProvider {
     }
 
     let callStart = Date()
-    let modelConfiguration = Self.transcriptionModelConfiguration()
+    let modelConfiguration = resolvedTranscriptionModelConfiguration()
     let model = modelConfiguration.model
     let effort = modelConfiguration.reasoningEffort
     let preparedInput: ClaudePreparedTranscriptionInput
