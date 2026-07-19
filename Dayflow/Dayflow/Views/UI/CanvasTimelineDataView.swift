@@ -109,6 +109,7 @@ struct CanvasTimelineDataView: View {
   // between triggers and keeps the body's inline closures tiny (fixes a
   // Swift type-checker timeout that appeared when each closure inlined its
   // own copy of this calculation).
+
   private func nowCenteredTargetHourIndex() -> Int {
     let currentHour = Calendar.current.component(.hour, from: Date())
     let hoursSince4AM = currentHour >= 4 ? currentHour - 4 : (24 - 4) + currentHour
@@ -331,6 +332,7 @@ struct CanvasTimelineDataView: View {
             isSystemCategory: item.categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
               .caseInsensitiveCompare("System") == .orderedSame,
             isBackupGenerated: item.activity.isBackupGenerated == true,
+            providerBadge: item.activity.providerBadge,
             onTap: {
               if selectedCardId == item.id {
                 clearSelection()
