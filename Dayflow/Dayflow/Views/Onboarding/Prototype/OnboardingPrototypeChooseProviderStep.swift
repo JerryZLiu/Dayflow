@@ -103,6 +103,14 @@ struct OnboardingPrototypeChooseProviderStep: View {
       notes: "Uses OpenRouter or any OpenAI-compatible endpoint."
     ),
     ComparisonProvider(
+      providerID: .minimax,
+      title: "MiniMax M3",
+      accuracy: RatedValue(text: "Best", rating: .best),
+      subscription: "MiniMax Token Plan",
+      ease: RatedValue(text: "API key", rating: .medium),
+      notes: "Frontier multimodal model • 1M-token context window • native image & video understanding."
+    ),
+    ComparisonProvider(
       providerID: .local,
       title: "Local AI",
       accuracy: RatedValue(text: "Decent", rating: .basic),
@@ -291,6 +299,8 @@ struct OnboardingPrototypeChooseProviderStep: View {
       iconCircle(imageName: "GeminiLogo")
     case .openAICompatible:
       iconCircle(systemName: "network")
+    case .minimax:
+      iconCircle(systemName: "sparkles")
     case .local:
       iconCircle(systemName: "laptopcomputer")
     }

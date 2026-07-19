@@ -58,6 +58,19 @@ final class ProvidersSettingsViewModel: ObservableObject {
   @Published private(set) var claudeCLIInstalled = false
   @Published private(set) var isCheckingCLIReadiness = false
 
+  @Published var selectedMiniMaxModel: String = MiniMaxProvider.defaultModelId {
+    didSet {
+      guard oldValue != selectedMiniMaxModel else { return }
+      UserDefaults.standard.set(selectedMiniMaxModel, forKey: "llmMiniMaxModelId")
+    }
+  }
+  @Published var minimaxAPIKey: String = "" {
+    didSet {
+      guard oldValue != minimaxAPIKey else { return }
+      MiniMaxAPIHelper.setAPIKey(minimaxAPIKey)
+    }
+  }
+
   @Published var geminiPromptOverridesLoaded = false
   @Published var isUpdatingGeminiPromptState = false
   @Published var useCustomGeminiTitlePrompt = false {
@@ -159,6 +172,10 @@ final class ProvidersSettingsViewModel: ObservableObject {
     }
     openAICompatibleAPIKey =
       KeychainManager.shared.retrieve(for: OpenAICompatiblePreferences.keychainProvider) ?? ""
+
+    let minimaxPref = MiniMaxModelPreference.load()
+    selectedMiniMaxModel = minimaxPref.modelId
+    minimaxAPIKey = KeychainManager.shared.retrieve(for: MiniMaxProvider.keychainKey) ?? ""
   }
 
   func handleOnAppear() {
@@ -166,6 +183,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
     loadRouting()
     reloadLocalProviderSettings()
     reloadOpenAICompatibleSettings()
+    reloadMiniMaxProviderSettings()
     refreshCLIReadiness()
     LocalModelPreferences.syncPreset(for: localEngine, modelId: localModelId)
     refreshUpgradeBannerState()
@@ -233,6 +251,12 @@ final class ProvidersSettingsViewModel: ObservableObject {
     openAICompatibleModelID = configuration.modelID
     openAICompatibleAPIKey =
       KeychainManager.shared.retrieve(for: OpenAICompatiblePreferences.keychainProvider) ?? ""
+  }
+
+  func reloadMiniMaxProviderSettings() {
+    let preference = MiniMaxModelPreference.load()
+    selectedMiniMaxModel = preference.modelId
+    minimaxAPIKey = KeychainManager.shared.retrieve(for: MiniMaxProvider.keychainKey) ?? ""
   }
 
   func refreshCLIReadiness() {
@@ -381,6 +405,8 @@ final class ProvidersSettingsViewModel: ObservableObject {
       let preference = GeminiModelPreference.load()
       selectedGeminiModel = preference.primary
       savedGeminiModel = preference.primary
+    case .minimax:
+      reloadMiniMaxProviderSettings()
     case .dayflow:
       break
     }
@@ -590,6 +616,9 @@ final class ProvidersSettingsViewModel: ObservableObject {
         KeychainManager.shared.retrieve(
           for: OpenAICompatiblePreferences.keychainProvider) ?? ""
       return !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    case .minimax:
+      let key = KeychainManager.shared.retrieve(for: MiniMaxProvider.keychainKey) ?? ""
+      return !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     case .local:
       let baseURL = (UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -706,6 +735,10 @@ final class ProvidersSettingsViewModel: ObservableObject {
       properties["endpoint_kind"] = openAICompatiblePreset.rawValue
       properties["has_api_key"] =
         !openAICompatibleAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    } else if providerId == .minimax {
+      properties["model_id"] = selectedMiniMaxModel
+      properties["has_api_key"] =
+        !minimaxAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     AnalyticsService.shared.capture("provider_setup_completed", properties)
   }
@@ -744,6 +777,10 @@ final class ProvidersSettingsViewModel: ObservableObject {
         summary: "Gemini free tier • fast & accurate"
       ),
       CompactProviderInfo(
+        id: .minimax,
+        summary: "Frontier multimodal model • 1M-token context • MiniMax M3"
+      ),
+      CompactProviderInfo(
         id: .openAICompatible,
         summary: "OpenRouter or another OpenAI Chat Completions endpoint"
       ),
@@ -778,6 +815,12 @@ final class ProvidersSettingsViewModel: ObservableObject {
     case .openAICompatible:
       return openAICompatibleModelID.isEmpty
         ? "OpenAI-compatible endpoint" : openAICompatibleModelID
+    case .minimax:
+      let model = UserDefaults.standard.string(forKey: "llmMiniMaxModelId")?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      let displayModel =
+        (model?.isEmpty == false ? model! : MiniMaxProvider.defaultModelId)
+      return "MiniMax M3 – \(displayModel)"
     case .dayflow:
       return isDayflowProActive ? "Dayflow Pro active" : "Requires Dayflow Pro"
     }
@@ -809,6 +852,8 @@ final class ProvidersSettingsViewModel: ObservableObject {
       return "Claude Code"
     case .openAICompatible:
       return "OpenAI-compatible API"
+    case .minimax:
+      return "MiniMax API"
     case .dayflow:
       return "Dayflow Backend"
     }
@@ -821,6 +866,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
     case .chatGPT: return "ChatGPT"
     case .claude: return "Claude"
     case .openAICompatible: return "OpenAI-compatible"
+    case .minimax: return "MiniMax M3"
     case .dayflow: return "Dayflow Pro"
     }
   }
@@ -840,6 +886,7 @@ struct CompactProviderInfo: Identifiable {
     case .chatGPT: return "ChatGPT"
     case .claude: return "Claude"
     case .openAICompatible: return "OpenAI-compatible"
+    case .minimax: return "MiniMax M3"
     case .dayflow: return "Dayflow Pro"
     }
   }

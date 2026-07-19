@@ -142,6 +142,21 @@ struct SettingsProvidersTabView: View {
       SettingsRow(label: "API key", showsDivider: false) {
         SettingsMetadata(text: hasKey ? "Stored safely in Keychain" : "Not set")
       }
+    case .minimax:
+      SettingsRow(label: "Model") {
+        SettingsMetadata(
+          text: viewModel.selectedMiniMaxModel.isEmpty
+            ? MiniMaxProvider.defaultModelId
+            : viewModel.selectedMiniMaxModel)
+      }
+      SettingsRow(label: "Endpoint") {
+        SettingsMetadata(text: MiniMaxProvider.defaultEndpoint)
+      }
+      SettingsRow(label: "API key", showsDivider: false) {
+        SettingsMetadata(
+          text: KeychainManager.shared.retrieve(for: MiniMaxProvider.keychainKey) != nil
+            ? "Stored safely in Keychain" : "Not set")
+      }
     case .dayflow:
       SettingsRow(label: "Status", showsDivider: false) {
         SettingsMetadata(text: viewModel.statusText(for: .dayflow) ?? "Requires Dayflow Pro")
@@ -196,6 +211,18 @@ struct SettingsProvidersTabView: View {
             .fixedSize(horizontal: false, vertical: true)
             SettingsSecondaryButton(title: "Test connection") {
               viewModel.editProviderConfiguration(.openAICompatible)
+            }
+          }
+        case .minimax:
+          VStack(alignment: .leading, spacing: 10) {
+            Text(
+              "Dayflow sends a small test image to MiniMax M3 to verify the connection. A small token charge may apply."
+            )
+            .font(.custom("Figtree", size: 12))
+            .foregroundColor(SettingsStyle.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            SettingsSecondaryButton(title: "Test connection") {
+              viewModel.editProviderConfiguration(.minimax)
             }
           }
         case .dayflow:
@@ -427,7 +454,7 @@ struct SettingsProvidersTabView: View {
         ],
         onReset: viewModel.resetOllamaPromptOverrides
       )
-    case .dayflow, .chatGPT, .claude, .openAICompatible:
+    case .dayflow, .chatGPT, .claude, .openAICompatible, .minimax:
       EmptyView()
     }
   }

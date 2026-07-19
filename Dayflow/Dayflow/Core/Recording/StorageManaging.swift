@@ -35,6 +35,7 @@ protocol StorageManaging: Sendable {
   // Timeline Queries
   func fetchTimelineCards(forDay day: String) -> [TimelineCard]
   func fetchTimelineCardsByTimeRange(from: Date, to: Date) -> [TimelineCard]
+  func fetchAllTimelineCards() -> [TimelineCard]
   func fetchTotalMinutesTracked(from: Date, to: Date) -> Double
   func fetchTotalMinutesTrackedForWeek(containing date: Date) -> Double
   func replaceTimelineCardsInRange(from: Date, to: Date, with: [TimelineCardShell], batchId: Int64)
