@@ -3,6 +3,52 @@ import GRDB
 import Sentry
 
 extension StorageManager {
+  /// Parsed view of a `timeline_cards.metadata` JSON column. Centralized
+  /// here so every reader (`fetchTimelineCards(forBatch:)`,
+  /// `fetchTimelineCards(forDay:)`, `fetchTimelineCardsByTimeRange`,
+  /// etc.) pulls the same field set — important because earlier rows may
+  /// carry either the new envelope or a legacy bare `[Distraction]`
+  /// array.
+  fileprivate struct ParsedTimelineMetadata {
+    let distractions: [Distraction]?
+    let appSites: AppSites?
+    let isBackupGenerated: Bool?
+    let providerId: String?
+    let modelId: String?
+  }
+
+  fileprivate static func parseMetadata(
+    _ metadataString: String?, using decoder: JSONDecoder
+  ) -> ParsedTimelineMetadata {
+    guard
+      let metadataString,
+      let jsonData = metadataString.data(using: .utf8)
+    else {
+      return ParsedTimelineMetadata(
+        distractions: nil, appSites: nil, isBackupGenerated: nil,
+        providerId: nil, modelId: nil)
+    }
+    if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
+      return ParsedTimelineMetadata(
+        distractions: meta.distractions,
+        appSites: meta.appSites,
+        isBackupGenerated: meta.isBackupGenerated,
+        providerId: meta.providerId,
+        modelId: meta.modelId)
+    }
+    // Legacy format: the column was a bare [Distraction] array before
+    // the metadata envelope existed. Keep the distractions, leave
+    // everything else nil so the UI can render the card correctly.
+    if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
+      return ParsedTimelineMetadata(
+        distractions: legacy, appSites: nil, isBackupGenerated: nil,
+        providerId: nil, modelId: nil)
+    }
+    return ParsedTimelineMetadata(
+      distractions: nil, appSites: nil, isBackupGenerated: nil,
+      providerId: nil, modelId: nil)
+  }
+
   func saveTimelineCardShell(batchId: Int64, card: TimelineCardShell) -> Int64? {
     let encoder = JSONEncoder()
     var lastId: Int64? = nil
@@ -84,7 +130,9 @@ extension StorageManager {
         distractions: card.distractions,
         appSites: card.appSites,
         isBackupGenerated: card.isBackupGenerated,
-        idle: card.idleMetadata
+        idle: card.idleMetadata,
+        providerId: card.providerId,
+        modelId: card.modelId
       )
       let metadataString: String? = (try? encoder.encode(meta)).flatMap {
         String(data: $0, encoding: .utf8)
@@ -248,7 +296,13 @@ extension StorageManager {
       distractions: nil,
       appSites: AppSites(primary: "dayflow.so", secondary: nil),
       isBackupGenerated: nil,
-      idle: nil
+      idle: nil,
+      // Onboarding cards are static — they're written by the app to
+      // give the user a sample card on first launch, not produced by
+      // any LLM. Leaving provider/model nil keeps the UI badge hidden
+      // so the user doesn't see a misleading "Powered by …" label.
+      providerId: nil,
+      modelId: nil
     )
     let metadataString: String? = (try? encoder.encode(meta)).flatMap {
       String(data: $0, encoding: .utf8)
@@ -334,20 +388,7 @@ extension StorageManager {
                 ORDER BY start ASC
             """, arguments: [batchId]
         ).map { row in
-          var distractions: [Distraction]? = nil
-          var appSites: AppSites? = nil
-          var isBackupGenerated: Bool? = nil
-          if let metadataString: String = row["metadata"],
-            let jsonData = metadataString.data(using: .utf8)
-          {
-            if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
-              distractions = meta.distractions
-              appSites = meta.appSites
-              isBackupGenerated = meta.isBackupGenerated
-            } else if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
-              distractions = legacy
-            }
-          }
+          let meta = Self.parseMetadata(row["metadata"], using: decoder)
           return TimelineCard(
             recordId: row["id"],
             batchId: batchId,
@@ -359,11 +400,13 @@ extension StorageManager {
             summary: row["summary"],
             detailedSummary: row["detailed_summary"],
             day: row["day"],
-            distractions: distractions,
+            distractions: meta.distractions,
             videoSummaryURL: row["video_summary_url"],
             otherVideoSummaryURLs: nil,
-            appSites: appSites,
-            isBackupGenerated: isBackupGenerated
+            appSites: meta.appSites,
+            isBackupGenerated: meta.isBackupGenerated,
+            providerId: meta.providerId,
+            modelId: meta.modelId
           )
         }
       }) ?? []
@@ -447,20 +490,7 @@ extension StorageManager {
       )
       .map { row in
         // Decode metadata JSON (supports object or legacy array)
-        var distractions: [Distraction]? = nil
-        var appSites: AppSites? = nil
-        var isBackupGenerated: Bool? = nil
-        if let metadataString: String = row["metadata"],
-          let jsonData = metadataString.data(using: .utf8)
-        {
-          if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
-            distractions = meta.distractions
-            appSites = meta.appSites
-            isBackupGenerated = meta.isBackupGenerated
-          } else if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
-            distractions = legacy
-          }
-        }
+        let meta = Self.parseMetadata(row["metadata"], using: decoder)
 
         // Create TimelineCard instance using renamed columns
         return TimelineCard(
@@ -474,11 +504,13 @@ extension StorageManager {
           summary: row["summary"],
           detailedSummary: row["detailed_summary"],
           day: row["day"],
-          distractions: distractions,
+          distractions: meta.distractions,
           videoSummaryURL: row["video_summary_url"],
           otherVideoSummaryURLs: nil,
-          appSites: appSites,
-          isBackupGenerated: isBackupGenerated
+          appSites: meta.appSites,
+          isBackupGenerated: meta.isBackupGenerated,
+          providerId: meta.providerId,
+          modelId: meta.modelId
         )
       }
     }
@@ -508,20 +540,7 @@ extension StorageManager {
       )
       .map { row in
         // Decode metadata JSON (supports object or legacy array)
-        var distractions: [Distraction]? = nil
-        var appSites: AppSites? = nil
-        var isBackupGenerated: Bool? = nil
-        if let metadataString: String = row["metadata"],
-          let jsonData = metadataString.data(using: .utf8)
-        {
-          if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
-            distractions = meta.distractions
-            appSites = meta.appSites
-            isBackupGenerated = meta.isBackupGenerated
-          } else if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
-            distractions = legacy
-          }
-        }
+        let meta = Self.parseMetadata(row["metadata"], using: decoder)
 
         // Create TimelineCard instance using renamed columns
         return TimelineCard(
@@ -535,11 +554,13 @@ extension StorageManager {
           summary: row["summary"],
           detailedSummary: row["detailed_summary"],
           day: row["day"],
-          distractions: distractions,
+          distractions: meta.distractions,
           videoSummaryURL: row["video_summary_url"],
           otherVideoSummaryURLs: nil,
-          appSites: appSites,
-          isBackupGenerated: isBackupGenerated
+          appSites: meta.appSites,
+          isBackupGenerated: meta.isBackupGenerated,
+          providerId: meta.providerId,
+          modelId: meta.modelId
         )
       }
     }
@@ -875,12 +896,16 @@ extension StorageManager {
 
       // Insert new cards
       for card in newCards {
-        // Encode metadata object with distractions and appSites
+        // Encode metadata object with distractions, appSites, and the
+        // provider/model info so the UI can render a "powered by" badge
+        // on each card without re-deriving it.
         let meta = TimelineMetadata(
           distractions: card.distractions,
           appSites: card.appSites,
           isBackupGenerated: card.isBackupGenerated,
-          idle: card.idleMetadata
+          idle: card.idleMetadata,
+          providerId: card.providerId,
+          modelId: card.modelId
         )
         let metadataString: String? = (try? encoder.encode(meta)).flatMap {
           String(data: $0, encoding: .utf8)
