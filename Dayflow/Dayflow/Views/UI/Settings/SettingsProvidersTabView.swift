@@ -38,6 +38,12 @@ struct SettingsProvidersTabView: View {
       if viewModel.currentProvider == .gemini {
         geminiModelSection
       }
+      if viewModel.currentProvider == .claude {
+        claudeModelSection
+      }
+      if viewModel.currentProvider == .chatGPT {
+        codexModelSection
+      }
 
       primaryPromptCustomizationSection
       if viewModel.hasCodexOrClaudeProviderInRouting {
@@ -122,6 +128,16 @@ struct SettingsProvidersTabView: View {
     case .chatGPT, .claude:
       SettingsRow(label: "CLI") {
         SettingsMetadata(text: viewModel.cliStatusLabel(for: viewModel.currentProvider))
+      }
+      // Show the user's currently selected Chat CLI model in the
+      // summary so they can confirm at a glance which model is
+      // running. Reads the same preference the picker writes.
+      SettingsRow(label: "Model") {
+        SettingsMetadata(
+          text: viewModel.currentProvider == .claude
+            ? viewModel.selectedClaudeModel.displayName
+            : viewModel.selectedCodexModel.displayName
+        )
       }
     case .openAICompatible:
       SettingsRow(label: "Preset") {
@@ -364,6 +380,159 @@ struct SettingsProvidersTabView: View {
         )
         .font(.custom("Figtree", size: 11))
         .foregroundColor(SettingsStyle.meta)
+      }
+    }
+  }
+
+  // MARK: - Claude model preference
+  //
+  // Mirrors `geminiModelSection`. The picker is fed by the live
+  // `ChatCLIModelCatalog` so the rows show the resolved full model
+  // name (e.g. "Claude Sonnet 5") rather than the alias the CLI
+  // actually accepts. We still bind to the alias enum on the
+  // view model — that's what the CLI takes and what gets persisted.
+
+  private var claudeModelSection: some View {
+    SettingsSection(
+      title: "Claude model preference",
+      subtitle: "Choose which Claude model Dayflow should use through Claude Code."
+    ) {
+      VStack(alignment: .leading, spacing: 14) {
+        claudeModelPicker
+
+        if let hint = hintForClaudeModel(viewModel.selectedClaudeModel) {
+          Text(hint)
+            .font(.custom("Figtree", size: 12))
+            .foregroundColor(SettingsStyle.secondary)
+        }
+
+        HStack(spacing: 8) {
+          SettingsSecondaryButton(
+            title: viewModel.isDiscoveringChatCLIModels
+              ? "Refreshing…"
+              : (viewModel.chatCLIModelCatalog.claude.isEmpty
+                ? "Discover models" : "Refresh model list"),
+            action: { viewModel.refreshChatCLIModelCatalog(force: true) }
+          )
+          .disabled(viewModel.isDiscoveringChatCLIModels)
+        }
+
+        Text(
+          "Dayflow sends the alias (e.g. `sonnet`) to the Claude CLI; the CLI picks the latest release of that family on your account."
+        )
+        .font(.custom("Figtree", size: 11))
+        .foregroundColor(SettingsStyle.meta)
+      }
+    }
+  }
+
+  /// Picker rows come from the live catalog when available, with a
+  /// static-enum fallback so the UI is never empty. We tag the
+  /// picker rows with the matching `ClaudeModel` enum so the binding
+  /// (`$viewModel.selectedClaudeModel`) keeps working.
+  @ViewBuilder
+  private var claudeModelPicker: some View {
+    let rows = viewModel.claudeModelPickerRows()
+    if rows.isEmpty {
+      // Catalog probe hasn't returned yet AND the static enum is
+      // empty (which shouldn't happen — we always have at least the
+      // four built-in aliases). Show a placeholder so the layout
+      // doesn't collapse.
+      Text("Loading models…")
+        .font(.custom("Figtree", size: 12))
+        .foregroundColor(SettingsStyle.meta)
+    } else {
+      Picker("Claude model", selection: $viewModel.selectedClaudeModel) {
+        ForEach(rows, id: \.id) { row in
+          if let model = ClaudeModel(rawValue: row.id) {
+            Text(row.displayName).tag(model)
+          }
+        }
+      }
+      .pickerStyle(.menu)
+      .labelsHidden()
+      .environment(\.colorScheme, .light)
+      .onChange(of: viewModel.selectedClaudeModel) { _, newValue in
+        viewModel.persistClaudeModelSelection(newValue, source: "settings")
+      }
+    }
+  }
+
+  private func hintForClaudeModel(_ model: ClaudeModel) -> String? {
+    // The hint is only shown for the model the user actually picked —
+    // the catalog may have pruned the row (e.g. the user doesn't
+    // have access to Opus), so we look up the static hint rather
+    // than the catalog's display name.
+    if viewModel.chatCLIModelCatalog.claude.contains(where: { $0.id == model.rawValue }) {
+      return model.hint
+    }
+    // Selected model isn't in the live catalog. The CLI probe may
+    // be stale, or the user may have picked a model that's no longer
+    // available. Show a hint anyway so the user understands what
+    // they selected.
+    return model.hint
+  }
+
+  // MARK: - Codex model preference
+  //
+  // Mirror of `claudeModelSection` for the Codex (ChatGPT) CLI. See
+  // the Claude section above for the design notes — same shape, same
+  // catalog source.
+
+  private var codexModelSection: some View {
+    SettingsSection(
+      title: "Codex model preference",
+      subtitle: "Choose which Codex (ChatGPT) model Dayflow should use."
+    ) {
+      VStack(alignment: .leading, spacing: 14) {
+        codexModelPicker
+
+        if !viewModel.selectedCodexModel.hint.isEmpty {
+          Text(viewModel.selectedCodexModel.hint)
+            .font(.custom("Figtree", size: 12))
+            .foregroundColor(SettingsStyle.secondary)
+        }
+
+        HStack(spacing: 8) {
+          SettingsSecondaryButton(
+            title: viewModel.isDiscoveringChatCLIModels
+              ? "Refreshing…"
+              : (viewModel.chatCLIModelCatalog.codex.isEmpty
+                ? "Discover models" : "Refresh model list"),
+            action: { viewModel.refreshChatCLIModelCatalog(force: true) }
+          )
+          .disabled(viewModel.isDiscoveringChatCLIModels)
+        }
+
+        Text(
+          "Dayflow sends the model id (e.g. `gpt-5.6-luna`) to the Codex CLI; the CLI resolves it on your account."
+        )
+        .font(.custom("Figtree", size: 11))
+        .foregroundColor(SettingsStyle.meta)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var codexModelPicker: some View {
+    let rows = viewModel.codexModelPickerRows()
+    if rows.isEmpty {
+      Text("Loading models…")
+        .font(.custom("Figtree", size: 12))
+        .foregroundColor(SettingsStyle.meta)
+    } else {
+      Picker("Codex model", selection: $viewModel.selectedCodexModel) {
+        ForEach(rows, id: \.id) { row in
+          if let model = CodexModel(rawValue: row.id) {
+            Text(row.displayName).tag(model)
+          }
+        }
+      }
+      .pickerStyle(.menu)
+      .labelsHidden()
+      .environment(\.colorScheme, .light)
+      .onChange(of: viewModel.selectedCodexModel) { _, newValue in
+        viewModel.persistCodexModelSelection(newValue, source: "settings")
       }
     }
   }
