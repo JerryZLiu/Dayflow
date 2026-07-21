@@ -150,17 +150,25 @@ final class CodexClaudeProviderTests: XCTestCase {
     )
   }
 
-  func testLegacyCardDurationOnlyRejectsShortNonFinalCards() {
+  func testLegacyCardDurationAllowsShortTransitionsButRejectsInvalidRanges() {
     XCTAssertTrue(
       claudeProvider.validateTimeline([
         card(start: "9:00 AM", end: "10:30 AM", title: "Long card"),
         card(start: "10:30 AM", end: "10:35 AM", title: "Short final card"),
       ]).isValid
     )
+
+    XCTAssertTrue(
+      claudeProvider.validateTimeline([
+        card(start: "9:00 AM", end: "9:05 AM", title: "Short transition"),
+        card(start: "9:05 AM", end: "9:20 AM", title: "Final card"),
+      ]).isValid
+    )
+
     XCTAssertFalse(
       claudeProvider.validateTimeline([
-        card(start: "9:00 AM", end: "9:05 AM", title: "Short non-final card"),
-        card(start: "9:05 AM", end: "9:20 AM", title: "Final card"),
+        card(start: "9:00 AM", end: "9:00 AM", title: "Invalid non-final card"),
+        card(start: "9:00 AM", end: "9:20 AM", title: "Final card"),
       ]).isValid
     )
   }
