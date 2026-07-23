@@ -121,7 +121,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
             self.transition(to: .idle, context: "user disabled recording")
           }
 
-          rec ? self.start() : self.stop()
+          rec ? self.startOnQueue(attempt: 1) : self.stop()
         }
       }
 
@@ -157,6 +157,9 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
   private var tracker: ActiveDisplayTracker!
   private var currentDisplayID: CGDirectDisplayID?
   private var requestedDisplayID: CGDirectDisplayID?
+  private var recoveryGeneration = 0
+  private var waitingForDisplay = false
+  private var lastSuccessfulCaptureAt: Date?
 
   // ScreenCaptureKit objects (refreshed on each capture cycle)
   private var cachedContent: SCShareableContent?
@@ -189,28 +192,35 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
   func start() {
     q.async { [weak self] in
-      guard let self else { return }
-      guard self.wantsRecording else {
-        dbg("start – suppressed (recording disabled)")
-        return
-      }
-      guard self.state.canStart else {
-        dbg("start – invalid state: \(self.state.description)")
-        return
-      }
-
-      self.transition(to: .starting, context: "user/system start")
-      Task { await self.setupCapture() }
+      self?.startOnQueue(attempt: 1)
     }
+  }
+
+  private func startOnQueue(attempt: Int) {
+    guard wantsRecording else {
+      dbg("start – suppressed (recording disabled)")
+      return
+    }
+    guard state.canStart else {
+      dbg("start – invalid state: \(state.description)")
+      return
+    }
+
+    invalidatePendingRecovery()
+    let setupGeneration = recoveryGeneration
+    transition(to: .starting, context: "user/system start")
+    Task { await setupCapture(attempt: attempt, generation: setupGeneration) }
   }
 
   func stop() {
     q.async { [weak self] in
       guard let self else { return }
+      self.invalidatePendingRecovery()
       self.stopCaptureTimer()
       self.cachedContent = nil
       self.cachedDisplay = nil
       self.currentDisplayID = nil
+      self.waitingForDisplay = false
 
       if self.state != .paused {
         self.transition(to: .idle, context: "stopped")
@@ -221,9 +231,17 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
   // MARK: - Capture Setup
 
-  private func setupCapture(attempt: Int = 1, maxAttempts: Int = 4) async {
+  private func setupCapture(attempt: Int, generation: Int, maxAttempts: Int = 4) async {
     guard ScreenRecordingPermissionNotice.isGranted else {
-      handleMissingScreenRecordingPermission(reason: "setupCapture")
+      q.async { [weak self] in
+        guard let self else { return }
+        guard RecorderRecoveryPolicy.canCommitSetup(
+          setupGeneration: generation,
+          currentGeneration: self.recoveryGeneration,
+          isStarting: self.state == .starting
+        ) else { return }
+        self.handleMissingScreenRecordingPermission(reason: "setupCapture")
+      }
       return
     }
 
@@ -231,92 +249,161 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       // 1. Get shareable content (requires screen recording permission)
       let content = try await SCShareableContent.excludingDesktopWindows(
         false, onScreenWindowsOnly: true)
-      cachedContent = content
 
-      // 2. Choose display: prefer requested → active. Defer if preferred is missing from the snapshot.
-      let displaysByID: [CGDirectDisplayID: SCDisplay] = Dictionary(
-        uniqueKeysWithValues: content.displays.map { ($0.displayID, $0) }
-      )
+      // 2. Read the active display without mutating recorder state outside its queue.
       let trackerID: CGDirectDisplayID? = await MainActor.run { [weak tracker] in
         tracker?.activeDisplayID
       }
-      let preferredID = requestedDisplayID ?? trackerID
 
-      let display: SCDisplay?
-      if let pid = preferredID {
-        display = displaysByID[pid]
-        if display == nil {
-          requestedDisplayID = pid
-          dbg("setupCapture: preferred display \(pid) not in snapshot (count=\(content.displays.count)); deferring")
-        } else {
-          requestedDisplayID = nil
-        }
-      } else if let first = content.displays.first {
-        display = first
-        requestedDisplayID = nil
-      } else {
-        throw ScreenRecorderError.noDisplay
-      }
-
-      cachedDisplay = display
-      currentDisplayID = display?.displayID
-
-      if let d = display {
-        dbg("Setup complete - display \(d.displayID) (\(d.width)x\(d.height))")
-      } else {
-        dbg("Setup complete - awaiting display availability")
-      }
-
-      // 3. Start capture timer
+      // 3. Resolve and commit the display only if this setup is still the active generation.
       q.async { [weak self] in
         guard let self else { return }
-        guard self.state == .starting else {
-          dbg("setupCapture completed but state changed to \(self.state.description), ignoring")
+        guard RecorderRecoveryPolicy.canCommitSetup(
+          setupGeneration: generation,
+          currentGeneration: self.recoveryGeneration,
+          isStarting: self.state == .starting
+        ) else {
+          dbg(
+            "setupCapture completed for stale generation \(generation) "
+              + "(current=\(self.recoveryGeneration), state=\(self.state.description)), ignoring")
           return
         }
+
+        let displaysByID: [CGDirectDisplayID: SCDisplay] = Dictionary(
+          uniqueKeysWithValues: content.displays.map { ($0.displayID, $0) }
+        )
+        let preferredID = self.requestedDisplayID ?? trackerID
+        let display: SCDisplay
+        if let preferredID {
+          guard let preferredDisplay = displaysByID[preferredID] else {
+            self.requestedDisplayID = preferredID
+            dbg(
+              "setupCapture: preferred display \(preferredID) not in snapshot "
+                + "(count=\(content.displays.count)); deferring")
+            let error = ScreenRecorderError.noDisplay as NSError
+            self.completeSetupFailureOnQueue(
+              isNoDisplay: true,
+              errorDescription: error.localizedDescription,
+              errorDomain: error.domain,
+              errorCode: error.code,
+              attempt: attempt,
+              maxAttempts: maxAttempts,
+              generation: generation
+            )
+            return
+          }
+          display = preferredDisplay
+        } else if let first = content.displays.first {
+          display = first
+        } else {
+          let error = ScreenRecorderError.noDisplay as NSError
+          self.completeSetupFailureOnQueue(
+            isNoDisplay: true,
+            errorDescription: error.localizedDescription,
+            errorDomain: error.domain,
+            errorCode: error.code,
+            attempt: attempt,
+            maxAttempts: maxAttempts,
+            generation: generation
+          )
+          return
+        }
+
+        self.requestedDisplayID = nil
+        self.cachedContent = content
+        self.cachedDisplay = display
+        self.currentDisplayID = display.displayID
+        self.waitingForDisplay = false
+        dbg("Setup complete - display \(display.displayID) (\(display.width)x\(display.height))")
+        self.invalidatePendingRecovery()
         self.startCaptureTimer()
         self.transition(to: .capturing, context: "capture started")
 
         // Take first screenshot immediately
         Task { await self.captureScreenshot() }
-      }
-
-      Task { @MainActor in
-        AnalyticsService.shared.withSampling(probability: 0.01) {
-          AnalyticsService.shared.capture("recording_started", ["mode": "screenshot"])
+        Task { @MainActor in
+          AnalyticsService.shared.withSampling(probability: 0.01) {
+            AnalyticsService.shared.capture("recording_started", ["mode": "screenshot"])
+          }
         }
       }
 
     } catch {
-      dbg("setupCapture failed [attempt \(attempt)] – \(error.localizedDescription)")
-
-      if !ScreenRecordingPermissionNotice.isGranted {
-        handleMissingScreenRecordingPermission(reason: "setupCapture_failed_permission")
-        return
-      }
-
-      q.async { [weak self] in
-        self?.transition(to: .idle, context: "setupCapture failed")
-      }
-
       let nsError = error as NSError
       let isNoDisplay = (error as? ScreenRecorderError) == .noDisplay
-
-      if isNoDisplay && attempt < maxAttempts {
-        let delay = Double(attempt)
-        dbg("retrying in \(delay)s")
-        q.asyncAfter(deadline: .now() + delay) { [weak self] in self?.start() }
-      } else {
-        Task { @MainActor in
-          AnalyticsService.shared.capture(
-            "recording_startup_failed",
-            [
-              "attempt": attempt,
-              "error_domain": nsError.domain,
-              "error_code": nsError.code,
-            ])
-        }
+      let errorDescription = error.localizedDescription
+      let errorDomain = nsError.domain
+      let errorCode = nsError.code
+      q.async { [weak self] in
+        self?.completeSetupFailureOnQueue(
+          isNoDisplay: isNoDisplay,
+          errorDescription: errorDescription,
+          errorDomain: errorDomain,
+          errorCode: errorCode,
+          attempt: attempt,
+          maxAttempts: maxAttempts,
+          generation: generation
+        )
       }
+    }
+  }
+
+  private func completeSetupFailureOnQueue(
+    isNoDisplay: Bool,
+    errorDescription: String,
+    errorDomain: String,
+    errorCode: Int,
+    attempt: Int,
+    maxAttempts: Int,
+    generation: Int
+  ) {
+    guard RecorderRecoveryPolicy.canCommitSetup(
+      setupGeneration: generation,
+      currentGeneration: recoveryGeneration,
+      isStarting: state == .starting
+    ) else { return }
+
+    dbg("setupCapture failed [attempt \(attempt)] – \(errorDescription)")
+
+    guard ScreenRecordingPermissionNotice.isGranted else {
+      handleMissingScreenRecordingPermission(reason: "setupCapture_failed_permission")
+      return
+    }
+
+    let retryDelay = isNoDisplay
+      ? RecorderRecoveryPolicy.retryDelay(forNoDisplayAttempt: attempt, maxAttempts: maxAttempts)
+      : nil
+
+    stopCaptureTimer()
+    cachedContent = nil
+    cachedDisplay = nil
+    currentDisplayID = nil
+    waitingForDisplay = isNoDisplay
+    transition(to: .idle, context: "setupCapture failed")
+
+    if let retryDelay {
+      dbg("retrying display setup in \(retryDelay)s")
+      scheduleDisplayRetry(after: retryDelay, attempt: attempt + 1)
+      return
+    }
+
+    Task { @MainActor in
+      AnalyticsService.shared.capture(
+        "recording_startup_failed",
+        [
+          "attempt": attempt,
+          "error_domain": errorDomain,
+          "error_code": errorCode,
+        ])
+    }
+  }
+
+  private func scheduleDisplayRetry(after delay: TimeInterval, attempt: Int) {
+    let generation = recoveryGeneration
+    q.asyncAfter(deadline: .now() + delay) { [weak self] in
+      guard let self, self.recoveryGeneration == generation else { return }
+      guard self.wantsRecording, self.waitingForDisplay else { return }
+      self.startOnQueue(attempt: attempt)
     }
   }
 
@@ -382,6 +469,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
           capturedAt: captureTime,
           idleSecondsAtCapture: idleSecondsAtCapture
         )
+        recordSuccessfulCapture(at: captureTime)
         dbg("🔒 Screenshot redacted for blocked foreground application")
         return
       }
@@ -425,6 +513,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         capturedAt: captureTime,
         idleSecondsAtCapture: idleSecondsAtCapture
       )
+      recordSuccessfulCapture(at: captureTime)
 
       dbg("📸 Screenshot saved: \(fileURL.lastPathComponent) (\(jpegData.count / 1024)KB)")
 
@@ -441,6 +530,12 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         dbg("SCStream error - will refresh display on next capture")
         Task { await refreshDisplay() }
       }
+    }
+  }
+
+  private func recordSuccessfulCapture(at date: Date) {
+    q.async { [weak self] in
+      self?.lastSuccessfulCaptureAt = date
     }
   }
 
@@ -513,6 +608,8 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       self.cachedContent = nil
       self.cachedDisplay = nil
       self.currentDisplayID = nil
+      self.waitingForDisplay = false
+      self.invalidatePendingRecovery()
       if self.state != .idle {
         self.transition(to: .idle, context: "missing screen recording permission")
       }
@@ -572,6 +669,44 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
   // MARK: - System Events (Sleep/Lock)
 
+  private func pauseForSystemEvent(context: String) {
+    invalidatePendingRecovery()
+    stopCaptureTimer()
+    cachedContent = nil
+    cachedDisplay = nil
+    currentDisplayID = nil
+    waitingForDisplay = false
+    transition(to: wantsRecording ? .paused : .idle, context: context)
+  }
+
+  private func recoverAfterWake(after delay: TimeInterval, context: String) {
+    guard wantsRecording else { return }
+
+    let staleAfter = max(Config.screenshotInterval * 3, 30)
+    guard RecorderRecoveryPolicy.shouldRestartAfterWake(
+      isCapturing: state == .capturing,
+      hasDisplay: cachedDisplay != nil,
+      lastSuccessfulCaptureAt: lastSuccessfulCaptureAt,
+      now: Date(),
+      staleAfter: staleAfter
+    ) else {
+      dbg("\(context) – recorder is healthy")
+      return
+    }
+
+    stopCaptureTimer()
+    cachedContent = nil
+    cachedDisplay = nil
+    currentDisplayID = nil
+    waitingForDisplay = false
+    transition(to: .paused, context: "\(context) recovery")
+    resumeRecording(after: delay, context: context)
+  }
+
+  private func invalidatePendingRecovery() {
+    recoveryGeneration &+= 1
+  }
+
   private func registerForSleepAndLock() {
     let nc = NSWorkspace.shared.notificationCenter
     let dnc = DistributedNotificationCenter.default()
@@ -582,7 +717,13 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       object: nil, queue: nil
     ) { [weak self] _ in
       self?.q.async { [weak self] in
-        guard let self, self.state == .capturing else { return }
+        guard let self, self.wantsRecording else { return }
+        if self.waitingForDisplay, self.state.canStart {
+          dbg("didChangeScreenParameters – retrying deferred display selection")
+          self.startOnQueue(attempt: 1)
+          return
+        }
+        guard self.state == .capturing else { return }
         dbg("didChangeScreenParameters – refreshing display selection")
         Task { await self.refreshDisplay() }
       }
@@ -597,16 +738,8 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       dbg("willSleep – pausing")
 
       self.q.async { [weak self] in
-        guard let self else { return }
-        Task { @MainActor in
-          if AppState.shared.isRecording {
-            self.q.async { [weak self] in
-              self?.transition(to: .paused, context: "system sleep")
-            }
-          }
-        }
+        self?.pauseForSystemEvent(context: "system sleep")
       }
-      self.stop()
       Task { @MainActor in
         AnalyticsService.shared.withSampling(probability: 0.01) {
           AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "system_sleep"])
@@ -624,8 +757,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
       self.q.async { [weak self] in
         guard let self else { return }
-        guard self.state == .paused else { return }
-        self.resumeRecording(after: 5, context: "didWake")
+        self.recoverAfterWake(after: 5, context: "didWake")
       }
     }
 
@@ -638,16 +770,8 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       dbg("screen locked – pausing")
 
       self.q.async { [weak self] in
-        guard let self else { return }
-        Task { @MainActor in
-          if AppState.shared.isRecording {
-            self.q.async { [weak self] in
-              self?.transition(to: .paused, context: "screen locked")
-            }
-          }
-        }
+        self?.pauseForSystemEvent(context: "screen locked")
       }
-      self.stop()
       Task { @MainActor in
         AnalyticsService.shared.withSampling(probability: 0.01) {
           AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "lock"])
@@ -665,8 +789,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
       self.q.async { [weak self] in
         guard let self else { return }
-        guard self.state == .paused else { return }
-        self.resumeRecording(after: 0.5, context: "screen unlock")
+        self.recoverAfterWake(after: 0.5, context: "screen unlock")
       }
     }
 
@@ -679,16 +802,8 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       dbg("screensaver started – pausing")
 
       self.q.async { [weak self] in
-        guard let self else { return }
-        Task { @MainActor in
-          if AppState.shared.isRecording {
-            self.q.async { [weak self] in
-              self?.transition(to: .paused, context: "screensaver started")
-            }
-          }
-        }
+        self?.pauseForSystemEvent(context: "screensaver started")
       }
-      self.stop()
       Task { @MainActor in
         AnalyticsService.shared.withSampling(probability: 0.01) {
           AnalyticsService.shared.capture("recording_stopped", ["stop_reason": "screensaver"])
@@ -706,22 +821,21 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
       self.q.async { [weak self] in
         guard let self else { return }
-        guard self.state == .paused else { return }
-        self.resumeRecording(after: 0.5, context: "screensaver stop")
+        self.recoverAfterWake(after: 0.5, context: "screensaver stop")
       }
     }
   }
 
   private func resumeRecording(after delay: TimeInterval, context: String) {
+    invalidatePendingRecovery()
+    let generation = recoveryGeneration
     q.asyncAfter(deadline: .now() + delay) { [weak self] in
-      guard let self else { return }
-      Task { @MainActor in
-        guard AppState.shared.isRecording else {
-          dbg("\(context) – skip auto-resume (recording disabled)")
-          return
-        }
-        self.start()
+      guard let self, self.recoveryGeneration == generation else { return }
+      guard self.wantsRecording else {
+        dbg("\(context) – skip auto-resume (recording disabled)")
+        return
       }
+      self.startOnQueue(attempt: 1)
     }
   }
 }
