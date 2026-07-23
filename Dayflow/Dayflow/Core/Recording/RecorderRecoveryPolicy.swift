@@ -1,6 +1,14 @@
 import Foundation
 
 enum RecorderRecoveryPolicy {
+  static func canCommitSetup(
+    setupGeneration: Int,
+    currentGeneration: Int,
+    isStarting: Bool
+  ) -> Bool {
+    isStarting && setupGeneration == currentGeneration
+  }
+
   static func retryDelay(forNoDisplayAttempt attempt: Int, maxAttempts: Int) -> TimeInterval? {
     guard attempt > 0, attempt < maxAttempts else { return nil }
     return pow(2, Double(attempt - 1))

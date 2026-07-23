@@ -3,6 +3,34 @@ import XCTest
 @testable import Dayflow
 
 final class RecorderRecoveryPolicyTests: XCTestCase {
+  func testOldSetupCompletionCannotCommitAfterSleepAndNewStart() {
+    let oldSetupGeneration = 1
+    let generationAfterSleep = 2
+    let newSetupGeneration = 3
+
+    XCTAssertFalse(
+      RecorderRecoveryPolicy.canCommitSetup(
+        setupGeneration: oldSetupGeneration,
+        currentGeneration: generationAfterSleep,
+        isStarting: false
+      )
+    )
+    XCTAssertFalse(
+      RecorderRecoveryPolicy.canCommitSetup(
+        setupGeneration: oldSetupGeneration,
+        currentGeneration: newSetupGeneration,
+        isStarting: true
+      )
+    )
+    XCTAssertTrue(
+      RecorderRecoveryPolicy.canCommitSetup(
+        setupGeneration: newSetupGeneration,
+        currentGeneration: newSetupGeneration,
+        isStarting: true
+      )
+    )
+  }
+
   func testMissingDisplayRestartsRecorderEvenWhenStateClaimsCapturing() {
     XCTAssertTrue(
       RecorderRecoveryPolicy.shouldRestartAfterWake(
