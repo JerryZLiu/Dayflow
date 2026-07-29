@@ -101,7 +101,6 @@ final class ClaudeCLIExecutionProfileTests: XCTestCase {
     XCTAssertFalse(safeParts.contains("--allowedTools"))
     XCTAssertFalse(safeParts.contains("--dangerously-skip-permissions"))
     XCTAssertFalse(safeParts.contains("--prompt-suggestions"))
->>>>>>> 6db4736 (fix(chat-cli): version-aware Claude CLI flag handling)
   }
 
   func testResumableTurnsOmitNoPersistenceAndUseExactSession() throws {

@@ -374,7 +374,6 @@ final class CodexClaudeProviderTests: XCTestCase {
       // are still in place, regardless of Claude Code version.
       XCTAssertTrue(parts.contains("--disable-slash-commands"))
     }
->>>>>>> 6db4736 (fix(chat-cli): version-aware Claude CLI flag handling)
   }
 
   func testClaudeSessionCleanupRemovesOnlyItsSessionTranscript() throws {
