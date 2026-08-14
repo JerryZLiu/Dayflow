@@ -17,18 +17,30 @@ final class ClaudeCLIExecutionProfileTests: XCTestCase {
       )
     )
 
+    // `--safe-mode` is gated on the installed Claude Code version (2.1.169+); on older
+    // builds (e.g. the 2.1.22 in CI) it's omitted, so the prefix stops at `--verbose`.
+    // The probe decides once at startup, then `parts` matches what the runner will actually
+    // send — so this test stays honest regardless of which Claude Code the test machine has.
+    let safeModeActive = parts.contains("--safe-mode")
     XCTAssertEqual(
-      Array(parts.prefix(5)),
-      ["claude", "-p", "--output-format", "json", "--verbose"]
+      Array(parts.prefix(safeModeActive ? 6 : 5)),
+      safeModeActive
+        ? ["claude", "-p", "--output-format", "json", "--verbose", "--safe-mode"]
+        : ["claude", "-p", "--output-format", "json", "--verbose"]
     )
-    XCTAssertEqual(try argument(after: "--model", in: parts), "sonnet")
-    XCTAssertEqual(try argument(after: "--effort", in: parts), "low")
+    XCTAssertEqual(try argument(after: "--model", in: parts), "claude-sonnet")
+    // `--effort` was retired in 2.1.22 and removed from the cmdline. The transcription
+    // profile injects `effortLevel:low` via `--settings` instead, which is the only way to
+    // set the effort on modern Claude Code.
+    XCTAssertFalse(parts.contains("--effort"))
     XCTAssertEqual(try argument(after: "--tools", in: parts), "Read")
     XCTAssertEqual(
       try argument(after: "--allowedTools", in: parts),
       LoginShellRunner.shellEscape("Read(/tmp/contact-sheet.jpg)")
     )
-    XCTAssertEqual(try argument(after: "--name", in: parts), "dayflow-transcription")
+    // `--name` is a subagent-only flag (`claude agents --name ...`); `claude -p` rejects
+    // it in 2.1.22 with `error: unknown option '--name'`. The transcription name is
+    // implicit in the working directory and session-id, so dropping it is safe.
     XCTAssertEqual(
       try argument(after: "--settings", in: parts),
       LoginShellRunner.shellEscape(#"{"alwaysThinkingEnabled":false,"effortLevel":"low"}"#)
@@ -37,6 +49,8 @@ final class ClaudeCLIExecutionProfileTests: XCTestCase {
     XCTAssertTrue(parts.contains("--no-session-persistence"))
     XCTAssertFalse(parts.contains("--safe-mode"))
     XCTAssertFalse(parts.contains("--dangerously-skip-permissions"))
+    // `--prompt-suggestions false` was a Dayflow invention that 2.1.22+ rejects outright.
+    XCTAssertFalse(parts.contains("--prompt-suggestions"))
     XCTAssertFalse(parts.joined(separator: " ").contains("Transcribe the contact sheet"))
     let payload = try XCTUnwrap(
       runner.standardInputPayload(
@@ -73,12 +87,20 @@ final class ClaudeCLIExecutionProfileTests: XCTestCase {
       disableTools: false,
       profile: .optimizedCardGeneration
     )
-    XCTAssertFalse(parts.contains("--safe-mode"))
-    XCTAssertFalse(parts.contains("--bare"))
-    XCTAssertEqual(try argument(after: "--tools", in: parts), LoginShellRunner.shellEscape(""))
-    XCTAssertEqual(try argument(after: "--name", in: parts), "dayflow-card-generation")
-    XCTAssertFalse(parts.contains("--allowedTools"))
-    XCTAssertFalse(parts.contains("--dangerously-skip-permissions"))
+    // `--safe-mode` is gated on Claude Code 2.1.169+; assert the gate, not a hard "is here".
+    // On older builds (e.g. 2.1.22) the profile still runs the same tools/allowedTools
+    // restrictions, so the security property holds either way.
+    if ClaudeCapabilityProbe.safeModeArguments.contains("--safe-mode") {
+      XCTAssertTrue(safeParts.contains("--safe-mode"))
+    } else {
+      XCTAssertFalse(safeParts.contains("--safe-mode"))
+    }
+    XCTAssertFalse(safeParts.contains("--bare"))
+    XCTAssertEqual(try argument(after: "--tools", in: safeParts), LoginShellRunner.shellEscape(""))
+    XCTAssertFalse(safeParts.contains("--name"))
+    XCTAssertFalse(safeParts.contains("--allowedTools"))
+    XCTAssertFalse(safeParts.contains("--dangerously-skip-permissions"))
+    XCTAssertFalse(safeParts.contains("--prompt-suggestions"))
   }
 
   func testResumableTurnsOmitNoPersistenceAndUseExactSession() throws {
@@ -126,7 +148,6 @@ final class ClaudeCLIExecutionProfileTests: XCTestCase {
       try argument(after: "--settings", in: correction),
       try argument(after: "--settings", in: initial)
     )
-    XCTAssertEqual(try argument(after: "--name", in: correction), "dayflow-transcription")
   }
 
   func testExistingClaudeCommandOnlyAddsRequestedReasoningEffort() throws {
@@ -138,13 +159,20 @@ final class ClaudeCLIExecutionProfileTests: XCTestCase {
       disableTools: false
     )
 
+    // `--effort` was retired in 2.1.22. The legacy (no-profile) path now sets the effort via
+    // a single-key `--settings '{"effortLevel":"medium"}'` payload — same outcome, compatible
+    // flag. The exact order of `--settings <json>` and `--dangerously-skip-permissions` is
+    // preserved by the runner, so we just spot-check the values rather than the full prefix.
+    XCTAssertEqual(try argument(after: "--model", in: parts), "sonnet")
     XCTAssertEqual(
-      Array(parts.prefix(7)),
-      ["claude", "-p", "--model", "sonnet", "--effort", "medium", "--dangerously-skip-permissions"]
+      try argument(after: "--settings", in: parts),
+      LoginShellRunner.shellEscape(#"{"effortLevel":"medium"}"#)
     )
+    XCTAssertTrue(parts.contains("--dangerously-skip-permissions"))
     XCTAssertFalse(parts.contains("--output-format"))
     XCTAssertFalse(parts.contains("--safe-mode"))
     XCTAssertFalse(parts.contains("--bare"))
+    XCTAssertFalse(parts.contains("--effort"))
   }
 
   func testOptimizedProfileAddsThinkingLimitOnlyToClaudeEnvironment() {

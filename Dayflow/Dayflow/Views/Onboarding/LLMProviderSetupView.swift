@@ -17,6 +17,8 @@ struct LLMProviderSetupView: View {
       return "Connect Claude"
     case .openAICompatible:
       return "Connect an AI endpoint"
+    case .minimax:
+      return "Connect MiniMax M3"
     case .gemini:
       return "Gemini"
     case .dayflow:

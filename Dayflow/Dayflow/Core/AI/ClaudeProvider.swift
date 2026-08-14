@@ -55,17 +55,54 @@ final class ClaudeProvider: AgentCLISupporting {
 
   func validateSuccessfulClaudeProcess(_ run: ChatCLIRunResult) throws {
     guard run.exitCode == 0 else {
-      let message = run.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+      // Claude CLI surfaces API errors as JSON events on stdout (`--output-format json`), not
+      // on stderr — so a `claude -p` that exits non-zero with empty stderr is almost always
+      // a transient API failure (529 overloaded, 5xx, network). Without a richer message the
+      // recording panel just says "Claude CLI exited with code 1" and the user has no idea
+      // it's a server-side issue they can wait out. Surface the underlying signal when we
+      // can detect it.
+      let stderrMessage = run.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+      let detected = Self.detectTransientClaudeFailure(in: run.stdout)
+      let message: String
+      if !stderrMessage.isEmpty {
+        message = stderrMessage
+      } else if let detected = detected {
+        message = detected
+      } else {
+        message = "Claude CLI exited with code \(run.exitCode)"
+      }
       throw NSError(
         domain: "ClaudeProvider",
         code: Int(run.exitCode),
         userInfo: [
-          NSLocalizedDescriptionKey: message.isEmpty
-            ? "Claude CLI exited with code \(run.exitCode)"
-            : message
+          NSLocalizedDescriptionKey: message
         ]
       )
     }
+  }
+
+  /// Scan Claude's JSON-streamed stdout for a transient API failure shape (529 overloaded,
+  /// 5xx, rate limit) and return a human-readable hint pointing at status.claude.com. We
+  /// only flag the patterns we know are server-side so the user doesn't waste time
+  /// re-trying a binary that broke locally.
+  private static func detectTransientClaudeFailure(in stdout: String) -> String? {
+    let lower = stdout.lowercased()
+    // The Claude CLI emits these as JSON-stringified `error.type` / `error.message` values
+    // inside the stream, so a substring match is reliable.
+    if lower.contains("overloaded") || lower.contains(" 529") {
+      return
+        "Claude API is temporarily overloaded (529). This is a server-side issue — try again in a few minutes. If it persists, check https://status.claude.com."
+    }
+    if lower.contains("rate_limit") || lower.contains("rate limit") {
+      return
+        "Claude API rate limit hit. Wait a few minutes and retry from Settings."
+    }
+    if lower.contains(" 5") && (lower.contains("internal_server_error") || lower.contains("service_unavailable"))
+    {
+      return
+        "Claude API server error. This is a server-side issue — try again in a few minutes. If it persists, check https://status.claude.com."
+    }
+    return nil
   }
 
 }

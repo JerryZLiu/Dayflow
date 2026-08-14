@@ -134,7 +134,7 @@ extension ProvidersSettingsViewModel {
         ClaudePromptDefaults.summaryBlock,
         ClaudePromptDefaults.detailedSummaryBlock
       )
-    case .dayflow, .gemini, .openAICompatible, .local:
+    case .dayflow, .gemini, .openAICompatible, .minimax, .local:
       assertionFailure("Agent prompt editor only supports Codex and Claude")
       overrides = ActivityCardPromptOverrides()
       defaults = (
@@ -181,7 +181,7 @@ extension ProvidersSettingsViewModel {
         CodexPromptPreferences.reset()
       case .claude:
         ClaudePromptPreferences.reset()
-      case .dayflow, .gemini, .openAICompatible, .local:
+      case .dayflow, .gemini, .openAICompatible, .minimax, .local:
         assertionFailure("Agent prompt editor only supports Codex and Claude")
       }
     } else {
@@ -190,7 +190,7 @@ extension ProvidersSettingsViewModel {
         CodexPromptPreferences.save(overrides)
       case .claude:
         ClaudePromptPreferences.save(overrides)
-      case .dayflow, .gemini, .openAICompatible, .local:
+      case .dayflow, .gemini, .openAICompatible, .minimax, .local:
         assertionFailure("Agent prompt editor only supports Codex and Claude")
       }
     }
@@ -212,7 +212,7 @@ extension ProvidersSettingsViewModel {
         ClaudePromptDefaults.summaryBlock,
         ClaudePromptDefaults.detailedSummaryBlock
       )
-    case .dayflow, .gemini, .openAICompatible, .local:
+    case .dayflow, .gemini, .openAICompatible, .minimax, .local:
       assertionFailure("Agent prompt editor only supports Codex and Claude")
       defaults = (
         CodexPromptDefaults.titleBlock,
@@ -231,7 +231,7 @@ extension ProvidersSettingsViewModel {
       CodexPromptPreferences.reset()
     case .claude:
       ClaudePromptPreferences.reset()
-    case .dayflow, .gemini, .openAICompatible, .local:
+    case .dayflow, .gemini, .openAICompatible, .minimax, .local:
       assertionFailure("Agent prompt editor only supports Codex and Claude")
     }
     isUpdatingAgentPromptState = false

@@ -21,6 +21,7 @@ class ProviderSetupState: ObservableObject {
   @Published var openAICompatibleBaseURL: String = OpenAICompatibleConfiguration.openRouterBaseURL
   @Published var openAICompatibleModelID: String = ""
   @Published var openAICompatibleAPIKey: String = ""
+  @Published var minimaxAPIKey: String = ""
   // CLI detection
   @Published var codexCLIStatus: CLIDetectionState = .unknown
   @Published var claudeCLIStatus: CLIDetectionState = .unknown
@@ -67,6 +68,8 @@ class ProviderSetupState: ObservableObject {
     }
     openAICompatibleAPIKey =
       KeychainManager.shared.retrieve(for: OpenAICompatiblePreferences.keychainProvider) ?? ""
+    minimaxAPIKey =
+      KeychainManager.shared.retrieve(for: MiniMaxProvider.keychainKey) ?? ""
   }
 
   var currentStep: SetupStep {
@@ -213,6 +216,29 @@ class ProviderSetupState: ObservableObject {
           id: "complete", title: "Complete",
           contentType: .information(
             "All set!", "Gemini is now configured and ready to use with Dayflow.")),
+      ]
+    case .minimax:
+      let storedMiniMaxKey =
+        KeychainManager.shared.retrieve(for: MiniMaxProvider.keychainKey)?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      hasStoredGeminiAPIKey = !storedMiniMaxKey.isEmpty
+      steps = [
+        SetupStep(
+          id: "getkey", title: "Get API key",
+          contentType: .apiKeyInstructions),
+        SetupStep(
+          id: "enterkey", title: "Enter API key",
+          contentType: .apiKeyInput),
+        SetupStep(
+          id: "verify", title: "Test connection",
+          contentType: .information(
+            "Test Connection",
+            "Click the button below to verify your API key works with MiniMax M3.")),
+        SetupStep(
+          id: "complete", title: "Complete",
+          contentType: .information(
+            "All set!",
+            "MiniMax M3 is now configured and ready to use with Dayflow.")),
       ]
     }
   }

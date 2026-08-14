@@ -183,8 +183,61 @@ final class LLMService: LLMServicing {
     return OllamaProvider(openAICompatible: runtimeConfiguration)
   }
 
+  private func makeMiniMaxProvider() -> MiniMaxProvider? {
+    guard let key = KeychainManager.shared.retrieve(for: MiniMaxProvider.keychainKey),
+      !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else {
+      print("❌ [LLMService] MiniMax provider unavailable: missing API key")
+      return nil
+    }
+    return MiniMaxProvider()
+  }
+
   private func providerLabel(for providerID: LLMProviderID) -> String {
     providerID.providerLabel
+  }
+
+/// Returns the model id the provider should be stamped with on
+  /// generated cards. Mirrors how `providerLabel` is sourced from the
+  /// `LLMProviderID`, but goes one level deeper to read the actual model
+  /// the user has configured (Gemini primary preference, Ollama model id
+  /// in `UserDefaults`, ChatGPT/Claude CLI model id, etc.). Returns
+  /// `nil` for providers that don't expose a model concept (Dayflow Pro)
+  /// or where the user hasn't picked one yet, so the UI badge can fall
+  /// back to a provider-only label.
+  private func providerModelId(for providerID: LLMProviderID) -> String? {
+    switch providerID {
+    case .gemini:
+      // `GeminiModelPreference` always carries a primary; reading the
+      // raw value gives us the user-facing id without touching the
+      // provider's internal fallback chain.
+      return GeminiModelPreference.load().primary.rawValue
+    case .local:
+      let trimmed =
+        UserDefaults.standard.string(forKey: "llmLocalModelId")?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      return trimmed.isEmpty ? nil : trimmed
+    case .openAICompatible:
+      let trimmed =
+        OpenAICompatiblePreferences.load()?.modelID
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      return trimmed.isEmpty ? nil : trimmed
+    case .chatGPT:
+      // Read the user's pick from `CodexModelPreference` (the
+      // Settings → Providers tab writes this). We pass the raw
+      // alias through to the picker badge so the user sees the
+      // model id they selected, not a stale display name.
+      return CodexModelPreference.load().primary.rawValue
+    case .claude:
+      // Read the user's pick from `ClaudeModelPreference` (the
+      // Settings → Providers tab writes this). The CLI accepts
+      // these aliases natively — `sonnet` → latest Sonnet release.
+      return ClaudeModelPreference.load().primary.rawValue
+    case .minimax:
+      return MiniMaxModelPreference.load().modelId
+    case .dayflow:
+      return nil
+    }
   }
 
   private func noProviderError() -> NSError {
@@ -288,6 +341,20 @@ final class LLMService: LLMServicing {
         actions: BatchProviderActions(
           transcribeScreenshots: provider.transcribeScreenshots,
           generateActivityCards: provider.generateActivityCards
+        ), fallbackState: nil
+      )
+    case .minimax:
+      guard let provider = makeMiniMaxProvider() else { throw noProviderError() }
+      return (
+        actions: BatchProviderActions(
+          transcribeScreenshots: { [provider] screenshots, batchStartTime, batchId in
+            try await provider.transcribeScreenshots(
+              screenshots, batchStartTime: batchStartTime, batchId: batchId)
+          },
+          generateActivityCards: { [provider] observations, context, batchId in
+            try await provider.generateActivityCards(
+              observations: observations, context: context, batchId: batchId)
+          }
         ), fallbackState: nil
       )
     }
@@ -583,6 +650,14 @@ final class LLMService: LLMServicing {
           try await provider.generateText(prompt: prompt)
         },
         generateTextStreaming: provider.generateTextStreaming
+      )
+    case .minimax:
+      guard let provider = makeMiniMaxProvider() else { throw noProviderError() }
+      return TextProviderActions(
+        generateText: { prompt in
+          try await provider.generateText(prompt: prompt)
+        },
+        generateTextStreaming: nil
       )
     }
   }
@@ -925,6 +1000,10 @@ final class LLMService: LLMServicing {
         let isBackupGenerated = usedProviderBackup || usedGemmaForCardGeneration
         // Note: card generation log is not persisted per-batch yet
 
+        // Surface which provider/model produced this batch of cards
+        let activeProviderId = activeContext.id.rawValue
+        let activeModelId = providerModelId(for: activeContext.id)
+
         // Replace old cards with new ones in the time range
         let replacementStartTime = Self.cardReplacementStartTime(
           activeProviderID: activeContext.id,
@@ -952,7 +1031,9 @@ final class LLMService: LLMServicing {
                 detailedSummary: card.detailedSummary,
                 distractions: card.distractions,
                 appSites: card.appSites,
-                isBackupGenerated: isBackupGenerated ? true : nil
+                isBackupGenerated: isBackupGenerated ? true : nil,
+providerId: activeProviderId,
+                modelId: activeModelId
               )
             },
             batchId: batchId
@@ -1041,11 +1122,18 @@ final class LLMService: LLMServicing {
         let batchStartDate = Date(timeIntervalSince1970: TimeInterval(batchStartTs))
         let batchEndDate = Date(timeIntervalSince1970: TimeInterval(batchEndTs))
 
+        // Stamp the error card with whichever provider the user has
+        // configured. We don't have an `activeContext` here because the
+        // failure could have happened during initialization, so fall
+        // back to the primary provider's identity — that's the one the
+        // user is going to want to retry against anyway.
         let errorCard = createErrorCard(
           batchId: batchId,
           batchStartTime: batchStartDate,
           batchEndTime: batchEndDate,
-          error: error
+          error: error,
+          providerId: primaryProviderID.providerLabel,
+          modelId: providerModelId(for: primaryProviderID)
         )
 
         // Replace any existing cards in this time range with the error card
@@ -1082,7 +1170,8 @@ final class LLMService: LLMServicing {
   }
 
   private func createErrorCard(
-    batchId: Int64, batchStartTime: Date, batchEndTime: Date, error: Error
+    batchId: Int64, batchStartTime: Date, batchEndTime: Date, error: Error,
+    providerId: String?, modelId: String?
   ) -> TimelineCardShell {
     let formatter = DateFormatter()
     formatter.dateFormat = "h:mm a"
@@ -1110,7 +1199,9 @@ final class LLMService: LLMServicing {
       detailedSummary:
         "Error details: \(error.localizedDescription)\n\nThis recording batch (ID: \(batchId)) failed during AI processing. The original video files are preserved and can be reprocessed by retrying from Settings. Common causes include network issues, API rate limits, or temporary service outages.",
       distractions: nil,
-      appSites: nil
+      appSites: nil,
+      providerId: providerId,
+      modelId: modelId
     )
   }
 

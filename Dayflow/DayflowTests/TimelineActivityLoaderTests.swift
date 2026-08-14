@@ -74,7 +74,9 @@ final class TimelineActivityLoaderTests: XCTestCase {
       videoSummaryURL: nil,
       screenshot: nil,
       appSites: nil,
-      isBackupGenerated: false
+      isBackupGenerated: false,
+      providerId: nil,
+      modelId: nil
     )
   }
 
