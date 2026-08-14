@@ -66,16 +66,14 @@ struct ClaudeCLIExecutionProfile: Sendable {
         LoginShellRunner.shellEscape(
           "Return only the JSON requested by the user. Do not use tools."
         ),
-        "--prompt-suggestions", "false",
-        "--name", "dayflow-card-generation",
       ] + persistenceArguments
+      + ClaudeCapabilityProbe.safeModeArguments
     }
   }
 
   private func transcriptionCommandArguments(persistenceArguments: [String]) -> [String] {
     var arguments = [
       "--disable-slash-commands",
-      "--prompt-suggestions", "false",
       "--settings",
       LoginShellRunner.shellEscape(
         #"{"alwaysThinkingEnabled":false,"effortLevel":"low"}"#
@@ -83,8 +81,7 @@ struct ClaudeCLIExecutionProfile: Sendable {
       "--system-prompt",
       LoginShellRunner.shellEscape(Self.optimizedTranscriptionSystemPrompt),
       "--tools", "Read",
-      "--name", "dayflow-transcription",
-    ]
+    ] + ClaudeCapabilityProbe.safeModeArguments
     arguments.append(contentsOf: persistenceArguments)
     if let allowedReadPath {
       arguments.append(contentsOf: [
@@ -888,8 +885,18 @@ struct ChatCLIProcessRunner {
     if let model = model {
       cmdParts.append(contentsOf: ["--model", model])
     }
-    if let reasoningEffort {
-      cmdParts.append(contentsOf: ["--effort", reasoningEffort])
+    // Claude Code 2.1.22 dropped the `--effort` CLI flag. Effort is now set exclusively
+    // through the `--settings` JSON (`effortLevel` key). For the optimized profile path the
+    // profile already injects its own `--settings` (transcription sets
+    // `alwaysThinkingEnabled:false,effortLevel:low`), so we leave it alone. For the legacy
+    // no-profile path we inject a single-key settings JSON that sets just the effort.
+    if profile == nil, let reasoningEffort {
+      cmdParts.append(contentsOf: [
+        "--settings",
+        LoginShellRunner.shellEscape(
+          #"{"effortLevel":""# + reasoningEffort + #""}"#
+        ),
+      ])
     }
     if profile == nil && !disableTools {
       cmdParts.append("--dangerously-skip-permissions")
@@ -972,8 +979,16 @@ struct ChatCLIProcessRunner {
     if let model {
       cmdParts.append(contentsOf: ["--model", model])
     }
+    // Claude Code 2.1.22 dropped the `--effort` CLI flag. Effort is set via `--settings`
+    // JSON's `effortLevel` key. Streaming calls don't use a profile, so we inject the
+    // settings here directly.
     if let reasoningEffort {
-      cmdParts.append(contentsOf: ["--effort", reasoningEffort])
+      cmdParts.append(contentsOf: [
+        "--settings",
+        LoginShellRunner.shellEscape(
+          #"{"effortLevel":""# + reasoningEffort + #""}"#
+        ),
+      ])
     }
     cmdParts.append("--dangerously-skip-permissions")
     cmdParts.append("--strict-mcp-config")
@@ -1422,5 +1437,122 @@ private struct ClaudeNonStreamingEvent: Decodable {
       case cacheCreationInputTokens = "cache_creation_input_tokens"
       case outputTokens = "output_tokens"
     }
+  }
+}
+
+// MARK: - Capability probe
+
+/// Detects which Claude Code CLI features are available on the user's machine, so the runner
+/// only ever passes flags the installed binary actually understands. Without this, users on
+/// older Claude Code releases (e.g. 2.1.22, January 2026) would see every recording batch fail
+/// with `error: unknown option '--safe-mode'` (and the same for `--effort` / `--prompt-suggestions`,
+/// which landed in 2.1.191+ / 2.1.195+).
+///
+/// Detection runs `claude --version` once and caches the parsed `major.minor.patch` triple for
+/// the lifetime of the process. The probe falls back to "no extras" if the binary is missing,
+/// the version string can't be parsed, or the call times out — so the runner never blocks the
+/// pipeline waiting for a missing CLI.
+enum ClaudeCapabilityProbe {
+  /// First Claude Code release that recognizes `--safe-mode` (June 8, 2026). Below this we
+  /// skip the flag entirely; the profile's own `--tools Read` + `--allowedTools Read(...)`
+  /// already restrict Claude to the screenshot path, which is the security property we care
+  /// about. `--safe-mode` is a defense-in-depth layer on top, not a substitute.
+  static let safeModeMinimumVersion = SemanticVersion(major: 2, minor: 1, patch: 169)
+
+  /// Cached version of the installed Claude CLI. `nil` means "we haven't probed yet" OR
+  /// "the probe failed" (missing binary, timeout, unparseable version). Both cases degrade
+  /// to the safe "no extra flags" path.
+  private static let cachedVersion: SemanticVersion? = {
+    probeInstalledVersion()
+  }()
+
+  /// `["--safe-mode"]` when the installed Claude Code is new enough; `[]` otherwise. Appended
+  /// to the profile's command parts so the per-profile permission flags (`--tools`,
+  /// `--allowedTools`, `--disable-slash-commands`) stay the primary isolation mechanism.
+  static var safeModeArguments: [String] {
+    guard let version = cachedVersion, version >= safeModeMinimumVersion else {
+      return []
+    }
+    return ["--safe-mode"]
+  }
+
+  /// Exposed for tests and for the "why is this batch failing?" diagnostic the failed screen
+  /// shows next to the retry button. Strings the version probe picked up so we can tell a
+  /// user "your Claude Code is 2.1.22 — upgrade to 2.1.169+ for the extra sandbox layer"
+  /// without making them run `--version` themselves.
+  static var installedVersionDescription: String {
+    guard let version = cachedVersion else {
+      return "unknown (probe failed or `claude` not on PATH)"
+    }
+    return "\(version.major).\(version.minor).\(version.patch)"
+  }
+
+  private static func probeInstalledVersion() -> SemanticVersion? {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+    process.arguments = [
+      "-l", "-i", "-c",
+      "command -v claude >/dev/null 2>&1 && claude --version 2>/dev/null | head -1",
+    ]
+    let stdoutPipe = Pipe()
+    process.standardOutput = stdoutPipe
+    process.standardError = Pipe()
+    // The probe runs at most once per process; a 3-second ceiling keeps a hung `claude` from
+    // blocking the recording pipeline's first call.
+    let timeoutSeconds: TimeInterval = 3
+
+    do {
+      try process.run()
+    } catch {
+      return nil
+    }
+
+    let semaphore = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async {
+      process.waitUntilExit()
+      semaphore.signal()
+    }
+    if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+      process.terminate()
+      return nil
+    }
+
+    let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+    guard let raw = String(data: data, encoding: .utf8) else { return nil }
+    return SemanticVersion.parse(raw)
+  }
+}
+
+/// `major.minor.patch` triple, compared element-wise. Handles Anthropic's semver-with-date
+/// noise (e.g. `2.1.0 (2026-01-07)`) by stopping the parse at the first non-numeric segment.
+struct SemanticVersion: Comparable, Sendable {
+  let major: Int
+  let minor: Int
+  let patch: Int
+
+  static func < (lhs: SemanticVersion, rhs: SemanticVersion) -> Bool {
+    if lhs.major != rhs.major { return lhs.major < rhs.major }
+    if lhs.minor != rhs.minor { return lhs.minor < rhs.minor }
+    return lhs.patch < rhs.patch
+  }
+
+  /// Pulls the first `MAJOR.MINOR.PATCH` triple out of any string. Returns nil if the head
+  /// of the string isn't a recognizable version — that path is the version probe's "I have
+  /// no idea, fall back to safe defaults" branch.
+  static func parse(_ raw: String) -> SemanticVersion? {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    // Strip a leading `v` if present (`v2.1.22`).
+    let candidate = trimmed.hasPrefix("v") ? String(trimmed.dropFirst()) : trimmed
+    let parts = candidate.split(separator: ".")
+    guard parts.count >= 3,
+      let major = Int(parts[0]),
+      let minor = Int(parts[1])
+    else {
+      return nil
+    }
+    // The patch segment may carry trailing junk (`2.1.0 (2026-01-07)`); take the leading int.
+    let patchHead = parts[2].prefix { $0.isNumber }
+    guard let patch = Int(patchHead) else { return nil }
+    return SemanticVersion(major: major, minor: minor, patch: patch)
   }
 }

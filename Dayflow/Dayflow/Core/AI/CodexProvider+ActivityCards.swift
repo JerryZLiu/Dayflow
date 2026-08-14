@@ -168,13 +168,16 @@ extension CodexProvider {
   static func activityCardModelConfiguration() -> (
     model: String, reasoningEffort: String?
   ) {
-    return (model: "gpt-5.6-sol", reasoningEffort: "low")
+    // Mirrors `transcriptionModelConfiguration` — picks up the
+    // user's selection from `CodexModelPreference` rather than
+    // hard-coding a model name.
+    return (model: CodexModelPreference.load().primary.rawValue, reasoningEffort: "low")
   }
 
   static func legacyActivityCardModelConfiguration() -> (
     model: String, reasoningEffort: String?
   ) {
-    return (model: "gpt-5.4", reasoningEffort: "low")
+    return (model: CodexModel.gpt54.rawValue, reasoningEffort: "low")
   }
 
   private func codexRunResultFromStreamingError(

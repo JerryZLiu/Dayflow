@@ -222,6 +222,11 @@ extension MainView {
       }
       updateCardsToReviewCount()
       loadWeeklyTrackedMinutes()
+      // Re-evaluate the screen-recording permission notice whenever the user
+      // lands on the timeline. The notice is a session-dismissible toast and
+      // won't re-show once `didDismissScreenRecordingPermissionNoticeThisSession`
+      // is true, so this is safe to call on every timeline entry.
+      showScreenRecordingNoticeIfNeeded()
     } else {
       showTimelineReview = false
     }
@@ -315,7 +320,16 @@ extension MainView {
       showScreenRecordingPermissionNotice = false
       return
     }
-    guard AppState.shared.getSavedPreference() == true || appState.isRecording else { return }
+
+    // Show the notice once onboarding is finished and the user has lost
+    // (or never granted) screen-recording access. The previous guard also
+    // required `getSavedPreference() == true || appState.isRecording`, but
+    // `isRecording` is forced off the moment the recorder detects the
+    // permission is missing, and `getSavedPreference()` is `nil` for users
+    // who have never explicitly toggled it — so the notice never surfaced
+    // for exactly the case we need to alert on.
+    let didOnboard = UserDefaults.standard.bool(forKey: "didOnboard")
+    guard didOnboard else { return }
 
     withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
       showScreenRecordingPermissionNotice = true

@@ -69,6 +69,15 @@ final class ChatService: ObservableObject {
       currentConversationCreatedAt = Date()
     }
 
+    // Log the routing decision BEFORE the user message so the debug panel always shows
+    // which provider is being targeted for this turn — without this, a Claude-picked chat
+    // that silently falls back to a different provider (or one whose runtime label is
+    // `chat_cli` for both codex AND claude) is invisible to the user.
+    log(
+      .info,
+      "→ Routing to provider: \(provider.rawValue) (runtime: \(provider.runtimeLabel))"
+    )
+
     // Add user message
     let userMessage = ChatMessage.user(content)
     messages.append(userMessage)

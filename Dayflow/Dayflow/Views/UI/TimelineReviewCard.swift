@@ -106,6 +106,26 @@ struct TimelineReviewCard: View {
 
           HStack(alignment: .center) {
             TimelineReviewCategoryPill(name: activity.category, color: categoryColor)
+
+            // Subtle "produced by" chip next to the category pill so
+            // users in the review flow also know which provider/model
+            // wrote the summary. Hidden when the metadata is missing.
+            if let providerBadge = activity.providerBadge {
+              HStack(spacing: 4) {
+                Image(systemName: "sparkles")
+                  .font(.system(size: 9, weight: .medium))
+                  .foregroundColor(Color(hex: "707070"))
+                Text(providerBadge)
+                  .font(.custom("Figtree", size: 11).weight(.medium))
+                  .foregroundColor(Color(hex: "707070"))
+                  .lineLimit(1)
+              }
+              .padding(.horizontal, 8)
+              .padding(.vertical, 3)
+              .background(Color(hex: "F4F0ED"))
+              .cornerRadius(10)
+            }
+
             Spacer()
             TimelineReviewTimeRangePill(timeRange: timeRangeText)
           }

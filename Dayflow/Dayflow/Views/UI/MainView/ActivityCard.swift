@@ -206,6 +206,35 @@ struct ActivityCard: View {
                 )
               }
 
+              // "Produced by …" badge — mirrors the badge shown on the
+              // timeline card. Surfaces the provider/model that
+              // generated this card so users can verify which AI
+              // actually wrote the summary. Hidden when the metadata
+              // is missing (older cards) or the card is a system
+              // "Processing failed" error card (provider info is
+              // surfaced through the retry flow instead).
+              if !isFailedCard(activity), let providerBadge = activity.providerBadge {
+                HStack(spacing: 6) {
+                  Image(systemName: "sparkles")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(Color(red: 0.45, green: 0.45, blue: 0.45))
+                  Text(providerBadge)
+                    .font(Font.custom("Figtree", size: 11))
+                    .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
+                    .lineLimit(1)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color(red: 0.96, green: 0.96, blue: 0.95).opacity(0.9))
+                .cornerRadius(6)
+                .overlay(
+                  RoundedRectangle(cornerRadius: 6)
+                    .inset(by: 0.25)
+                    .stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.5)
+                )
+                .help("Produced by \(providerBadge)")
+              }
+
               if !isFailedCard(activity) {
                 Button(action: {
                   withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {

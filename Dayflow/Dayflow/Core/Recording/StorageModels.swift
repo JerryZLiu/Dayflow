@@ -115,6 +115,15 @@ struct TimelineCard: Codable, Sendable, Identifiable {
   let otherVideoSummaryURLs: [String]?  // For merged cards, subsequent video URLs
   let appSites: AppSites?
   let isBackupGenerated: Bool?
+  /// Stable provider id of the model that produced this card
+  /// (e.g. "gemini", "ollama", "chatgpt", "claude", "dayflow",
+  /// "openai_compatible"). Older saved cards don't carry this — leave
+  /// `nil` so the UI can hide the badge instead of showing a stale value.
+  let providerId: String?
+  /// Model id chosen by the user (e.g. "gemini-3.5-flash",
+  /// "MiniMax-M3", "gpt-5.6-luna", "claude-sonnet-4.5"). Optional for
+  /// the same reason as `providerId`.
+  let modelId: String?
 
   init(
     id: UUID = UUID(),
@@ -132,7 +141,9 @@ struct TimelineCard: Codable, Sendable, Identifiable {
     videoSummaryURL: String?,
     otherVideoSummaryURLs: [String]?,
     appSites: AppSites?,
-    isBackupGenerated: Bool? = nil
+    isBackupGenerated: Bool? = nil,
+    providerId: String? = nil,
+    modelId: String? = nil
   ) {
     self.id = id
     self.recordId = recordId
@@ -150,6 +161,8 @@ struct TimelineCard: Codable, Sendable, Identifiable {
     self.otherVideoSummaryURLs = otherVideoSummaryURLs
     self.appSites = appSites
     self.isBackupGenerated = isBackupGenerated
+    self.providerId = providerId
+    self.modelId = modelId
   }
 }
 
@@ -234,6 +247,14 @@ struct TimelineCardShell: Sendable {
   let appSites: AppSites?
   let isBackupGenerated: Bool?
   let idleMetadata: IdleCardMetadata?
+  /// Stable provider id of the model that produced this card
+  /// (e.g. "gemini", "ollama", "chatgpt", "claude", "dayflow").
+  /// Optional because older shells (e.g. error / idle paths) don't know
+  /// who produced them; the UI simply omits the badge when nil.
+  let providerId: String?
+  /// Model id of the producing model (e.g. "gemini-3.5-flash").
+  /// Optional for the same reason as `providerId`.
+  let modelId: String?
   // No videoSummaryURL here, as it's added later
   // No batchId here, as it's passed as a separate parameter to the save function
 
@@ -248,7 +269,9 @@ struct TimelineCardShell: Sendable {
     distractions: [Distraction]?,
     appSites: AppSites?,
     isBackupGenerated: Bool? = nil,
-    idleMetadata: IdleCardMetadata? = nil
+    idleMetadata: IdleCardMetadata? = nil,
+    providerId: String? = nil,
+    modelId: String? = nil
   ) {
     self.startTimestamp = startTimestamp
     self.endTimestamp = endTimestamp
@@ -261,6 +284,8 @@ struct TimelineCardShell: Sendable {
     self.appSites = appSites
     self.isBackupGenerated = isBackupGenerated
     self.idleMetadata = idleMetadata
+    self.providerId = providerId
+    self.modelId = modelId
   }
 }
 
@@ -285,6 +310,14 @@ struct TimelineMetadata: Codable {
   let appSites: AppSites?
   let isBackupGenerated: Bool?
   let idle: IdleCardMetadata?
+  /// Stable provider id (e.g. "gemini", "ollama", "chatgpt", "claude",
+  /// "dayflow", "openai_compatible"). Optional because the column has
+  /// carried this JSON since before this field existed, so any row
+  /// written earlier than the migration will simply omit it.
+  let providerId: String?
+  /// Model id chosen by the user (e.g. "gemini-3.5-flash",
+  /// "gpt-5.6-luna", "claude-sonnet"). Optional for the same reason.
+  let modelId: String?
 }
 
 struct AnalysisBatchDebugEntry: Sendable {
