@@ -57,12 +57,13 @@ extension OllamaProvider {
     }
 
     var request = request
-    if localEngine == "ollama" {
-      // Ollama's OpenAI-compatible endpoint enables thinking by default for hybrid
-      // reasoning models and offers no model-level way to turn it off, which makes
-      // each vision call 5-10x slower. "none" disables it; non-thinking models
-      // ignore the field. LM Studio/custom endpoints are left untouched: they have
-      // their own thinking controls and some providers reject "none".
+    if localEngine == "ollama" || localEngine == "lmstudio" {
+      // Ollama's and LM Studio's OpenAI-compatible endpoints enable thinking by
+      // default for hybrid reasoning models (e.g. Qwen3.5, Qwen3-VL) with no
+      // model-level way to turn it off, which makes each vision call 5-10x slower
+      // and can blow the 60s request timeout. Both honor "none" (verified on
+      // Ollama 0.32.14 and LM Studio 0.4.21); non-thinking models ignore the
+      // field. Custom endpoints are left untouched: some providers reject "none".
       request.reasoning_effort = "none"
     }
 
