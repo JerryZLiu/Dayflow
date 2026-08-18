@@ -49,14 +49,14 @@ enum SidebarIcon: CaseIterable {
 
   var displayName: String {
     switch self {
-    case .timeline: return "Timeline"
-    case .daily: return "Daily"
-    case .weekly: return "Weekly"
-    case .chat: return "Chat"
-    case .agents: return "Agents"
-    case .journal: return "Journal"
-    case .bug: return "Report"
-    case .settings: return "Settings"
+    case .timeline: return String(localized: "Timeline")
+    case .daily: return String(localized: "Daily")
+    case .weekly: return String(localized: "Weekly")
+    case .chat: return String(localized: "Chat")
+    case .agents: return String(localized: "Agents")
+    case .journal: return String(localized: "Journal")
+    case .bug: return String(localized: "Report")
+    case .settings: return String(localized: "Settings")
     }
   }
 

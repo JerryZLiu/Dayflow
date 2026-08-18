@@ -1,0 +1,815 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    " %@" : {},
+    " - %@" : {},
+    " LLM, but we strongly recommend using Qwen3-VL 4B based on our internal benchmarks." : {},
+    " to update your data." : {},
+    "!" : {},
+    "%@ - %@" : {},
+    "%@ pt" : {},
+    "%@ to %@" : {},
+    "%lld" : {},
+    "%lld %@" : {},
+    "%lld hours" : {},
+    "%lld minutes" : {},
+    "%lld%%" : {},
+    "%lld." : {},
+    "%lld/%lld" : {},
+    "%lldx" : {},
+    "(aistudio.google.com)" : {},
+    "*" : {},
+    "+ Add category" : {},
+    ", when they use Dayflow for a week." : {},
+    "." : {},
+    "000000" : {},
+    "1" : {},
+    "1 month of Dayflow Pro (stackable!)" : {},
+    "1." : {},
+    "1. Open LM Studio → Models tab" : {},
+    "10" : {},
+    "10 hours of timeline data required" : {},
+    "2." : {},
+    "2. Search for 'Qwen3-VL-4B' and install the Instruct variant" : {},
+    "2x" : {},
+    "3." : {},
+    "5" : {},
+    "99" : {},
+    ":" : {},
+    "A quick answer helps shape where Weekly goes next." : {},
+    "ABC123" : {},
+    "API key (optional)" : {},
+    "API key should be more than 10 characters" : {},
+    "Account" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "계정"
+          }
+        }
+      }
+    },
+    "Add a category to get started." : {},
+    "Add item" : {},
+    "Adjust storage limit" : {},
+    "Advance" : {},
+    "Advanced users can pick any " : {},
+    "After installing LM Studio, download the recommended model:" : {},
+    "After installing Ollama, run this in your terminal to download the model (≈5GB):" : {},
+    "Agents" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "에이전트"
+          }
+        }
+      }
+    },
+    "All" : {},
+    "All caught up!" : {},
+    "Already have a local server? Make sure it’s OpenAI-compatible. You can set a custom base URL in the next step." : {},
+    "Answering" : {},
+    "App preferences" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "앱 환경설정"
+          }
+        }
+      }
+    },
+    "Ask about your Dayflow data" : {},
+    "Ask questions, analyze your timeline, and generate charts/graphs." : {},
+    "Auto-updated from assistant replies. You can edit this manually." : {},
+    "BETA" : {},
+    "Back" : {},
+    "Back to briefing" : {},
+    "Back to overview" : {},
+    "Base URL" : {},
+    "Blocked apps" : {},
+    "Blockers" : {},
+    "Calendar" : {},
+    "Cancel" : {},
+    "Cancel any time. No-questions-asked refunds." : {},
+    "Cards are generated about every 15 minutes. If Dayflow is on and no cards show up within 30 minutes, please report a bug." : {},
+    "Categories" : {},
+    "Category" : {},
+    "Category name" : {},
+    "Change category" : {},
+    "Chat" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "채팅"
+          }
+        }
+      }
+    },
+    "Chat lets you ask questions about your Dayflow activity and get summaries, comparisons, and insights." : {},
+    "Chat unlocks after Dayflow has analyzed enough activity. %@" : {},
+    "ChatGPT" : {},
+    "Check for Updates…" : {},
+    "Check your email" : {},
+    "Checking..." : {},
+    "Checking…" : {},
+    "Choose a way to run Dayflow" : {},
+    "Choose daily recap provider" : {},
+    "Choose how Daily generates this recap, or turn generation off." : {},
+    "Choose how Daily generates your recap, or turn generation off. You can change this later." : {},
+    "Choose which provider Dayflow should use" : {},
+    "Choose your Gemini model. We recommend 3.5 Flash, with 3.1 Flash-Lite available as a fallback." : {},
+    "Choose your local AI engine" : {},
+    "Claude" : {},
+    "Clear" : {},
+    "Clear log" : {},
+    "Clears existing cards and observations for that day, then runs analysis again from the original recordings." : {},
+    "Click \"Create API key\" in the top right" : {},
+    "Click and drag on the canvas above to change the color palette. Then drag a color onto a category." : {},
+    "Close" : {},
+    "Code sent to %@" : {},
+    "Collapse" : {},
+    "Come back after a few timeline cards appear." : {},
+    "Complete Setup" : {},
+    "Configure WhatsNewConfiguration.configuredRelease to preview." : {},
+    "Confirm" : {},
+    "Confirm delete activity card" : {},
+    "Congrats, enjoy a free month of Dayflow Pro on us!" : {},
+    "Connected" : {},
+    "Context shift and distractions comparison" : {},
+    "Context shift and distractions distribution" : {},
+    "Continue" : {},
+    "Continue to Daily" : {},
+    "Copied" : {},
+    "Copied standup update" : {},
+    "Copied!" : {},
+    "Copy" : {},
+    "Copy all" : {},
+    "Copy code" : {},
+    "Copy debug logs" : {},
+    "Copy email" : {},
+    "Copy standup update" : {},
+    "Copy terminal command" : {},
+    "Copy timeline" : {},
+    "Copy timeline to clipboard" : {},
+    "Couldn't finish setup" : {},
+    "Couldn't save your provider" : {},
+    "Count" : {},
+    "Count: %lld" : {},
+    "Create a new API key and copy it" : {},
+    "Create a new category" : {},
+    "Custom" : {},
+    "Custom model" : {},
+    "Customize your categories" : {},
+    "DETAILED SUMMARY" : {},
+    "Daily" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "데일리"
+          }
+        }
+      }
+    },
+    "Daily Unlocked" : {},
+    "Daily recap provider" : {},
+    "Daily recap provider: %@" : {},
+    "Daily unlocks after 5 hours of analyzed timeline data. %@" : {},
+    "Day" : {},
+    "Day Index" : {},
+    "Dayflow" : {},
+    "Dayflow Daily" : {},
+    "Dayflow Journal" : {},
+    "Dayflow automatically downgrades if your chosen model is rate limited or unavailable." : {},
+    "Dayflow can help understand your day." : {},
+    "Dayflow can talk to ChatGPT (via the Codex CLI) or Claude Code. You only need one installed and signed in on this Mac. After installing, run `codex auth` or `claude login` in Terminal to connect it to your account." : {},
+    "Dayflow cannot update your timeline until access is restored." : {},
+    "Dayflow helps you track your daily and longer term goals, gives you the space to reflect, and generates a summary of each day." : {},
+    "Dayflow helps you track your daily and longer term pursuits, gives you the space to reflect, and generates a summary of each day." : {},
+    "Dayflow is built to be private and secure." : {},
+    "Dayflow paused for " : {},
+    "Dayflow recording is currently turned off, so cards aren’t being produced." : {},
+    "Dayflow stores all recordings locally on your Mac, and can process everything privately on your device using local AI models." : {},
+    "Dayflow summary" : {},
+    "Dayflow uses notifications to tell you when your recap is ready." : {},
+    "Dayflow v%@" : {},
+    "Dayflow will organize your activities based on the categories you provide." : {},
+    "Debug Log" : {},
+    "Delete" : {},
+    "Delete activity card" : {},
+    "Delete category" : {},
+    "Delete category?" : {},
+    "Delete conversation" : {},
+    "Dismiss" : {},
+    "Distraction budget" : {},
+    "Distractions" : {},
+    "Distractions and rabbit holes" : {},
+    "Distractions so far" : {},
+    "Do you have a paid ChatGPT or Claude account?" : {},
+    "Do you have a referral code?" : {},
+    "Done" : {},
+    "Download %@ as a full-resolution PNG" : {},
+    "Download LM Studio" : {},
+    "Download Qwen3-VL 4B in LM Studio" : {},
+    "Download the AI model" : {},
+    "Drag and drop to set the categories you want to track" : {},
+    "Drag apps here to hide them from recording" : {},
+    "Drag into a goal panel, or click to cycle between Focus, Distraction, and untracked" : {},
+    "Drag or scroll to adjust %@" : {},
+    "Drag to category" : {},
+    "Drop on a category →" : {},
+    "Duration" : {},
+    "During the beta, your questions are logged to help improve the product. Responses are not logged, so your privacy is maintained." : {},
+    "Edit categories to calculate distractions." : {},
+    "Edit categories to calculate focus." : {},
+    "Edit category" : {},
+    "Edit colors" : {},
+    "Edit title" : {},
+    "Edit title and description" : {},
+    "Email" : {},
+    "Email works great if you want to drop a quick note, Discord if you want to join the community, and if you’d prefer to chat, find some time on my calendar - I’d love to dig into why Dayflow is or isn’t working well for you." : {},
+    "End" : {},
+    "Endpoint" : {},
+    "Engine" : {},
+    "English" : {},
+    "Enter access code" : {},
+    "Enter the 6-character code from your invite." : {},
+    "Enter the code sent to %@." : {},
+    "Enter your email and Dayflow will send a 6 digit code." : {},
+    "Expand" : {},
+    "Export" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "내보내기"
+          }
+        }
+      }
+    },
+    "Fable is reading today's sessions…" : {},
+    "Fable reads today's Claude Code and Codex sessions and builds a review of everything your agents did — grouped by workstream, thread by thread." : {},
+    "Fill in any blockers you may have" : {},
+    "Finish in %@" : {},
+    "Finish prototype" : {},
+    "Focus" : {},
+    "Follow the steps below, run a quick test, and Dayflow will switch you over automatically." : {},
+    "Follow up" : {},
+    "For local use, LM Studio is the most reliable; Ollama has a known thinking bug in onboarding (can't turn thinking off) and performance is unreliable." : {},
+    "Gap" : {},
+    "Gemini API key or CLI required" : {},
+    "Gemini key or CLI runtime detected" : {},
+    "Gemini model" : {},
+    "General toggles and telemetry settings." : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "일반 설정과 사용 데이터 수집 옵션입니다."
+          }
+        }
+      }
+    },
+    "Generated with" : {},
+    "Generating summary..." : {},
+    "Generating your next card" : {},
+    "Get early access" : {},
+    "Get your Gemini API key" : {},
+    "Give a month of Dayflow Pro and earn $20 in credits for each person you refer!" : {},
+    "Heads up: this can consume a large number of API calls." : {},
+    "Help Dayflow understand your work patterns better." : {},
+    "Help Dayflow understand your workflow" : {},
+    "Here are options tailored to your work to help you get started. Provide more personalized descriptions to help Dayflow better understand your actions." : {},
+    "Hide details" : {},
+    "History" : {},
+    "Hosted cards and transcription run through your Dayflow account." : {},
+    "Hover a short card — the card grows to reveal the full title. No text shifts; only new lines appear below." : {},
+    "Hover-expand prototype" : {},
+    "How can we improve Weekly?" : {},
+    "How do you feel about Weekly so far?" : {},
+    "How it works" : {},
+    "How many agents do you launch per day?" : {},
+    "I remember your response preferences, so feel free to teach me your style." : {},
+    "If someone gave you a code, enter it here. Don't worry if you don't have a code, we'll gift you a free week of Dayflow Pro!" : {},
+    "If you get stuck here, you can go back and choose the ‘Bring your own key’ option — it only takes a minute to set up." : {},
+    "Install Qwen3-VL 4B" : {},
+    "Install to enable" : {},
+    "Installed apps" : {},
+    "Interactions between most used applications" : {},
+    "J" : {},
+    "Join Discord" : {},
+    "Join the beta" : {},
+    "Joining..." : {},
+    "Journal" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "저널"
+          }
+        }
+      }
+    },
+    "Jump to latest message" : {},
+    "Keep Qwen2.5" : {},
+    "Keep recording to unlock this week" : {},
+    "Keeps the menu bar controller running right after you sign in so capture can resume instantly." : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "로그인하면 메뉴 막대 앱이 바로 실행되어 화면 기록을 즉시 이어갈 수 있습니다."
+          }
+        }
+      }
+    },
+    "LM Studio" : {},
+    "Label" : {},
+    "Last refresh failed — try again" : {},
+    "Last step!" : {},
+    "Last updated: %@" : {},
+    "Launch Dayflow" : {},
+    "Launch Dayflow at login" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "로그인 시 Dayflow 자동 실행"
+          }
+        }
+      }
+    },
+    "Least context shifts" : {},
+    "Long term goals" : {},
+    "Longest focus duration" : {},
+    "Longest focus period" : {},
+    "Lower %@ limit?" : {},
+    "MCP / CLI" : {},
+    "MISSED" : {},
+    "Make sure your server exposes the OpenAI Chat Completions API and has Qwen3-VL 4B (or Qwen2.5-VL 3B if you need the legacy model) installed." : {},
+    "Manual setup:" : {},
+    "Memory" : {},
+    "Minutes" : {},
+    "Model ID" : {},
+    "Most common work patterns" : {},
+    "Most context shifts" : {},
+    "N" : {},
+    "NAILED IT" : {},
+    "Need at least 1 hour of timeline activity to summarize" : {},
+    "New and reprocessed timeline cards will pre-generate timelapse videos and store them on disk instead of building them on demand. Uses more storage and background processing." : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "새로 생성하거나 다시 처리하는 타임라인 카드의 타임랩스 영상을 필요할 때 만드는 대신 미리 만들어 디스크에 저장합니다. 저장 공간과 백그라운드 처리를 더 사용합니다."
+          }
+        }
+      }
+    },
+    "New chat" : {},
+    "New reply" : {},
+    "Next" : {},
+    "Next card..." : {},
+    "No activity" : {},
+    "No activity data yet" : {},
+    "No apps match your search." : {},
+    "No cards yet" : {},
+    "No credit card needed. You can set up billing later if Dayflow is useful." : {},
+    "No focus categories tracked" : {},
+    "No journal entry for this day" : {},
+    "No saved chats yet" : {},
+    "Not found" : {},
+    "Notes for today" : {},
+    "Nothing to review yet" : {},
+    "OK" : {},
+    "Off" : {},
+    "Ollama" : {},
+    "On" : {},
+    "Once downloaded, turn on 'Local Server' in LM Studio (default http://localhost:1234)" : {},
+    "Once the test succeeds, Dayflow updates your settings to %@ automatically." : {},
+    "One quick question" : {},
+    "Open Google AI Studio" : {},
+    "Open System Settings" : {},
+    "Open this session in its app" : {},
+    "OpenRouter" : {},
+    "Optional" : {},
+    "Other" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "기타"
+          }
+        }
+      }
+    },
+    "Output language override" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "출력 언어 지정"
+          }
+        }
+      }
+    },
+    "Part 1 of 2" : {},
+    "Part 2 of 2" : {},
+    "Pause" : {},
+    "Pause Dayflow" : {},
+    "Paused" : {},
+    "Permission" : {},
+    "Pick your Daily provider" : {},
+    "Play at double speed" : {},
+    "Play at normal speed" : {},
+    "Play video summary" : {},
+    "Playback speed" : {},
+    "Please send feedback if you see any bugs or weird behavior!" : {},
+    "Please specify" : {},
+    "Preparing timelapse..." : {},
+    "Preparing..." : {},
+    "Privacy" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "개인정보 보호"
+          }
+        }
+      }
+    },
+    "Privacy Note" : {},
+    "Pro" : {},
+    "Processing" : {},
+    "Professional, school, or career-focused tasks (coding, design, meetings)." : {},
+    "Prototype checkpoint" : {},
+    "Provider" : {},
+    "Providers" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "공급자"
+          }
+        }
+      }
+    },
+    "Quick utilities" : {},
+    "Quit & Reopen" : {},
+    "Re-check" : {},
+    "Reach out" : {},
+    "Ready to use" : {},
+    "Recheck permissions" : {},
+    "Recording is off" : {},
+    "Redeem a referral code" : {},
+    "Reducing the %@ limit to %@ will immediately delete the oldest %@ data to stay under the new cap." : {},
+    "Refer and earn rewards" : {},
+    "Referral code" : {},
+    "Referral credits are tied to your Dayflow account so we can credit you when friends join." : {},
+    "Reflect on your day" : {},
+    "Regenerate standup highlights" : {},
+    "Regenerate summary" : {},
+    "Release notes" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "릴리스 노트"
+          }
+        }
+      }
+    },
+    "Reload" : {},
+    "Repeat on" : {},
+    "Replay video" : {},
+    "Report" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "제보"
+          }
+        }
+      }
+    },
+    "Reprocess" : {},
+    "Reprocess day?" : {},
+    "Reset" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "재설정"
+          }
+        }
+      }
+    },
+    "Reset Onboarding" : {},
+    "Resume" : {},
+    "Retry" : {},
+    "Return near the end of your day to reflect on your intentions." : {},
+    "Return near the end of your day to reflect on your intentions. Let Dayflow generate a narrative summary based on the activities on your Timeline." : {},
+    "Running for %lldm %llds — a full day can take several minutes." : {},
+    "Runs only when you ask — nothing happens automatically." : {},
+    "SUMMARY" : {},
+    "Save" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "저장"
+          }
+        }
+      }
+    },
+    "Save all timelapses to disk" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "모든 타임랩스를 디스크에 저장"
+          }
+        }
+      }
+    },
+    "Save category edits" : {},
+    "Saved" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "저장됨"
+          }
+        }
+      }
+    },
+    "Saved." : {},
+    "Saving..." : {},
+    "Screen recording access needed" : {},
+    "Search installed apps" : {},
+    "See details" : {},
+    "Select" : {},
+    "Select ChatGPT or Claude above before running the test." : {},
+    "Select Date" : {},
+    "Select an activity to view details" : {},
+    "Send feedback" : {},
+    "Send invites" : {},
+    "Series" : {},
+    "Set daily intentions and track your progress" : {},
+    "Set goals" : {},
+    "Set recurring notifications to remind yourself to set your intentions and reflect." : {},
+    "Set reminders" : {},
+    "Set today's intentions" : {},
+    "Set today’s goals" : {},
+    "Set your goals for today to activate the progress bars below." : {},
+    "Set your intentions today" : {},
+    "Settings" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "설정"
+          }
+        }
+      }
+    },
+    "Share crash reports and anonymous usage data" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "충돌 보고서와 익명 사용 데이터 공유"
+          }
+        }
+      }
+    },
+    "Share your invite link" : {},
+    "Show Dock icon" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dock 아이콘 표시"
+          }
+        }
+      }
+    },
+    "Show app/website icons in timeline" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "타임라인에 앱/웹사이트 아이콘 표시"
+          }
+        }
+      }
+    },
+    "Show daily goal popups" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "일일 목표 팝업 표시"
+          }
+        }
+      }
+    },
+    "Show details" : {},
+    "Sign in to Dayflow" : {},
+    "Sign in to get your invite link" : {},
+    "Sign up / Sign in to Dayflow" : {},
+    "Skip" : {},
+    "Source" : {},
+    "Star Dayflow on GitHub" : {},
+    "Star thread to keep" : {},
+    "Start" : {},
+    "Start a new chat (this one is saved in history)" : {},
+    "Start must be on or before end." : {},
+    "Start onboarding" : {},
+    "Start review" : {},
+    "Storage" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "저장 공간"
+          }
+        }
+      }
+    },
+    "Summarize with Dayflow" : {},
+    "Summarizing your day recorded on your timeline…" : {},
+    "Summary from yesterday" : {},
+    "Swipe on each card on your Timeline to review your day." : {},
+    "Switch and Reset" : {},
+    "Switch provider?" : {},
+    "Switching to %@ will clear this chat's context." : {},
+    "TOTAL" : {},
+    "Tell me more" : {},
+    "Terminal command copied" : {},
+    "Test" : {},
+    "Thanks" : {},
+    "Thanks for letting me know!" : {},
+    "Thanks for using Dayflow" : {},
+    "The default language is English. You can specify any language here (examples: English, 简体中文, Español, 日本語, 한국어, Français)." : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "기본 언어는 영어입니다. 여기에 원하는 언어를 지정할 수 있습니다 (예: English, 简体中文, Español, 日本語, 한국어, Français)."
+          }
+        }
+      }
+    },
+    "The intro video, role-selection screen, and preferences screen are now wired up. We can keep replacing the remaining placeholders step by step without touching production onboarding yet." : {},
+    "The recap run didn't finish" : {},
+    "The setup test sends a small image to verify multimodal support and may incur a provider charge." : {},
+    "They sign up and get a " : {},
+    "Thinking" : {},
+    "This card fell back to a lower-quality Gemini model due to rate limiting, so output quality may be lower." : {},
+    "This helps personalize the experience for you." : {},
+    "This model enables Dayflow to understand what's on your screen" : {},
+    "This step is optional. You can change the colors anytime while using Dayflow." : {},
+    "This step is optional. You can customize the categories or create new ones anytime while using Dayflow." : {},
+    "This will delete existing timeline cards for %@ and re-run analysis. It can consume many API calls." : {},
+    "This will help Dayflow generate categories that are most helpful to you." : {},
+    "This will open LM Studio and prompt you to download the model (≈3GB)." : {},
+    "Thread %lld of %lld · %@" : {},
+    "Thumbs down" : {},
+    "Thumbs up" : {},
+    "Time distribution" : {},
+    "Timeline" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "타임라인"
+          }
+        }
+      }
+    },
+    "Tip: Once both are installed, you can choose which provider Dayflow uses from Settings → AI Provider." : {},
+    "Title" : {},
+    "To get useful insights, let Dayflow run in the background for an hour or two to gather enough context, then check back in." : {},
+    "To help Dayflow organize your activities more accurately, try adding more details to the descriptions in your categories " : {},
+    "Today" : {},
+    "Today's intentions" : {},
+    "Today's reflections" : {},
+    "Today’s targets" : {},
+    "Toggle chat history" : {},
+    "Toggle debug panel" : {},
+    "Toggle memory panel" : {},
+    "Top Highlights" : {},
+    "Total" : {},
+    "Total focus time" : {},
+    "Try Dayflow Pro free for 7 days." : {},
+    "Try again" : {},
+    "Try one of these" : {},
+    "Turn on Screen Recording for Dayflow, then quit and reopen the app to finish." : {},
+    "Turn on notifications to unlock Daily" : {},
+    "Undo" : {},
+    "Unlock Beta" : {},
+    "Unlock Daily" : {},
+    "Unlock Weekly" : {},
+    "Unlock chat by either adding a Gemini API key in Settings or installing Codex/Claude CLI." : {},
+    "Unstar thread" : {},
+    "Upgrade now" : {},
+    "Upgrade to %@" : {},
+    "Upgrade to Qwen3VL for a big improvement in quality." : {},
+    "Use Markdown exports to archive in Notion, share with teammates, or paste into ChatGPT / Claude / Gemini for deeper analysis." : {},
+    "Use any OpenAI-compatible VLM" : {},
+    "Value" : {},
+    "View Release Notes" : {},
+    "View on X" : {},
+    "Visit Google AI Studio " : {},
+    "We want you to be able to try Dayflow for free, no credit card and no strings attached!" : {},
+    "We'll ask your CLI a simple question to verify it's working and signed in." : {},
+    "Week total" : {},
+    "Week total  No captured activity during %@-%@" : {},
+    "Weekly" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "위클리"
+          }
+        }
+      }
+    },
+    "Weekly breakdown" : {},
+    "Weekly distribution" : {},
+    "Weekly insights need at least 15 hours of recorded activity for the selected week." : {},
+    "Weekly unlocks after 30 hours of recorded timeline data" : {},
+    "What are you hoping to get out of Dayflow?" : {},
+    "What do you do for work?" : {},
+    "What's New in %@ 🎉" : {},
+    "When off, Dayflow runs as a menu bar-only app." : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "끄면 Dayflow가 메뉴 막대 전용 앱으로 실행됩니다."
+          }
+        }
+      }
+    },
+    "When off, Dayflow won't automatically open goal setup or yesterday's review after 4am." : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "끄면 새벽 4시 이후 목표 설정이나 어제 돌아보기 화면이 자동으로 열리지 않습니다."
+          }
+        }
+      }
+    },
+    "When off, timeline cards won't show app or website icons." : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "끄면 타임라인 카드에 앱과 웹사이트 아이콘이 표시되지 않습니다."
+          }
+        }
+      }
+    },
+    "Where do you want to spend your time today?" : {},
+    "Which local runtime are you using?" : {},
+    "Which tool are you using?" : {},
+    "X" : {},
+    "Y" : {},
+    "Yesterday’s review" : {},
+    "You are always in control — you can pause or turn off Dayflow whenever you like." : {},
+    "You are ready to go!" : {},
+    "You can customize or create new categories any time." : {},
+    "You earn " : {},
+    "You're on the beta list." : {},
+    "You've reviewed all your activities so far.\nThe Timeline right panel will be updated with your rating." : {},
+    "Your API key is encrypted and stored in your macOS Keychain - never uploaded anywhere" : {},
+    "Your Dayflow Pro trial is active." : {},
+    "Your day so far" : {},
+    "Your focus" : {},
+    "Your invite link" : {},
+    "Your referral reward is active on this account." : {},
+    "Your reflections" : {},
+    "Your review" : {},
+    "Z" : {},
+    "allows you to run Dayflow for free. All you need is a Google account - no credit card required." : {},
+    "card to review" : {},
+    "cards to review" : {},
+    "email@example.com" : {},
+    "free month of Dayflow Pro!" : {},
+    "here" : {},
+    "sk-live-..." : {},
+    "vision-capable" : {},
+    "you@example.com" : {},
+    "“%@” will be removed from your onboarding categories." : {},
+    "•" : {},
+    "✓ Permission granted! Click Next to continue." : {}
+  },
+  "version" : "1.0"
+}

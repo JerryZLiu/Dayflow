@@ -22,13 +22,13 @@ struct SettingsView: View {
 
     var title: String {
       switch self {
-      case .account: return "Account"
-      case .storage: return "Storage"
-      case .privacy: return "Privacy"
-      case .providers: return "Providers"
-      case .aiTools: return "MCP / CLI"
-      case .data: return "Export"
-      case .other: return "Other"
+      case .account: return String(localized: "Account")
+      case .storage: return String(localized: "Storage")
+      case .privacy: return String(localized: "Privacy")
+      case .providers: return String(localized: "Providers")
+      case .aiTools: return String(localized: "MCP / CLI")
+      case .data: return String(localized: "Export")
+      case .other: return String(localized: "Other")
       }
     }
   }
