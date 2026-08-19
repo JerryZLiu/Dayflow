@@ -6,9 +6,16 @@ final class RecordingPrivacySettingsViewModel: ObservableObject {
   @Published private(set) var installedApplications: [RecordingPrivacyApplication] = []
   @Published private(set) var blockedIdentifiers: [String]
   @Published private(set) var isLoadingApplications = false
+  @Published var idleCaptureThrottleEnabled: Bool {
+    didSet {
+      guard idleCaptureThrottleEnabled != oldValue else { return }
+      IdleCapturePreferences.enabled = idleCaptureThrottleEnabled
+    }
+  }
 
   init() {
     blockedIdentifiers = RecordingPrivacyPreferences.blockedApplicationIdentifiers()
+    idleCaptureThrottleEnabled = IdleCapturePreferences.enabled
   }
 
   var filteredApplications: [RecordingPrivacyApplication] {

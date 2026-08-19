@@ -11,21 +11,42 @@ struct SettingsRecordingPrivacyTabView: View {
   ]
 
   var body: some View {
-    SettingsSection(
-      title: "Recording privacy",
-      subtitle: "Choose apps Dayflow should hide from screenshots."
-    ) {
-      VStack(alignment: .leading, spacing: 18) {
-        searchField
-        installedAppsGrid
-          .frame(maxHeight: .infinity, alignment: .top)
-        blockedAppsTray
+    VStack(alignment: .leading, spacing: SettingsStyle.sectionSpacing) {
+      idleCaptureSection
+
+      SettingsSection(
+        title: "Recording privacy",
+        subtitle: "Choose apps Dayflow should hide from screenshots."
+      ) {
+        VStack(alignment: .leading, spacing: 18) {
+          searchField
+          installedAppsGrid
+            .frame(maxHeight: .infinity, alignment: .top)
+          blockedAppsTray
+        }
+        .frame(maxHeight: .infinity, alignment: .topLeading)
       }
       .frame(maxHeight: .infinity, alignment: .topLeading)
     }
     .frame(maxHeight: .infinity, alignment: .topLeading)
     .onAppear {
       viewModel.handleOnAppear()
+    }
+  }
+
+  private var idleCaptureSection: some View {
+    SettingsSection(
+      title: "Idle capture",
+      subtitle: "Reduce screenshot frequency while you're away from your computer."
+    ) {
+      SettingsRow(
+        label: "Slow down capture when idle",
+        subtitle:
+          "After 2 minutes without keyboard or mouse input, Dayflow takes screenshots less often to save disk space and battery.",
+        showsDivider: false
+      ) {
+        SettingsToggle(isOn: $viewModel.idleCaptureThrottleEnabled)
+      }
     }
   }
 
