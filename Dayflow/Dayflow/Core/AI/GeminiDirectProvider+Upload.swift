@@ -127,9 +127,10 @@ extension GeminiDirectProvider {
   }
 
   func uploadSimple(data: Data, mimeType: String) async throws -> String {
-    var request = URLRequest(url: URL(string: fileEndpoint + "?key=\(apiKey)")!)
+    var request = URLRequest(url: URL(string: fileEndpoint)!)
     request.httpMethod = "POST"
     request.setValue(mimeType, forHTTPHeaderField: "Content-Type")
+    request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
     request.httpBody = data
 
     let requestStart = Date()
@@ -165,13 +166,14 @@ extension GeminiDirectProvider {
     body.append(try JSONEncoder().encode(metadata))
     body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
 
-    var request = URLRequest(url: URL(string: fileEndpoint + "?key=\(apiKey)")!)
+    var request = URLRequest(url: URL(string: fileEndpoint)!)
     request.httpMethod = "POST"
     request.setValue("resumable", forHTTPHeaderField: "X-Goog-Upload-Protocol")
     request.setValue("start", forHTTPHeaderField: "X-Goog-Upload-Command")
     request.setValue("\(data.count)", forHTTPHeaderField: "X-Goog-Upload-Raw-Size")
     request.setValue(mimeType, forHTTPHeaderField: "X-Goog-Upload-Header-Content-Type")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
     request.httpBody = try JSONEncoder().encode(metadata)
 
     let startTime = Date()
@@ -204,6 +206,7 @@ extension GeminiDirectProvider {
     uploadRequest.httpMethod = "PUT"
     uploadRequest.setValue("upload, finalize", forHTTPHeaderField: "X-Goog-Upload-Command")
     uploadRequest.setValue("0", forHTTPHeaderField: "X-Goog-Upload-Offset")
+    uploadRequest.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
     uploadRequest.httpBody = data
 
     let uploadStartTime = Date()
@@ -247,13 +250,17 @@ extension GeminiDirectProvider {
   }
 
   func getFileStatus(fileURI: String) async throws -> String {
-    guard let url = URL(string: fileURI + "?key=\(apiKey)") else {
+    guard let url = URL(string: fileURI) else {
       throw NSError(
         domain: "GeminiError", code: 6, userInfo: [NSLocalizedDescriptionKey: "Invalid file URI"])
     }
 
+    var request = URLRequest(url: url)
+    request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+    request.cachePolicy = .reloadIgnoringLocalCacheData
+
     let requestStart = Date()
-    let (data, response) = try await URLSession.shared.data(from: url)
+    let (data, response) = try await URLSession.shared.data(for: request)
     let requestDuration = Date().timeIntervalSince(requestStart)
     let statusCode = (response as? HTTPURLResponse)?.statusCode
     logCallDuration(operation: "file.status", duration: requestDuration, status: statusCode)

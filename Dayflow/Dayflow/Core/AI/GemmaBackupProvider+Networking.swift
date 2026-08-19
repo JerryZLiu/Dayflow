@@ -12,10 +12,11 @@ extension GemmaBackupProvider {
     maxOutputTokens: Int,
     logRequestBody: Bool
   ) async throws -> String {
-    let url = URL(string: "\(baseURL)/\(model):generateContent?key=\(apiKey)")!
+    let url = URL(string: "\(baseURL)/\(model):generateContent")!
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
     request.timeoutInterval = 120
 
     let requestBody: [String: Any] = [

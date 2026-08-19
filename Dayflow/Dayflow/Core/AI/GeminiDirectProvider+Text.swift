@@ -27,11 +27,12 @@ extension GeminiDirectProvider {
       do {
         print("🔄 generateText attempt \(attempt + 1)/\(maxRetries)")
         let activeModel = modelState.current
-        let urlWithKey = endpointForModel(activeModel) + "?key=\(apiKey)"
+        let url = endpointForModel(activeModel)
 
-        var request = URLRequest(url: URL(string: urlWithKey)!)
+        var request = URLRequest(url: URL(string: url)!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
         request.timeoutInterval = 120
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 

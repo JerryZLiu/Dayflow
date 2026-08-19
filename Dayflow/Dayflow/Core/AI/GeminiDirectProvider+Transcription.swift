@@ -296,10 +296,11 @@ extension GeminiDirectProvider {
     ]
 
     // Single API call (no retry logic in this function)
-    let urlWithKey = endpointForModel(model) + "?key=\(apiKey)"
-    var request = URLRequest(url: URL(string: urlWithKey)!)
+    let url = endpointForModel(model)
+    var request = URLRequest(url: URL(string: url)!)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
     request.timeoutInterval = 120  // 2 minutes timeout
     let requestStart = Date()
 
@@ -527,7 +528,9 @@ extension GeminiDirectProvider {
       if let urlError = error as? URLError {
         print("   URLError Code: \(urlError.code.rawValue) (\(urlError.code))")
         if let failingURL = urlError.failingURL {
-          print("   Failing URL: \(failingURL.absoluteString)")
+          var comps = URLComponents(url: failingURL, resolvingAgainstBaseURL: false)
+          comps?.queryItems = nil
+          print("   Failing URL: \(comps?.url?.absoluteString ?? "<unavailable>")")
         }
 
         // Check for specific network errors

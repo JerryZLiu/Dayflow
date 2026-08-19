@@ -165,7 +165,7 @@ enum LLMLogger {
       let redactedKeys = Set([
         "key", "api_key", "apiKey", "access_token", "token", "authorization", "x-goog-api-key",
         "x-api-key",
-      ])
+      ].map { $0.lowercased() })
       comps?.queryItems = items.map { item in
         if redactedKeys.contains(item.name.lowercased()) {
           return URLQueryItem(name: item.name, value: "<redacted>")
