@@ -234,6 +234,7 @@ struct TimelineCardShell: Sendable {
   let appSites: AppSites?
   let isBackupGenerated: Bool?
   let idleMetadata: IdleCardMetadata?
+  let reasoning: String?  // The model's explanation for how this card was produced
   // No videoSummaryURL here, as it's added later
   // No batchId here, as it's passed as a separate parameter to the save function
 
@@ -248,7 +249,8 @@ struct TimelineCardShell: Sendable {
     distractions: [Distraction]?,
     appSites: AppSites?,
     isBackupGenerated: Bool? = nil,
-    idleMetadata: IdleCardMetadata? = nil
+    idleMetadata: IdleCardMetadata? = nil,
+    reasoning: String? = nil
   ) {
     self.startTimestamp = startTimestamp
     self.endTimestamp = endTimestamp
@@ -261,6 +263,7 @@ struct TimelineCardShell: Sendable {
     self.appSites = appSites
     self.isBackupGenerated = isBackupGenerated
     self.idleMetadata = idleMetadata
+    self.reasoning = reasoning
   }
 }
 
@@ -285,6 +288,21 @@ struct TimelineMetadata: Codable {
   let appSites: AppSites?
   let isBackupGenerated: Bool?
   let idle: IdleCardMetadata?
+  let reasoning: String?  // Model's explanation for the card; nil for older/onboarding cards
+
+  init(
+    distractions: [Distraction]?,
+    appSites: AppSites?,
+    isBackupGenerated: Bool?,
+    idle: IdleCardMetadata?,
+    reasoning: String? = nil
+  ) {
+    self.distractions = distractions
+    self.appSites = appSites
+    self.isBackupGenerated = isBackupGenerated
+    self.idle = idle
+    self.reasoning = reasoning
+  }
 }
 
 struct AnalysisBatchDebugEntry: Sendable {
