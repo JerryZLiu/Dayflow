@@ -371,13 +371,14 @@ extension MainView {
 
         TimelineCalendarPopover(
           isPresented: $showTimelineCalendarPopover,
-          selectedDate: selectedDate,
+          selectedDate: timelineDisplayDate(from: selectedDate).timelineLabelDate(),
           canSelectFutureDates: false,
           highlightsSelectedWeek: timelineMode == .week,
           onSelect: { date in
-            let tappedDay = dayString(date)
+            let timelineDate = date.timelineDateFromLabel()
+            let tappedDay = dayString(timelineDate)
             let currentDay = dayString(selectedDate)
-            let tappedWeek = TimelineWeekRange.containing(date)
+            let tappedWeek = TimelineWeekRange.containingLabelDate(date)
             let currentWeek = timelineWeekRange
             let weekChanged = tappedWeek != currentWeek
 
@@ -388,7 +389,7 @@ extension MainView {
             timelinePerfLog(
               "calendarPopover.navigateDispatch tapped=\(tappedDay) mode=\(timelineMode.rawValue) weekChanged=\(weekChanged)"
             )
-            navigateTimeline(to: date, method: "picker")
+            navigateTimeline(to: timelineDate, method: "picker")
             DispatchQueue.main.async {
               closeTimelineCalendarPopover()
             }
@@ -493,6 +494,7 @@ extension MainView {
 
   private var timelineHeaderDateLabel: some View {
     Text(timelineTitleText)
+      .id(dayFramingID)
       .font(.custom("InstrumentSerif-Regular", size: 26))
       .foregroundColor(Color.black)
       .lineLimit(1)

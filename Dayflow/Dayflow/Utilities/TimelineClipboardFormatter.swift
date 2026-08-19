@@ -38,10 +38,10 @@ struct TimelineClipboardFormatter {
 
     let cardsByDay = Dictionary(grouping: cards, by: \.day)
     let sections = weekRange.days.compactMap { day -> String? in
-      guard let dayCards = cardsByDay[day.dayString], !dayCards.isEmpty else { return nil }
+      guard let dayCards = cardsByDay[day.storageDayString], !dayCards.isEmpty else { return nil }
 
       let sortedCards = dayCards.sorted(by: cardSort)
-      let heading = formattedTimelineDay(day.date, now: now)
+      let heading = formattedLabelDay(day.date, now: now)
       let entries = sortedCards.enumerated().map { index, card in
         textEntry(for: card, index: index)
       }
@@ -157,16 +157,26 @@ struct TimelineClipboardFormatter {
 
   private static func formattedTimelineDay(_ date: Date, now: Date) -> String {
     let calendar = Calendar.current
-    let timelineToday = timelineDisplayDate(from: now, now: now)
+    let labelDate = date.timelineLabelDate()
+    let timelineToday = timelineDisplayDate(from: now, now: now).timelineLabelDate()
     let formatter = DateFormatter()
 
-    if calendar.isDate(date, inSameDayAs: timelineToday) {
+    if calendar.isDate(labelDate, inSameDayAs: timelineToday) {
       formatter.dateFormat = "'Today,' MMM d"
     } else {
       formatter.dateFormat = "EEEE, MMM d"
     }
 
-    return formatter.string(from: date)
+    return formatter.string(from: labelDate)
+  }
+
+  private static func formattedLabelDay(_ labelDate: Date, now: Date) -> String {
+    let calendar = Calendar.current
+    let today = timelineDisplayDate(from: now, now: now).timelineLabelDate()
+    let formatter = DateFormatter()
+    formatter.dateFormat = calendar.isDate(labelDate, inSameDayAs: today)
+      ? "'Today,' MMM d" : "EEEE, MMM d"
+    return formatter.string(from: labelDate)
   }
 
   private static func textEntry(for card: TimelineCard, index: Int) -> String {

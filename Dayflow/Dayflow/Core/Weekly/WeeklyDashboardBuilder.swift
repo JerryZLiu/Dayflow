@@ -339,7 +339,7 @@ enum WeeklyDashboardBuilder {
       return WeeklyDayDescriptor(
         id: dayID(for: offset),
         label: dayLabel(for: offset),
-        dayString: DateFormatter.yyyyMMdd.string(from: date),
+        dayString: date.timelineStorageDayStringForLabel,
         order: offset
       )
     }
@@ -468,8 +468,8 @@ enum WeeklyDashboardBuilder {
   static func normalizedMinuteRange(start: Double, end: Double) -> (
     start: Double, end: Double
   ) {
-    let adjustedStart = start < 240 ? start + 1440 : start
-    var adjustedEnd = end < 240 ? end + 1440 : end
+    let adjustedStart = start < Double(DayBoundaryPreferences.boundaryMinutes) ? start + 1440 : start
+    var adjustedEnd = end < Double(DayBoundaryPreferences.boundaryMinutes) ? end + 1440 : end
     if adjustedEnd <= adjustedStart {
       adjustedEnd += 1440
     }

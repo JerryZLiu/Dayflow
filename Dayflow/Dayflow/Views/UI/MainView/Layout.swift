@@ -39,10 +39,10 @@ extension MainView {
       .sheet(isPresented: $showDatePicker) {
         DatePickerSheet(
           selectedDate: Binding(
-            get: { selectedDate },
+            get: { timelineDisplayDate(from: selectedDate).timelineLabelDate() },
             set: {
               lastDateNavMethod = "picker"
-              setSelectedDate($0)
+              setSelectedDate($0.timelineDateFromLabel())
             }
           ),
           isPresented: $showDatePicker
@@ -96,6 +96,11 @@ extension MainView {
       }
       .onReceive(NotificationCenter.default.publisher(for: .timelineDataUpdated)) {
         handleTimelineDataUpdatedNotification($0)
+      }
+      .onReceive(NotificationCenter.default.publisher(for: .dayFramingChanged)) { _ in
+        cachedTimelineWeekRange = TimelineWeekRange.containingLabelDate(
+          cachedTimelineWeekRange.weekStart)
+        refreshActivitiesTrigger &+= 1
       }
       .onReceive(
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
@@ -285,10 +290,16 @@ extension MainView {
   private func handleTimelineDataUpdatedNotification(_ notification: Notification) {
     guard selectedIcon == .timeline else { return }
     if let refreshedDay = notification.userInfo?["dayString"] as? String {
-      let selectedTimelineDay = DateFormatter.yyyyMMdd.string(
-        from: timelineDisplayDate(from: selectedDate, now: Date())
-      )
-      guard refreshedDay == selectedTimelineDay else { return }
+      switch timelineMode {
+      case .day:
+        let selectedTimelineDay = DateFormatter.yyyyMMdd.string(
+          from: timelineDisplayDate(from: selectedDate, now: Date())
+        )
+        guard refreshedDay == selectedTimelineDay else { return }
+      case .week:
+        guard timelineWeekRange.days.contains(where: { $0.storageDayString == refreshedDay })
+        else { return }
+      }
     }
     updateCardsToReviewCount()
     loadWeeklyTrackedMinutes()

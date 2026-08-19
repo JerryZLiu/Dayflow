@@ -17,9 +17,21 @@ struct WeeklyDateRange: Equatable, Sendable {
   }()
 
   static func containing(_ date: Date, calendar: Calendar = Self.calendar) -> WeeklyDateRange {
-    let mondayAtFourAM = mondayBoundary(containing: date, calendar: calendar)
-    let weekEnd = calendar.date(byAdding: .day, value: 7, to: mondayAtFourAM) ?? mondayAtFourAM
-    return WeeklyDateRange(weekStart: mondayAtFourAM, weekEnd: weekEnd)
+    let labelDate = timelineDisplayDate(from: date, now: date).timelineLabelDate()
+    return containingLabelDate(labelDate, calendar: calendar)
+  }
+
+  static func containingLabelDate(
+    _ date: Date, calendar: Calendar = Self.calendar
+  ) -> WeeklyDateRange {
+    let monday = calendar.date(
+      from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)) ?? date
+    let weekStart =
+      calendar.date(
+        bySettingHour: DayBoundaryPreferences.boundaryHour, minute: 0, second: 0, of: monday)
+      ?? monday
+    let weekEnd = calendar.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
+    return WeeklyDateRange(weekStart: weekStart, weekEnd: weekEnd)
   }
 
   func shifted(byWeeks weeks: Int, calendar: Calendar = Self.calendar) -> WeeklyDateRange {
@@ -30,6 +42,12 @@ struct WeeklyDateRange: Equatable, Sendable {
 
   var canNavigateForward: Bool {
     weekStart < Self.containing(Date()).weekStart
+  }
+
+  var storageRange: (start: Date, end: Date) {
+    let start = normalizedTimelineDate(weekStart.timelineDateFromLabel())
+    let end = Self.calendar.date(byAdding: .day, value: 7, to: start) ?? start
+    return (start, end)
   }
 
   var title: String {
@@ -47,17 +65,4 @@ struct WeeklyDateRange: Equatable, Sendable {
     return calendar
   }()
 
-  private static func mondayBoundary(containing date: Date, calendar: Calendar) -> Date {
-    let baseWeekStart =
-      calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date))
-      ?? date
-    let mondayAtFourAM =
-      calendar.date(bySettingHour: 4, minute: 0, second: 0, of: baseWeekStart) ?? baseWeekStart
-
-    if date < mondayAtFourAM {
-      return calendar.date(byAdding: .day, value: -7, to: mondayAtFourAM) ?? mondayAtFourAM
-    }
-
-    return mondayAtFourAM
-  }
 }

@@ -130,6 +130,19 @@ open Dayflow/Dayflow.xcodeproj
 
 Select the Dayflow scheme in Xcode and run it.
 
+For a reproducible command-line development setup:
+
+```bash
+./scripts/dev.sh doctor
+./scripts/dev.sh test
+./scripts/dev.sh install
+```
+
+The development script keeps DerivedData under `build/dev`, uses a stable local
+code-signing requirement, and replaces `/Applications/Dayflow.app`. The first
+install after changing signing identities resets the stale Screen & System Audio
+Recording approval; subsequent local installs preserve the same app identity.
+
 ## Contributing
 
 Issues and pull requests are welcome. If you are planning a larger change, open an issue first so the scope is clear.

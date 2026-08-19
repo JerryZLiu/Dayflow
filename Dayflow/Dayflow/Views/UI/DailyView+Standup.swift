@@ -743,6 +743,7 @@ extension DailyView {
   func standupDayLabelText(for date: Date) -> String {
     let calendar = Calendar.current
     let displayDate = normalizedTimelineDate(date)
+    let labelDate = displayDate.timelineLabelDate()
     let timelineToday = timelineDisplayDate(from: Date())
 
     if calendar.isDate(displayDate, inSameDayAs: timelineToday) {
@@ -751,7 +752,7 @@ extension DailyView {
 
     guard let timelineYesterday = calendar.date(byAdding: .day, value: -1, to: timelineToday)
     else {
-      return dailyOtherDayDisplayFormatter.string(from: displayDate)
+      return dailyOtherDayDisplayFormatter.string(from: labelDate)
     }
 
     if calendar.isDate(displayDate, inSameDayAs: timelineYesterday) {
@@ -760,9 +761,9 @@ extension DailyView {
 
     let daysAgo = calendar.dateComponents([.day], from: displayDate, to: timelineToday).day ?? 99
     if (2...6).contains(daysAgo) {
-      return "Last \(dailyStandupWeekdayFormatter.string(from: displayDate))"
+      return "Last \(dailyStandupWeekdayFormatter.string(from: labelDate))"
     }
 
-    return dailyOtherDayDisplayFormatter.string(from: displayDate)
+    return dailyOtherDayDisplayFormatter.string(from: labelDate)
   }
 }

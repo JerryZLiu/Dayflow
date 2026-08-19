@@ -19,7 +19,7 @@ enum DaySummaryStats {
   }
 
   private static let focusGapMinutes: Int = 5
-  private static let timelineDayStartMinutes: Int = 4 * 60
+  private static var timelineDayStartMinutes: Int { DayBoundaryPreferences.boundaryMinutes }
   private static let minutesPerDay: Int = 24 * 60
 
   private static func normalizedCategoryName(_ name: String) -> String {

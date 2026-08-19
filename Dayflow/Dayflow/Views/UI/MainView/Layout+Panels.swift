@@ -220,6 +220,10 @@ extension MainView {
             hasAnyActivities: $hasAnyActivities,
             refreshTrigger: $refreshActivitiesTrigger,
             weekRange: timelineWeekRange,
+            onSelectDay: { date in
+              setSelectedDate(date)
+              setTimelineMode(.day)
+            },
             onSelectActivity: selectTimelineActivity,
             onClearSelection: { clearTimelineSelection() },
             weeklyHoursFrame: weeklyHoursFrame,
@@ -238,6 +242,7 @@ extension MainView {
       .environmentObject(categoryStore)
       .opacity(contentOpacity)
       .animation(timelineModeContentAnimation, value: timelineMode)
+      .id(dayFramingID)
     }
     .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
   }

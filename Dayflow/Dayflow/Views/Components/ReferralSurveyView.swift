@@ -25,18 +25,23 @@ struct ReferralSurveyView: View {
     customReferral: Binding<String>? = nil,
     onSubmit: @escaping (_ option: ReferralOption, _ detail: String?) -> Void = { _, _ in }
   ) {
+    let internalSelectedReferral = State<ReferralOption?>(initialValue: nil)
+    let internalCustomReferral = State(initialValue: "")
+
     self.prompt = prompt
     self.submitLabel = submitLabel
     self.showsThankYou = showsThankYou
     self.showSubmitButton = showSubmitButton
     self.onSubmit = onSubmit
+    _internalSelectedReferral = internalSelectedReferral
+    _internalCustomReferral = internalCustomReferral
 
     if let selectedReferral = selectedReferral, let customReferral = customReferral {
       _selectedReferral = selectedReferral
       _customReferral = customReferral
     } else {
-      _selectedReferral = _internalSelectedReferral.projectedValue
-      _customReferral = _internalCustomReferral.projectedValue
+      _selectedReferral = internalSelectedReferral.projectedValue
+      _customReferral = internalCustomReferral.projectedValue
     }
   }
 

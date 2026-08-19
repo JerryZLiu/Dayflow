@@ -76,7 +76,7 @@ final class DailyRecapScheduler: @unchecked Sendable {
     let now = Date()
     let hour = Calendar.current.component(.hour, from: now)
 
-    guard hour >= 4 else {
+    guard hour >= DayBoundaryPreferences.boundaryHour else {
       return
     }
 

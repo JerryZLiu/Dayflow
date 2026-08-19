@@ -403,8 +403,8 @@ func isDistractionCategoryKey(_ key: String) -> Bool {
 }
 
 func normalizedMinuteRange(start: Double, end: Double) -> (start: Double, end: Double) {
-  let s = start < 240 ? start + 1440 : start
-  var e = end < 240 ? end + 1440 : end
+  let s = start < Double(DayBoundaryPreferences.boundaryMinutes) ? start + 1440 : start
+  var e = end < Double(DayBoundaryPreferences.boundaryMinutes) ? end + 1440 : end
   if e <= s { e += 1440 }
   return (s, e)
 }

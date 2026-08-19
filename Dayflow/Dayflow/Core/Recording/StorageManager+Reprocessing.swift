@@ -12,17 +12,17 @@ extension StorageManager {
 
     let calendar = Calendar.current
 
-    // Get 4 AM of the given day as the start
+    // Get the day-boundary hour of the given day as the start
     var startComponents = calendar.dateComponents([.year, .month, .day], from: dayDate)
-    startComponents.hour = 4
+    startComponents.hour = DayBoundaryPreferences.boundaryHour
     startComponents.minute = 0
     startComponents.second = 0
     guard let dayStart = calendar.date(from: startComponents) else { return [] }
 
-    // Get 4 AM of the next day as the end
+    // Get the day-boundary hour of the next day as the end
     guard let nextDay = calendar.date(byAdding: .day, value: 1, to: dayDate) else { return [] }
     var endComponents = calendar.dateComponents([.year, .month, .day], from: nextDay)
-    endComponents.hour = 4
+    endComponents.hour = DayBoundaryPreferences.boundaryHour
     endComponents.minute = 0
     endComponents.second = 0
     guard let dayEnd = calendar.date(from: endComponents) else { return [] }
@@ -117,7 +117,7 @@ extension StorageManager {
     guard let dayDate = formatter.date(from: day) else { return [] }
 
     let calendar = Calendar.current
-    guard let startOfDay = calendar.date(bySettingHour: 4, minute: 0, second: 0, of: dayDate) else {
+    guard let startOfDay = calendar.date(bySettingHour: DayBoundaryPreferences.boundaryHour, minute: 0, second: 0, of: dayDate) else {
       return []
     }
     let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
@@ -197,7 +197,7 @@ extension StorageManager {
     guard let dayDate = formatter.date(from: day) else { return [] }
 
     let calendar = Calendar.current
-    guard let startOfDay = calendar.date(bySettingHour: 4, minute: 0, second: 0, of: dayDate) else {
+    guard let startOfDay = calendar.date(bySettingHour: DayBoundaryPreferences.boundaryHour, minute: 0, second: 0, of: dayDate) else {
       return []
     }
     let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!

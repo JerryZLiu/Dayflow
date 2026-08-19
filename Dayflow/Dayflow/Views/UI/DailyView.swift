@@ -77,6 +77,9 @@ struct DailyView: View {
     { _ in
       checkNotificationAuthorizationForUnlock()
     }
+    .onReceive(NotificationCenter.default.publisher(for: .dayFramingChanged)) { _ in
+      refreshWorkflowData()
+    }
     .onChange(of: isUnlocked) { _, newValue in
       guard !newValue else { return }
       accessFlowStep = .intro

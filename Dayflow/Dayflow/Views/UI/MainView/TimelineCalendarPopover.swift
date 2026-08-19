@@ -194,7 +194,8 @@ struct TimelineCalendarPopover: View {
     let showsSelectedDayCircle = isSelected && !highlightsSelectedWeek
     let isDisabled: Bool = {
       guard !canSelectFutureDates else { return false }
-      let todayStart = calendar.startOfDay(for: Date())
+      let todayStart = calendar.startOfDay(
+        for: timelineDisplayDate(from: Date()).timelineLabelDate())
       let cellStart = calendar.startOfDay(for: day.date)
       return cellStart > todayStart
     }()

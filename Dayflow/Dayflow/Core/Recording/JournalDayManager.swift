@@ -256,14 +256,15 @@ final class JournalDayManager: ObservableObject {
 
     let formatter = DateFormatter()
 
+    let labelDate = date.timelineLabelDate()
     if isToday {
       // "Today, November 24" - no day of week needed
       formatter.dateFormat = "MMMM d"
-      return "Today, \(formatter.string(from: date))"
+      return "Today, \(formatter.string(from: labelDate))"
     } else {
       // "Monday, November 24" - day of week helps orient for past days
       formatter.dateFormat = "EEEE, MMMM d"
-      return formatter.string(from: date)
+      return formatter.string(from: labelDate)
     }
   }
 
