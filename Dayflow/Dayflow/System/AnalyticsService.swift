@@ -563,21 +563,19 @@ final class AnalyticsService {
   }
 
   private func sanitize(_ props: [String: Any]) -> [String: Any] {
-    // Drop known sensitive keys if ever passed by mistake
     let blocked = Set([
       "api_key", "token", "authorization", "file_path", "url", "window_title", "clipboard",
-      "screen_content",
+      "screen_content", "question",
     ])
     var out: [String: Any] = [:]
     for (k, v) in props {
       if blocked.contains(k) { continue }
-      // Only allow primitive JSON types
+      // Only allow primitive JSON types; drop complex values to prevent
+      // String(describing:) from serializing nested sensitive content.
       if v is String || v is Int || v is Double || v is Bool || v is NSNull {
         out[k] = v
-      } else {
-        // Allow string coercion for simple enums
-        out[k] = String(describing: v)
       }
+      // Non-primitive values are silently dropped (not string-coerced)
     }
     return out
   }
