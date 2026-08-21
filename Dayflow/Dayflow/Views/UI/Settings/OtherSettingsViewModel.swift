@@ -36,6 +36,24 @@ final class OtherSettingsViewModel: ObservableObject {
       TimelapsePreferences.saveAllTimelapsesToDisk = saveAllTimelapsesToDisk
     }
   }
+  @Published var distractionNudgesEnabled: Bool {
+    didSet {
+      guard distractionNudgesEnabled != oldValue else { return }
+      ProductivityPreferences.distractionNudgesEnabled = distractionNudgesEnabled
+    }
+  }
+  @Published var nudgeThresholdMinutes: Int {
+    didSet {
+      guard nudgeThresholdMinutes != oldValue else { return }
+      ProductivityPreferences.nudgeThresholdMinutes = nudgeThresholdMinutes
+    }
+  }
+  @Published var nudgeCooldownMinutes: Int {
+    didSet {
+      guard nudgeCooldownMinutes != oldValue else { return }
+      ProductivityPreferences.nudgeCooldownMinutes = nudgeCooldownMinutes
+    }
+  }
   @Published var outputLanguageOverride: String
   @Published var isOutputLanguageOverrideSaved: Bool = true
 
@@ -57,6 +75,9 @@ final class OtherSettingsViewModel: ObservableObject {
       UserDefaults.standard.object(forKey: "showTimelineAppIcons") as? Bool ?? true
     showDailyGoalPopups = DayGoalPreferences.showDailyGoalPopups
     saveAllTimelapsesToDisk = TimelapsePreferences.saveAllTimelapsesToDisk
+    distractionNudgesEnabled = ProductivityPreferences.distractionNudgesEnabled
+    nudgeThresholdMinutes = ProductivityPreferences.nudgeThresholdMinutes
+    nudgeCooldownMinutes = ProductivityPreferences.nudgeCooldownMinutes
     outputLanguageOverride = LLMOutputLanguagePreferences.override
     exportStartDate = timelineDisplayDate(from: Date())
     exportEndDate = timelineDisplayDate(from: Date())
