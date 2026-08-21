@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsOtherTabView: View {
   @ObservedObject var viewModel: OtherSettingsViewModel
   @ObservedObject var launchAtLoginManager: LaunchAtLoginManager
+  @ObservedObject private var miniTimer = MiniTimerWindowController.shared
   @FocusState private var isOutputLanguageFocused: Bool
 
   var body: some View {
@@ -62,10 +63,23 @@ struct SettingsOtherTabView: View {
         SettingsRow(
           label: "Save all timelapses to disk",
           subtitle:
-            "New and reprocessed timeline cards will pre-generate timelapse videos and store them on disk instead of building them on demand. Uses more storage and background processing.",
-          showsDivider: false
+            "New and reprocessed timeline cards will pre-generate timelapse videos and store them on disk instead of building them on demand. Uses more storage and background processing."
         ) {
           SettingsToggle(isOn: $viewModel.saveAllTimelapsesToDisk)
+        }
+
+        SettingsRow(
+          label: "Show focus timer",
+          subtitle:
+            "A small floating pill that counts up today's focused time live. Drag it anywhere; toggle it from the menu bar too.",
+          showsDivider: false
+        ) {
+          SettingsToggle(
+            isOn: Binding(
+              get: { miniTimer.isVisible },
+              set: { miniTimer.setVisible($0) }
+            )
+          )
         }
       }
     }
