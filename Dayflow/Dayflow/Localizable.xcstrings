@@ -57,6 +57,7 @@
     "Advanced users can pick any " : {},
     "After installing LM Studio, download the recommended model:" : {},
     "After installing Ollama, run this in your terminal to download the model (≈5GB):" : {},
+    "Agent log (%lld)" : {},
     "Agents" : {
       "localizations" : {
         "ko" : {
@@ -91,6 +92,7 @@
     "Base URL" : {},
     "Blocked apps" : {},
     "Blockers" : {},
+    "Break time!" : {},
     "Calendar" : {},
     "Cancel" : {},
     "Cancel any time. No-questions-asked refunds." : {},
@@ -139,6 +141,7 @@
     "Confirm delete activity card" : {},
     "Congrats, enjoy a free month of Dayflow Pro on us!" : {},
     "Connected" : {},
+    "Connecting…" : {},
     "Context shift and distractions comparison" : {},
     "Context shift and distractions distribution" : {},
     "Continue" : {},
@@ -156,6 +159,7 @@
     "Copy timeline" : {},
     "Copy timeline to clipboard" : {},
     "Couldn't finish setup" : {},
+    "Couldn't load Flow" : {},
     "Couldn't save your provider" : {},
     "Count" : {},
     "Count: %lld" : {},
@@ -204,6 +208,7 @@
     "Delete category" : {},
     "Delete category?" : {},
     "Delete conversation" : {},
+    "Disconnecting…" : {},
     "Dismiss" : {},
     "Distraction budget" : {},
     "Distractions" : {},
@@ -256,6 +261,18 @@
     "Fill in any blockers you may have" : {},
     "Finish in %@" : {},
     "Finish prototype" : {},
+    "Flow" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "플로우"
+          }
+        }
+      }
+    },
+    "Flow sessions sync with your Dayflow account." : {},
+    "Flow: Simulate Distraction" : {},
     "Focus" : {},
     "Follow the steps below, run a quick test, and Dayflow will switch you over automatically." : {},
     "Follow up" : {},
@@ -284,6 +301,7 @@
     "Help Dayflow understand your work patterns better." : {},
     "Help Dayflow understand your workflow" : {},
     "Here are options tailored to your work to help you get started. Provide more personalized descriptions to help Dayflow better understand your actions." : {},
+    "Hide agent log" : {},
     "Hide details" : {},
     "History" : {},
     "Hosted cards and transcription run through your Dayflow account." : {},
@@ -376,6 +394,7 @@
     "Next card..." : {},
     "No activity" : {},
     "No activity data yet" : {},
+    "No agent output yet." : {},
     "No apps match your search." : {},
     "No cards yet" : {},
     "No credit card needed. You can set up billing later if Dayflow is useful." : {},
@@ -619,8 +638,10 @@
       }
     },
     "Show details" : {},
+    "Sign in" : {},
     "Sign in to Dayflow" : {},
     "Sign in to get your invite link" : {},
+    "Sign in to use Flow" : {},
     "Sign up / Sign in to Dayflow" : {},
     "Skip" : {},
     "Source" : {},
