@@ -16,6 +16,7 @@ import AppKit
 import Foundation
 
 enum AgentClient: String, CaseIterable, Identifiable {
+  case codex
   case claudeCode
   case claudeDesktop
   case cursor
@@ -25,6 +26,7 @@ enum AgentClient: String, CaseIterable, Identifiable {
 
   var displayName: String {
     switch self {
+    case .codex: return "Codex"
     case .claudeCode: return "Claude Code"
     case .claudeDesktop: return "Claude Desktop"
     case .cursor: return "Cursor"
@@ -68,6 +70,8 @@ enum AgentClientRegistration {
   static func isInstalled(_ client: AgentClient) -> Bool {
     let fileManager = FileManager.default
     switch client {
+    case .codex:
+      return CodexExecutableResolver.shared.resolve() != nil
     case .claudeCode:
       return fileManager.fileExists(atPath: claudeCodeConfigURL.path)
     case .claudeDesktop:
@@ -85,6 +89,8 @@ enum AgentClientRegistration {
   /// we write directly.
   static func isConnected(_ client: AgentClient) -> Bool {
     switch client {
+    case .codex:
+      return CodexMCPRegistration(cliPath: cliPath).status() == .connected
     case .claudeCode:
       return dayflowEntry(inConfigAt: claudeCodeConfigURL) != nil
     case .claudeDesktop:
@@ -104,6 +110,13 @@ enum AgentClientRegistration {
 
   static func connect(_ client: AgentClient) -> RegistrationResult {
     switch client {
+    case .codex:
+      switch CodexMCPRegistration(cliPath: cliPath).connect() {
+      case .connected: return .connected
+      case .notInstalled: return .failed("Codex isn't installed on this Mac.")
+      case .disconnected: return .failed("Codex didn't keep the Dayflow connection.")
+      case .failed(let message): return .failed(message)
+      }
     case .claudeCode:
       return writeDayflowEntry(configAt: claudeCodeConfigURL)
     case .claudeDesktop:
@@ -132,6 +145,8 @@ enum AgentClientRegistration {
 
   static func disconnect(_ client: AgentClient) {
     switch client {
+    case .codex:
+      _ = CodexMCPRegistration(cliPath: cliPath).disconnect()
     case .claudeCode: removeDayflowEntry(configAt: claudeCodeConfigURL)
     case .claudeDesktop: removeDayflowEntry(configAt: claudeDesktopConfigURL)
     case .cursor, .vsCode: break  // Their config; removed in their UI.
@@ -203,6 +218,11 @@ enum AgentClientRegistration {
       else { continue }
       _ = writeDayflowEntry(configAt: url)
       print("ℹ️ AgentAccess: repaired stale dayflow path in \(url.lastPathComponent)")
+    }
+
+    let codexRegistration = CodexMCPRegistration(cliPath: cliPath)
+    Task.detached(priority: .utility) {
+      codexRegistration.repairStaleRegistration()
     }
   }
 

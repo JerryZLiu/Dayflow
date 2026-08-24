@@ -82,6 +82,8 @@ extension MainView {
           .padding(15)
       case .chat:
         ChatPanelView()
+      case .flow:
+        FlowView()
       case .agents:
         AgentsView()
       case .daily:

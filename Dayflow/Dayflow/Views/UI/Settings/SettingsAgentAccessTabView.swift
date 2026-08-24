@@ -25,8 +25,10 @@ struct SettingsAgentAccessTabView: View {
     SettingsSection(
       title: "Connect to AI tools",
       subtitle:
-        "Let Claude, Cursor, and other AI tools read your Dayflow timeline. "
-        + "Nothing leaves your Mac except what you send in your own conversations."
+        "Let Codex, Claude, Cursor, and other AI tools read your Dayflow timeline. "
+        + "Connections are saved to each tool's user configuration, so Dayflow is "
+        + "available across projects on this Mac. Nothing leaves your Mac except what "
+        + "you send in your own conversations."
     ) {
       VStack(alignment: .leading, spacing: 0) {
         ForEach(viewModel.clients) { row in
@@ -76,6 +78,28 @@ struct SettingsAgentAccessTabView: View {
       }
     case .available:
       SettingsSecondaryButton(title: "Connect") {
+        viewModel.connect(row.client)
+      }
+    case .checking:
+      Text("Checking…")
+        .font(.custom("Figtree", size: 12))
+        .foregroundColor(SettingsStyle.meta)
+    case .connecting:
+      HStack(spacing: 7) {
+        ProgressView().controlSize(.small)
+        Text("Connecting…")
+      }
+      .font(.custom("Figtree", size: 12))
+      .foregroundColor(SettingsStyle.secondary)
+    case .disconnecting:
+      HStack(spacing: 7) {
+        ProgressView().controlSize(.small)
+        Text("Disconnecting…")
+      }
+      .font(.custom("Figtree", size: 12))
+      .foregroundColor(SettingsStyle.secondary)
+    case .failed:
+      SettingsSecondaryButton(title: "Retry") {
         viewModel.connect(row.client)
       }
     case .openedInstaller:
@@ -208,6 +232,10 @@ final class AgentAccessViewModel: ObservableObject {
     case notInstalled
     case available
     case connected
+    case checking
+    case connecting
+    case disconnecting
+    case failed(String)
     case openedInstaller
   }
 
@@ -218,7 +246,11 @@ final class AgentAccessViewModel: ObservableObject {
 
     var subtitle: String? {
       switch state {
-      case .connected: return "Restart it to pick up the connection."
+      case .connected:
+        return client == .codex
+          ? "Restart Codex to pick up the connection."
+          : "Restart it to pick up the connection."
+      case .failed(let message): return message
       case .openedInstaller: return "Approve the install dialog it just showed."
       default: return nil
       }
@@ -246,25 +278,32 @@ final class AgentAccessViewModel: ObservableObject {
   }
 
   private var deeplinkOpened: Set<AgentClient> = []
+  private var clientStates: [AgentClient: ClientState] = [:]
+  private var codexStatusTask: Task<Void, Never>?
+  private var codexMutationTask: Task<Void, Never>?
+
+  private var codexRegistration: CodexMCPRegistration {
+    CodexMCPRegistration(cliPath: AgentClientRegistration.cliPath)
+  }
 
   func refresh() {
     terminalInstalled = AgentClientRegistration.terminalCommandInstalled
-    clients = AgentClient.allCases.map { client in
-      let state: ClientState
-      if !AgentClientRegistration.isInstalled(client) {
-        state = .notInstalled
-      } else if AgentClientRegistration.isConnected(client) {
-        state = .connected
-      } else if deeplinkOpened.contains(client) {
-        state = .openedInstaller
-      } else {
-        state = .available
-      }
-      return ClientRow(client: client, state: state)
+    for client in AgentClient.allCases where client != .codex {
+      clientStates[client] = synchronousState(for: client)
     }
+    if codexMutationTask == nil {
+      clientStates[.codex] = .checking
+      refreshCodex()
+    }
+    publishClientRows()
   }
 
   func connect(_ client: AgentClient) {
+    if client == .codex {
+      connectCodex()
+      return
+    }
+
     switch AgentClientRegistration.connect(client) {
     case .connected:
       AnalyticsService.shared.capture("agent_client_connected", ["client": client.rawValue])
@@ -278,8 +317,115 @@ final class AgentAccessViewModel: ObservableObject {
   }
 
   func disconnect(_ client: AgentClient) {
+    if client == .codex {
+      disconnectCodex()
+      return
+    }
+
     AgentClientRegistration.disconnect(client)
     refresh()
+  }
+
+  private func synchronousState(for client: AgentClient) -> ClientState {
+    if !AgentClientRegistration.isInstalled(client) {
+      return .notInstalled
+    }
+    if AgentClientRegistration.isConnected(client) {
+      return .connected
+    }
+    if deeplinkOpened.contains(client) {
+      return .openedInstaller
+    }
+    return .available
+  }
+
+  private func publishClientRows() {
+    clients = AgentClient.allCases.map { client in
+      ClientRow(client: client, state: clientStates[client] ?? .checking)
+    }
+  }
+
+  private func refreshCodex() {
+    let registration = codexRegistration
+    codexStatusTask?.cancel()
+    codexStatusTask = Task { [weak self] in
+      let status = await Task.detached(priority: .userInitiated) {
+        registration.status()
+      }.value
+      guard !Task.isCancelled else { return }
+      self?.applyCodexStatus(status)
+    }
+  }
+
+  private func connectCodex() {
+    guard codexMutationTask == nil else { return }
+    codexStatusTask?.cancel()
+    clientStates[.codex] = .connecting
+    publishClientRows()
+
+    let registration = codexRegistration
+    codexMutationTask = Task { [weak self] in
+      let result = await Task.detached(priority: .userInitiated) {
+        registration.connect()
+      }.value
+      guard let self else { return }
+      codexMutationTask = nil
+
+      switch result {
+      case .connected:
+        clientStates[.codex] = .connected
+        AnalyticsService.shared.capture("agent_client_connected", ["client": "codex"])
+      case .notInstalled:
+        clientStates[.codex] = .notInstalled
+      case .disconnected:
+        clientStates[.codex] = .available
+      case .failed(let message):
+        clientStates[.codex] = .failed(message)
+      }
+      publishClientRows()
+    }
+  }
+
+  private func disconnectCodex() {
+    guard codexMutationTask == nil else { return }
+    codexStatusTask?.cancel()
+    clientStates[.codex] = .disconnecting
+    publishClientRows()
+
+    let registration = codexRegistration
+    codexMutationTask = Task { [weak self] in
+      let result = await Task.detached(priority: .userInitiated) {
+        registration.disconnect()
+      }.value
+      guard let self else { return }
+      codexMutationTask = nil
+
+      switch result {
+      case .disconnected:
+        clientStates[.codex] = .available
+      case .notInstalled:
+        clientStates[.codex] = .notInstalled
+      case .connected:
+        clientStates[.codex] = .connected
+      case .failed(let message):
+        clientStates[.codex] = .failed(message)
+      }
+      publishClientRows()
+    }
+  }
+
+  private func applyCodexStatus(_ status: CodexMCPRegistration.Status) {
+    switch status {
+    case .notInstalled:
+      clientStates[.codex] = .notInstalled
+    case .available, .disabled, .stale:
+      clientStates[.codex] = .available
+    case .connected:
+      clientStates[.codex] = .connected
+    case .conflict(let message), .failed(let message):
+      clientStates[.codex] = .failed(message)
+    }
+    publishClientRows()
   }
 
   func copySnippet() {

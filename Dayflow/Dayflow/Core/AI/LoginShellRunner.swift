@@ -24,8 +24,15 @@ struct LoginShellRunner {
     return URL(fileURLWithPath: "/bin/zsh")
   }
 
-  /// Get names of all MCP servers configured in Codex CLI.
+  /// Get names of the currently enabled MCP servers configured in Codex CLI.
   /// Used to generate `--config mcp_servers.<name>.enabled=false` flags.
+  ///
+  /// Already-disabled servers are skipped: they don't need a disable flag, and
+  /// plugin-registered ones (e.g. the ChatGPT app's `codex_app`) have no
+  /// config.toml entry, so an override for them creates a partial
+  /// `mcp_servers.<name>` table that fails config parsing with
+  /// "invalid transport" — which used to push every run into the temporary
+  /// CODEX_HOME fallback and lose resumable sessions.
   static func getCodexMCPServerNames(executableURL: URL) -> [String] {
     let command = "\(shellEscape(executableURL.path)) mcp list --json"
     let result = run(command, timeout: 10)
@@ -37,13 +44,15 @@ struct LoginShellRunner {
 
     struct MCPServer: Codable {
       let name: String
+      // Older codex versions may omit the field; treat missing as enabled.
+      var enabled: Bool? = true
     }
 
     guard let servers = try? JSONDecoder().decode([MCPServer].self, from: data) else {
       return []
     }
 
-    return servers.map { $0.name }
+    return servers.filter { $0.enabled ?? true }.map { $0.name }
   }
 
   /// Run a command via login shell and wait for completion.

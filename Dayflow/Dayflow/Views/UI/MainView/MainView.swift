@@ -16,6 +16,7 @@ struct MainView: View {
   @EnvironmentObject var appState: AppState
   @EnvironmentObject var categoryStore: CategoryStore
   @Environment(\.accessibilityReduceMotion) var reduceMotion
+  @ObservedObject private var authManager = DayflowAuthManager.shared
   @State var selectedIcon: SidebarIcon = .timeline
   @State var selectedDate = timelineDisplayDate(from: Date())
   @State var cachedTimelineWeekRange: TimelineWeekRange = TimelineWeekRange.containing(
@@ -115,6 +116,19 @@ struct MainView: View {
         }
         withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
           selectedIcon = .daily
+        }
+      }
+      .onReceive(NotificationCenter.default.publisher(for: .navigateToFlow)) { _ in
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+          selectedIcon = .flow
+        }
+      }
+      .onChange(of: authManager.flowEnabled) {
+        // Signed out (or access revoked) while on the now-hidden Flow tab.
+        if selectedIcon == .flow,
+          !SidebarView.showsFlowTab(flowEnabled: authManager.flowEnabled)
+        {
+          selectedIcon = .timeline
         }
       }
   }

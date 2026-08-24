@@ -276,6 +276,16 @@ struct DayflowApp: App {
         }
         .keyboardShortcut("N", modifiers: [.command, .shift])
       }
+
+      #if DEBUG
+        CommandGroup(after: .appInfo) {
+          Divider()
+          Button("Flow: Simulate Distraction") {
+            FlowSessionMirror.shared.simulateDistraction()
+          }
+          .keyboardShortcut("D", modifiers: [.command, .shift])
+        }
+      #endif
     }
     .defaultSize(width: 1200, height: 800)
 
@@ -324,6 +334,7 @@ extension Notification.Name {
     "showScreenRecordingPermissionNotice")
   static let openProvidersSettings = Notification.Name("openProvidersSettings")
   static let openAccountSettings = Notification.Name("openAccountSettings")
+  static let navigateToFlow = Notification.Name("navigateToFlow")
 }
 
 @MainActor

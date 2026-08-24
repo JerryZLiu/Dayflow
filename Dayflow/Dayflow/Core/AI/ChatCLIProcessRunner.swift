@@ -409,6 +409,7 @@ struct ChatCLIProcessRunner {
     model: String? = nil,
     reasoningEffort: String? = nil,
     sessionId: String? = nil,
+    codexConfigOverrides: [String] = [],
     environmentOverrides: [String: String] = [:],
     onProcessStart: (@Sendable (String, [String: String]) -> Void)? = nil
   ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
@@ -422,6 +423,7 @@ struct ChatCLIProcessRunner {
             model: model,
             reasoningEffort: reasoningEffort,
             sessionId: sessionId,
+            codexConfigOverrides: codexConfigOverrides,
             continuation: continuation,
             onProcessStart: onProcessStart,
             processEnvironment: environmentOverrides
@@ -441,6 +443,7 @@ struct ChatCLIProcessRunner {
     model: String?,
     reasoningEffort: String?,
     sessionId: String?,
+    codexConfigOverrides: [String] = [],
     continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation,
     onProcessStart: (@Sendable (String, [String: String]) -> Void)? = nil,
     processEnvironment: [String: String] = [:],
@@ -467,6 +470,9 @@ struct ChatCLIProcessRunner {
       if let model = model { cmdParts.append(contentsOf: ["-m", model]) }
       if let effort = reasoningEffort {
         cmdParts.append(contentsOf: ["-c", "model_reasoning_effort=\(effort)"])
+      }
+      for override in codexConfigOverrides {
+        cmdParts.append(contentsOf: ["-c", LoginShellRunner.shellEscape(override)])
       }
       if shouldDisableConfiguredCodexMCPServers(processEnvironment: processEnvironment) {
         let mcpServers = LoginShellRunner.getCodexMCPServerNames(
@@ -701,6 +707,7 @@ struct ChatCLIProcessRunner {
         model: model,
         reasoningEffort: reasoningEffort,
         sessionId: sessionId,
+        codexConfigOverrides: codexConfigOverrides,
         continuation: continuation,
         onProcessStart: onProcessStart,
         processEnvironment: processEnvironment,
@@ -729,6 +736,7 @@ struct ChatCLIProcessRunner {
         model: model,
         reasoningEffort: reasoningEffort,
         sessionId: sessionId,
+        codexConfigOverrides: codexConfigOverrides,
         continuation: continuation,
         onProcessStart: onProcessStart,
         processEnvironment: fallback.environment,
@@ -1150,6 +1158,8 @@ struct ChatCLIProcessRunner {
     model: String? = nil, reasoningEffort: String? = nil, disableTools: Bool = false,
     claudeProfile: ClaudeCLIExecutionProfile? = nil,
     claudeSessionMode: ClaudeCLISessionMode = .ephemeral,
+    codexResumeSessionId: String? = nil,
+    codexConfigOverrides: [String] = [],
     environmentOverrides: [String: String] = [:],
     timeoutSeconds: TimeInterval = Constants.timeoutSeconds
   ) throws -> ChatCLIRunResult {
@@ -1163,6 +1173,8 @@ struct ChatCLIProcessRunner {
       disableTools: disableTools,
       claudeProfile: claudeProfile,
       claudeSessionMode: claudeSessionMode,
+      codexResumeSessionId: codexResumeSessionId,
+      codexConfigOverrides: codexConfigOverrides,
       processEnvironment: environmentOverrides,
       hasRetriedInvalidTransport: false,
       hasRetriedExecutableResolution: false,
@@ -1180,6 +1192,8 @@ struct ChatCLIProcessRunner {
     disableTools: Bool,
     claudeProfile: ClaudeCLIExecutionProfile?,
     claudeSessionMode: ClaudeCLISessionMode,
+    codexResumeSessionId: String? = nil,
+    codexConfigOverrides: [String] = [],
     processEnvironment: [String: String],
     hasRetriedInvalidTransport: Bool,
     hasRetriedExecutableResolution: Bool,
@@ -1200,10 +1214,20 @@ struct ChatCLIProcessRunner {
     var cmdParts: [String] = [executableCommand]
     switch tool {
     case .codex:
-      cmdParts.append(contentsOf: ["exec", "--skip-git-repo-check"])
+      if let codexResumeSessionId {
+        cmdParts.append(contentsOf: [
+          "exec", "resume", LoginShellRunner.shellEscape(codexResumeSessionId),
+          "--skip-git-repo-check",
+        ])
+      } else {
+        cmdParts.append(contentsOf: ["exec", "--skip-git-repo-check"])
+      }
       if let model = model { cmdParts.append(contentsOf: ["-m", model]) }
       if let effort = reasoningEffort {
         cmdParts.append(contentsOf: ["-c", "model_reasoning_effort=\(effort)"])
+      }
+      for override in codexConfigOverrides {
+        cmdParts.append(contentsOf: ["-c", LoginShellRunner.shellEscape(override)])
       }
       if shouldDisableConfiguredCodexMCPServers(processEnvironment: effectiveProcessEnvironment) {
         let mcpServers = LoginShellRunner.getCodexMCPServerNames(
@@ -1339,6 +1363,8 @@ struct ChatCLIProcessRunner {
         disableTools: disableTools,
         claudeProfile: claudeProfile,
         claudeSessionMode: claudeSessionMode,
+        codexResumeSessionId: codexResumeSessionId,
+        codexConfigOverrides: codexConfigOverrides,
         processEnvironment: effectiveProcessEnvironment,
         hasRetriedInvalidTransport: hasRetriedInvalidTransport,
         hasRetriedExecutableResolution: true,
@@ -1368,6 +1394,8 @@ struct ChatCLIProcessRunner {
         disableTools: disableTools,
         claudeProfile: claudeProfile,
         claudeSessionMode: claudeSessionMode,
+        codexResumeSessionId: codexResumeSessionId,
+        codexConfigOverrides: codexConfigOverrides,
         processEnvironment: fallback.environment,
         hasRetriedInvalidTransport: true,
         hasRetriedExecutableResolution: hasRetriedExecutableResolution,

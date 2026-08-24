@@ -261,6 +261,8 @@ final class DayflowAuthManager: ObservableObject {
 
   @Published private(set) var user: DayflowAuthUser?
   @Published private(set) var entitlements = DayflowEntitlement.free
+  /// Whether this account is whitelisted for the Flow beta (backend-driven).
+  @Published private(set) var flowEnabled = false
   @Published private(set) var pendingEmail: String?
   @Published private(set) var codeExpiresAt: Date?
   @Published private(set) var statusText = "Signed out"
@@ -368,6 +370,7 @@ final class DayflowAuthManager: ObservableObject {
 
       user = response.user
       entitlements = response.entitlements
+      flowEnabled = response.flowEnabled ?? false
       pendingEmail = nil
       codeExpiresAt = nil
       statusText = "Signed in."
@@ -422,6 +425,7 @@ final class DayflowAuthManager: ObservableObject {
       let response: MeResponse = try await send(request)
       user = response.user
       entitlements = response.entitlements
+      flowEnabled = response.flowEnabled ?? false
       referralSummary = try? await fetchReferralSummary(token: token)
       statusText = "Signed in."
       errorText = nil
@@ -718,6 +722,7 @@ final class DayflowAuthManager: ObservableObject {
   private func resetSignedOutState(status: String) {
     user = nil
     entitlements = .free
+    flowEnabled = false
     referralSummary = nil
     pendingEmail = nil
     codeExpiresAt = nil
@@ -868,17 +873,27 @@ private struct AuthVerifyResponse: Codable {
   let sessionToken: String
   let user: DayflowAuthUser
   let entitlements: DayflowEntitlement
+  // Optional so responses from older backends still decode.
+  let flowEnabled: Bool?
 
   private enum CodingKeys: String, CodingKey {
     case sessionToken = "session_token"
     case user
     case entitlements
+    case flowEnabled = "flow_enabled"
   }
 }
 
 private struct MeResponse: Codable {
   let user: DayflowAuthUser
   let entitlements: DayflowEntitlement
+  let flowEnabled: Bool?
+
+  private enum CodingKeys: String, CodingKey {
+    case user
+    case entitlements
+    case flowEnabled = "flow_enabled"
+  }
 }
 
 private struct LogoutResponse: Codable {

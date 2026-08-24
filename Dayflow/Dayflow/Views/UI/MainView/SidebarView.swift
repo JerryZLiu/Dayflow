@@ -20,6 +20,7 @@ enum SidebarIcon: CaseIterable {
   case daily
   case weekly
   case chat
+  case flow
   case agents
   case journal
   case bug
@@ -31,6 +32,7 @@ enum SidebarIcon: CaseIterable {
     case .daily: return "DailyIcon"
     case .weekly: return "WeeklyIcon"
     case .chat: return "ChatIcon"
+    case .flow: return nil
     case .agents: return nil
     case .journal: return "JournalIcon"
     case .bug: return nil
@@ -40,6 +42,7 @@ enum SidebarIcon: CaseIterable {
 
   var systemNameFallback: String? {
     switch self {
+    case .flow: return "water.waves"
     case .agents: return "sparkles"
     case .bug: return "exclamationmark.bubble.fill"
     case .settings: return "gearshape.fill"
@@ -53,6 +56,7 @@ enum SidebarIcon: CaseIterable {
     case .daily: return String(localized: "Daily")
     case .weekly: return String(localized: "Weekly")
     case .chat: return String(localized: "Chat")
+    case .flow: return String(localized: "Flow")
     case .agents: return String(localized: "Agents")
     case .journal: return String(localized: "Journal")
     case .bug: return String(localized: "Report")
@@ -66,6 +70,7 @@ enum SidebarIcon: CaseIterable {
     case .daily: return "daily"
     case .weekly: return "weekly"
     case .chat: return "dashboard"
+    case .flow: return "flow"
     case .agents: return "agents"
     case .journal: return "journal"
     case .bug: return "bug_report"
@@ -77,11 +82,20 @@ enum SidebarIcon: CaseIterable {
 struct SidebarView: View {
   @Binding var selectedIcon: SidebarIcon
   @ObservedObject private var badgeManager = NotificationBadgeManager.shared
+  @ObservedObject private var authManager = DayflowAuthManager.shared
 
   private var visibleIcons: [SidebarIcon] {
     SidebarIcon.allCases.filter { icon in
-      icon != .journal && icon != .agents
+      if icon == .journal || icon == .agents { return false }
+      if icon == .flow { return SidebarView.showsFlowTab(flowEnabled: authManager.flowEnabled) }
+      return true
     }
+  }
+
+  /// Flow is a whitelisted beta: the signed-in account must be flagged by the
+  /// backend (flow_enabled). Signed out or unflagged → no tab, in all builds.
+  static func showsFlowTab(flowEnabled: Bool) -> Bool {
+    flowEnabled
   }
 
   var body: some View {

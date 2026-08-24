@@ -89,29 +89,22 @@ enum WhatsNewConfiguration {
   private static let seenKey = "lastSeenWhatsNewVersion"
 
   /// Override with the specific release number you want to show.
-  private static let versionOverride: String? = "2.0.1"
+  private static let versionOverride: String? = "2.1.0"
 
   /// Update this content before shipping each release. Return nil to disable the modal entirely.
   static var configuredRelease: ReleaseNote? {
     ReleaseNote(
       version: targetVersion,
-      title: "Smarter, more efficient AI",
+      title: "MCP and CLI support is finally here",
       highlights: [
-        "Claude now uses around 80% fewer tokens while producing higher-quality results.",
-        "Upgraded to GPT-5.6 Luna and Sol for better timeline quality.",
-        "A bunch of small bug and performance fixes. Thank you to everyone who's been reporting issues. Please keep them coming!",
+        "Connect Claude, Cursor, or any MCP client to Dayflow and ask about your day in plain English: what you worked on, where your time went, and more. Set it up in Settings → MCP / CLI with one click.",
+        "New `dayflow` terminal command lets you check your timeline from any terminal. It links to the CLI bundled inside the app and stays in sync automatically whenever Dayflow updates.",
+        "AI tools get read-only access unless you turn on edits in Settings. Everything runs locally against your own data, so nothing new leaves your Mac.",
       ],
       socialPreview: nil,
-      previewIntro:
-        "A lot of work now happens behind the scenes in coding agents, where Dayflow can't capture the decisions, parallel threads, and finished outcomes. Dayflow Agents will help you understand what your agents worked on and how you're juggling them throughout the day.",
-      previewImageNames: ["AgentsPreview"],
-      betaSignup: ReleaseNoteBetaSignup(
-        title: "Want to try Dayflow Agents?",
-        description:
-          "We're opening a small beta for people who regularly work with coding agents.",
-        followUp:
-          "Coming next: track Dayflow's token usage and choose which models it uses."
-      ),
+      previewIntro: nil,
+      previewImageNames: [],
+      betaSignup: nil,
       cta: nil,
       showsWeeklyFeedbackSurvey: false
     )
