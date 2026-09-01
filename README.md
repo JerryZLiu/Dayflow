@@ -91,6 +91,7 @@ You choose how AI analysis runs:
 - Local models through Ollama or LM Studio
 - Gemini with your own API key
 - ChatGPT or Claude through their local CLI tools
+- SiliconFlow with your own API key through the OpenAI-compatible provider
 
 If you choose a cloud provider, activity data needed for analysis is sent to that provider. If you choose local models, analysis stays on your machine.
 
@@ -118,7 +119,7 @@ brew install --cask dayflow
 
 - macOS 14+
 - Screen & System Audio Recording permission
-- Optional: Gemini API key, Ollama, LM Studio, Codex CLI, or Claude Code depending on your preferred AI provider
+- Optional: Gemini API key, Ollama, LM Studio, Codex CLI, Claude Code, or SiliconFlow API key depending on your preferred AI provider
 
 ## Build From Source
 

@@ -12,6 +12,7 @@ extension OllamaProvider {
     var temperature: Double = 0.7
     var max_tokens: Int = 4000
     var stream: Bool = false
+    var enable_thinking: Bool? = nil
   }
 
   struct ChatMessage: Codable {
@@ -38,6 +39,30 @@ extension OllamaProvider {
 
     struct ResponseMessage: Codable {
       let content: String
+
+      private enum CodingKeys: String, CodingKey {
+        case content
+      }
+
+      private struct ContentPart: Decodable {
+        let text: String?
+      }
+
+      init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let text = try? container.decode(String.self, forKey: .content) {
+          content = text
+        } else if let parts = try? container.decode([ContentPart].self, forKey: .content) {
+          content = parts.compactMap(\.text).joined()
+        } else {
+          content = try container.decode(String.self, forKey: .content)
+        }
+      }
+
+      func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(content, forKey: .content)
+      }
     }
   }
 
@@ -267,7 +292,8 @@ extension OllamaProvider {
       ],
       temperature: 0.7,
       max_tokens: maxTokens,
-      stream: false
+      stream: false,
+      enable_thinking: enableThinkingParameter
     )
 
     let response = try await callChatAPI(

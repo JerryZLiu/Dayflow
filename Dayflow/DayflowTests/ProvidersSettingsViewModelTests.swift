@@ -17,6 +17,7 @@ final class ProvidersSettingsViewModelTests: XCTestCase {
     "claudeSetupComplete",
     "geminiSelectedModel_v3",
     "geminiSelectedModel_v4",
+    "llmOpenAICompatibleConfigurationV1",
     LLMProviderRoutingStore.storageKey,
   ]
 
@@ -100,6 +101,70 @@ final class ProvidersSettingsViewModelTests: XCTestCase {
     XCTAssertEqual(state.localBaseURL, "https://local.example.test/v1")
     XCTAssertEqual(state.localModelId, "saved-vision-model")
     XCTAssertEqual(state.localAPIKey, "saved-local-key")
+  }
+
+  func testOpenAICompatibleDraftsStayIsolatedAcrossPresets() {
+    let state = ProviderSetupState(loadStoredOpenAICompatibleAPIKeys: false)
+    state.configureSteps(for: .openAICompatible)
+
+    state.selectOpenAICompatiblePreset(.siliconFlow)
+    state.openAICompatibleDraftBinding(for: .siliconFlow, field: .baseURL).wrappedValue =
+      "https://api.siliconflow.com/v1"
+    state.openAICompatibleDraftBinding(for: .siliconFlow, field: .modelID).wrappedValue =
+      "Qwen/Qwen3.6-35B-A3B"
+    state.openAICompatibleDraftBinding(for: .siliconFlow, field: .apiKey).wrappedValue =
+      "  siliconflow-test-\nkey  "
+    XCTAssertEqual(
+      state.openAICompatibleDraftBinding(for: .siliconFlow, field: .baseURL).wrappedValue,
+      "https://api.siliconflow.com/v1"
+    )
+    XCTAssertEqual(
+      state.openAICompatibleDraftBinding(for: .siliconFlow, field: .modelID).wrappedValue,
+      "Qwen/Qwen3.6-35B-A3B"
+    )
+    XCTAssertEqual(
+      state.openAICompatibleDraftBinding(for: .siliconFlow, field: .apiKey).wrappedValue,
+      "siliconflow-test-key"
+    )
+
+    state.selectOpenAICompatiblePreset(.openRouter)
+    XCTAssertEqual(
+      state.openAICompatibleDraftBinding(for: .openRouter, field: .baseURL).wrappedValue,
+      OpenAICompatibleConfiguration.openRouterBaseURL
+    )
+    XCTAssertEqual(
+      state.openAICompatibleDraftBinding(for: .openRouter, field: .modelID).wrappedValue, ""
+    )
+    XCTAssertNotEqual(
+      state.openAICompatibleDraftBinding(for: .openRouter, field: .apiKey).wrappedValue,
+      "siliconflow-test-key"
+    )
+
+    state.selectOpenAICompatiblePreset(.custom)
+    XCTAssertEqual(
+      state.openAICompatibleDraftBinding(for: .custom, field: .baseURL).wrappedValue, ""
+    )
+    XCTAssertEqual(
+      state.openAICompatibleDraftBinding(for: .custom, field: .modelID).wrappedValue, ""
+    )
+    XCTAssertNotEqual(
+      state.openAICompatibleDraftBinding(for: .custom, field: .apiKey).wrappedValue,
+      "siliconflow-test-key"
+    )
+
+    state.selectOpenAICompatiblePreset(.siliconFlow)
+    XCTAssertEqual(
+      state.openAICompatibleDraftBinding(for: .siliconFlow, field: .baseURL).wrappedValue,
+      "https://api.siliconflow.com/v1"
+    )
+    XCTAssertEqual(
+      state.openAICompatibleDraftBinding(for: .siliconFlow, field: .modelID).wrappedValue,
+      "Qwen/Qwen3.6-35B-A3B"
+    )
+    XCTAssertEqual(
+      state.openAICompatibleDraftBinding(for: .siliconFlow, field: .apiKey).wrappedValue,
+      "siliconflow-test-key"
+    )
   }
 
   func testFailedSetupAssignmentRetainsRoutingIntentForRetry() throws {

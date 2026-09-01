@@ -50,6 +50,10 @@ final class OllamaProvider {
     injectedRuntimeConfiguration == nil ? .local : .openAICompatible
   }
 
+  var enableThinkingParameter: Bool? {
+    injectedRuntimeConfiguration?.shouldDisableThinking == true ? false : nil
+  }
+
   var authorizationBearerToken: String? {
     if let injectedRuntimeConfiguration {
       return injectedRuntimeConfiguration.bearerToken

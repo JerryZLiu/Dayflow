@@ -158,7 +158,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
       openAICompatibleModelID = configuration.modelID
     }
     openAICompatibleAPIKey =
-      KeychainManager.shared.retrieve(for: OpenAICompatiblePreferences.keychainProvider) ?? ""
+      OpenAICompatiblePreferences.apiKey(for: openAICompatiblePreset) ?? ""
   }
 
   func handleOnAppear() {
@@ -232,7 +232,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
     openAICompatibleBaseURL = configuration.baseURL
     openAICompatibleModelID = configuration.modelID
     openAICompatibleAPIKey =
-      KeychainManager.shared.retrieve(for: OpenAICompatiblePreferences.keychainProvider) ?? ""
+      OpenAICompatiblePreferences.apiKey(for: openAICompatiblePreset) ?? ""
   }
 
   func refreshCLIReadiness() {
@@ -586,9 +586,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
       if configuration.preset == .custom {
         return true
       }
-      let key =
-        KeychainManager.shared.retrieve(
-          for: OpenAICompatiblePreferences.keychainProvider) ?? ""
+      let key = OpenAICompatiblePreferences.apiKey(for: configuration.preset) ?? ""
       return !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     case .local:
       let baseURL = (UserDefaults.standard.string(forKey: "llmLocalBaseURL") ?? "")
@@ -745,7 +743,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
       ),
       CompactProviderInfo(
         id: .openAICompatible,
-        summary: "OpenRouter or another OpenAI Chat Completions endpoint"
+        summary: "OpenRouter, SiliconFlow, or another OpenAI Chat Completions endpoint"
       ),
       CompactProviderInfo(
         id: .local,

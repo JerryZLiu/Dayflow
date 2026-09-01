@@ -1,12 +1,44 @@
 import Foundation
 
-enum OpenAICompatiblePreset: String, Codable, CaseIterable {
+protocol OpenAICompatibleKeychainStoring {
+  func retrieve(for provider: String) -> String?
+
+  @discardableResult
+  func store(_ apiKey: String, for provider: String) -> Bool
+
+  @discardableResult
+  func delete(for provider: String) -> Bool
+}
+
+extension KeychainManager: OpenAICompatibleKeychainStoring {}
+
+enum OpenAICompatiblePreset: String, Codable, CaseIterable, Hashable {
   case openRouter = "openrouter"
+  case siliconFlow = "siliconflow"
   case custom
+
+  var displayName: String {
+    switch self {
+    case .openRouter:
+      return "OpenRouter"
+    case .siliconFlow:
+      return "SiliconFlow"
+    case .custom:
+      return "Custom"
+    }
+  }
+}
+
+struct OpenAICompatibleDraft: Equatable {
+  var baseURL: String
+  var modelID: String
+  var apiKey: String
 }
 
 struct OpenAICompatibleConfiguration: Codable, Equatable {
   static let openRouterBaseURL = "https://openrouter.ai/api/v1"
+  static let siliconFlowBaseURL = "https://api.siliconflow.com/v1"
+  static let siliconFlowDefaultModelID = "Qwen/Qwen3.6-35B-A3B"
 
   let preset: OpenAICompatiblePreset
   let baseURL: String
@@ -26,6 +58,16 @@ struct OpenAICompatibleConfiguration: Codable, Equatable {
     )
   }
 
+  static func siliconFlow(
+    modelID: String = siliconFlowDefaultModelID
+  ) -> OpenAICompatibleConfiguration {
+    OpenAICompatibleConfiguration(
+      preset: .siliconFlow,
+      baseURL: siliconFlowBaseURL,
+      modelID: modelID
+    )
+  }
+
   var chatCompletionsURL: URL? {
     LocalEndpointUtilities.chatCompletionsURL(baseURL: baseURL)
   }
@@ -36,8 +78,50 @@ struct OpenAICompatibleConfiguration: Codable, Equatable {
 }
 
 enum OpenAICompatiblePreferences {
+  /// Kept for compatibility with older installations that used one shared item.
   static let keychainProvider = "openai_compatible"
   private static let configurationKey = "llmOpenAICompatibleConfigurationV1"
+
+  static func keychainProvider(for preset: OpenAICompatiblePreset) -> String {
+    "openai_compatible_\(preset.rawValue)"
+  }
+
+  /// API keys are opaque tokens and never contain meaningful whitespace. Removing
+  /// pasted line breaks keeps keys copied from a browser or terminal usable.
+  static func normalizedAPIKey(_ apiKey: String) -> String {
+    apiKey.components(separatedBy: .whitespacesAndNewlines).joined()
+  }
+
+  /// Reads a preset-specific key and migrates the pre-preset shared key only for the
+  /// currently persisted preset. This prevents a legacy key from appearing in every tab.
+  static func apiKey(
+    for preset: OpenAICompatiblePreset,
+    migrateLegacyKey: Bool = true,
+    keychain: OpenAICompatibleKeychainStoring = KeychainManager.shared
+  ) -> String? {
+    let provider = keychainProvider(for: preset)
+    if let apiKey = keychain.retrieve(for: provider) {
+      let normalizedKey = normalizedAPIKey(apiKey)
+      if !normalizedKey.isEmpty {
+        return normalizedKey
+      }
+    }
+
+    guard migrateLegacyKey,
+      let legacyKey = keychain.retrieve(for: keychainProvider),
+      !normalizedAPIKey(legacyKey).isEmpty
+    else {
+      return nil
+    }
+
+    let normalizedLegacyKey = normalizedAPIKey(legacyKey)
+
+    // Keep the current session usable even if the best-effort migration cannot write.
+    if keychain.store(normalizedLegacyKey, for: provider) {
+      _ = keychain.delete(for: keychainProvider)
+    }
+    return normalizedLegacyKey
+  }
 
   static func load(from defaults: UserDefaults = .standard) -> OpenAICompatibleConfiguration? {
     guard let data = defaults.data(forKey: configurationKey) else { return nil }
@@ -73,6 +157,7 @@ struct OpenAICompatibleRuntimeConfiguration: Sendable {
   let modelID: String
   let bearerToken: String?
   let analyticsProvider: String
+  let shouldDisableThinking: Bool
 
   init(
     configuration: OpenAICompatibleConfiguration,
@@ -81,8 +166,9 @@ struct OpenAICompatibleRuntimeConfiguration: Sendable {
   ) {
     endpoint = configuration.baseURL
     modelID = configuration.modelID
-
-    let trimmedToken = bearerToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    shouldDisableThinking = configuration.preset == .siliconFlow
+    let trimmedToken =
+      bearerToken.map(OpenAICompatiblePreferences.normalizedAPIKey) ?? ""
     self.bearerToken = trimmedToken.isEmpty ? nil : trimmedToken
 
     let trimmedProvider = analyticsProvider.trimmingCharacters(in: .whitespacesAndNewlines)

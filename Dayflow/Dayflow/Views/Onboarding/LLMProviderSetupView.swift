@@ -484,51 +484,57 @@ struct LLMProviderSetupView: View {
                   }
                 )
               } else if providerType == .openAICompatible {
+                let preset = setupState.openAICompatiblePreset
                 VStack(alignment: .leading, spacing: 12) {
-                  Picker("Endpoint", selection: $setupState.openAICompatiblePreset) {
+                  Picker(
+                    "Endpoint",
+                    selection: Binding(
+                      get: { setupState.openAICompatiblePreset },
+                      set: { setupState.selectOpenAICompatiblePreset($0) }
+                    )
+                  ) {
                     Text("OpenRouter").tag(OpenAICompatiblePreset.openRouter)
+                    Text("SiliconFlow").tag(OpenAICompatiblePreset.siliconFlow)
                     Text("Custom").tag(OpenAICompatiblePreset.custom)
                   }
                   .pickerStyle(.segmented)
                   .frame(maxWidth: 380)
-                  .onChange(of: setupState.openAICompatiblePreset) { _, preset in
-                    if preset == .openRouter {
-                      setupState.openAICompatibleBaseURL =
-                        OpenAICompatibleConfiguration.openRouterBaseURL
-                    }
-                    setupState.hasTestedConnection = false
-                    setupState.testSuccessful = false
-                  }
 
                   LocalLLMTestView(
-                    baseURL: $setupState.openAICompatibleBaseURL,
-                    modelId: $setupState.openAICompatibleModelID,
-                    apiKey: $setupState.openAICompatibleAPIKey,
+                    baseURL: setupState.openAICompatibleDraftBinding(
+                      for: preset, field: .baseURL),
+                    modelId: setupState.openAICompatibleDraftBinding(
+                      for: preset, field: .modelID),
+                    apiKey: setupState.openAICompatibleDraftBinding(
+                      for: preset, field: .apiKey),
                     engine: .custom,
+                    apiKeyRequired: preset == .siliconFlow,
+                    normalizeAPIKey: preset == .siliconFlow,
+                    enableThinking: preset == .siliconFlow ? false : nil,
+                    maxTokens: preset == .siliconFlow
+                      ? LocalLLMTestConstants.maxTestTokens : 10,
                     buttonLabel: "Test endpoint",
-                    basePlaceholder: OpenAICompatibleConfiguration.openRouterBaseURL,
-                    modelPlaceholder: "openai/gpt-5.4",
+                    basePlaceholder:
+                      preset == .siliconFlow
+                      ? OpenAICompatibleConfiguration.siliconFlowBaseURL
+                      : OpenAICompatibleConfiguration.openRouterBaseURL,
+                    modelPlaceholder:
+                      preset == .siliconFlow
+                      ? OpenAICompatibleConfiguration.siliconFlowDefaultModelID : "openai/gpt-5.4",
                     credentialStorageDescription:
                       "Stored safely in Keychain and sent only to this endpoint as a Bearer token.",
                     requiresMeaningfulResponse: true,
                     enforcesLocalLatencyLimit: false,
+                    onTestStart: {
+                      setupState.hasTestedConnection = false
+                      setupState.testSuccessful = false
+                    },
                     onTestComplete: { success in
                       setupState.hasTestedConnection = true
                       setupState.testSuccessful = success
                     }
                   )
-                  .onChange(of: setupState.openAICompatibleBaseURL) {
-                    setupState.hasTestedConnection = false
-                    setupState.testSuccessful = false
-                  }
-                  .onChange(of: setupState.openAICompatibleModelID) {
-                    setupState.hasTestedConnection = false
-                    setupState.testSuccessful = false
-                  }
-                  .onChange(of: setupState.openAICompatibleAPIKey) {
-                    setupState.hasTestedConnection = false
-                    setupState.testSuccessful = false
-                  }
+                  .id(preset)
                 }
               } else {
                 // Engine selection: LM Studio or Custom
@@ -777,28 +783,32 @@ struct LLMProviderSetupView: View {
     )
     guard configuration.isComplete else { return false }
 
-    let key = setupState.openAICompatibleAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-    let previousKey = KeychainManager.shared.retrieve(
+    let key = OpenAICompatiblePreferences.normalizedAPIKey(
+      setupState.openAICompatibleAPIKey)
+    let keychainProvider = OpenAICompatiblePreferences.keychainProvider(
+      for: setupState.openAICompatiblePreset)
+    let previousKey = KeychainManager.shared.retrieve(for: keychainProvider)
+    let previousLegacyKey = KeychainManager.shared.retrieve(
       for: OpenAICompatiblePreferences.keychainProvider)
     if key.isEmpty {
-      guard KeychainManager.shared.delete(for: OpenAICompatiblePreferences.keychainProvider) else {
-        return false
-      }
-    } else if !KeychainManager.shared.store(
-      key,
-      for: OpenAICompatiblePreferences.keychainProvider
-    ) {
+      guard KeychainManager.shared.delete(for: keychainProvider) else { return false }
+    } else if !KeychainManager.shared.store(key, for: keychainProvider) {
       return false
     }
+    // Remove the old shared item after the selected preset has its own key.
+    _ = KeychainManager.shared.delete(for: OpenAICompatiblePreferences.keychainProvider)
 
     guard OpenAICompatiblePreferences.save(configuration) else {
       if let previousKey {
+        _ = KeychainManager.shared.store(previousKey, for: keychainProvider)
+      } else {
+        _ = KeychainManager.shared.delete(for: keychainProvider)
+      }
+      if let previousLegacyKey {
         _ = KeychainManager.shared.store(
-          previousKey,
+          previousLegacyKey,
           for: OpenAICompatiblePreferences.keychainProvider
         )
-      } else {
-        _ = KeychainManager.shared.delete(for: OpenAICompatiblePreferences.keychainProvider)
       }
       return false
     }

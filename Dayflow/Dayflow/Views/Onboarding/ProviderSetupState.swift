@@ -2,7 +2,8 @@ import AppKit
 import Foundation
 import SwiftUI
 
-class ProviderSetupState: ObservableObject {
+@MainActor
+final class ProviderSetupState: ObservableObject {
   @Published var steps: [SetupStep] = []
   @Published var currentStepIndex: Int = 0
   @Published var apiKey: String = ""
@@ -18,9 +19,6 @@ class ProviderSetupState: ObservableObject {
   @Published var localModelId: String
   @Published var localAPIKey: String
   @Published var openAICompatiblePreset: OpenAICompatiblePreset = .openRouter
-  @Published var openAICompatibleBaseURL: String = OpenAICompatibleConfiguration.openRouterBaseURL
-  @Published var openAICompatibleModelID: String = ""
-  @Published var openAICompatibleAPIKey: String = ""
   // CLI detection
   @Published var codexCLIStatus: CLIDetectionState = .unknown
   @Published var claudeCLIStatus: CLIDetectionState = .unknown
@@ -35,8 +33,15 @@ class ProviderSetupState: ObservableObject {
   var lastSavedGeminiModel: GeminiModel
   var hasStartedCLICheck = false
   private(set) var configuredProviderID: LLMProviderID?
+  // Text fields own their live editing state through bindings. Keeping the draft
+  // store out of @Published prevents the whole setup screen from recomputing on
+  // every pasted or typed character; preset changes still notify the surrounding UI.
+  private var openAICompatibleDrafts: [OpenAICompatiblePreset: OpenAICompatibleDraft]
+  private var loadedOpenAICompatibleAPIKeys: Set<OpenAICompatiblePreset>
+  private let loadsStoredOpenAICompatibleAPIKeys: Bool
 
-  init() {
+  init(loadStoredOpenAICompatibleAPIKeys: Bool = true) {
+    self.loadsStoredOpenAICompatibleAPIKeys = loadStoredOpenAICompatibleAPIKeys
     let defaults = UserDefaults.standard
     let savedLocalEngine =
       defaults.string(forKey: "llmLocalEngine").flatMap(LocalEngine.init(rawValue:)) ?? .lmstudio
@@ -60,13 +65,48 @@ class ProviderSetupState: ObservableObject {
     self.lastSavedGeminiModel = preference.primary
     self.preferredCLITool = nil
 
-    if let configuration = OpenAICompatiblePreferences.load() {
-      openAICompatiblePreset = configuration.preset
-      openAICompatibleBaseURL = configuration.baseURL
-      openAICompatibleModelID = configuration.modelID
+    let storedConfiguration = OpenAICompatiblePreferences.load()
+    var drafts = Dictionary(uniqueKeysWithValues: OpenAICompatiblePreset.allCases.map { preset in
+      (preset, Self.defaultOpenAICompatibleDraft(for: preset))
+    })
+    if let storedConfiguration {
+      drafts[storedConfiguration.preset] = OpenAICompatibleDraft(
+        baseURL: storedConfiguration.baseURL,
+        modelID: storedConfiguration.modelID,
+        apiKey: ""
+      )
     }
-    openAICompatibleAPIKey =
-      KeychainManager.shared.retrieve(for: OpenAICompatiblePreferences.keychainProvider) ?? ""
+
+    let initialPreset = storedConfiguration?.preset ?? .openRouter
+    var initialDraft = drafts[initialPreset] ?? Self.defaultOpenAICompatibleDraft(for: initialPreset)
+    if loadStoredOpenAICompatibleAPIKeys {
+      initialDraft.apiKey = OpenAICompatiblePreferences.apiKey(for: initialPreset) ?? ""
+    }
+    drafts[initialPreset] = initialDraft
+    openAICompatibleDrafts = drafts
+    loadedOpenAICompatibleAPIKeys = [initialPreset]
+    openAICompatiblePreset = initialPreset
+  }
+
+  var openAICompatibleBaseURL: String {
+    get { openAICompatibleDraft(for: openAICompatiblePreset).baseURL }
+    set {
+      setOpenAICompatibleDraftValue(newValue, for: openAICompatiblePreset, field: .baseURL)
+    }
+  }
+
+  var openAICompatibleModelID: String {
+    get { openAICompatibleDraft(for: openAICompatiblePreset).modelID }
+    set {
+      setOpenAICompatibleDraftValue(newValue, for: openAICompatiblePreset, field: .modelID)
+    }
+  }
+
+  var openAICompatibleAPIKey: String {
+    get { openAICompatibleDraft(for: openAICompatiblePreset).apiKey }
+    set {
+      setOpenAICompatibleDraftValue(newValue, for: openAICompatiblePreset, field: .apiKey)
+    }
   }
 
   var currentStep: SetupStep {
@@ -174,7 +214,7 @@ class ProviderSetupState: ObservableObject {
           title: "Configure endpoint",
           contentType: .information(
             "Connect an OpenAI-compatible endpoint",
-            "Use OpenRouter or another endpoint that supports OpenAI Chat Completions with image input. The connection test sends one image and may incur a small provider charge."
+            "Use OpenRouter, SiliconFlow, or another endpoint that supports OpenAI Chat Completions with image input. The connection test sends one image and may incur a small provider charge."
           )
         ),
         SetupStep(
@@ -267,6 +307,115 @@ class ProviderSetupState: ObservableObject {
 
   func clearGeminiAPIKeySaveError() {
     geminiAPIKeySaveError = nil
+  }
+
+  @MainActor
+  func selectOpenAICompatiblePreset(_ preset: OpenAICompatiblePreset) {
+    guard openAICompatiblePreset != preset else { return }
+
+    if !loadedOpenAICompatibleAPIKeys.contains(preset) {
+      var draft = openAICompatibleDraft(for: preset)
+      if loadsStoredOpenAICompatibleAPIKeys {
+        draft.apiKey = OpenAICompatiblePreferences.apiKey(
+          for: preset,
+          migrateLegacyKey: false
+        ) ?? ""
+      }
+      openAICompatibleDrafts[preset] = draft
+      loadedOpenAICompatibleAPIKeys.insert(preset)
+    }
+
+    openAICompatiblePreset = preset
+    hasTestedConnection = false
+    testSuccessful = false
+  }
+
+  enum OpenAICompatibleDraftField: Equatable {
+    case baseURL
+    case modelID
+    case apiKey
+  }
+
+  func openAICompatibleDraft(for preset: OpenAICompatiblePreset) -> OpenAICompatibleDraft {
+    openAICompatibleDrafts[preset] ?? Self.defaultOpenAICompatibleDraft(for: preset)
+  }
+
+  func openAICompatibleDraftBinding(
+    for preset: OpenAICompatiblePreset,
+    field: OpenAICompatibleDraftField
+  ) -> Binding<String> {
+    Binding(
+      get: { [weak self] in
+        guard let self else { return "" }
+        return self.value(of: self.openAICompatibleDraft(for: preset), field: field)
+      },
+      set: { [weak self] value in
+        self?.setOpenAICompatibleDraftValue(value, for: preset, field: field)
+      }
+    )
+  }
+
+  private static func defaultOpenAICompatibleDraft(
+    for preset: OpenAICompatiblePreset
+  ) -> OpenAICompatibleDraft {
+    switch preset {
+    case .openRouter:
+      return OpenAICompatibleDraft(
+        baseURL: OpenAICompatibleConfiguration.openRouterBaseURL,
+        modelID: "",
+        apiKey: ""
+      )
+    case .siliconFlow:
+      return OpenAICompatibleDraft(
+        baseURL: OpenAICompatibleConfiguration.siliconFlowBaseURL,
+        modelID: OpenAICompatibleConfiguration.siliconFlowDefaultModelID,
+        apiKey: ""
+      )
+    case .custom:
+      return OpenAICompatibleDraft(baseURL: "", modelID: "", apiKey: "")
+    }
+  }
+
+  private func value(of draft: OpenAICompatibleDraft, field: OpenAICompatibleDraftField)
+    -> String
+  {
+    switch field {
+    case .baseURL: return draft.baseURL
+    case .modelID: return draft.modelID
+    case .apiKey: return draft.apiKey
+    }
+  }
+
+  private func setOpenAICompatibleDraftValue(
+    _ value: String,
+    for preset: OpenAICompatiblePreset,
+    field: OpenAICompatibleDraftField
+  ) {
+    let normalizedValue =
+      field == .apiKey
+      ? OpenAICompatiblePreferences.normalizedAPIKey(value)
+      : value
+    var draft = openAICompatibleDraft(for: preset)
+    switch field {
+    case .baseURL:
+      draft.baseURL = normalizedValue
+    case .modelID:
+      draft.modelID = normalizedValue
+    case .apiKey:
+      draft.apiKey = normalizedValue
+    }
+
+    guard draft != openAICompatibleDrafts[preset] else { return }
+    openAICompatibleDrafts[preset] = draft
+
+    guard preset == openAICompatiblePreset else { return }
+    invalidateConnectionTest()
+  }
+
+  private func invalidateConnectionTest() {
+    guard hasTestedConnection || testSuccessful else { return }
+    hasTestedConnection = false
+    testSuccessful = false
   }
 
   var isSelectedCLIToolReady: Bool {
