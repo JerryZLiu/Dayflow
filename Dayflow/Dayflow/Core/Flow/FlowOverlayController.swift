@@ -17,6 +17,9 @@ final class FlowOverlayController {
 
   private var panel: NSPanel?
   private var cancellable: AnyCancellable?
+  /// What the panel was showing before it hid, so we can pick the matching
+  /// exit clip (wave goodbye, climb out of the tub, fly off on the plane).
+  private var lastPresentation: FlowOverlayPresentation = .hidden
 
   private init() {}
 
@@ -28,6 +31,7 @@ final class FlowOverlayController {
         if presentation == .hidden {
           self?.hidePanel()
         } else {
+          self?.lastPresentation = presentation
           self?.showPanel()
         }
       }
@@ -51,6 +55,32 @@ final class FlowOverlayController {
 
   private func hidePanel() {
     guard let panel, panel.isVisible else { return }
+
+    // Let the creature leave in character before the panel fades.
+    let exit = exitClip(for: lastPresentation)
+    lastPresentation = .hidden
+    guard let exit else {
+      fadeOut(panel)
+      return
+    }
+    FlowCreaturePlayer.shared.playOnce(exit) { [weak self] in
+      // The overlay may have come back mid-exit (a new nudge); leave it up.
+      guard FlowSessionMirror.shared.overlay == .hidden else { return }
+      self?.panel.map { self?.fadeOut($0) }
+    }
+  }
+
+  private func exitClip(for presentation: FlowOverlayPresentation) -> FlowCreatureClip? {
+    switch presentation {
+    case .hidden: return nil
+    case .onBreak: return .bathEnd
+    case .sessionEnded: return .exitPlane
+    case .nudge(_, true): return .fireEnd
+    case .toast, .nudge: return .randomExit
+    }
+  }
+
+  private func fadeOut(_ panel: NSPanel) {
     NSAnimationContext.runAnimationGroup(
       { context in
         context.duration = 0.2
@@ -63,7 +93,7 @@ final class FlowOverlayController {
 
   private func makePanel() -> NSPanel {
     let panel = FlowOverlayPanel(
-      contentRect: NSRect(x: 0, y: 0, width: 360, height: 320),
+      contentRect: NSRect(x: 0, y: 0, width: 680, height: 440),
       styleMask: [.borderless, .nonactivatingPanel],
       backing: .buffered,
       defer: false

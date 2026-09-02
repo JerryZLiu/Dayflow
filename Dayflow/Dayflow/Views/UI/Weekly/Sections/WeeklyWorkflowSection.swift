@@ -35,16 +35,16 @@ struct WeeklyWorkflowSection: View {
   private enum Design {
     static let sectionWidth: CGFloat = 958
     static let cornerRadius: CGFloat = 4
-    static let borderColor = Color(hex: "E8E1DA")
-    static let backgroundColor = Color.white.opacity(0.78)
-    static let dividerColor = Color(hex: "E5DFD9")
-    static let titleColor = Color(hex: "B46531")
-    static let textColor = Color.black.opacity(0.9)
-    static let mutedTextColor = Color(hex: "7F7062")
-    static let totalTitleColor = Color(hex: "777777")
-    static let totalNameColor = Color(hex: "1F1B18")
-    static let emptyCellColor = Color(red: 0.95, green: 0.93, blue: 0.92)
-    static let axisColor = Color(hex: "E0D9D5")
+    static let borderColor = WeeklyPalette.cardBorder
+    static let backgroundColor = WeeklyPalette.cardFillStrong
+    static let dividerColor = WeeklyPalette.divider
+    static let titleColor = WeeklyPalette.title
+    static let textColor = WeeklyPalette.text
+    static let mutedTextColor = WeeklyPalette.secondaryText
+    static let totalTitleColor = WeeklyPalette.secondaryText
+    static let totalNameColor = WeeklyPalette.text
+    static let emptyCellColor = WeeklyPalette.emptyCell
+    static let axisColor = WeeklyPalette.divider
 
     static let titleTopPadding: CGFloat = 16
     static let titleLeadingPadding: CGFloat = gridPadding.leading + labelWidth + labelToGridSpacing
@@ -163,7 +163,7 @@ struct WeeklyWorkflowSection: View {
           ForEach(snapshot.timeLabels) { label in
             Text(label.label)
               .font(.custom("Figtree-Regular", size: 10))
-              .foregroundStyle(Color.black.opacity(0.78))
+              .foregroundStyle(WeeklyPalette.text)
               .frame(width: Design.axisLabelWidth, alignment: axisAlignment(for: label))
               .offset(x: axisOffset(for: label))
           }
@@ -445,5 +445,5 @@ private struct WeeklyWorkflowPreviewRun {
 #Preview("Weekly Workflow Section", traits: .fixedLayout(width: 958, height: 292)) {
   WeeklyWorkflowSection(snapshot: .figmaPreview)
     .padding(24)
-    .background(Color(hex: "F7F3F0"))
+    .background(WeeklyPalette.canvas)
 }

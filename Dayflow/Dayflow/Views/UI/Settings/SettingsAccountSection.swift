@@ -269,6 +269,7 @@ private func formattedEntitlementDate(_ value: String?) -> String? {
 }
 
 private struct ActiveProCard: View {
+  @Environment(\.dayflowTheme) private var theme
   let entitlement: DayflowEntitlement
   let email: String
   let isBusy: Bool
@@ -371,7 +372,7 @@ private struct ActiveProCard: View {
     .padding(18)
     .background(
       RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .fill(Color.white)
+        .fill(theme.summaryCardFill)
     )
     .overlay(
       RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -400,6 +401,7 @@ private struct ActiveProCard: View {
 }
 
 private struct ActiveProInfoTile: View {
+  @Environment(\.dayflowTheme) private var theme
   let label: String
   let value: String
 
@@ -422,7 +424,7 @@ private struct ActiveProInfoTile: View {
     .padding(12)
     .background(
       RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .fill(Color.white.opacity(0.45))
+        .fill(theme.summaryCardFill)
     )
     .overlay(
       RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -432,6 +434,7 @@ private struct ActiveProInfoTile: View {
 }
 
 private struct ReferralProgramCard: View {
+  @Environment(\.dayflowTheme) private var theme
   let summary: DayflowReferralSummary?
   @Binding var inviteEmail: String
   @Binding var applyReferralCode: String
@@ -464,7 +467,11 @@ private struct ReferralProgramCard: View {
     .padding(20)
     .background(
       RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .fill(Color.white)
+        .fill(theme.summaryCardFill)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .stroke(theme.summaryCardBorder, lineWidth: 1)
     )
     .task {
       if isSignedIn && summary == nil {
@@ -478,11 +485,11 @@ private struct ReferralProgramCard: View {
       Text("Refer and earn rewards")
         .font(.custom("Figtree", size: 16))
         .fontWeight(.bold)
-        .foregroundColor(Color(hex: "333333"))
+        .foregroundColor(theme.textPrimary)
 
       Text("Give a month of Dayflow Pro and earn $20 in credits for each person you refer!")
         .font(.custom("Figtree", size: 12))
-        .foregroundColor(Color(hex: "333333"))
+        .foregroundColor(theme.textPrimary)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -499,12 +506,12 @@ private struct ReferralProgramCard: View {
             Text(tabTitle(for: tab))
               .font(.custom("Figtree", size: 12))
               .fontWeight(selectedTab == tab ? .bold : .regular)
-              .foregroundColor(Color(hex: "333333"))
+              .foregroundColor(theme.textPrimary)
               .padding(.bottom, 8)
               .overlay(alignment: .bottom) {
                 if selectedTab == tab {
                   Rectangle()
-                    .fill(Color(hex: "333333"))
+                    .fill(theme.textPrimary)
                     .frame(height: 2)
                 }
               }
@@ -518,7 +525,7 @@ private struct ReferralProgramCard: View {
       .padding(.leading, 8)
 
       Rectangle()
-        .fill(Color(hex: "DFDDDB"))
+        .fill(SettingsStyle.divider)
         .frame(height: 1)
     }
   }
@@ -538,7 +545,7 @@ private struct ReferralProgramCard: View {
     .frame(maxWidth: .infinity)
     .background(
       RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .fill(Color(hex: "F5F4F1"))
+        .fill(SettingsStyle.subtleFill)
     )
   }
 
@@ -564,13 +571,13 @@ private struct ReferralProgramCard: View {
         Text("Sign in to get your invite link")
           .font(.custom("Figtree", size: 12))
           .fontWeight(.bold)
-          .foregroundColor(Color(hex: "333333"))
+          .foregroundColor(theme.textPrimary)
 
         Text(
           "Referral credits are tied to your Dayflow account so we can credit you when friends join."
         )
         .font(.custom("Figtree", size: 11))
-        .foregroundColor(Color(hex: "72706D"))
+        .foregroundColor(theme.textSecondary)
         .fixedSize(horizontal: false, vertical: true)
       }
 
@@ -589,13 +596,13 @@ private struct ReferralProgramCard: View {
     VStack(alignment: .leading, spacing: 5) {
       Text("Your invite link")
         .font(.custom("Figtree", size: 12))
-        .foregroundColor(Color(hex: "333333"))
+        .foregroundColor(theme.textPrimary)
 
       HStack(spacing: 8) {
         ReferralFieldText(
           icon: "link",
           text: summary?.inviteURL ?? "Loading invite link...",
-          color: Color(hex: "333333")
+          color: theme.textPrimary
         )
 
         ReferralMiniButton(
@@ -612,7 +619,7 @@ private struct ReferralProgramCard: View {
     VStack(alignment: .leading, spacing: 5) {
       Text("Send invites")
         .font(.custom("Figtree", size: 12))
-        .foregroundColor(Color(hex: "333333"))
+        .foregroundColor(theme.textPrimary)
 
       HStack(spacing: 8) {
         ReferralEmailField(email: $inviteEmail, isDisabled: isBusy)
@@ -632,7 +639,7 @@ private struct ReferralProgramCard: View {
       Text("How it works")
         .font(.custom("Figtree", size: 12))
         .fontWeight(.bold)
-        .foregroundColor(Color(hex: "333333"))
+        .foregroundColor(theme.textPrimary)
 
       VStack(alignment: .leading, spacing: 4) {
         ReferralStepRow(
@@ -663,13 +670,13 @@ private struct ReferralProgramCard: View {
                 Text(invite.email)
                   .font(.custom("Figtree", size: 12))
                   .fontWeight(.semibold)
-                  .foregroundColor(Color(hex: "333333"))
+                  .foregroundColor(theme.textPrimary)
                   .lineLimit(1)
                   .truncationMode(.middle)
 
                 Text(inviteStatusText(invite))
                   .font(.custom("Figtree", size: 11))
-                  .foregroundColor(Color(hex: "72706D"))
+                  .foregroundColor(theme.textSecondary)
               }
 
               Spacer()
@@ -683,7 +690,7 @@ private struct ReferralProgramCard: View {
 
             if invite.id != invites.prefix(8).last?.id {
               Rectangle()
-                .fill(Color(hex: "DFDDDB"))
+                .fill(SettingsStyle.divider)
                 .frame(height: 1)
             }
           }
@@ -700,7 +707,7 @@ private struct ReferralProgramCard: View {
       Text("Redeem a referral code")
         .font(.custom("Figtree", size: 12))
         .fontWeight(.bold)
-        .foregroundColor(Color(hex: "333333"))
+        .foregroundColor(theme.textPrimary)
 
       HStack(spacing: 8) {
         ReferralCodeField(code: $applyReferralCode, isDisabled: isBusy)
@@ -739,6 +746,7 @@ private struct ReferralProgramCard: View {
 }
 
 private struct BillingPlanCard: View {
+  @Environment(\.dayflowTheme) private var theme
   let title: String
   let price: String
   let cadence: String
@@ -782,7 +790,7 @@ private struct BillingPlanCard: View {
       .padding(14)
       .background(
         RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .fill(isSelected ? SettingsStyle.ink.opacity(0.06) : Color.white.opacity(0.55))
+          .fill(isSelected ? SettingsStyle.ink.opacity(0.06) : SettingsStyle.subtleFill)
       )
       .overlay(
         RoundedRectangle(cornerRadius: 8, style: .continuous)

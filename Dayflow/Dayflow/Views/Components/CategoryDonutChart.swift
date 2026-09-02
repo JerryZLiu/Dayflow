@@ -61,6 +61,8 @@ struct CategoryTimeData: Identifiable {
 // MARK: - Main View
 
 struct CategoryDonutChart: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let data: [CategoryTimeData]
   let size: CGFloat
 
@@ -79,7 +81,7 @@ struct CategoryDonutChart: View {
   }
 
   var body: some View {
-    VStack(spacing: 28) {
+    VStack(spacing: 24) {
       // Donut chart
       donutChart
 
@@ -91,18 +93,18 @@ struct CategoryDonutChart: View {
   // MARK: - Donut Chart
 
   private var donutChart: some View {
-    let chartSize = size - 8  // 4px gap on each side between white circle and colored ring
-    let innerRadiusRatio: CGFloat = 0.62
+    // Figma: 205pt donut, ~25pt ring, 2pt track showing outside and 3pt inside the ring.
+    let chartSize = size - 4
+    let innerRadiusRatio: CGFloat = 0.75
     // Calculate actual radii for the gradient overlay
     let outerRadius = chartSize / 2
 
     return ZStack {
       // Background circle with light grey fill and shadow
       Circle()
-        .fill(Color(red: 0.95, green: 0.94, blue: 0.94))  // Light grey background
+        .fill(theme.donutRingBackground)
         .frame(width: size, height: size)
-        .shadow(
-          color: Color(red: 0.39, green: 0.28, blue: 0.22).opacity(0.35), radius: 5, x: 0, y: 0)
+        .shadow(color: theme.donutShadow, radius: 5, x: 0, y: 0)
 
       // Swift Charts donut
       Chart(data) { item in
@@ -134,9 +136,9 @@ struct CategoryDonutChart: View {
         .allowsHitTesting(false)  // Don't block interactions
 
       // White circle in center - slightly smaller than donut hole to show grey gap on inner edge
-      let innerGap: CGFloat = 8  // 4px gap on each side (matches outer gap)
+      let innerGap: CGFloat = 6
       Circle()
-        .fill(Color.white)
+        .fill(theme.donutCenterFill)
         .frame(
           width: chartSize * innerRadiusRatio - innerGap,
           height: chartSize * innerRadiusRatio - innerGap)
@@ -150,17 +152,17 @@ struct CategoryDonutChart: View {
   private var centerContent: some View {
     VStack(spacing: 4) {
       Text("TOTAL")
-        .font(.custom("Figtree", size: 8).weight(.bold))
-        .foregroundColor(Color(red: 0.65, green: 0.65, blue: 0.65))  // #a5a5a5
+        .font(.custom("Figtree", size: 12).weight(.bold))
+        .foregroundColor(Color(hex: "B1B1B1"))
 
       VStack(spacing: 0) {
         let total = formattedTotal
         Text("\(total.hours) hours")
           .font(.custom("InstrumentSerif-Regular", size: 16))
-          .foregroundColor(Color(red: 0.2, green: 0.2, blue: 0.2))  // #333333
+          .foregroundColor(theme.textPrimary)
         Text("\(total.minutes) minutes")
           .font(.custom("InstrumentSerif-Regular", size: 16))
-          .foregroundColor(Color(red: 0.2, green: 0.2, blue: 0.2))
+          .foregroundColor(theme.textPrimary)
       }
     }
   }
@@ -170,7 +172,7 @@ struct CategoryDonutChart: View {
   private var legendGrid: some View {
     let columns = Array(repeating: GridItem(.fixed(84.667), spacing: 14), count: 3)
 
-    return LazyVGrid(columns: columns, spacing: 14) {
+    return LazyVGrid(columns: columns, spacing: 12) {
       ForEach(data) { item in
         legendItem(for: item)
       }
@@ -182,18 +184,18 @@ struct CategoryDonutChart: View {
       // Color indicator + name row
       HStack(spacing: 4) {
         // Colored rectangle with border
-        RoundedRectangle(cornerRadius: 3)
-          .fill(item.color.opacity(0.4))
+        RoundedRectangle(cornerRadius: 2)
+          .fill(item.color.opacity(theme.legendSwatchOpacity))
           .overlay(
-            RoundedRectangle(cornerRadius: 3)
+            RoundedRectangle(cornerRadius: 2)
               .stroke(item.color, lineWidth: 1.25)
           )
           .frame(width: 10.667, height: 8)
 
         // Category name
         Text(item.name)
-          .font(.custom("FigtreeSans-Regular", size: 10))
-          .foregroundColor(Color(red: 0.39, green: 0.39, blue: 0.39))  // #636363
+          .font(.custom("Figtree", size: 10))
+          .foregroundColor(theme.textSecondary)
           .lineLimit(1)
           .truncationMode(.tail)
           .frame(width: 70, alignment: .leading)
@@ -201,8 +203,8 @@ struct CategoryDonutChart: View {
 
       // Duration
       Text(item.formattedDuration)
-        .font(.custom("FigtreeSans-SemiBold", size: 12))
-        .foregroundColor(Color(red: 0.2, green: 0.2, blue: 0.2))  // #333333
+        .font(.custom("Figtree", size: 12).weight(.semibold))
+        .foregroundColor(theme.textPrimary)
         .padding(.leading, 14)  // Align with text above
     }
     .frame(width: 84.667, alignment: .leading)

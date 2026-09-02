@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct DayCategorySelectionEditor: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let categories: [TimelineCategory]
   let selectedCategoryIDs: Set<UUID>
   let helperText: String
@@ -19,11 +21,7 @@ struct DayCategorySelectionEditor: View {
     static let rowSpacing: CGFloat = 4
     static let horizontalPadding: CGFloat = 10
     static let verticalPadding: CGFloat = 10
-    static let dividerColor = Color(red: 0.91, green: 0.89, blue: 0.86)
-    static let helperTextColor = Color(hex: "6C6761")
     static let helperTextSize: CGFloat = 11
-    static let backgroundColor = Color(red: 0.98, green: 0.96, blue: 0.95).opacity(0.86)
-    static let borderColor = Color(red: 0.91, green: 0.88, blue: 0.87)
     static let cornerRadius: CGFloat = 6
   }
 
@@ -42,7 +40,7 @@ struct DayCategorySelectionEditor: View {
       .frame(maxWidth: .infinity, alignment: .leading)
 
       Rectangle()
-        .fill(Design.dividerColor)
+        .fill(theme.rightPanelDivider)
         .frame(height: 1)
 
       helperRow
@@ -55,29 +53,26 @@ struct DayCategorySelectionEditor: View {
     .clipShape(RoundedRectangle(cornerRadius: Design.cornerRadius))
     .overlay(
       RoundedRectangle(cornerRadius: Design.cornerRadius)
-        .stroke(Design.borderColor, lineWidth: 1)
+        .stroke(theme.popoverBorder, lineWidth: 1)
     )
     .overlay(alignment: .topTrailing) {
       Button(action: onDone) {
         Image(systemName: "checkmark")
           .font(.system(size: 8))
-          .foregroundColor(Color(red: 0.2, green: 0.2, blue: 0.2))
+          .foregroundColor(theme.textPrimary)
           .frame(width: 8, height: 8)
       }
       .buttonStyle(.plain)
       .hoverScaleEffect(scale: 1.02)
       .pointingHandCursorOnHover(reassertOnPressEnd: true)
       .padding(6)
-      .background(
-        Color(red: 0.98, green: 0.98, blue: 0.98).opacity(0.8)
-          .background(.ultraThinMaterial)
-      )
+      .background(theme.chipFill)
       .clipShape(
         RoundedRectangle(cornerRadius: Design.cornerRadius)
       )
       .overlay(
         RoundedRectangle(cornerRadius: Design.cornerRadius)
-          .stroke(Color(red: 0.89, green: 0.89, blue: 0.89), lineWidth: 1)
+          .stroke(theme.chipBorder, lineWidth: 1)
       )
       .offset(x: -8, y: 8)
     }
@@ -88,16 +83,16 @@ struct DayCategorySelectionEditor: View {
     HStack(alignment: .center, spacing: 6) {
       Image(systemName: "lightbulb")
         .font(.system(size: 11))
-        .foregroundColor(Design.helperTextColor.opacity(0.7))
+        .foregroundColor(theme.textSecondary.opacity(0.7))
 
       Text(helperText)
         .font(.custom("Figtree", size: Design.helperTextSize))
-        .foregroundColor(Design.helperTextColor)
+        .foregroundColor(theme.textSecondary)
     }
   }
 
   private var backgroundView: some View {
-    Design.backgroundColor
+    theme.popoverFill
       .background(.ultraThinMaterial)
   }
 }

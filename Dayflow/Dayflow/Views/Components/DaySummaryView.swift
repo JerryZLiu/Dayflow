@@ -26,6 +26,8 @@ struct DaySummaryLoadToken: Equatable, Sendable {
 }
 
 struct DaySummaryView: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let selectedDate: Date
   let categories: [TimelineCategory]
   let storageManager: StorageManaging
@@ -77,11 +79,6 @@ struct DaySummaryView: View {
     static let targetsHeight: CGFloat = 213
     static let headerSpacing: CGFloat = 6
     static let donutSectionSpacing: CGFloat = 20
-
-    static let dividerColor = Color(hex: "E7E5E3")
-
-    static let titleColor = Color(hex: "333333")
-    static let subtitleColor = Color(hex: "707070")
 
   }
 
@@ -472,7 +469,7 @@ struct DaySummaryView: View {
       VStack(alignment: .leading, spacing: Design.headerSpacing) {
         Text("Your day so far")
           .font(.custom("InstrumentSerif-Regular", size: 24))
-          .foregroundColor(Design.titleColor)
+          .foregroundColor(theme.textPrimary)
       }
 
       if isLoading && hasCompletedInitialLoad == false {
@@ -494,12 +491,12 @@ struct DaySummaryView: View {
   private var emptyChartPlaceholder: some View {
     VStack(spacing: 12) {
       Circle()
-        .stroke(Color.gray.opacity(0.2), lineWidth: 20)
+        .stroke(theme.targetsTrackFill, lineWidth: 20)
         .frame(width: 140, height: 140)
 
       Text("No activity data yet")
         .font(.custom("Figtree", size: 12))
-        .foregroundColor(Color.gray.opacity(0.6))
+        .foregroundColor(theme.textSecondary)
     }
     .padding(.vertical, 20)
   }
@@ -557,7 +554,7 @@ struct DaySummaryView: View {
 
   private var sectionDivider: some View {
     Rectangle()
-      .fill(Design.dividerColor)
+      .fill(theme.rightPanelDivider)
       .frame(height: 1)
       .frame(maxWidth: .infinity)
   }

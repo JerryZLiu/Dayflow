@@ -4,6 +4,7 @@ import SwiftUI
 import UserNotifications
 
 struct DailyView: View {
+  @Environment(\.dayflowTheme) var theme
   @AppStorage("isDailyUnlocked") var isUnlocked: Bool = false
   @Binding var selectedDate: Date
   @EnvironmentObject var categoryStore: CategoryStore
@@ -63,7 +64,6 @@ struct DailyView: View {
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-    .environment(\.colorScheme, .light)
     .onAppear {
       refreshDailyAccessProgress()
       dailyRecapProvider = DailyRecapGenerator.shared.selectedProvider()

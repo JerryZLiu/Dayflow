@@ -21,6 +21,7 @@ struct DayflowSurfaceButton<Content: View>: View {
   var showShadow: Bool = true
   var showOverlayStroke: Bool = false  // New parameter for white overlay stroke
   var isSecondaryStyle: Bool = false  // New parameter for white/secondary buttons
+  var innerGlowColor: Color? = nil  // Soft inset glow (Figma "inset box-shadow")
 
   @State private var isHovered = false
   @State private var isPressed = false
@@ -59,6 +60,17 @@ struct DayflowSurfaceButton<Content: View>: View {
             RoundedRectangle(cornerRadius: cornerRadius)
               .inset(by: 0.5)
               .stroke(isHovered ? borderColor.opacity(1.0) : borderColor, lineWidth: 1)
+          }
+        }
+      )
+      .overlay(
+        Group {
+          if let innerGlowColor {
+            InnerGlow(
+              shape: RoundedRectangle(cornerRadius: cornerRadius),
+              color: innerGlowColor,
+              radius: 3
+            )
           }
         }
       )

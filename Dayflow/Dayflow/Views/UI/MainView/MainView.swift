@@ -16,6 +16,7 @@ struct MainView: View {
   @EnvironmentObject var appState: AppState
   @EnvironmentObject var categoryStore: CategoryStore
   @Environment(\.accessibilityReduceMotion) var reduceMotion
+  @Environment(\.dayflowTheme) var theme
   @ObservedObject private var authManager = DayflowAuthManager.shared
   @State var selectedIcon: SidebarIcon = .timeline
   @State var selectedDate = timelineDisplayDate(from: Date())
@@ -39,6 +40,7 @@ struct MainView: View {
 
   // Animation states for orchestrated entrance - Emil Kowalski principles
   @State var logoScale: CGFloat = 0.8
+  @AppStorage(SidebarGutter.storageKey) var sidebarGutterWidth: Double = SidebarGutter.defaultWidth
   @State var logoOpacity: Double = 0
   @State var timelineOffset: CGFloat = -20
   @State var timelineOpacity: Double = 0

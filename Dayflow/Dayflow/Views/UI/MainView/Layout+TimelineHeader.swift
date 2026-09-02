@@ -49,6 +49,8 @@ private struct TimelineHeaderVisibility {
 }
 
 private struct TimelineNavigationButton: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let assetName: String
   var isEnabled = true
   var arrowSize: CGFloat = TimelineNavigationLayout.arrowSize
@@ -64,13 +66,15 @@ private struct TimelineNavigationButton: View {
     }) {
       ZStack {
         Circle()
-          .fill(Color(hex: "FFEBD3").opacity(0.79))
+          .fill(theme.controlFill)
           .frame(width: hoverCircleSize, height: hoverCircleSize)
           .opacity(isHovering && isEnabled ? 1 : 0)
 
         Image(assetName)
           .resizable()
+          .renderingMode(.template)
           .scaledToFit()
+          .foregroundColor(theme.textPrimary)
           .frame(width: arrowSize, height: arrowSize)
           .opacity(isEnabled ? 1 : 0.35)
       }
@@ -254,10 +258,10 @@ extension MainView {
     }
   }
 
-  // Calendar pill — Figma 1:1 visuals (fill #FFA777, icon 16×16, h=30, border
-  // #F2D2BD). The arrowless card itself is rendered at the panel level so it
-  // can own outside-click dismissal without taps leaking through to the
-  // timeline below.
+  // Calendar pill — Figma "glass" control (theme controlFill/controlBorder,
+  // icon 16×16, h=30). The arrowless card itself is rendered at the panel
+  // level so it can own outside-click dismissal without taps leaking through
+  // to the timeline below.
   private var timelineCalendarButton: some View {
     Button(action: {
       if showTimelineCalendarPopover {
@@ -267,12 +271,7 @@ extension MainView {
       }
     }) {
       ZStack {
-        Capsule(style: .continuous)
-          .fill(timelineCalendarButtonFillColor)
-          .overlay(
-            Capsule(style: .continuous)
-              .stroke(timelineCalendarButtonBorderColor, lineWidth: 1)
-          )
+        glassControlBackground(isEmphasized: showTimelineCalendarPopover)
           .shadow(
             color: timelineCalendarButtonShadowColor,
             radius: showTimelineCalendarPopover ? 8 : 0,
@@ -282,7 +281,9 @@ extension MainView {
 
         Image("CalendarIcon")
           .resizable()
+          .renderingMode(.template)
           .scaledToFit()
+          .foregroundColor(theme.controlText)
           .frame(width: 16, height: 16)
       }
       .frame(width: 36, height: 30)
@@ -299,12 +300,15 @@ extension MainView {
     .trackTimelineCalendarButtonFrame()
   }
 
-  private var timelineCalendarButtonFillColor: Color {
-    showTimelineCalendarPopover ? Color(hex: "FFB38E") : Color(hex: "FFA777")
-  }
-
-  private var timelineCalendarButtonBorderColor: Color {
-    showTimelineCalendarPopover ? Color(hex: "E8BDA1") : Color(hex: "F2D2BD")
+  /// The peach "glass" capsule shared by the calendar pill and the selected
+  /// Day/Week segment: translucent fill, hairline border, soft inner glow.
+  private func glassControlBackground(isEmphasized: Bool = false) -> some View {
+    let shape = Capsule(style: .continuous)
+    return
+      shape
+      .fill(theme.controlFill)
+      .overlay(InnerGlow(shape: shape, color: theme.controlInnerGlow, radius: 3))
+      .overlay(shape.strokeBorder(theme.controlBorder, lineWidth: isEmphasized ? 1 : 0.75))
   }
 
   private var timelineCalendarButtonShadowColor: Color {
@@ -412,19 +416,8 @@ extension MainView {
         }) {
           ZStack {
             if isSelected {
-              Capsule(style: .continuous)
-                .fill(
-                  LinearGradient(
-                    colors: [
-                      Color(hex: "FFB18D").opacity(0.6),
-                      Color(hex: "FFA46F"),
-                      Color(hex: "FFB18D"),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                  )
-                )
-                .shadow(color: Color(hex: "E89A6C").opacity(0.18), radius: 4, x: 0, y: 1)
+              glassControlBackground()
+                .padding(1)
                 .matchedGeometryEffect(
                   id: "timeline_mode_highlight",
                   in: timelineModeSwitchNamespace
@@ -433,7 +426,7 @@ extension MainView {
 
             Text(mode.title)
               .font(.custom("Figtree", size: 12).weight(.medium))
-              .foregroundColor(isSelected ? .white : Color(hex: "796E64"))
+              .foregroundColor(isSelected ? theme.controlText : theme.segmentInactiveText)
               // Concrete width (52pt × 2 = 104pt container) instead of
               // `.frame(maxWidth: .infinity)`. The infinity was being fought
               // by the `.fixedSize(horizontal: true)` ancestor on
@@ -456,11 +449,11 @@ extension MainView {
       }
     }
     .frame(width: 104, height: 30)
-    .background(Color(hex: "FFEFE4"))
+    .background(theme.segmentTrackFill)
     .clipShape(Capsule(style: .continuous))
     .overlay(
       Capsule(style: .continuous)
-        .stroke(Color(hex: "F2D2BD"), lineWidth: 1)
+        .strokeBorder(theme.segmentTrackBorder, lineWidth: 0.75)
     )
     .animation(timelineModeSwitchAnimation, value: timelineMode)
   }
@@ -471,7 +464,7 @@ extension MainView {
     }) {
       Text("Today")
         .font(.custom("Figtree", size: 12).weight(.medium))
-        .foregroundColor(Color(hex: "796E64"))
+        .foregroundColor(theme.segmentInactiveText)
         .padding(.horizontal, 10)
         // Explicit width pinned (natural ~52pt + 4pt safety margin). Same
         // rationale as the calendar pill: under the ancestor's `.fixedSize`
@@ -479,11 +472,11 @@ extension MainView {
         // values mid-transition, nudging the Day/Week toggle's position and
         // desyncing its `matchedGeometryEffect` anchors during a mode flip.
         .frame(width: 56, height: 30)
-        .background(Color(hex: "FFEFE4"))
+        .background(theme.segmentTrackFill)
         .clipShape(Capsule(style: .continuous))
         .overlay(
           Capsule(style: .continuous)
-            .stroke(Color(hex: "F2D2BD"), lineWidth: 1)
+            .strokeBorder(theme.segmentTrackBorder, lineWidth: 0.75)
         )
     }
     .buttonStyle(DayflowPressScaleButtonStyle(pressedScale: 0.97))
@@ -494,7 +487,7 @@ extension MainView {
   private var timelineHeaderDateLabel: some View {
     Text(timelineTitleText)
       .font(.custom("InstrumentSerif-Regular", size: 26))
-      .foregroundColor(Color.black)
+      .foregroundColor(theme.textPrimary)
       .lineLimit(1)
       .fixedSize(horizontal: true, vertical: false)
       .onTapGesture {

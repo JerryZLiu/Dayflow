@@ -3,6 +3,15 @@ import GRDB
 import Sentry
 
 extension StorageManager {
+  func hasAnyTimelineCards() -> Bool {
+    (try? timedRead("hasAnyTimelineCards") { db in
+      try Bool.fetchOne(
+        db,
+        sql: "SELECT EXISTS(SELECT 1 FROM timeline_cards WHERE is_deleted = 0 LIMIT 1)"
+      ) ?? false
+    }) ?? false
+  }
+
   /// Active cards carrying this exact category label. Used by the agent
   /// bridge to tell the user how many activities a category delete orphans.
   func countTimelineCards(inCategory category: String) -> Int {

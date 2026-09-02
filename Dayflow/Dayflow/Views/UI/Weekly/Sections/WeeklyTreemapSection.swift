@@ -18,8 +18,8 @@ struct WeeklyTreemapSection: View {
   enum Design {
     static let sectionSize = CGSize(width: 958, height: 549)
     static let cornerRadius: CGFloat = 4
-    static let borderColor = Color(hex: "EBE6E3")
-    static let background = Color.white.opacity(0.6)
+    static let borderColor = WeeklyPalette.cardBorder
+    static let background = WeeklyPalette.cardFill
     static let titleOrigin = CGPoint(x: 40, y: 34)
     static let contentOrigin = CGPoint(x: 40, y: 86)
     static let contentTrailingInset: CGFloat = 40
@@ -40,7 +40,7 @@ struct WeeklyTreemapSection: View {
 
       Text(snapshot.title)
         .font(.custom("InstrumentSerif-Regular", size: 20))
-        .foregroundStyle(Color(hex: "B46531"))
+        .foregroundStyle(WeeklyPalette.title)
         .offset(x: Design.titleOrigin.x, y: Design.titleOrigin.y)
 
       contentLayer

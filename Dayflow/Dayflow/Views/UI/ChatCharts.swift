@@ -337,6 +337,8 @@ struct ChatContentParser {
 }
 
 struct ChatChartBlockView: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let spec: ChatChartSpec
 
   var body: some View {
@@ -345,7 +347,7 @@ struct ChatChartBlockView: View {
       if !title.isEmpty {
         Text(title)
           .font(.custom("Figtree", size: 12).weight(.semibold))
-          .foregroundColor(Color(hex: "4A4A4A"))
+          .foregroundColor(theme.textPrimary)
       }
       chartBody
         .frame(height: 180)
@@ -403,7 +405,7 @@ struct ChatChartBlockView: View {
           AxisValueLabel {
             Text(label)
               .font(.system(size: 10))
-              .foregroundColor(Color(hex: "666666"))
+              .foregroundColor(theme.textSecondary)
               .lineLimit(1)
           }
         }
@@ -438,7 +440,7 @@ struct ChatChartBlockView: View {
           AxisValueLabel {
             Text(label)
               .font(.system(size: 10))
-              .foregroundColor(Color(hex: "666666"))
+              .foregroundColor(theme.textSecondary)
               .lineLimit(1)
           }
         }
@@ -492,7 +494,7 @@ struct ChatChartBlockView: View {
           AxisValueLabel {
             Text(label)
               .font(.system(size: 10))
-              .foregroundColor(Color(hex: "666666"))
+              .foregroundColor(theme.textSecondary)
               .lineLimit(1)
           }
         }
@@ -504,7 +506,7 @@ struct ChatChartBlockView: View {
           AxisValueLabel {
             Text(label)
               .font(.system(size: 10))
-              .foregroundColor(Color(hex: "666666"))
+              .foregroundColor(theme.textSecondary)
               .lineLimit(1)
           }
         }
@@ -535,7 +537,7 @@ struct ChatChartBlockView: View {
           AxisValueLabel {
             Text(number, format: .number.precision(.fractionLength(1)))
               .font(.system(size: 10))
-              .foregroundColor(Color(hex: "666666"))
+              .foregroundColor(theme.textSecondary)
           }
         }
       }
@@ -546,7 +548,7 @@ struct ChatChartBlockView: View {
           AxisValueLabel {
             Text(label)
               .font(.system(size: 10))
-              .foregroundColor(Color(hex: "666666"))
+              .foregroundColor(theme.textSecondary)
               .lineLimit(1)
           }
         }

@@ -17,10 +17,10 @@ struct WeeklyContextShiftComparisonSection: View {
     static let sectionWidth: CGFloat = 958
     static let sectionHeight: CGFloat = 414
     static let cornerRadius: CGFloat = 6
-    static let background = Color(hex: "FBF6F0")
-    static let axisColor = Color(hex: "5A534C").opacity(0.9)
-    static let labelColor = Color.black
-    static let insightBorder = Color(hex: "EBE6E3")
+    static let background = WeeklyPalette.canvas
+    static let axisColor = WeeklyPalette.axis
+    static let labelColor = WeeklyPalette.text
+    static let insightBorder = WeeklyPalette.cardBorder
 
     static let horizontalPadding: CGFloat = 24
     static let topPadding: CGFloat = 28
@@ -174,7 +174,7 @@ struct WeeklyContextShiftComparisonSection: View {
         }
         .padding(.horizontal, Design.buttonHorizontalPadding)
         .padding(.vertical, Design.buttonVerticalPadding)
-        .background(Color.white)
+        .background(WeeklyPalette.solid)
         .overlay(
           Capsule(style: .continuous)
             .stroke(Design.insightBorder, lineWidth: 1)
@@ -187,10 +187,10 @@ struct WeeklyContextShiftComparisonSection: View {
     }
     .padding(Design.calloutPadding)
     .frame(width: Design.calloutWidth, alignment: .leading)
-    .background(Color.white.opacity(0.45))
+    .background(WeeklyPalette.cardFill)
     .overlay(
       RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
-        .stroke(Color.white, lineWidth: 1)
+        .stroke(WeeklyPalette.cardInnerStroke, lineWidth: 1)
     )
     .clipShape(RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous))
   }
@@ -254,5 +254,5 @@ struct WeeklyContextShiftComparisonPoint: Identifiable {
 #Preview("Weekly Context Shift Comparison", traits: .fixedLayout(width: 958, height: 414)) {
   WeeklyContextShiftComparisonSection(snapshot: .figmaPreview)
     .padding(24)
-    .background(Color(hex: "F7F3F0"))
+    .background(WeeklyPalette.canvas)
 }

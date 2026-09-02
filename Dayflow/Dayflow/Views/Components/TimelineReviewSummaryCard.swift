@@ -30,6 +30,8 @@ struct TimelineReviewSummarySnapshot {
 }
 
 struct TimelineReviewSummaryCard: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let summary: TimelineReviewSummarySnapshot
   let cardsToReviewCount: Int
   var onReviewTap: (() -> Void)? = nil
@@ -39,8 +41,6 @@ struct TimelineReviewSummaryCard: View {
     static let headerSpacing: CGFloat = 2
     static let contentSpacing: CGFloat = 16
 
-    static let titleColor = Color(hex: "333333")
-    static let subtitleColor = Color(hex: "707070")
     static let linkColor = Color(hex: "F96E00")
 
     static let barHeight: CGFloat = 39
@@ -90,7 +90,7 @@ struct TimelineReviewSummaryCard: View {
     VStack(alignment: .leading, spacing: Design.headerSpacing) {
       Text("Your review")
         .font(.custom("InstrumentSerif-Regular", size: 20))
-        .foregroundColor(Design.titleColor)
+        .foregroundColor(theme.textPrimary)
 
       subtitle
         .font(.custom("Figtree", size: 11))
@@ -117,7 +117,7 @@ struct TimelineReviewSummaryCard: View {
       ? "Last reviewed at \(formattedLastReviewedAt)."
       : "No reviews yet."
     var composed = Text(baseText)
-      .foregroundColor(Design.subtitleColor)
+      .foregroundColor(theme.textSecondary)
 
     guard cardsToReviewCount > 0 else {
       return composed
@@ -129,7 +129,7 @@ struct TimelineReviewSummaryCard: View {
       + Text(" \(reviewText)")
       .foregroundColor(Design.linkColor)
       + Text(" to update your data.")
-      .foregroundColor(Design.subtitleColor)
+      .foregroundColor(theme.textSecondary)
 
     return composed
   }
@@ -176,13 +176,13 @@ struct TimelineReviewSummaryCard: View {
 
             Text(metric.label)
               .font(.custom("Figtree", size: 10))
-              .foregroundColor(Design.subtitleColor)
+              .foregroundColor(theme.textSecondary)
           }
 
           if summary.hasData {
             Text(metric.durationText)
               .font(.custom("Figtree", size: 12).weight(.semibold))
-              .foregroundColor(Design.titleColor)
+              .foregroundColor(theme.textPrimary)
               .padding(.leading, 14)
           }
         }
@@ -213,10 +213,10 @@ struct TimelineReviewSummaryCard: View {
       ratio: max(CGFloat(summary.neutralRatio), 0),
       durationText: durationText(summary.neutralDuration),
       style: metricStyle(
-        baseColor: Color(hex: "EAE0DB"),
+        baseColor: theme.targetsTrackFill,
         shadow: Color(red: 225 / 255, green: 210 / 255, blue: 203 / 255).opacity(0.25),
-        legendFill: Color(hex: "DDDBDA").opacity(0.4),
-        legendStroke: Color(hex: "DDDBDA"),
+        legendFill: theme.targetsTrackFill.opacity(0.4),
+        legendStroke: theme.targetsTrackBorder,
         placeholder: placeholder
       )
     )
@@ -245,7 +245,7 @@ struct TimelineReviewSummaryCard: View {
     legendStroke: Color,
     placeholder: Bool
   ) -> ReviewMetricStyle {
-    let barColor = placeholder ? Color(hex: "EAE0DB") : baseColor
+    let barColor = placeholder ? theme.targetsTrackFill : baseColor
     let barShadow =
       placeholder
       ? Color(red: 225 / 255, green: 210 / 255, blue: 203 / 255).opacity(0.25)

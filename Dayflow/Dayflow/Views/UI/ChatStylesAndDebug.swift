@@ -35,24 +35,26 @@ struct BetaButtonStyle: ButtonStyle {
 }
 
 struct ProviderTogglePill: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let title: String
   let isSelected: Bool
   let isEnabled: Bool
   let action: () -> Void
 
   var backgroundColor: Color {
-    if !isEnabled { return Color(hex: "F2F2F2") }
-    return isSelected ? Color(hex: "FFF4E9") : Color.white
+    if !isEnabled { return Color.clear }
+    return isSelected ? theme.chatSoftAccentFill : theme.inputFill
   }
 
   var borderColor: Color {
-    if !isEnabled { return Color(hex: "E0E0E0") }
-    return isSelected ? Color(hex: "F96E00").opacity(0.25) : Color(hex: "E0E0E0")
+    if !isEnabled { return theme.inputBorder }
+    return isSelected ? theme.chatSoftAccentBorder : theme.inputBorder
   }
 
   var textColor: Color {
-    if !isEnabled { return Color(hex: "B0B0B0") }
-    return isSelected ? Color(hex: "F96E00") : Color(hex: "666666")
+    if !isEnabled { return theme.textMuted }
+    return isSelected ? theme.accentText : theme.textSecondary
   }
 
   var body: some View {
@@ -80,6 +82,8 @@ struct ProviderTogglePill: View {
 // MARK: - Debug Log Entry
 
 struct DebugLogEntry: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let entry: ChatDebugEntry
 
   var body: some View {
@@ -94,20 +98,20 @@ struct DebugLogEntry: View {
 
         Text(formatTimestamp(entry.timestamp))
           .font(.custom("Figtree", size: 9))
-          .foregroundColor(Color(hex: "AAAAAA"))
+          .foregroundColor(theme.textMuted)
       }
 
       // Content (scrollable if long)
       ScrollView(.horizontal, showsIndicators: false) {
         Text(entry.content)
           .font(.system(size: 10, design: .monospaced))
-          .foregroundColor(Color(hex: "333333"))
+          .foregroundColor(theme.textPrimary)
           .textSelection(.enabled)
       }
       .frame(maxHeight: 150)
     }
     .padding(8)
-    .background(Color(hex: "FAFAFA"))
+    .background(theme.chatCodeFill)
     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -172,22 +176,24 @@ struct ChatFlowLayout: Layout {
 // MARK: - Thinking Indicator
 
 struct ThinkingIndicator: View {
+  @Environment(\.dayflowTheme) private var theme
+
   @State var dotScale: [CGFloat] = [1, 1, 1]
 
   var body: some View {
     HStack(spacing: 4) {
       Image(systemName: "sparkles")
         .font(.system(size: 12, weight: .medium))
-        .foregroundColor(Color(hex: "F96E00"))
+        .foregroundColor(theme.accentText)
 
       Text("Thinking")
         .font(.custom("Figtree", size: 12).weight(.semibold))
-        .foregroundColor(Color(hex: "8B5E3C"))
+        .foregroundColor(theme.textSecondary)
 
       HStack(spacing: 3) {
         ForEach(0..<3, id: \.self) { index in
           Circle()
-            .fill(Color(hex: "F96E00"))
+            .fill(theme.accentText)
             .frame(width: 4, height: 4)
             .scaleEffect(dotScale[index])
         }
@@ -195,17 +201,11 @@ struct ThinkingIndicator: View {
     }
     .padding(.horizontal, 14)
     .padding(.vertical, 10)
-    .background(
-      LinearGradient(
-        colors: [Color(hex: "FFF4E9"), Color(hex: "FFECD8")],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-      )
-    )
+    .background(theme.chatSoftAccentFill)
     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .stroke(Color(hex: "F96E00").opacity(0.2), lineWidth: 1)
+        .stroke(theme.chatSoftAccentBorder, lineWidth: 1)
     )
     .onAppear {
       startAnimation()

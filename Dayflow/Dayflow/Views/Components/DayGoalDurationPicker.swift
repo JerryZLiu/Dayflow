@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 
 struct GoalDurationPicker: View {
+  @Environment(\.dayflowTheme) private var theme
+
   @Binding var minutes: Int
 
   private var hoursBinding: Binding<Int> {
@@ -45,17 +47,18 @@ struct GoalDurationPicker: View {
       )
     }
     .padding(EdgeInsets(top: 7, leading: 9, bottom: 10, trailing: 11))
-    .background(Color(hex: "F1F1F1"))
+    .background(theme.sheetInnerBoxFill)
     .clipShape(RoundedRectangle(cornerRadius: 4))
     .overlay(
       RoundedRectangle(cornerRadius: 4)
-        .stroke(Color(hex: "E6DDD5"), lineWidth: 1)
+        .stroke(theme.sheetInnerBoxBorder, lineWidth: 1)
     )
   }
 }
 
 private struct GoalNumberColumn: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.dayflowTheme) private var theme
 
   @Binding var value: Int
   let range: ClosedRange<Int>
@@ -73,18 +76,18 @@ private struct GoalNumberColumn: View {
   var body: some View {
     ZStack(alignment: .topLeading) {
       VStack(spacing: 6) {
-        wheelRow(offset: -2, size: 21, color: Color(hex: "AAA6A3"))
-        wheelRow(offset: -1, size: 23, color: Color(hex: "8A8582"))
-        wheelRow(offset: 0, size: 25, color: .black)
-        wheelRow(offset: 1, size: 23, color: Color(hex: "8A8582"))
-        wheelRow(offset: 2, size: 21, color: Color(hex: "AAA6A3"))
+        wheelRow(offset: -2, size: 21, color: theme.sheetWheelDimText)
+        wheelRow(offset: -1, size: 23, color: theme.sheetWheelDimText)
+        wheelRow(offset: 0, size: 25, color: theme.textPrimary)
+        wheelRow(offset: 1, size: 23, color: theme.sheetWheelDimText)
+        wheelRow(offset: 2, size: 21, color: theme.sheetWheelDimText)
       }
       .frame(width: numberStackWidth)
       .offset(x: numberStackLeft, y: numberStackTop + wheelOffset)
 
       Text(label)
         .font(.custom("Figtree", size: 14))
-        .foregroundColor(.black)
+        .foregroundColor(theme.textPrimary)
         .lineLimit(1)
         .frame(width: labelWidth, alignment: .leading)
         .offset(x: labelLeft, y: 72)
@@ -107,22 +110,11 @@ private struct GoalNumberColumn: View {
       .frame(width: 83, height: 170)
     }
     .frame(width: 83, height: 170)
-    .background(
-      LinearGradient(
-        colors: [
-          Color(hex: "E9E4E2"),
-          Color(hex: "FFFDFC"),
-          Color(hex: "FFFDFC"),
-          Color(hex: "E9E4E2"),
-        ],
-        startPoint: .top,
-        endPoint: .bottom
-      )
-    )
+    .background(theme.sheetWheelGradient)
     .clipShape(RoundedRectangle(cornerRadius: 6))
     .overlay(
       RoundedRectangle(cornerRadius: 6)
-        .stroke(Color(hex: "E6DDD9"), lineWidth: 1)
+        .stroke(theme.sheetWheelBorder, lineWidth: 1)
     )
     .contentShape(Rectangle())
     .simultaneousGesture(numberDragGesture)

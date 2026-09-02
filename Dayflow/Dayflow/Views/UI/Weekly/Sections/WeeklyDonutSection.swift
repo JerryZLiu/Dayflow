@@ -20,9 +20,9 @@ struct WeeklyDonutSection: View {
     static let cardWidth: CGFloat = 461
     static let cardHeight: CGFloat = 300
     static let cornerRadius: CGFloat = 4
-    static let borderColor = Color(hex: "EBE6E3")
-    static let backgroundColor = Color.white.opacity(0.6)
-    static let titleColor = Color(hex: "B46531")
+    static let borderColor = WeeklyPalette.cardBorder
+    static let backgroundColor = WeeklyPalette.cardFill
+    static let titleColor = WeeklyPalette.title
     static let contentHorizontalPadding: CGFloat = 18
     static let contentSpacing: CGFloat = 18
     static let donutSize: CGFloat = 205
@@ -102,7 +102,7 @@ private struct WeeklyDonutChart: View {
   var body: some View {
     ZStack {
       Circle()
-        .fill(Color.white)
+        .fill(WeeklyPalette.solid)
         .frame(width: size, height: size)
         .shadow(color: Color(red: 0.39, green: 0.28, blue: 0.22).opacity(0.35), radius: 5)
 
@@ -134,7 +134,7 @@ private struct WeeklyDonutChart: View {
         .allowsHitTesting(false)
 
       Circle()
-        .fill(Color.white)
+        .fill(WeeklyPalette.solid)
         .frame(
           width: chartSize * innerRadiusRatio - innerGap,
           height: chartSize * innerRadiusRatio - innerGap
@@ -156,16 +156,16 @@ private struct WeeklyDonutCenterContent: View {
     VStack(spacing: 4) {
       Text("TOTAL")
         .font(.custom("Figtree-Bold", size: 8))
-        .foregroundStyle(Color(hex: "A5A5A5"))
+        .foregroundStyle(WeeklyPalette.mutedText)
 
       VStack(spacing: 0) {
         Text("\(totalHours) \(hourLabel)")
           .font(.custom("InstrumentSerif-Regular", size: 16))
-          .foregroundStyle(Color(hex: "333333"))
+          .foregroundStyle(WeeklyPalette.text)
 
         Text("\(remainingMinutes) \(minuteLabel)")
           .font(.custom("InstrumentSerif-Regular", size: 16))
-          .foregroundStyle(Color(hex: "333333"))
+          .foregroundStyle(WeeklyPalette.text)
       }
     }
   }
@@ -198,7 +198,7 @@ private struct WeeklyDonutLegendRow: View {
 
         Text(item.name)
           .font(.custom("Figtree-Regular", size: 14))
-          .foregroundStyle(Color.black)
+          .foregroundStyle(WeeklyPalette.text)
           .lineLimit(1)
           .layoutPriority(1)
       }
@@ -207,7 +207,7 @@ private struct WeeklyDonutLegendRow: View {
 
       Text(percentageText)
         .font(.custom("Figtree-Regular", size: 14))
-        .foregroundStyle(Color.black)
+        .foregroundStyle(WeeklyPalette.text)
         .frame(minWidth: 32, alignment: .trailing)
     }
   }
@@ -219,22 +219,22 @@ private struct WeeklyDonutEmptyState: View {
   var body: some View {
     ZStack {
       Circle()
-        .fill(Color.white)
+        .fill(WeeklyPalette.solid)
         .frame(width: size, height: size)
         .shadow(color: Color(red: 0.39, green: 0.28, blue: 0.22).opacity(0.12), radius: 5)
 
       Circle()
-        .stroke(Color(hex: "E6E0DB"), lineWidth: 20)
+        .stroke(WeeklyPalette.cardBorder, lineWidth: 20)
         .frame(width: size - 20, height: size - 20)
 
       VStack(spacing: 4) {
         Text("TOTAL")
           .font(.custom("Figtree-Bold", size: 8))
-          .foregroundStyle(Color(hex: "A5A5A5"))
+          .foregroundStyle(WeeklyPalette.mutedText)
 
         Text("No activity")
           .font(.custom("InstrumentSerif-Regular", size: 16))
-          .foregroundStyle(Color(hex: "777777"))
+          .foregroundStyle(WeeklyPalette.secondaryText)
       }
     }
     .frame(width: size, height: size)
@@ -247,5 +247,5 @@ private struct WeeklyDonutEmptyState: View {
     isLoading: false
   )
   .padding(16)
-  .background(Color(hex: "F7F3F0"))
+  .background(WeeklyPalette.canvas)
 }

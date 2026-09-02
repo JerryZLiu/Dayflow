@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct ChatHistoryPanel: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let conversations: [ChatConversationRecord]
   let currentConversationID: UUID?
   let isProcessing: Bool
@@ -20,7 +22,7 @@ struct ChatHistoryPanel: View {
       HStack {
         Text("History")
           .font(.custom("Figtree", size: 12).weight(.bold))
-          .foregroundColor(Color(hex: "666666"))
+          .foregroundColor(theme.textSecondary)
 
         Spacer()
 
@@ -31,7 +33,7 @@ struct ChatHistoryPanel: View {
             Text("New chat")
               .font(.custom("Figtree", size: 11).weight(.semibold))
           }
-          .foregroundColor(Color(hex: "F96E00"))
+          .foregroundColor(theme.accentText)
         }
         .buttonStyle(.plain)
         .disabled(isProcessing)
@@ -39,7 +41,7 @@ struct ChatHistoryPanel: View {
       }
       .padding(.horizontal, 12)
       .padding(.vertical, 8)
-      .background(Color(hex: "F5F5F5"))
+      .background(theme.chatSidePanelHeaderFill)
 
       Divider()
 
@@ -47,10 +49,10 @@ struct ChatHistoryPanel: View {
         VStack(spacing: 6) {
           Image(systemName: "clock.arrow.circlepath")
             .font(.system(size: 20))
-            .foregroundColor(Color(hex: "C9C2B8"))
+            .foregroundColor(theme.textMuted)
           Text("No saved chats yet")
             .font(.custom("Figtree", size: 12))
-            .foregroundColor(Color(hex: "999999"))
+            .foregroundColor(theme.textMuted)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
@@ -59,7 +61,7 @@ struct ChatHistoryPanel: View {
             ForEach(groupedConversations, id: \.title) { group in
               Text(group.title)
                 .font(.custom("Figtree", size: 10).weight(.bold))
-                .foregroundColor(Color(hex: "9A8B79"))
+                .foregroundColor(theme.textMuted)
                 .padding(.horizontal, 8)
                 .padding(.top, 10)
 
@@ -79,10 +81,10 @@ struct ChatHistoryPanel: View {
       }
     }
     .frame(width: 280)
-    .background(Color.white)
+    .background(theme.chatSidePanelFill)
     .overlay(
       Rectangle()
-        .fill(Color(hex: "E0E0E0"))
+        .fill(theme.dailyGridBorder)
         .frame(width: 1),
       alignment: .leading
     )
@@ -126,6 +128,8 @@ struct ChatHistoryPanel: View {
 }
 
 private struct ChatHistoryRow: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let conversation: ChatConversationRecord
   let isCurrent: Bool
   let isEnabled: Bool
@@ -169,13 +173,13 @@ private struct ChatHistoryRow: View {
         VStack(alignment: .leading, spacing: 2) {
           Text(conversation.title)
             .font(.custom("Figtree", size: 12).weight(isCurrent ? .bold : .medium))
-            .foregroundColor(Color(hex: isCurrent ? "C9670D" : "3A3A3A"))
+            .foregroundColor(isCurrent ? theme.accentText : theme.textPrimary)
             .lineLimit(2)
             .multilineTextAlignment(.leading)
 
           Text(subtitle)
             .font(.custom("Figtree", size: 10))
-            .foregroundColor(Color(hex: "A39B90"))
+            .foregroundColor(theme.textMuted)
         }
 
         Spacer(minLength: 0)
@@ -198,8 +202,8 @@ private struct ChatHistoryRow: View {
         RoundedRectangle(cornerRadius: 8, style: .continuous)
           .fill(
             isCurrent
-              ? Color(hex: "FFF4E9")
-              : (isHovered ? Color(hex: "FAF7F2") : Color.clear))
+              ? theme.chatSoftAccentFill
+              : (isHovered ? theme.textPrimary.opacity(0.05) : Color.clear))
       )
     }
     .buttonStyle(.plain)

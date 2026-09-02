@@ -152,6 +152,8 @@ struct CategoryPickerView: View {
 }
 
 struct CategoryPill: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let category: TimelineCategory
   let isSelected: Bool
   let onTap: () -> Void
@@ -167,7 +169,7 @@ struct CategoryPill: View {
         // Category name - no line limit, text can wrap if needed
         Text(category.name)
           .font(Font.custom("Figtree", size: 10).weight(.medium))
-          .foregroundColor(Color(red: 0.2, green: 0.2, blue: 0.2))
+          .foregroundColor(isSelected ? theme.controlText : theme.chipText)
           .fixedSize(horizontal: false, vertical: true)
           .lineLimit(nil)
       }
@@ -202,32 +204,11 @@ struct CategoryPill: View {
     return Color.gray
   }
 
-  private var pillBackground: some View {
-    Group {
-      if isSelected {
-        // Gradient for selected state
-        LinearGradient(
-          colors: [
-            Color(red: 1.0, green: 0.99, blue: 0.97),  // #fffdf8
-            Color(red: 1.0, green: 0.91, blue: 0.83),  // #ffe8d3
-          ],
-          startPoint: .leading,
-          endPoint: .trailing
-        )
-      } else {
-        Color(red: 0.996, green: 0.996, blue: 0.996)  // #fefefe
-      }
-    }
+  private var pillBackground: Color {
+    isSelected ? theme.controlFill : theme.chipFill
   }
 
   private var pillBorder: Color {
-    if isSelected {
-      return Color(red: 0.98, green: 0.73, blue: 0.50)  // #fbbb80
-    } else if category.isIdle {
-      // Dotted border for Idle category
-      return Color(red: 0.88, green: 0.88, blue: 0.88)  // Will be styled differently
-    } else {
-      return Color(red: 0.88, green: 0.88, blue: 0.88)  // #e1e1e1
-    }
+    isSelected ? theme.controlBorder : theme.chipBorder
   }
 }

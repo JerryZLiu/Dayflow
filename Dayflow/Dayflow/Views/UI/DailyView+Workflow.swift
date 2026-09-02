@@ -84,7 +84,7 @@ extension DailyView {
 
         Text(dailyDateTitle(for: selectedDate))
           .font(.custom("InstrumentSerif-Regular", size: 26 * scale))
-          .foregroundStyle(Color(hex: "1E1B18"))
+          .foregroundStyle(theme.textPrimary)
           .lineLimit(1)
           .minimumScaleFactor(0.75)
           .allowsTightening(true)
@@ -130,7 +130,7 @@ extension DailyView {
       HStack {
         Text(headingText)
           .font(.custom("InstrumentSerif-Regular", size: 24 * scale))
-          .foregroundStyle(Color(hex: "B46531"))
+          .foregroundStyle(theme.textSecondary)
 
         Spacer()
       }
@@ -147,20 +147,30 @@ extension DailyView {
         )
 
         Divider()
-          .overlay(Color(hex: "E5DFD9"))
+          .overlay(theme.dailyGridBorder)
 
         workflowTotalsView(scale: scale, isViewingToday: isViewingToday)
           .padding(.horizontal, 16 * scale)
           .padding(.top, 14 * scale)
           .padding(.bottom, 12 * scale)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .background(theme.dailyTotalsFill)
       }
       .background(
         RoundedRectangle(cornerRadius: 4, style: .continuous)
-          .fill(Color.white.opacity(0.78))
+          .fill(theme.dailyGridFill)
+      )
+      .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+      .overlay(
+        InnerGlow(
+          shape: RoundedRectangle(cornerRadius: 4, style: .continuous),
+          color: theme.summaryCardInnerGlow,
+          radius: 4
+        )
       )
       .overlay(
         RoundedRectangle(cornerRadius: 4, style: .continuous)
-          .stroke(Color(hex: "E8E1DA"), lineWidth: max(0.7, 1 * scale))
+          .stroke(theme.dailyGridBorder, lineWidth: 0.75)
           .allowsHitTesting(false)
       )
       .overlayPreferenceValue(DailyWorkflowHoverBoundsPreferenceKey.self) { anchors in
@@ -188,7 +198,7 @@ extension DailyView {
               workflowTooltip(
                 durationMinutes: cardInfo.durationMinutes,
                 title: cardInfo.title,
-                accentColor: Color(hex: "D77A43"),
+                accentColor: theme.accentText,
                 layoutScale: layoutScale
               )
             }
@@ -250,18 +260,18 @@ extension DailyView {
           : "\(totalTitle)  No captured activity during 9am-9pm"
         Text(emptyDescription)
           .font(.custom("Figtree-Regular", size: 12 * scale))
-          .foregroundStyle(Color(hex: "7F7062"))
+          .foregroundStyle(theme.textSecondary)
       } else {
         HStack(spacing: 8 * scale) {
           Text(totalTitle)
             .font(.custom("InstrumentSerif-Regular", size: 14 * scale))
-            .foregroundStyle(Color(hex: "777777"))
+            .foregroundStyle(theme.textSecondary)
 
           ForEach(workflowTotals) { total in
             HStack(spacing: 2 * scale) {
               Text(total.name)
                 .font(.custom("Figtree-Regular", size: 12 * scale))
-                .foregroundStyle(Color(hex: "1F1B18"))
+                .foregroundStyle(theme.textPrimary)
               Text(formatDuration(minutes: total.minutes))
                 .font(.custom("Figtree-SemiBold", size: 12 * scale))
                 .foregroundStyle(Color(hex: total.colorHex))
@@ -413,6 +423,8 @@ extension DailyView {
 }
 
 private struct DailyNavigationButton: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let assetName: String
   var isEnabled = true
   let scale: CGFloat
@@ -430,14 +442,16 @@ private struct DailyNavigationButton: View {
     } label: {
       ZStack {
         Circle()
-          .fill(Color(hex: "FFEBD3").opacity(0.79))
+          .fill(theme.controlFill)
           .frame(width: hoverCircleSize, height: hoverCircleSize)
           .opacity(isHovering && isEnabled ? 1 : 0)
 
         Image(assetName)
           .resizable()
+          .renderingMode(.template)
           .scaledToFit()
           .frame(width: arrowSize, height: arrowSize)
+          .foregroundColor(theme.textPrimary)
           .opacity(isEnabled ? 1 : 0.35)
       }
       .frame(width: hoverCircleSize, height: hoverCircleSize)

@@ -36,18 +36,16 @@ struct FocusBlock: Identifiable {
 // MARK: - Main View
 
 struct LongestFocusCard: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let focusBlocks: [FocusBlock]
 
   // MARK: - Design Constants
 
   private enum Design {
     // Colors
-    static let backgroundColor = Color(hex: "f7f7f7")
-    static let borderColor = Color(hex: "ececec")
-    static let titleColor = Color(hex: "333333")
     static let orangeSolid = Color(hex: "f3854b")
     static let orangeLight = Color(hex: "f3854b").opacity(0.4)
-    static let axisColor = Color(hex: "9A9393")
 
     // Sizing
     static let cardWidth: CGFloat = 322
@@ -123,12 +121,12 @@ struct LongestFocusCard: View {
     ZStack(alignment: .topLeading) {
       Text("Longest focus duration")
         .font(.custom("InstrumentSerif-Regular", size: 16))
-        .foregroundColor(Design.titleColor)
+        .foregroundColor(theme.textPrimary)
         .offset(x: Design.titleX, y: Design.titleY)
 
       Text(formattedDuration)
         .font(.custom("InstrumentSerif-Regular", size: 24))
-        .foregroundColor(Design.orangeSolid)
+        .foregroundColor(theme.summaryValue)
         .offset(x: Design.valueX, y: Design.valueY)
 
       timelineVisualization
@@ -136,12 +134,7 @@ struct LongestFocusCard: View {
         .offset(x: Design.timelineX, y: Design.timelineY)
     }
     .frame(width: Design.cardWidth, height: Design.cardHeight, alignment: .topLeading)
-    .background(Design.backgroundColor)
-    .overlay(
-      RoundedRectangle(cornerRadius: Design.cardCornerRadius)
-        .stroke(Design.borderColor, lineWidth: 1)
-    )
-    .clipShape(RoundedRectangle(cornerRadius: Design.cardCornerRadius))
+    .daySummaryCard()
   }
 
   // MARK: - Timeline Visualization
@@ -170,13 +163,13 @@ struct LongestFocusCard: View {
         path.addLine(to: CGPoint(x: Design.timelineWidth - Design.dotSize / 2, y: lineY))
       }
       .stroke(
-        Design.axisColor,
+        theme.textMuted,
         style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [4, 2])
       )
 
       ForEach(0..<dotCount, id: \.self) { index in
         Circle()
-          .fill(Design.axisColor)
+          .fill(theme.textMuted)
           .frame(width: Design.dotSize, height: Design.dotSize)
           .position(
             x: (Design.dotSize / 2) + (CGFloat(index) * dotSpacing),
@@ -220,16 +213,16 @@ struct LongestFocusCard: View {
   private func timeLabels(for block: FocusBlock) -> some View {
     ZStack {
       Text(cachedFocusTimeFormatter.string(from: block.startTime))
-        .font(.custom("Figtree-Bold", size: 10))
-        .foregroundColor(Design.orangeSolid)
+        .font(.custom("Figtree", size: 10).weight(.bold))
+        .foregroundColor(theme.summaryValue)
         .position(
           x: Design.labelStartCenterX,
           y: Design.labelTop + (Design.labelHeight / 2)
         )
 
       Text(cachedFocusTimeFormatter.string(from: block.endTime))
-        .font(.custom("Figtree-Bold", size: 10))
-        .foregroundColor(Design.orangeSolid)
+        .font(.custom("Figtree", size: 10).weight(.bold))
+        .foregroundColor(theme.summaryValue)
         .position(
           x: Design.labelEndCenterX,
           y: Design.labelTop + (Design.labelHeight / 2)

@@ -3,6 +3,9 @@ import SwiftUI
 struct SettingsOtherTabView: View {
   @ObservedObject var viewModel: OtherSettingsViewModel
   @ObservedObject var launchAtLoginManager: LaunchAtLoginManager
+  @AppStorage(DayflowAppearance.storageKey) private var appearance: DayflowAppearance = .system
+  @AppStorage(SidebarGutter.storageKey) private var sidebarGutterWidth: Double = SidebarGutter
+    .defaultWidth
   @FocusState private var isOutputLanguageFocused: Bool
 
   var body: some View {
@@ -20,6 +23,38 @@ struct SettingsOtherTabView: View {
       subtitle: "General toggles and telemetry settings."
     ) {
       VStack(alignment: .leading, spacing: 0) {
+        SettingsRow(
+          label: "Appearance",
+          subtitle: "Follow the system setting or pick light or dark."
+        ) {
+          Picker("", selection: $appearance) {
+            ForEach(DayflowAppearance.allCases) { option in
+              Text(option.title).tag(option)
+            }
+          }
+          .pickerStyle(.segmented)
+          .labelsHidden()
+          .frame(width: 210)
+          .onChange(of: appearance) { _, newValue in
+            AnalyticsService.shared.capture(
+              "appearance_changed", ["appearance": newValue.rawValue])
+          }
+        }
+
+        SettingsRow(
+          label: "Sidebar gutter width",
+          subtitle: "Width of the left column that holds the sidebar."
+        ) {
+          HStack(spacing: 10) {
+            Slider(value: $sidebarGutterWidth, in: SidebarGutter.range, step: 1)
+              .frame(width: 160)
+            Text("\(Int(sidebarGutterWidth)) pt")
+              .font(.custom("Figtree", size: 12))
+              .foregroundColor(SettingsStyle.secondary)
+              .frame(width: 44, alignment: .trailing)
+          }
+        }
+
         SettingsRow(
           label: "Launch Dayflow at login",
           subtitle:

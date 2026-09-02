@@ -422,9 +422,6 @@ struct OnboardingCategoryStepView: View {
   .environmentObject(CategoryStore.shared)
   .frame(width: 1200, height: 680)
   .background {
-    Image("OnboardingBackgroundv2")
-      .resizable()
-      .aspectRatio(contentMode: .fill)
-      .ignoresSafeArea()
+    OnboardingBackdrop()
   }
 }

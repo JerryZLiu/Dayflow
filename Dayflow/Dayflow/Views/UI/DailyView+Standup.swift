@@ -19,6 +19,16 @@ extension DailyView {
       actionButtons
     }
   }
+  /// Peach "glass" pill shared by the Daily action buttons (Figma: Copy and
+  /// paste for standup).
+  var dailyControlPillBackground: some View {
+    Capsule(style: .continuous)
+      .fill(theme.controlFill)
+      .overlay(
+        InnerGlow(shape: Capsule(style: .continuous), color: theme.controlInnerGlow, radius: 3)
+      )
+      .overlay(Capsule(style: .continuous).strokeBorder(theme.controlBorder, lineWidth: 0.75))
+  }
   func standupCopyButton(scale: CGFloat) -> some View {
     let transition = AnyTransition.opacity.combined(with: .scale(scale: 0.5))
 
@@ -54,24 +64,10 @@ extension DailyView {
         }
         .frame(minWidth: 136 * scale, alignment: .leading)
       }
-      .foregroundStyle(.white)
+      .foregroundStyle(theme.controlText)
       .padding(.horizontal, 12 * scale)
       .padding(.vertical, 10 * scale)
-      .background(
-        LinearGradient(
-          colors: [
-            Color(hex: "FF986F"),
-            Color(hex: "BDAAFF"),
-          ],
-          startPoint: .topLeading,
-          endPoint: .bottomTrailing
-        )
-      )
-      .clipShape(Capsule(style: .continuous))
-      .overlay(
-        Capsule(style: .continuous)
-          .stroke(Color(hex: "F2D7C3"), lineWidth: max(1.2, 1.5 * scale))
-      )
+      .background(dailyControlPillBackground)
       .contentShape(Capsule(style: .continuous))
     }
     .buttonStyle(DailyCopyPressButtonStyle())
@@ -89,8 +85,8 @@ extension DailyView {
           if standupRegenerateState == .regenerating {
             ProgressView()
               .progressViewStyle(.circular)
-              .scaleEffect(0.6 * scale)
-              .tint(.white)
+              .scaleEffect(0.5 * scale)
+              .tint(theme.controlText)
           } else if standupRegenerateState == .regenerated {
             Image(systemName: "checkmark")
               .font(.system(size: 12 * scale, weight: .semibold))
@@ -120,24 +116,10 @@ extension DailyView {
         }
         .frame(minWidth: 108 * scale, alignment: .leading)
       }
-      .foregroundStyle(.white)
+      .foregroundStyle(theme.controlText)
       .padding(.horizontal, 12 * scale)
       .padding(.vertical, 10 * scale)
-      .background(
-        LinearGradient(
-          colors: [
-            Color(hex: "FFB58A"),
-            Color(hex: "ED9BC0"),
-          ],
-          startPoint: .topLeading,
-          endPoint: .bottomTrailing
-        )
-      )
-      .clipShape(Capsule(style: .continuous))
-      .overlay(
-        Capsule(style: .continuous)
-          .stroke(Color(hex: "F2D7C3"), lineWidth: max(1.2, 1.5 * scale))
-      )
+      .background(dailyControlPillBackground)
       .contentShape(Capsule(style: .continuous))
     }
     .buttonStyle(DailyCopyPressButtonStyle())
@@ -173,7 +155,7 @@ extension DailyView {
     VStack(alignment: .leading, spacing: 8 * scale) {
       Text(heading)
         .font(.custom("InstrumentSerif-Regular", size: 24 * scale))
-        .foregroundStyle(Color(hex: "B46531"))
+        .foregroundStyle(theme.textSecondary)
 
       if useSingleColumn {
         VStack(alignment: .leading, spacing: 12 * scale) {

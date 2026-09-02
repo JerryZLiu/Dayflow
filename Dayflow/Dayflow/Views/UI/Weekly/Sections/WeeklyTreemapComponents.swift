@@ -169,13 +169,13 @@ struct WeeklyTreemapLeafTile: View {
 
       Text(app.formattedDuration)
         .font(.custom("Figtree-Regular", size: typography.detailFontSize))
-        .foregroundStyle(Color(hex: "333333"))
+        .foregroundStyle(WeeklyPalette.text)
         .lineLimit(1)
         .minimumScaleFactor(0.85)
 
       if let change = app.change {
         Text(change.text)
-          .font(.custom("SpaceMono-Regular", size: typography.deltaFontSize))
+          .font(.system(size: typography.deltaFontSize, design: .monospaced))
           .foregroundStyle(change.color)
           .lineLimit(1)
           .minimumScaleFactor(0.85)
@@ -189,7 +189,7 @@ struct WeeklyTreemapLeafTile: View {
 
       Text(app.formattedDuration)
         .font(.custom("Figtree-Regular", size: max(typography.detailFontSize - 1, 10)))
-        .foregroundStyle(Color(hex: "333333"))
+        .foregroundStyle(WeeklyPalette.text)
         .lineLimit(1)
         .minimumScaleFactor(0.85)
     }
@@ -217,7 +217,7 @@ struct WeeklyTreemapLeafTile: View {
   func nameText(fontSize: CGFloat) -> some View {
     Text(app.name)
       .font(.custom("InstrumentSerif-Regular", size: fontSize))
-      .foregroundStyle(Color.black)
+      .foregroundStyle(WeeklyPalette.text)
       .multilineTextAlignment(.center)
       .lineLimit(1)
       .minimumScaleFactor(0.7)
@@ -262,17 +262,17 @@ struct WeeklyTreemapHoverCard: View {
     VStack(alignment: .leading, spacing: 6) {
       Text(app.name)
         .font(.custom("InstrumentSerif-Regular", size: 17))
-        .foregroundStyle(Color.black)
+        .foregroundStyle(WeeklyPalette.text)
         .lineLimit(1)
 
       Text(app.formattedDuration)
         .font(.custom("Figtree-Regular", size: 12))
-        .foregroundStyle(Color(hex: "333333"))
+        .foregroundStyle(WeeklyPalette.text)
         .lineLimit(1)
 
       if let change = app.change {
         Text(change.text)
-          .font(.custom("SpaceMono-Regular", size: 12))
+          .font(.system(size: 12, design: .monospaced))
           .foregroundStyle(change.color)
           .lineLimit(1)
       }
@@ -281,7 +281,7 @@ struct WeeklyTreemapHoverCard: View {
     .padding(12)
     .background(
       RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
-        .fill(Color.white.opacity(0.96))
+        .fill(WeeklyPalette.tooltipFill)
         .overlay(
           RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
             .fill(palette.shellFill.opacity(0.85))
@@ -291,7 +291,7 @@ struct WeeklyTreemapHoverCard: View {
       RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
         .stroke(palette.shellBorder.opacity(0.95), lineWidth: 1)
     )
-    .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 6)
+    .shadow(color: WeeklyPalette.shadow, radius: 14, x: 0, y: 6)
   }
 }
 

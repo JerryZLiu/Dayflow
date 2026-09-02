@@ -88,9 +88,11 @@ enum FlowOverlayPresentation: Equatable {
   case hidden
   /// Short auto-dismissing speech bubble ("Your flow session starts now!").
   case toast(message: String)
-  /// Distraction nudge with quick-reply pills. The message is written by the
+  /// Distraction nudge with quick-reply pills. `escalated` marks a repeat
+  /// nudge in the same incident — the creature loses its temper (fire clips)
+  /// instead of waving. The message is written by the
   /// detection agent (or a stock line for the ⌘⇧D simulation).
-  case nudge(message: String)
+  case nudge(message: String, escalated: Bool)
   /// Break in progress: tub + countdown driven by `breakEndsAt`.
   case onBreak
   /// Timed session hit its natural end.

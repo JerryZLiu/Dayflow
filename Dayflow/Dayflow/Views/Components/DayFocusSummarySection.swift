@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct DayFocusSummarySection: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let totalFocusText: String
   let focusBlocks: [FocusBlock]
   let isSelectionEmpty: Bool
@@ -25,9 +27,6 @@ struct DayFocusSummarySection: View {
     static let editorWidth: CGFloat = 358
     static let editorOffsetX: CGFloat = -18
     static let editorOffsetY: CGFloat = 28
-    static let titleColor = Color(hex: "333333")
-    static let subtitleColor = Color(hex: "707070")
-    static let iconColor = Color(hex: "CFC7BE")
   }
 
   var body: some View {
@@ -37,7 +36,7 @@ struct DayFocusSummarySection: View {
       if isSelectionEmpty {
         Text("Edit categories to calculate focus.")
           .font(.custom("Figtree", size: 11))
-          .foregroundColor(Design.subtitleColor)
+          .foregroundColor(theme.textSecondary)
       }
 
       VStack(spacing: Design.cardsSpacing) {
@@ -67,11 +66,11 @@ struct DayFocusSummarySection: View {
     HStack(alignment: .center, spacing: 6) {
       Text("Your focus")
         .font(.custom("InstrumentSerif-Regular", size: 22))
-        .foregroundColor(Design.titleColor)
+        .foregroundColor(theme.textPrimary)
 
       Image(systemName: "info.circle")
         .font(.system(size: 12))
-        .foregroundColor(Design.iconColor)
+        .foregroundColor(theme.textMuted)
 
       Spacer()
 
@@ -84,6 +83,8 @@ struct DayFocusSummarySection: View {
 }
 
 private struct TotalFocusCard: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let value: String
 
   var body: some View {
@@ -91,28 +92,45 @@ private struct TotalFocusCard: View {
       HStack(spacing: 6) {
         Text("Total focus time")
           .font(.custom("InstrumentSerif-Regular", size: 16))
-          .foregroundColor(Color(hex: "333333"))
+          .foregroundColor(theme.textPrimary)
 
         Image(systemName: "info.circle")
           .font(.system(size: 12))
-          .foregroundColor(Color(hex: "CFC7BE"))
+          .foregroundColor(theme.textMuted)
 
         Spacer()
       }
 
       Text(value)
         .font(.custom("InstrumentSerif-Regular", size: 34))
-        .foregroundColor(Color(hex: "F3854B"))
+        .foregroundColor(theme.summaryValue)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 12)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color(hex: "F7F7F7"))
-    .overlay(
-      RoundedRectangle(cornerRadius: 8)
-        .stroke(Color.white, lineWidth: 1)
-    )
-    .clipShape(RoundedRectangle(cornerRadius: 8))
+    .daySummaryCard()
+  }
+}
+
+// Figma summary card: translucent fill, hairline border, soft inner glow
+// (dark) or a faint drop shadow (light). Shared by the focus cards.
+struct DaySummaryCardModifier: ViewModifier {
+  @Environment(\.dayflowTheme) private var theme
+
+  func body(content: Content) -> some View {
+    let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+    content
+      .background(theme.summaryCardFill)
+      .clipShape(shape)
+      .overlay(InnerGlow(shape: shape, color: theme.summaryCardInnerGlow, radius: 3))
+      .overlay(shape.strokeBorder(theme.summaryCardBorder, lineWidth: 0.5))
+      .shadow(color: theme.summaryCardShadow, radius: 4, x: 0, y: 1)
+  }
+}
+
+extension View {
+  func daySummaryCard() -> some View {
+    modifier(DaySummaryCardModifier())
   }
 }

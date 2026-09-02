@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct DistractionSummaryCard: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let totalCaptured: String
   let totalDistracted: String
   let distractedRatio: Double
@@ -39,14 +41,10 @@ struct DistractionSummaryCard: View {
     static let donutInnerMaxSize: CGFloat = 136
     static let donutInnerBottomInset: CGFloat = 4.868
 
-    static let donutFill = Color(hex: "F0F0F0").opacity(0.8)
-    static let donutStroke = Color(hex: "DDDDDD")
     static let donutGradientStart = Color(hex: "FFE3DE")
     static let donutGradientEnd = Color(hex: "FF694B")
 
-    static let capturedTextColor = Color(hex: "9C9C9C")
     static let distractedTextColor = Color(hex: "FF694B")
-    static let bodyTextColor = Color(hex: "333333")
 
     static let labelFont = Font.custom("InstrumentSerif-Regular", size: 14)
     static let valueFont = Font.custom("InstrumentSerif-Regular", size: 20)
@@ -78,10 +76,10 @@ struct DistractionSummaryCard: View {
 
     return ZStack(alignment: .topLeading) {
       Circle()
-        .fill(Design.donutFill)
+        .fill(theme.targetsTrackFill)
         .overlay(
           Circle()
-            .stroke(Design.donutStroke, lineWidth: 1)
+            .stroke(theme.targetsTrackBorder, lineWidth: 1)
         )
         .frame(width: Design.donutSize, height: Design.donutSize)
 
@@ -111,7 +109,7 @@ struct DistractionSummaryCard: View {
       statText(
         title: "Total time captured",
         value: totalCaptured,
-        color: Design.capturedTextColor
+        color: theme.textMuted
       )
 
       statText(
@@ -144,12 +142,12 @@ struct DistractionSummaryCard: View {
 
         Text(patternTitle)
           .font(Design.patternTitleFont)
-          .foregroundColor(Design.bodyTextColor)
+          .foregroundColor(theme.textPrimary)
       }
 
       Text(patternDescription)
         .font(Design.patternBodyFont)
-        .foregroundColor(Design.bodyTextColor)
+        .foregroundColor(theme.textPrimary)
         .frame(maxWidth: .infinity, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
     }

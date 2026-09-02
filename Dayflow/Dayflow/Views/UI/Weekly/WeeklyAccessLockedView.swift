@@ -147,7 +147,7 @@ private struct WeeklyAccessLockCard: View {
       VStack(spacing: 4) {
         Text("Unlock Weekly")
           .font(.custom("InstrumentSerif-Regular", size: 22))
-          .foregroundStyle(Color(hex: "333333"))
+          .foregroundStyle(WeeklyPalette.text)
           .multilineTextAlignment(.center)
           .lineLimit(1)
           .minimumScaleFactor(0.76)
@@ -155,7 +155,7 @@ private struct WeeklyAccessLockCard: View {
 
         Text("Weekly unlocks after 30 hours of recorded timeline data")
           .font(.custom("Figtree-Regular", size: 14))
-          .foregroundStyle(Color(hex: "796E64"))
+          .foregroundStyle(WeeklyPalette.secondaryText)
           .multilineTextAlignment(.center)
           .lineLimit(1)
           .minimumScaleFactor(0.76)
@@ -193,7 +193,7 @@ private struct WeeklyAccessLockCard: View {
     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .stroke(Color.white, lineWidth: 1)
+        .stroke(WeeklyPalette.cardInnerStroke, lineWidth: 1)
     )
     .shadow(color: Color(hex: "80450D").opacity(0.2), radius: 12, x: 0, y: 2)
   }
@@ -203,7 +203,7 @@ private struct WeeklyAccessCardBackground: View {
   var body: some View {
     ZStack {
       RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .fill(Color(hex: "FFF7EF"))
+        .fill(WeeklyPalette.cardFillStrong)
 
       WeeklyAccessGlowCircle(size: 287, colors: [Color(hex: "FFE6A3"), Color(hex: "FF8A1E")])
         .position(x: 185.4, y: -160.4)
@@ -253,12 +253,12 @@ private struct WeeklyAccessCountdownPill: View {
   var body: some View {
     ZStack {
       Capsule(style: .continuous)
-        .fill(Color(hex: "FFEBD6"))
+        .fill(WeeklyPalette.highlightChipFill)
         .overlay(
           Capsule(style: .continuous)
             .stroke(Color(hex: "FF8904").opacity(0.5), lineWidth: 1)
         )
-        .shadow(color: Color(hex: "FDE7D1"), radius: 8, x: 0, y: 2)
+        .shadow(color: WeeklyPalette.shadow, radius: 8, x: 0, y: 2)
 
       Ellipse()
         .fill(
@@ -305,7 +305,7 @@ private struct WeeklyAccessProgressBar: View {
 
     ZStack(alignment: .leading) {
       Capsule(style: .continuous)
-        .fill(Color(hex: "EAE0DD"))
+        .fill(WeeklyPalette.rowFill)
         .frame(width: barWidth, height: barHeight)
         .offset(x: knobSize / 2)
 

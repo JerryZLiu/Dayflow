@@ -9,13 +9,20 @@
   </p>
 
   <p>
+    <a href="https://www.dayflow.so/">dayflow.so</a> ·
+    <a href="https://www.dayflow.so/pricing/">Pricing</a> ·
+    <a href="https://www.dayflow.so/privacy/">Privacy</a> ·
+    <a href="https://www.dayflow.so/blog/">Guides</a>
+  </p>
+
+  <p>
     <a href="https://trendshift.io/repositories/17458" target="_blank" rel="noreferrer">
       <img src="https://trendshift.io/api/badge/repositories/17458" alt="JerryZLiu/Dayflow | Trendshift" width="250" height="55">
     </a>
   </p>
 
   <p>
-    <a href="https://dayflow.so/api/download?source=github_readme_top">
+    <a href="https://www.dayflow.so/api/download?source=github_readme_top">
       <img src="docs/images/download_dayflow_button.png" alt="Download Dayflow for Mac" width="352">
     </a>
   </p>
@@ -101,7 +108,7 @@ If you choose a cloud provider, activity data needed for analysis is sent to tha
 Download the latest `Dayflow.dmg` from GitHub Releases:
 
 <p>
-  <a href="https://dayflow.so/api/download?source=github_readme_install">
+  <a href="https://www.dayflow.so/api/download?source=github_readme_install">
     <img src="docs/images/download_dayflow_button.png" alt="Download Dayflow for Mac" width="352">
   </a>
 </p>

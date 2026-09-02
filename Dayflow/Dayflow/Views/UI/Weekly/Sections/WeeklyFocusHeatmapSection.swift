@@ -11,9 +11,9 @@ struct WeeklyFocusHeatmapSection: View {
     static let cardWidth: CGFloat = 958
     static let cardHeight: CGFloat = 238
     static let cornerRadius: CGFloat = 4
-    static let borderColor = Color(hex: "EBE6E3")
-    static let backgroundColor = Color.white.opacity(0.75)
-    static let titleColor = Color(hex: "B46531")
+    static let borderColor = WeeklyPalette.cardBorder
+    static let backgroundColor = WeeklyPalette.cardFillStrong
+    static let titleColor = WeeklyPalette.title
 
     static let topPadding: CGFloat = 34
     static let leadingPadding: CGFloat = 44
@@ -143,7 +143,7 @@ struct WeeklyFocusHeatmapSection: View {
         Text(snapshot.distractedLabel)
       }
       .font(.custom("Figtree-Regular", size: 10))
-      .foregroundStyle(Color.black)
+      .foregroundStyle(WeeklyPalette.text)
       .frame(width: legendWidth)
     }
   }
@@ -174,7 +174,7 @@ struct WeeklyFocusHeatmapSection: View {
       ForEach(snapshot.rows) { row in
         Text(row.label)
           .font(.custom("Figtree-Regular", size: 10))
-          .foregroundStyle(Color.black)
+          .foregroundStyle(WeeklyPalette.text)
           .frame(width: Design.labelsWidth, height: Design.rowHeight, alignment: .leading)
       }
     }
@@ -199,7 +199,7 @@ struct WeeklyFocusHeatmapSection: View {
         ForEach(snapshot.timeLabels) { label in
           Text(label.label)
             .font(.custom("Figtree-Regular", size: 10))
-            .foregroundStyle(Color.black)
+            .foregroundStyle(WeeklyPalette.text)
             .frame(width: 34, alignment: axisAlignment(for: label))
             .offset(x: axisOffset(for: label))
         }
@@ -538,7 +538,7 @@ private enum DesignColor {
   static let edgeFadeStrength = 0.65
   static let neutralThreshold = 0.045
 
-  static let neutral = Color(hex: "F2F2F2")
+  static let neutral = WeeklyPalette.rowFill
   static let focusSoft = Color(hex: "E3DBFD")
   static let focusDark = Color(hex: "4276E9")
   static let distractionSoft = Color(hex: "F8D1CA")
@@ -573,7 +573,7 @@ private struct WeeklyFocusHeatmapGapPreview: View {
       )
     }
     .padding(24)
-    .background(Color(hex: "F7F3F0"))
+    .background(WeeklyPalette.canvas)
   }
 }
 

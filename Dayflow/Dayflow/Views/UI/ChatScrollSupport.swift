@@ -329,6 +329,8 @@ extension View {
 // MARK: - Jump to latest pill
 
 struct JumpToLatestPill: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let isStreaming: Bool
   let action: () -> Void
 
@@ -344,17 +346,17 @@ struct JumpToLatestPill: View {
             .font(.custom("Figtree", size: 11).weight(.semibold))
         }
       }
-      .foregroundColor(Color(hex: "F96E00"))
+      .foregroundColor(theme.accentText)
       .padding(.horizontal, isStreaming ? 12 : 9)
       .padding(.vertical, 8)
       .background(
         Capsule()
-          .fill(Color.white)
+          .fill(theme.popoverFill)
           .shadow(color: Color.black.opacity(isHovered ? 0.16 : 0.1), radius: 8, x: 0, y: 3)
       )
       .overlay(
         Capsule()
-          .stroke(Color(hex: "F96E00").opacity(0.25), lineWidth: 1)
+          .stroke(theme.chatSoftAccentBorder, lineWidth: 1)
       )
     }
     .buttonStyle(.plain)

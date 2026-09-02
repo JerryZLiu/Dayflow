@@ -33,7 +33,7 @@ struct OnboardingPrototypeRoleSelectionStep: View {
         .font(.custom("InstrumentSerif-Regular", size: 40))
         .tracking(-1.2)
         .multilineTextAlignment(.center)
-        .foregroundColor(Color(hex: "492304"))
+        .foregroundColor(Color(hex: "424242"))
         .lineSpacing(40 * 0.2)
         .frame(maxWidth: 708)
         .fixedSize(horizontal: false, vertical: true)
@@ -45,11 +45,11 @@ struct OnboardingPrototypeRoleSelectionStep: View {
         VStack(spacing: 4) {
           Text("What do you do for work?")
             .font(.custom("Figtree", size: 20))
-            .foregroundColor(Color(hex: "89380E"))
+            .foregroundColor(Color(hex: "634D42"))
 
           Text("This will help Dayflow generate categories that are most helpful to you.")
             .font(.custom("Figtree", size: 20))
-            .foregroundColor(Color(hex: "89380E"))
+            .foregroundColor(Color(hex: "634D42"))
         }
         .multilineTextAlignment(.center)
 
@@ -71,11 +71,11 @@ struct OnboardingPrototypeRoleSelectionStep: View {
         VStack(spacing: 16) {
           Text("Please specify")
             .font(.custom("Figtree", size: 20))
-            .foregroundColor(Color(hex: "89380E"))
+            .foregroundColor(Color(hex: "634D42"))
 
           TextField("", text: $otherText)
             .font(.custom("Figtree", size: 16))
-            .foregroundColor(Color(hex: "492304"))
+            .foregroundColor(Color(hex: "634D42"))
             .textFieldStyle(.plain)
             .padding(.horizontal, 12)
             .frame(width: 353, height: 34)
@@ -105,16 +105,17 @@ struct OnboardingPrototypeRoleSelectionStep: View {
         content: {
           Text("Continue")
             .font(.custom("Figtree", size: 14))
-            .fontWeight(.semibold)
+            .fontWeight(.medium)
         },
-        background: Color(hex: "402C00"),
+        background: Color(hex: "FF9F6F"),
         foreground: .white,
-        borderColor: .clear,
-        cornerRadius: 8,
+        borderColor: Color(hex: "F4C8B1"),
+        cornerRadius: 200,
         horizontalPadding: 59,
         verticalPadding: 12,
         minWidth: 234,
-        showOverlayStroke: true
+        showOverlayStroke: false,
+        innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)
       )
       .opacity(resolvedRole == nil ? 0.4 : 1.0)
       .allowsHitTesting(resolvedRole != nil)
@@ -134,7 +135,7 @@ struct OnboardingPrototypeRoleSelectionStep: View {
     } label: {
       Text(role)
         .font(.custom("Figtree", size: 16))
-        .foregroundColor(Color(hex: "492304"))
+        .foregroundColor(Color(hex: "634D42"))
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
         .background(

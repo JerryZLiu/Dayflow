@@ -9,18 +9,12 @@ extension ChatView {
       messagesArea
 
       Divider()
-        .background(Color(hex: "ECECEC"))
+        .background(theme.dailyGridBorder)
 
       // Input area
       inputArea
     }
-    .background(
-      LinearGradient(
-        colors: [Color(hex: "FFFAF5"), Color(hex: "FFF6EC")],
-        startPoint: .top,
-        endPoint: .bottom
-      )
-    )
+    .background(theme.chatBackground)
   }
 
   // MARK: - Header buttons
@@ -34,16 +28,16 @@ extension ChatView {
         Button(action: { resetConversation() }) {
           Text("New chat")
             .font(.custom("Figtree", size: 12).weight(.semibold))
-            .foregroundColor(Color(hex: "F96E00"))
+            .foregroundColor(theme.accentText)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(
               RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(hex: "FFF4E9"))
+                .fill(theme.chatSoftAccentFill)
             )
             .overlay(
               RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color(hex: "F96E00").opacity(0.25), lineWidth: 1)
+                .stroke(theme.chatSoftAccentBorder, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -62,7 +56,7 @@ extension ChatView {
       ) {
         Image(systemName: "clock.arrow.circlepath")
           .font(.system(size: 14))
-          .foregroundColor(showHistoryPanel ? Color(hex: "F96E00") : Color(hex: "999999"))
+          .foregroundColor(showHistoryPanel ? theme.accentText : theme.textMuted)
       }
       .buttonStyle(.plain)
       .help("Toggle chat history")
@@ -72,8 +66,7 @@ extension ChatView {
       Button(action: { chatService.showDebugPanel.toggle() }) {
         Image(systemName: chatService.showDebugPanel ? "ladybug.fill" : "ladybug")
           .font(.system(size: 14))
-          .foregroundColor(
-            chatService.showDebugPanel ? Color(hex: "F96E00") : Color(hex: "999999"))
+          .foregroundColor(chatService.showDebugPanel ? theme.accentText : theme.textMuted)
       }
       .buttonStyle(.plain)
       .help("Toggle debug panel")
@@ -90,7 +83,7 @@ extension ChatView {
       ) {
         Image(systemName: showMemoryPanel ? "brain.head.profile.fill" : "brain.head.profile")
           .font(.system(size: 14))
-          .foregroundColor(showMemoryPanel ? Color(hex: "F96E00") : Color(hex: "999999"))
+          .foregroundColor(showMemoryPanel ? theme.accentText : theme.textMuted)
       }
       .buttonStyle(.plain)
       .help("Toggle memory panel")
@@ -263,14 +256,14 @@ extension ChatView {
       HStack {
         Text("Debug Log")
           .font(.custom("Figtree", size: 12).weight(.bold))
-          .foregroundColor(Color(hex: "666666"))
+          .foregroundColor(theme.textSecondary)
 
         Spacer()
 
         Button(action: { copyDebugLog() }) {
           Image(systemName: "doc.on.doc")
             .font(.system(size: 11))
-            .foregroundColor(Color(hex: "999999"))
+            .foregroundColor(theme.textMuted)
         }
         .buttonStyle(.plain)
         .help("Copy all")
@@ -279,7 +272,7 @@ extension ChatView {
         Button(action: { chatService.clearDebugLog() }) {
           Image(systemName: "trash")
             .font(.system(size: 11))
-            .foregroundColor(Color(hex: "999999"))
+            .foregroundColor(theme.textMuted)
         }
         .buttonStyle(.plain)
         .help("Clear log")
@@ -287,7 +280,7 @@ extension ChatView {
       }
       .padding(.horizontal, 12)
       .padding(.vertical, 8)
-      .background(Color(hex: "F5F5F5"))
+      .background(theme.chatSidePanelHeaderFill)
 
       Divider()
 
@@ -302,10 +295,10 @@ extension ChatView {
       }
     }
     .frame(width: 350)
-    .background(Color.white)
+    .background(theme.chatSidePanelFill)
     .overlay(
       Rectangle()
-        .fill(Color(hex: "E0E0E0"))
+        .fill(theme.dailyGridBorder)
         .frame(width: 1),
       alignment: .leading
     )
@@ -318,31 +311,33 @@ extension ChatView {
       HStack {
         Text("Memory")
           .font(.custom("Figtree", size: 12).weight(.bold))
-          .foregroundColor(Color(hex: "666666"))
+          .foregroundColor(theme.textSecondary)
         Spacer()
         Text("\(memoryCharacterCount)/\(DashboardChatMemoryStore.maxCharacters)")
           .font(.custom("Figtree", size: 11))
-          .foregroundColor(Color(hex: "999999"))
+          .foregroundColor(theme.textMuted)
       }
       .padding(.horizontal, 12)
       .padding(.vertical, 8)
-      .background(Color(hex: "F5F5F5"))
+      .background(theme.chatSidePanelHeaderFill)
 
       Divider()
 
       VStack(alignment: .leading, spacing: 8) {
         Text("Auto-updated from assistant replies. You can edit this manually.")
           .font(.custom("Figtree", size: 11))
-          .foregroundColor(Color(hex: "8A8A8A"))
+          .foregroundColor(theme.textMuted)
 
         TextEditor(text: $memoryDraft)
           .font(.custom("Figtree", size: 12))
+          .foregroundColor(theme.textPrimary)
+          .scrollContentBackground(.hidden)
           .padding(8)
-          .background(Color(hex: "FFFCF8"))
+          .background(theme.inputFill)
           .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
           .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-              .stroke(Color(hex: "E7DDD1"), lineWidth: 1)
+              .stroke(theme.inputBorder, lineWidth: 1)
           )
           .onChange(of: memoryDraft) { _, newValue in
             guard newValue.count > DashboardChatMemoryStore.maxCharacters else { return }
@@ -352,7 +347,7 @@ extension ChatView {
         HStack {
           Text("Last updated: \(memoryUpdatedLabel)")
             .font(.custom("Figtree", size: 10))
-            .foregroundColor(Color(hex: "999999"))
+            .foregroundColor(theme.textMuted)
           Spacer()
         }
 
@@ -360,14 +355,14 @@ extension ChatView {
           Button("Save") { saveMemoryDraft() }
             .buttonStyle(.plain)
             .font(.custom("Figtree", size: 11).weight(.bold))
-            .foregroundColor(isMemoryDirty ? Color(hex: "F96E00") : Color(hex: "999999"))
+            .foregroundColor(isMemoryDirty ? theme.accentText : theme.textMuted)
             .disabled(!isMemoryDirty)
             .pointingHandCursor()
 
           Button("Reload") { reloadMemoryDraft() }
             .buttonStyle(.plain)
             .font(.custom("Figtree", size: 11).weight(.bold))
-            .foregroundColor(isMemoryDirty ? Color(hex: "555555") : Color(hex: "AAAAAA"))
+            .foregroundColor(isMemoryDirty ? theme.textSecondary : theme.textMuted)
             .disabled(!isMemoryDirty)
             .pointingHandCursor()
 
@@ -376,7 +371,7 @@ extension ChatView {
           Button("Clear") { clearMemoryDraft() }
             .buttonStyle(.plain)
             .font(.custom("Figtree", size: 11).weight(.bold))
-            .foregroundColor(storedMemoryBlob.isEmpty ? Color(hex: "AAAAAA") : Color(hex: "C85A4B"))
+            .foregroundColor(storedMemoryBlob.isEmpty ? theme.textMuted : Color(hex: "C85A4B"))
             .disabled(storedMemoryBlob.isEmpty)
             .pointingHandCursor()
         }
@@ -384,10 +379,10 @@ extension ChatView {
       .padding(12)
     }
     .frame(width: 360)
-    .background(Color.white)
+    .background(theme.chatSidePanelFill)
     .overlay(
       Rectangle()
-        .fill(Color(hex: "E0E0E0"))
+        .fill(theme.dailyGridBorder)
         .frame(width: 1),
       alignment: .leading
     )
@@ -399,48 +394,37 @@ extension ChatView {
     VStack(spacing: 0) {
       ZStack {
         RoundedRectangle(cornerRadius: 24, style: .continuous)
-          .fill(
-            LinearGradient(
-              colors: [Color.white.opacity(0.86), Color(hex: "FFF8EF").opacity(0.95)],
-              startPoint: .topLeading,
-              endPoint: .bottomTrailing
-            )
-          )
+          .fill(theme.summaryCardFill)
           .overlay(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-              .stroke(Color(hex: "F5DFC7"), lineWidth: 1)
+              .stroke(theme.summaryCardBorder, lineWidth: 1)
           )
-          .shadow(color: Color(hex: "E7B98E").opacity(0.24), radius: 20, x: 0, y: 10)
+          .shadow(color: theme.summaryCardShadow, radius: 20, x: 0, y: 10)
 
         VStack(spacing: 16) {
           HStack(alignment: .center, spacing: 12) {
             ZStack {
               Circle()
-                .fill(
-                  LinearGradient(
-                    colors: [Color(hex: "FFE5CD"), Color(hex: "FFCF9D")],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                  )
-                )
+                .fill(theme.controlFill)
+                .overlay(Circle().strokeBorder(theme.controlBorder, lineWidth: 0.75))
               Image(systemName: "bubble.left.and.bubble.right.fill")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(Color(hex: "C9670D"))
+                .foregroundColor(theme.accentText)
             }
             .frame(width: 42, height: 42)
 
             VStack(alignment: .leading, spacing: 2) {
               Text("Ask about your Dayflow data")
                 .font(.custom("InstrumentSerif-Regular", size: 30))
-                .foregroundColor(Color(hex: "2F2A24"))
+                .foregroundColor(theme.textPrimary)
 
               Text("Ask questions, analyze your timeline, and generate charts/graphs.")
                 .font(.custom("Figtree", size: 13).weight(.semibold))
-                .foregroundColor(Color(hex: "7D6B5B"))
+                .foregroundColor(theme.textSecondary)
 
               Text("I remember your response preferences, so feel free to teach me your style.")
                 .font(.custom("Figtree", size: 12))
-                .foregroundColor(Color(hex: "8A7765"))
+                .foregroundColor(theme.textMuted)
             }
 
             Spacer(minLength: 0)
@@ -449,7 +433,7 @@ extension ChatView {
           VStack(alignment: .leading, spacing: 10) {
             Text("Try one of these")
               .font(.custom("Figtree", size: 12).weight(.bold))
-              .foregroundColor(Color(hex: "8A7765"))
+              .foregroundColor(theme.textSecondary)
 
             ForEach(Array(welcomePrompts.enumerated()), id: \.offset) { index, prompt in
               WelcomeSuggestionRow(prompt: prompt) {
@@ -492,7 +476,7 @@ extension ChatView {
       HStack(alignment: .top, spacing: 4) {
         Text("Unlock Beta")
           .font(.custom("InstrumentSerif-Italic", size: 38))
-          .foregroundColor(Color(hex: "593D2A"))
+          .foregroundColor(theme.textPrimary)
 
         Text("BETA")
           .font(.custom("Figtree-Bold", size: 11))
@@ -513,13 +497,13 @@ extension ChatView {
           "Chat lets you ask questions about your Dayflow activity and get summaries, comparisons, and insights."
         )
         .font(.custom("Figtree-Regular", size: 14))
-        .foregroundColor(Color(hex: "593D2A").opacity(0.85))
+        .foregroundColor(theme.textSecondary)
         .multilineTextAlignment(.center)
         .frame(maxWidth: 600)
 
         Text("Please send feedback if you see any bugs or weird behavior!")
           .font(.custom("Figtree-SemiBold", size: 14))
-          .foregroundColor(Color(hex: "593D2A"))
+          .foregroundColor(theme.textPrimary)
           .multilineTextAlignment(.center)
       }
 
@@ -544,13 +528,13 @@ extension ChatView {
           if !hasChatMinimumAccess {
             Text("10 hours of timeline data required")
               .font(.custom("Figtree-SemiBold", size: 15))
-              .foregroundColor(Color(hex: "593D2A"))
+              .foregroundColor(theme.textPrimary)
 
             Text(
               "Chat unlocks after Dayflow has analyzed enough activity. \(chatAccessProgressText)"
             )
             .font(.custom("Figtree-Regular", size: 13))
-            .foregroundColor(Color(hex: "593D2A").opacity(0.8))
+            .foregroundColor(theme.textSecondary)
             .multilineTextAlignment(.center)
           } else if anyRuntimeAvailable {
             Text("Gemini key or CLI runtime detected")
@@ -560,13 +544,13 @@ extension ChatView {
           } else {
             Text("Gemini API key or CLI required")
               .font(.custom("Figtree-SemiBold", size: 15))
-              .foregroundColor(Color(hex: "593D2A"))
+              .foregroundColor(theme.textPrimary)
 
             Text(
               "Unlock chat by either adding a Gemini API key in Settings or installing Codex/Claude CLI."
             )
             .font(.custom("Figtree-Regular", size: 13))
-            .foregroundColor(Color(hex: "593D2A").opacity(0.8))
+            .foregroundColor(theme.textSecondary)
             .multilineTextAlignment(.center)
           }
         }
@@ -586,8 +570,8 @@ extension ChatView {
             .font(.custom("Figtree-SemiBold", size: 15))
             .foregroundColor(
               hasChatMinimumAccess && anyRuntimeAvailable
-                ? Color(hex: "593D2A")
-                : Color(hex: "999999")
+                ? theme.primaryButtonText
+                : theme.textMuted
             )
             .padding(.horizontal, 28)
             .padding(.vertical, 12)
@@ -595,29 +579,15 @@ extension ChatView {
               Capsule()
                 .fill(
                   hasChatMinimumAccess && anyRuntimeAvailable
-                    ? LinearGradient(
-                      colors: [
-                        Color(hex: "FFF4E9"),
-                        Color(hex: "FFE8D4"),
-                      ],
-                      startPoint: .top,
-                      endPoint: .bottom
-                    )
-                    : LinearGradient(
-                      colors: [
-                        Color(hex: "F0F0F0"),
-                        Color(hex: "E8E8E8"),
-                      ],
-                      startPoint: .top,
-                      endPoint: .bottom
-                    )
+                    ? theme.primaryButtonFill
+                    : theme.secondaryButtonFill
                 )
                 .overlay(
                   Capsule()
                     .stroke(
                       hasChatMinimumAccess && anyRuntimeAvailable
-                        ? Color(hex: "E8C9A8")
-                        : Color(hex: "D0D0D0"),
+                        ? theme.primaryButtonBorder
+                        : theme.secondaryButtonBorder,
                       lineWidth: 1
                     )
                 )
@@ -629,7 +599,11 @@ extension ChatView {
       .padding(20)
       .background(
         RoundedRectangle(cornerRadius: 20, style: .continuous)
-          .fill(Color.white)
+          .fill(theme.summaryCardFill)
+          .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+              .stroke(theme.summaryCardBorder, lineWidth: 1)
+          )
           .shadow(color: Color.black.opacity(0.08), radius: 20, x: 0, y: 8)
       )
       .frame(maxWidth: 420)
@@ -638,13 +612,13 @@ extension ChatView {
       VStack(spacing: 4) {
         Text("Privacy Note")
           .font(.custom("Figtree-SemiBold", size: 12))
-          .foregroundColor(Color(hex: "593D2A").opacity(0.6))
+          .foregroundColor(theme.textMuted)
 
         Text(
           "During the beta, your questions are logged to help improve the product. Responses are not logged, so your privacy is maintained."
         )
         .font(.custom("Figtree-Regular", size: 12))
-        .foregroundColor(Color(hex: "593D2A").opacity(0.5))
+        .foregroundColor(theme.textMuted)
         .multilineTextAlignment(.center)
         .frame(maxWidth: 600)
       }
@@ -655,7 +629,7 @@ extension ChatView {
     .padding(.horizontal)
     .padding(.vertical, 12)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .background(Color(hex: "FFFAF5"))
+    .background(theme.chatBackground)
   }
 
   var chatUnlockButtonTitle: String {
@@ -685,7 +659,7 @@ extension ChatView {
       .frame(maxWidth: .infinity, alignment: .leading)
 
       Rectangle()
-        .fill(Color(hex: "EEE4D8"))
+        .fill(theme.inputBorder)
         .frame(height: 1)
 
       // Bottom toolbar
@@ -699,20 +673,20 @@ extension ChatView {
           HStack(spacing: 6) {
             ProgressView()
               .scaleEffect(0.55)
-              .tint(Color(hex: "C18043"))
+              .tint(theme.accentText)
             Text("Answering")
               .font(.custom("Figtree", size: 11).weight(.bold))
-              .foregroundColor(Color(hex: "9B7753"))
+              .foregroundColor(theme.accentText)
           }
           .padding(.horizontal, 9)
           .padding(.vertical, 5)
           .background(
             Capsule()
-              .fill(Color(hex: "FFF3E6"))
+              .fill(theme.chatSoftAccentFill)
           )
           .overlay(
             Capsule()
-              .stroke(Color(hex: "F0CBA7"), lineWidth: 1)
+              .stroke(theme.chatSoftAccentBorder, lineWidth: 1)
           )
         }
 
@@ -738,7 +712,7 @@ extension ChatView {
                 endPoint: .bottom
               )
               : LinearGradient(
-                colors: [Color(hex: "DDDDDD"), Color(hex: "CECECE")],
+                colors: [theme.textMuted, theme.textMuted.opacity(0.8)],
                 startPoint: .top,
                 endPoint: .bottom
               )
@@ -764,24 +738,13 @@ extension ChatView {
     }
     .background(
       RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .fill(
-          LinearGradient(
-            colors: [Color.white, Color(hex: "FFF8F0")],
-            startPoint: .top,
-            endPoint: .bottom
-          )
-        )
+        .fill(theme.inputFill)
     )
     .overlay(
       RoundedRectangle(cornerRadius: 16, style: .continuous)
         .stroke(composerBorderColor, lineWidth: isInputFocused ? 1.2 : 1)
     )
-    .overlay(
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .inset(by: 0.6)
-        .stroke(Color.white.opacity(0.65), lineWidth: 0.8)
-    )
-    .shadow(color: Color(hex: "D99A5A").opacity(0.14), radius: 14, x: 0, y: 6)
+    .shadow(color: theme.summaryCardShadow, radius: 14, x: 0, y: 6)
     .animation(.easeOut(duration: 0.16), value: isInputFocused)
     .padding(.horizontal, 16)
     .padding(.vertical, 12)
@@ -814,11 +777,11 @@ extension ChatView {
     .padding(4)
     .background(
       RoundedRectangle(cornerRadius: 11, style: .continuous)
-        .fill(Color.white.opacity(0.84))
+        .fill(theme.inputFill)
     )
     .overlay(
       RoundedRectangle(cornerRadius: 11, style: .continuous)
-        .stroke(Color(hex: "E4D6C8"), lineWidth: 1)
+        .stroke(theme.inputBorder, lineWidth: 1)
     )
     .help(providerToggleHelpText)
   }
@@ -835,7 +798,7 @@ extension ChatView {
     VStack(alignment: .leading, spacing: 8) {
       Text("Follow up")
         .font(.custom("Figtree", size: 11).weight(.semibold))
-        .foregroundColor(Color(hex: "999999"))
+        .foregroundColor(theme.textMuted)
 
       ChatFlowLayout(spacing: 8) {
         ForEach(chatService.currentSuggestions, id: \.self) { suggestion in

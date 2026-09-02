@@ -3,6 +3,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct GoalCategoryPool: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let categories: [TimelineCategory]
   let focusIDs: Set<String>
   let distractionIDs: Set<String>
@@ -12,7 +14,7 @@ struct GoalCategoryPool: View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Drag and drop to set the categories you want to track")
         .font(.custom("Figtree", size: 12))
-        .foregroundColor(Color(hex: "5E5E5E"))
+        .foregroundColor(theme.textSecondary)
 
       DayGoalFlowLayout(spacing: 8, rowSpacing: 6) {
         ForEach(categories) { category in
@@ -38,11 +40,15 @@ struct GoalCategoryPool: View {
     .padding(.horizontal, 16)
     .padding(.vertical, 14)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background(Color(hex: "FCFCFC").opacity(0.76))
+    .background(theme.sheetCardFill)
     .clipShape(RoundedRectangle(cornerRadius: 6))
     .overlay(
+      InnerGlow(
+        shape: RoundedRectangle(cornerRadius: 6), color: theme.summaryCardInnerGlow, radius: 4)
+    )
+    .overlay(
       RoundedRectangle(cornerRadius: 6)
-        .stroke(Color(hex: "E7DFDF"), lineWidth: 1)
+        .stroke(theme.sheetCardBorder, lineWidth: 1)
     )
   }
 
@@ -59,6 +65,8 @@ struct GoalCategoryPool: View {
 }
 
 struct GoalSetupPanel: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let kind: DayGoalCategoryKind
   let title: String
   @Binding var durationMinutes: Int
@@ -74,9 +82,18 @@ struct GoalSetupPanel: View {
   private var accent: Color {
     switch kind {
     case .focus:
-      return Color(hex: "628CFF")
+      return theme.sheetFocusHeader
     case .distraction:
-      return Color(hex: "FA8282")
+      return theme.sheetDistractionHeader
+    }
+  }
+
+  private var statTextColor: Color {
+    switch kind {
+    case .focus:
+      return theme.sheetFocusStatText
+    case .distraction:
+      return theme.sheetDistractionStatText
     }
   }
 
@@ -131,7 +148,7 @@ struct GoalSetupPanel: View {
       .padding(.bottom, 23)
       .padding(.horizontal, 24)
       .frame(maxWidth: .infinity)
-      .background(Color.white.opacity(0.8))
+      .background(theme.sheetPanelFill)
 
       footer
         .frame(height: 59)
@@ -140,7 +157,7 @@ struct GoalSetupPanel: View {
     .clipShape(RoundedRectangle(cornerRadius: 6))
     .overlay(
       RoundedRectangle(cornerRadius: 6)
-        .stroke(Color(hex: "E7DFDF"), lineWidth: 1)
+        .stroke(theme.sheetPanelBorder, lineWidth: 1)
     )
   }
 
@@ -148,7 +165,7 @@ struct GoalSetupPanel: View {
     VStack(alignment: .leading, spacing: 10) {
       Text("Categories")
         .font(.custom("Figtree", size: 12))
-        .foregroundColor(Color(hex: "7A7A7A"))
+        .foregroundColor(theme.textSecondary)
 
       VStack(alignment: .leading, spacing: 6) {
         ForEach(selectedCategories) { category in
@@ -170,11 +187,11 @@ struct GoalSetupPanel: View {
     }
     .padding(11)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background(Color(hex: "F8F6F5"))
+    .background(theme.sheetInnerBoxFill)
     .clipShape(RoundedRectangle(cornerRadius: 4))
     .overlay(
       RoundedRectangle(cornerRadius: 4)
-        .stroke(Color(hex: "E6DDD5"), lineWidth: 1)
+        .stroke(theme.sheetInnerBoxBorder, lineWidth: 1)
     )
     .onDrop(of: [.plainText], isTargeted: nil, perform: handleCategoryDrop)
   }
@@ -217,14 +234,17 @@ struct GoalSetupPanel: View {
     }
     .padding(.horizontal, 16)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-    .background(Color(hex: "FCFCFC").opacity(0.7))
+    .background(theme.sheetFooterFill)
+    .overlay(
+      InnerGlow(shape: Rectangle(), color: theme.summaryCardInnerGlow, radius: 3)
+    )
   }
 
   private func goalStat(title: String, minutes: Int) -> some View {
     VStack(alignment: .leading, spacing: 5) {
       Text(title)
         .font(.custom("Figtree", size: 12))
-        .foregroundColor(.black)
+        .foregroundColor(theme.textPrimary)
         .lineLimit(1)
         .minimumScaleFactor(0.82)
 
@@ -235,7 +255,7 @@ struct GoalSetupPanel: View {
 
         Text(formatShort(minutes: minutes))
           .font(.custom("Figtree", size: 12))
-          .foregroundColor(.black)
+          .foregroundColor(statTextColor)
           .lineLimit(1)
           .minimumScaleFactor(0.86)
       }
@@ -263,6 +283,8 @@ struct GoalSetupPanel: View {
 }
 
 private struct GoalCategoryChip: View {
+  @Environment(\.dayflowTheme) private var theme
+
   enum Status {
     case untracked
     case focus
@@ -281,17 +303,6 @@ private struct GoalCategoryChip: View {
     return .gray
   }
 
-  private var background: Color {
-    switch status {
-    case .focus:
-      return color.opacity(0.16)
-    case .distraction:
-      return Color(hex: "FFEDED")
-    case .untracked:
-      return color.opacity(0.16)
-    }
-  }
-
   var body: some View {
     HStack(spacing: 2) {
       ChipDragHandle(color: color)
@@ -299,18 +310,18 @@ private struct GoalCategoryChip: View {
 
       Text(title)
         .font(.custom("Figtree", size: 12))
-        .foregroundColor(Color(hex: "333333"))
+        .foregroundColor(theme.textPrimary)
         .lineLimit(1)
         .minimumScaleFactor(0.8)
 
       if showsRemove {
         Image(systemName: "xmark")
           .font(.system(size: 7, weight: .semibold))
-          .foregroundColor(Color(hex: "777777"))
+          .foregroundColor(theme.textMuted)
       }
     }
     .padding(4)
-    .background(background)
+    .background(color.opacity(0.3))
     .clipShape(RoundedRectangle(cornerRadius: 6))
     .overlay(
       RoundedRectangle(cornerRadius: 6)

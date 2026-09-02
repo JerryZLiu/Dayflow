@@ -7,14 +7,14 @@ struct WeeklyOverviewSection: View {
   private enum Design {
     static let sectionWidth: CGFloat = 958
     static let cornerRadius: CGFloat = 4
-    static let titleColor = Color(hex: "B46531")
-    static let borderColor = Color(hex: "EBE6E3")
-    static let topCardBackground = Color.white.opacity(0.6)
-    static let footerBackground = Color(hex: "FAF7F5")
-    static let bodyTextColor = Color(hex: "333333")
-    static let secondaryTextColor = Color(hex: "777777")
-    static let chartRowFill = Color(hex: "F2F2F2")
-    static let chartRowBorder = Color(hex: "E5E4E3")
+    static let titleColor = WeeklyPalette.title
+    static let borderColor = WeeklyPalette.cardBorder
+    static let topCardBackground = WeeklyPalette.cardFill
+    static let footerBackground = WeeklyPalette.footer
+    static let bodyTextColor = WeeklyPalette.text
+    static let secondaryTextColor = WeeklyPalette.secondaryText
+    static let chartRowFill = WeeklyPalette.rowFill
+    static let chartRowBorder = WeeklyPalette.rowBorder
     static let accentUnderline = Color(hex: "F0A54D")
     static let summaryDividerX: CGFloat = 295
 
@@ -195,8 +195,8 @@ private struct WeeklyOverviewTimelineChart: View {
     static let axisWidth: CGFloat = 837
     static let rowHeight: CGFloat = 18
     static let segmentHeight: CGFloat = 12
-    static let rowFill = Color(hex: "F2F2F2")
-    static let rowBorder = Color(hex: "E5E4E3")
+    static let rowFill = WeeklyPalette.rowFill
+    static let rowBorder = WeeklyPalette.rowBorder
     static let axisLabels = [
       "9am", "10am", "11am", "12pm", "1pm", "2pm", "3pm", "4pm", "5pm", "6pm",
     ]
@@ -209,7 +209,7 @@ private struct WeeklyOverviewTimelineChart: View {
           ForEach(snapshot.rows) { row in
             Text(row.label)
               .font(.custom("Figtree-Regular", size: 12))
-              .foregroundStyle(Color.black)
+              .foregroundStyle(WeeklyPalette.text)
               .frame(width: Design.dayLabelWidth, height: 14, alignment: .leading)
           }
         }
@@ -225,7 +225,7 @@ private struct WeeklyOverviewTimelineChart: View {
             ForEach(Design.axisLabels, id: \.self) { label in
               Text(label)
                 .font(.custom("Figtree-Regular", size: 10))
-                .foregroundStyle(Color.black)
+                .foregroundStyle(WeeklyPalette.text)
               if label != Design.axisLabels.last {
                 Spacer(minLength: 0)
               }
@@ -240,7 +240,7 @@ private struct WeeklyOverviewTimelineChart: View {
           HStack(spacing: 6) {
             Text(item.name)
               .font(.custom("Figtree-Regular", size: 10))
-              .foregroundStyle(Color.black)
+              .foregroundStyle(WeeklyPalette.text)
 
             RoundedRectangle(cornerRadius: 1.5, style: .continuous)
               .fill(Color(hex: item.colorHex))
@@ -263,8 +263,8 @@ private struct WeeklyOverviewTimelineBar: View {
     static let segmentHeight: CGFloat = 12
     static let visibleStartMinute = 9.0 * 60.0
     static let visibleEndMinute = 18.0 * 60.0
-    static let fill = Color(hex: "F2F2F2")
-    static let border = Color(hex: "E5E4E3")
+    static let fill = WeeklyPalette.rowFill
+    static let border = WeeklyPalette.rowBorder
   }
 
   var body: some View {
@@ -316,19 +316,19 @@ private struct WeeklyOverviewTabStrip: View {
       HStack(spacing: 12) {
         Text("All")
           .font(.custom("Figtree-Bold", size: 12))
-          .foregroundStyle(Color(hex: "333333"))
+          .foregroundStyle(WeeklyPalette.text)
 
         Text("Longest focus period")
           .font(.custom("Figtree-Medium", size: 12))
-          .foregroundStyle(Color(hex: "333333"))
+          .foregroundStyle(WeeklyPalette.text)
 
         Text("Least context shifts")
           .font(.custom("Figtree-Medium", size: 12))
-          .foregroundStyle(Color(hex: "333333"))
+          .foregroundStyle(WeeklyPalette.text)
 
         Text("Most context shifts")
           .font(.custom("Figtree-Medium", size: 12))
-          .foregroundStyle(Color(hex: "333333"))
+          .foregroundStyle(WeeklyPalette.text)
       }
 
       Rectangle()
@@ -346,18 +346,18 @@ private struct WeeklyOverviewSummaryGroup: View {
     HStack(alignment: .top, spacing: 20) {
       Text(title)
         .font(.custom("InstrumentSerif-Regular", size: 16))
-        .foregroundStyle(Color(hex: "B46531"))
+        .foregroundStyle(WeeklyPalette.title)
 
       HStack(alignment: .top, spacing: 20) {
         ForEach(metrics) { metric in
           VStack(alignment: .leading, spacing: 8) {
             Text(metric.label)
               .font(.custom("Figtree-Regular", size: 12))
-              .foregroundStyle(Color(hex: "777777"))
+              .foregroundStyle(WeeklyPalette.secondaryText)
 
             Text(metric.value)
               .font(.custom("InstrumentSerif-Regular", size: 18))
-              .foregroundStyle(Color(hex: "333333"))
+              .foregroundStyle(WeeklyPalette.text)
               .lineLimit(1)
           }
         }
@@ -482,5 +482,5 @@ extension WeeklyOverviewSnapshot {
 #Preview("Weekly Overview Section", traits: .fixedLayout(width: 958, height: 339)) {
   WeeklyOverviewSection(snapshot: .figmaPreview)
     .padding(24)
-    .background(Color(hex: "F7F3F0"))
+    .background(WeeklyPalette.canvas)
 }

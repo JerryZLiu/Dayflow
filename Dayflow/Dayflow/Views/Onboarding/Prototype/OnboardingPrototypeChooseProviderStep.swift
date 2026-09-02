@@ -375,13 +375,14 @@ struct OnboardingPrototypeChooseProviderStep: View {
           .fontWeight(.semibold)
           .tracking(-0.14)
       },
-      background: Color(hex: "402C00"),
+      background: Color(hex: "FF9F6F"),
       foreground: .white,
-      borderColor: .clear,
-      cornerRadius: 8,
+      borderColor: Color(hex: "F4C8B1"),
+      cornerRadius: 200,
       horizontalPadding: 40,
       verticalPadding: 8,
-      showOverlayStroke: true
+      showOverlayStroke: false,
+      innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)
     )
   }
 }

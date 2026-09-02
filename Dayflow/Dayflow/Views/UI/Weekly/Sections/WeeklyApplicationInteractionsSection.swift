@@ -21,16 +21,16 @@ private struct WeeklyApplicationNetworkPane: View {
 
   var body: some View {
     ZStack(alignment: .topLeading) {
-      Color(hex: "FBF6F0")
+      WeeklyPalette.canvas
 
       VStack(alignment: .leading, spacing: 7) {
         Text("Interactions between most used applications")
           .font(.custom("InstrumentSerif-Regular", size: 20))
-          .foregroundStyle(Color(hex: "B46531"))
+          .foregroundStyle(WeeklyPalette.title)
 
         Text(snapshot.subtitle)
           .font(.custom("Figtree-Regular", size: 12))
-          .foregroundStyle(Color.black)
+          .foregroundStyle(WeeklyPalette.text)
       }
       .offset(x: 29, y: 28)
 
@@ -81,7 +81,7 @@ private struct WeeklyApplicationNetworkPane: View {
 
       Text(title)
         .font(.custom("Figtree-Regular", size: 12))
-        .foregroundStyle(Color.black)
+        .foregroundStyle(WeeklyPalette.text)
     }
   }
 }
@@ -125,7 +125,7 @@ private struct WeeklyApplicationPatternsPane: View {
     VStack(alignment: .leading, spacing: 0) {
       Text("Most common work patterns")
         .font(.custom("InstrumentSerif-Regular", size: 20))
-        .foregroundStyle(Color(hex: "B46531"))
+        .foregroundStyle(WeeklyPalette.title)
         .padding(.top, 28)
         .padding(.leading, 24)
 
@@ -140,7 +140,7 @@ private struct WeeklyApplicationPatternsPane: View {
 
       Text("Distractions and rabbit holes")
         .font(.custom("InstrumentSerif-Regular", size: 20))
-        .foregroundStyle(Color(hex: "B46531"))
+        .foregroundStyle(WeeklyPalette.title)
         .padding(.top, 19)
         .padding(.leading, 24)
 
@@ -149,7 +149,7 @@ private struct WeeklyApplicationPatternsPane: View {
         .padding(.leading, 14)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background(Color.white)
+    .background(WeeklyPalette.solid)
   }
 }
 
@@ -179,7 +179,7 @@ private struct WeeklyPatternFlow: View {
 
       Text(pattern.description)
         .font(.custom("Figtree-Regular", size: 10))
-        .foregroundStyle(Color.black)
+        .foregroundStyle(WeeklyPalette.text)
         .lineSpacing(1)
         .frame(width: 340, alignment: .leading)
     }
@@ -198,7 +198,7 @@ private struct WeeklyPatternFlow: View {
 
       Text(app.name)
         .font(.custom("Figtree-Regular", size: 14))
-        .foregroundStyle(Color.black)
+        .foregroundStyle(WeeklyPalette.text)
         .lineLimit(1)
     }
   }
@@ -229,7 +229,7 @@ private struct WeeklyRabbitHoleFlow: View {
     .padding(.horizontal, 9)
     .padding(.vertical, 16)
     .frame(width: 365, height: 84, alignment: .topLeading)
-    .background(Color(hex: "F5F5F5"))
+    .background(WeeklyPalette.rowFill)
   }
 
   private func appName(_ app: WeeklyPatternApp) -> some View {
@@ -245,7 +245,7 @@ private struct WeeklyRabbitHoleFlow: View {
 
       Text(app.name)
         .font(.custom("Figtree-Regular", size: 14))
-        .foregroundStyle(Color.black)
+        .foregroundStyle(WeeklyPalette.text)
         .lineLimit(1)
     }
   }
@@ -270,14 +270,14 @@ private func averagePill(
       .frame(width: 12, height: 12)
       .overlay {
         Rectangle()
-          .fill(Color.white)
+          .fill(WeeklyPalette.solid)
           .frame(width: 1, height: 4)
           .offset(y: -1)
       }
 
     Text(text)
       .font(.custom("Figtree-Regular", size: 12))
-      .foregroundStyle(Color.black)
+      .foregroundStyle(WeeklyPalette.text)
       .lineLimit(1)
   }
   .padding(.horizontal, 7)
@@ -581,5 +581,5 @@ struct WeeklyPatternApp: Identifiable {
 #Preview("Application Interactions", traits: .fixedLayout(width: 958, height: 561)) {
   WeeklyApplicationInteractionsSection(snapshot: .figmaPreview)
     .padding(24)
-    .background(Color(hex: "FBF6EF"))
+    .background(WeeklyPalette.canvas)
 }

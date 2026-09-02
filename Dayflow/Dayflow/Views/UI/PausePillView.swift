@@ -8,6 +8,7 @@ import SwiftUI
 ///   Menu → Paused:  chips exit, pill 250→84 (bounce 0.2), content morph, status text in
 ///   Paused → Idle:  status out, pill 84→73 (bounce 0.35), content morph back
 struct PausePillView: View {
+  @Environment(\.dayflowTheme) private var theme
   @ObservedObject private var appState = AppState.shared
   @ObservedObject private var pauseManager = PauseManager.shared
 
@@ -98,7 +99,7 @@ struct PausePillView: View {
       if isStatusPresented {
         Text(statusText)
           .font(pillLabelFont)
-          .foregroundColor(Color(hex: "F3854B"))
+          .foregroundColor(theme.accent)
           .tracking(-0.36)
           .monospacedDigit()
           .lineLimit(1)
@@ -127,17 +128,17 @@ struct PausePillView: View {
 
   private var pill: some View {
     ZStack(alignment: .leading) {
+      // Idle/menu use the Figma "glass" control fill; paused keeps its orange.
       ZStack {
-        Grad.idle.opacity(phase == .idle ? 1 : 0)
-        Grad.menu.opacity(phase == .menu ? 1 : 0)
+        theme.controlFill.opacity(phase == .paused ? 0 : 1)
         Grad.paused.opacity(phase == .paused ? 1 : 0)
       }
       .allowsHitTesting(false)
       .animation(.easeInOut(duration: 0.35), value: phase)
 
       ZStack {
-        shineLayer(Col.shineIdle).opacity(phase == .idle ? 1 : 0)
-        shineLayer(Col.shineMenu).opacity(phase == .menu ? 1 : 0)
+        InnerGlow(shape: Capsule(), color: theme.controlInnerGlow, radius: 3)
+          .opacity(phase == .paused ? 0 : 1)
         shineLayer(Col.shinePaused).opacity(phase == .paused ? 1 : 0)
       }
       .allowsHitTesting(false)
@@ -164,8 +165,12 @@ struct PausePillView: View {
       }
 
       Capsule()
-        .strokeBorder(Color(hex: "FFE1C9"), lineWidth: 1.25)
+        .strokeBorder(
+          phase == .paused ? Color(hex: "FFE1C9") : theme.controlBorder,
+          lineWidth: 0.75
+        )
         .allowsHitTesting(false)
+        .animation(.easeInOut(duration: 0.35), value: phase)
     }
     .frame(width: pillWidth, height: 32)
     .clipShape(Capsule())
@@ -186,10 +191,10 @@ struct PausePillView: View {
 
   private var primaryContent: some View {
     HStack(spacing: 4) {
-      PillPauseIcon()
+      PillPauseIcon(color: theme.controlText)
       Text("Pause")
         .font(pillLabelFont)
-        .foregroundColor(Color(hex: "786655"))
+        .foregroundColor(theme.controlText)
         .lineLimit(1)
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -249,16 +254,16 @@ struct PausePillView: View {
       startPause(chip.duration)
     } label: {
       ZStack {
-        Capsule().fill(Grad.chip)
+        Capsule().fill(theme.isDark ? AnyShapeStyle(theme.chipFill) : AnyShapeStyle(Grad.chip))
         Capsule().fill(Grad.chipHover).opacity(hovered ? 1 : 0)
-        Capsule().strokeBorder(Color.white.opacity(0.6), lineWidth: 1)
+        Capsule().strokeBorder(theme.chipBorder.opacity(0.8), lineWidth: 1)
         Text(chip.label)
           .font(
             chip.isInf
               ? .system(size: 11, weight: .medium)
               : .system(size: 8, weight: .semibold)
           )
-          .foregroundColor(hovered ? .white : Color(hex: "494949"))
+          .foregroundColor(hovered ? .white : theme.textPrimary)
       }
       .frame(width: 42, height: 20)
       .contentShape(Capsule())
@@ -600,9 +605,10 @@ struct PausePillView: View {
 // MARK: - Pill Icons
 
 private struct PillPauseIcon: View {
+  let color: Color
+
   var body: some View {
     Canvas { ctx, _ in
-      let color = Color(hex: "786655")
       ctx.fill(Path(CGRect(x: 3, y: 2.5, width: 2, height: 7)), with: .color(color))
       ctx.fill(Path(CGRect(x: 7, y: 2.5, width: 2, height: 7)), with: .color(color))
     }
@@ -640,26 +646,6 @@ private struct PillChipButtonStyle: ButtonStyle {
 // MARK: - Gradients (exact from React CSS tokens)
 
 private enum Grad {
-  static let idle = LinearGradient(
-    stops: [
-      .init(color: Color(red: 1, green: 0.973, blue: 0.949).opacity(0.6), location: 0),
-      .init(color: Color(red: 1, green: 0.906, blue: 0.827).opacity(0.6), location: 0.495),
-      .init(color: Color(red: 1, green: 0.804, blue: 0.690).opacity(0.6), location: 0.755),
-      .init(color: Color(red: 1, green: 0.906, blue: 0.827).opacity(0.6), location: 1),
-    ],
-    startPoint: .top, endPoint: .bottom
-  )
-
-  static let menu = LinearGradient(
-    stops: [
-      .init(color: Color(red: 0.973, green: 0.784, blue: 0.675).opacity(0.6), location: 0),
-      .init(color: Color(red: 1, green: 0.906, blue: 0.835).opacity(0.6), location: 0.14),
-      .init(color: Color(red: 1, green: 0.816, blue: 0.694).opacity(0.6), location: 0.688),
-      .init(color: Color(red: 0.973, green: 0.784, blue: 0.675).opacity(0.6), location: 1),
-    ],
-    startPoint: .top, endPoint: .bottom
-  )
-
   static let paused = LinearGradient(
     stops: [
       .init(color: Color(red: 1, green: 0.714, blue: 0.608), location: 0),
@@ -696,8 +682,6 @@ private enum Grad {
 // MARK: - Shine Colors (inset glow per state)
 
 private enum Col {
-  static let shineIdle = Color.white.opacity(0.5)
-  static let shineMenu = Color(red: 0.949, green: 0.749, blue: 0.655).opacity(0.5)
   static let shinePaused = Color(red: 1, green: 0.894, blue: 0.761).opacity(0.5)
 }
 

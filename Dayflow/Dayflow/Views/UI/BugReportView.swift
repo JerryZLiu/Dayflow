@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct BugReportView: View {
+  @Environment(\.dayflowTheme) private var theme
   private let emailAddress = "jerry@dayflow.so"
   private let discordInviteURL = URL(string: "https://discord.gg/9YPAtctE6k")
   private let callBookingURL = URL(string: "https://cal.com/jerry-liu/15min")
@@ -16,13 +17,13 @@ struct BugReportView: View {
       VStack(spacing: 16) {
         Text("Thanks for using Dayflow")
           .font(.custom("InstrumentSerif-Regular", size: 40))
-          .foregroundColor(.black.opacity(0.9))
+          .foregroundColor(theme.textPrimary)
 
         Text(
           "Email works great if you want to drop a quick note, Discord if you want to join the community, and if you’d prefer to chat, find some time on my calendar - I’d love to dig into why Dayflow is or isn’t working well for you."
         )
         .font(.custom("Figtree", size: 16))
-        .foregroundColor(.black.opacity(0.65))
+        .foregroundColor(theme.textSecondary)
         .multilineTextAlignment(.center)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: 520)
@@ -31,7 +32,7 @@ struct BugReportView: View {
         VStack(spacing: 12) {
           Text("Reach out")
             .font(.custom("Figtree", size: 14).weight(.medium))
-            .foregroundColor(.black.opacity(0.55))
+            .foregroundColor(theme.textMuted)
             .textCase(.uppercase)
             .tracking(0.75)
 
@@ -46,9 +47,9 @@ struct BugReportView: View {
                     .font(.custom("Figtree", size: 16).weight(.semibold))
                 }
               },
-              background: Color.white,
-              foreground: Color.black,
-              borderColor: Color.black.opacity(0.12),
+              background: theme.secondaryButtonFill,
+              foreground: theme.textPrimary,
+              borderColor: theme.textPrimary,
               cornerRadius: 18,
               horizontalPadding: 28,
               verticalPadding: 16,
@@ -68,9 +69,9 @@ struct BugReportView: View {
                     .font(.custom("Figtree", size: 16).weight(.semibold))
                 }
               },
-              background: Color.white,
-              foreground: Color.black,
-              borderColor: Color.black.opacity(0.12),
+              background: theme.secondaryButtonFill,
+              foreground: theme.textPrimary,
+              borderColor: theme.textPrimary,
               cornerRadius: 18,
               horizontalPadding: 28,
               verticalPadding: 16,
@@ -87,9 +88,9 @@ struct BugReportView: View {
                     .font(.custom("Figtree", size: 16).weight(.semibold))
                 }
               },
-              background: Color.white,
-              foreground: Color.black,
-              borderColor: Color.black.opacity(0.12),
+              background: theme.secondaryButtonFill,
+              foreground: theme.textPrimary,
+              borderColor: theme.textPrimary,
               cornerRadius: 18,
               horizontalPadding: 28,
               verticalPadding: 16,
@@ -101,7 +102,7 @@ struct BugReportView: View {
         VStack(spacing: 12) {
           Text("Quick utilities")
             .font(.custom("Figtree", size: 14).weight(.medium))
-            .foregroundColor(.black.opacity(0.55))
+            .foregroundColor(theme.textMuted)
             .textCase(.uppercase)
             .tracking(0.75)
 
@@ -116,9 +117,9 @@ struct BugReportView: View {
                     .font(.custom("Figtree", size: 15).weight(.semibold))
                 }
               },
-              background: Color.white,
-              foreground: Color.black,
-              borderColor: Color.black.opacity(0.12),
+              background: theme.secondaryButtonFill,
+              foreground: theme.textPrimary,
+              borderColor: theme.textPrimary,
               cornerRadius: 14,
               horizontalPadding: 22,
               verticalPadding: 14,
@@ -139,9 +140,9 @@ struct BugReportView: View {
                   .font(.custom("Figtree", size: 15).weight(.semibold))
                 }
               },
-              background: Color.white,
-              foreground: Color.black,
-              borderColor: Color.black.opacity(0.12),
+              background: theme.secondaryButtonFill,
+              foreground: theme.textPrimary,
+              borderColor: theme.textPrimary,
               cornerRadius: 14,
               horizontalPadding: 20,
               verticalPadding: 14,

@@ -83,9 +83,9 @@ extension ChatView {
 
   var composerBorderColor: Color {
     if isInputFocused {
-      return Color(hex: "F4A867")
+      return theme.accent
     }
-    return Color(hex: "E5D8CA")
+    return theme.inputBorder
   }
 
   var memoryCharacterCount: Int {

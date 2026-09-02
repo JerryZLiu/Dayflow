@@ -5,10 +5,12 @@ struct TabFilterBar: View {
   let idleCategory: TimelineCategory?
   let onManageCategories: () -> Void
 
+  @Environment(\.dayflowTheme) private var theme
   @State private var chipRowWidth: CGFloat = 0
 
   private let editButtonSize: CGFloat = 24
   private let chipButtonSpacing: CGFloat = 8
+  private let chipRowHeight: CGFloat = 26
 
   var body: some View {
     GeometryReader { geometry in
@@ -46,6 +48,8 @@ struct TabFilterBar: View {
   }
 
   struct CategoryChip: View {
+    @Environment(\.dayflowTheme) private var theme
+
     let category: TimelineCategory
     let isIdle: Bool
 
@@ -56,23 +60,19 @@ struct TabFilterBar: View {
           .frame(width: 10, height: 10)
 
         Text(category.name)
-          .font(
-            Font.custom("Figtree", size: 13)
-              .weight(.medium)
-          )
-          .foregroundColor(Color(red: 0.2, green: 0.2, blue: 0.2))
+          .font(Font.custom("Figtree", size: 13).weight(.medium))
+          .foregroundColor(theme.chipText)
           .lineLimit(1)
           .fixedSize()
       }
       .padding(.horizontal, 8)
       .padding(.vertical, 5)
       .frame(height: 26)
-      .background(.white.opacity(0.76))
-      .cornerRadius(6)
+      .background(theme.chipFill)
+      .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
       .overlay(
-        RoundedRectangle(cornerRadius: 6)
-          .inset(by: 0.25)
-          .stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.5)
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+          .strokeBorder(theme.chipBorder, lineWidth: 0.5)
       )
     }
   }
@@ -81,9 +81,9 @@ struct TabFilterBar: View {
     ScrollView(.horizontal, showsIndicators: false) {
       chipRowContent
         .fixedSize(horizontal: true, vertical: false)
-        .frame(height: 26)
+        .frame(height: chipRowHeight)
     }
-    .frame(width: max(0, width), height: 26, alignment: .leading)
+    .frame(width: max(0, width), height: chipRowHeight, alignment: .leading)
     .clipped()
   }
 
@@ -119,7 +119,7 @@ struct TabFilterBar: View {
 
   private var overflowGradient: some View {
     LinearGradient(
-      gradient: Gradient(colors: [Color.clear, Color(hex: "FFF8F1")]),
+      gradient: Gradient(colors: [Color.clear, theme.panelSolid]),
       startPoint: .leading,
       endPoint: .trailing
     )

@@ -77,7 +77,7 @@ struct WeeklySankeyCard: View {
 
       Text("Weekly breakdown")
         .font(.custom("InstrumentSerif-Regular", size: 20))
-        .foregroundStyle(Color(hex: "B46531"))
+        .foregroundStyle(WeeklyPalette.title)
         .offset(
           x: scale.displayX(72),
           y: scale.displayY(64)
@@ -320,7 +320,7 @@ private struct WeeklySankeyPlainLabel: View {
     VStack(alignment: .leading, spacing: 2) {
       Text(node.name)
         .font(.custom("Figtree-Regular", size: 10))
-        .foregroundStyle(Color.black)
+        .foregroundStyle(WeeklyPalette.text)
         .lineLimit(1)
 
       metaLine(fontSize: 10)
@@ -338,12 +338,12 @@ private struct WeeklySankeyPlainLabel: View {
     HStack(alignment: .top, spacing: 4) {
       Text(node.metric)
       Rectangle()
-        .fill(Color(hex: "CFC7C1"))
+        .fill(WeeklyPalette.swatchNeutral)
         .frame(width: 0.5, height: 11)
       Text(node.percent)
     }
     .font(.custom("Figtree-Regular", size: fontSize))
-    .foregroundStyle(Color(hex: "717171"))
+    .foregroundStyle(WeeklyPalette.secondaryText)
     .lineLimit(1)
   }
 }
@@ -363,18 +363,18 @@ private struct WeeklySankeyAppLabel: View {
       HStack(alignment: .firstTextBaseline, spacing: 5) {
         Text(node.name)
           .font(.custom("Figtree-Regular", size: 10))
-          .foregroundStyle(Color.black)
+          .foregroundStyle(WeeklyPalette.text)
           .lineLimit(1)
 
         HStack(alignment: .firstTextBaseline, spacing: 3) {
           Text(node.metric)
           Rectangle()
-            .fill(Color(hex: "CFC7C1"))
+            .fill(WeeklyPalette.swatchNeutral)
             .frame(width: 0.5, height: 10)
           Text(node.percent)
         }
         .font(.custom("Figtree-Regular", size: 9))
-        .foregroundStyle(Color(hex: "717171"))
+        .foregroundStyle(WeeklyPalette.secondaryText)
         .lineLimit(1)
       }
       .lineLimit(1)

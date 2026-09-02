@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct GoalReviewCard: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let kind: DayGoalCategoryKind
   let title: String
   let subtitle: String
@@ -9,7 +11,7 @@ struct GoalReviewCard: View {
   let categories: [DayGoalCategoryResult]
 
   private var accent: Color {
-    kind == .focus ? Color(hex: "628CFF") : Color(hex: "FA8282")
+    kind == .focus ? theme.sheetFocusHeader : theme.sheetDistractionHeader
   }
 
   private var iconName: String {
@@ -38,7 +40,7 @@ struct GoalReviewCard: View {
           Text(subtitle)
         }
         .font(.custom("Figtree", size: 15))
-        .foregroundColor(.black)
+        .foregroundColor(theme.textPrimary)
 
         Spacer()
 
@@ -53,7 +55,7 @@ struct GoalReviewCard: View {
         GeometryReader { geometry in
           ZStack(alignment: kind == .focus ? .leading : .trailing) {
             RoundedRectangle(cornerRadius: 4)
-              .fill(Color(hex: "E4E4E4"))
+              .fill(theme.targetsTrackFill)
 
             RoundedRectangle(cornerRadius: 6)
               .fill(accent)
@@ -75,16 +77,13 @@ struct GoalReviewCard: View {
     .padding(.horizontal, 24)
     .padding(.vertical, kind == .focus ? 18 : 18)
     .frame(width: 388, height: kind == .focus ? 236 : 123, alignment: .topLeading)
-    .background(Color.white.opacity(0.8))
+    .background(theme.sheetCardFill)
     .clipShape(RoundedRectangle(cornerRadius: 8))
     .overlay(
       RoundedRectangle(cornerRadius: 8)
-        .stroke(kind == .focus ? Color(hex: "CEDBFF") : Color(hex: "FFCDCD"), lineWidth: 1)
+        .stroke(theme.sheetCardBorder, lineWidth: 1)
     )
-    .shadow(
-      color: (kind == .focus ? Color(hex: "8BAAFF") : Color(hex: "FA8282")).opacity(0.75),
-      radius: 10
-    )
+    .shadow(color: accent.opacity(theme.isDark ? 0.35 : 0.5), radius: 10)
   }
 
   private var resultBadge: some View {
@@ -109,6 +108,8 @@ struct GoalReviewCard: View {
 }
 
 private struct GoalCategoryBreakdown: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let categories: [DayGoalCategoryResult]
 
   var body: some View {
@@ -116,14 +117,14 @@ private struct GoalCategoryBreakdown: View {
       if categories.isEmpty {
         Text("No focus categories tracked")
           .font(.custom("Figtree", size: 12))
-          .foregroundColor(Color(hex: "777777"))
+          .foregroundColor(theme.textSecondary)
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
       } else {
         ForEach(categories.prefix(4)) { category in
           HStack(spacing: 9) {
             Text(category.name)
               .font(.custom("Figtree", size: 12))
-              .foregroundColor(Color(hex: "333333"))
+              .foregroundColor(theme.textPrimary)
               .lineLimit(1)
               .frame(width: 74, alignment: .leading)
 
@@ -133,7 +134,7 @@ private struct GoalCategoryBreakdown: View {
 
             Text(formatDuration(category.duration))
               .font(.custom("Figtree", size: 8))
-              .foregroundColor(.black)
+              .foregroundColor(theme.textPrimary)
               .lineLimit(1)
 
             Spacer(minLength: 0)
@@ -143,8 +144,12 @@ private struct GoalCategoryBreakdown: View {
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 12)
-    .background(Color(hex: "F4F4F4"))
+    .background(theme.sheetInnerBoxFill)
     .clipShape(RoundedRectangle(cornerRadius: 4))
+    .overlay(
+      RoundedRectangle(cornerRadius: 4)
+        .stroke(theme.sheetInnerBoxBorder, lineWidth: 1)
+    )
   }
 
   private func barWidth(for category: DayGoalCategoryResult) -> CGFloat {
@@ -167,12 +172,14 @@ private struct GoalCategoryBreakdown: View {
 }
 
 private struct GoalIconBubble: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let kind: DayGoalCategoryKind
 
   var body: some View {
     ZStack {
       Circle()
-        .fill(Color(hex: "E4E4E4"))
+        .fill(theme.targetsBubbleFill)
         .overlay(Circle().stroke(accent, lineWidth: 1))
 
       Image(kind == .focus ? "DayGoalFocus" : "DayGoalDistraction")
@@ -184,6 +191,6 @@ private struct GoalIconBubble: View {
   }
 
   private var accent: Color {
-    kind == .focus ? Color(hex: "8BAAFF") : Color(hex: "FA8282")
+    kind == .focus ? theme.sheetFocusHeader : theme.sheetDistractionHeader
   }
 }

@@ -4,6 +4,8 @@ import SwiftUI
 import UserNotifications
 
 struct DailyWorkflowGrid: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let rows: [DailyWorkflowGridRow]
   let timelineWindow: DailyWorkflowTimelineWindow
   let distractionMarkers: [DailyWorkflowDistractionMarker]
@@ -79,13 +81,13 @@ struct DailyWorkflowGrid: View {
             ForEach(renderRows) { row in
               Text(row.name)
                 .font(.custom("Figtree-Regular", size: categoryLabelFontSize))
-                .foregroundStyle(Color.black.opacity(0.9))
+                .foregroundStyle(theme.textSecondary)
                 .frame(width: effectiveLabelWidth, height: cellSize, alignment: .trailing)
             }
             if showDistractions {
               Text("Distractions")
                 .font(.custom("Figtree-Regular", size: categoryLabelFontSize))
-                .foregroundStyle(Color.black.opacity(0.9))
+                .foregroundStyle(theme.textSecondary)
                 .frame(
                   width: effectiveLabelWidth, height: distractionRowHeight, alignment: .trailing
                 )
@@ -126,9 +128,12 @@ struct DailyWorkflowGrid: View {
                   let totalMinutes = timelineWindow.endMinute - timelineWindow.startMinute
 
                   ZStack(alignment: .topLeading) {
-                    Rectangle()
-                      .fill(Color(red: 0.95, green: 0.93, blue: 0.92))
-                      .cornerRadius(distractionCornerRadius)
+                    RoundedRectangle(cornerRadius: distractionCornerRadius)
+                      .fill(theme.dailyDistractionTrack)
+                      .overlay(
+                        RoundedRectangle(cornerRadius: distractionCornerRadius)
+                          .stroke(theme.dailyDistractionTrackBorder, lineWidth: 0.5)
+                      )
                       .frame(width: gridWidth, height: distractionRowHeight)
 
                     ForEach(distractionMarkers) { marker in
@@ -143,7 +148,7 @@ struct DailyWorkflowGrid: View {
                       HStack(spacing: 0) {
                         Color.clear.frame(width: leadingPad, height: distractionRowHeight)
                         Rectangle()
-                          .fill(Color(hex: "FF5950"))
+                          .fill(Color(hex: "FF653B"))
                           .opacity(hoveredDistractionId == marker.id ? 1.0 : 0.85)
                           .cornerRadius(distractionCornerRadius)
                           .frame(width: markerWidth, height: distractionRowHeight)
@@ -171,7 +176,7 @@ struct DailyWorkflowGrid: View {
 
               VStack(alignment: .leading, spacing: axisLabelSpacing) {
                 Rectangle()
-                  .fill(Color(hex: "E0D9D5"))
+                  .fill(theme.dailyGridBorder)
                   .frame(width: axisWidth, height: max(0.7, 0.9 * layoutScale))
 
                 if hourTicks.count > 1 {
@@ -185,7 +190,7 @@ struct DailyWorkflowGrid: View {
                       Text(formatAxisHourLabel(fromAbsoluteHour: hour))
                         .font(.custom("Figtree-Regular", size: axisLabelFontSize))
                         .kerning(-0.08 * layoutScale)
-                        .foregroundStyle(Color.black.opacity(0.78))
+                        .foregroundStyle(theme.textSecondary)
                         .frame(
                           width: labelWidth,
                           alignment: axisLabelAlignment(
@@ -209,7 +214,7 @@ struct DailyWorkflowGrid: View {
                   Text(formatAxisHourLabel(fromAbsoluteHour: onlyTick))
                     .font(.custom("Figtree-Regular", size: axisLabelFontSize))
                     .kerning(-0.08 * layoutScale)
-                    .foregroundStyle(Color.black.opacity(0.78))
+                    .foregroundStyle(theme.textSecondary)
                     .frame(width: axisWidth, alignment: .leading)
                 }
               }
@@ -251,10 +256,10 @@ struct DailyWorkflowGrid: View {
 
   private func fillColor(for row: DailyWorkflowGridRow, slotIndex: Int) -> Color {
     guard slotIndex < row.slotOccupancies.count else {
-      return Color(red: 0.95, green: 0.93, blue: 0.92)
+      return theme.dailyEmptyCell
     }
     let occupancy = min(max(row.slotOccupancies[slotIndex], 0), 1)
-    guard occupancy > 0 else { return Color(red: 0.95, green: 0.93, blue: 0.92) }
+    guard occupancy > 0 else { return theme.dailyEmptyCell }
 
     // Partial occupancy stays dimmer; full occupancy reaches full intensity.
     let alpha = 0.3 + (occupancy * 0.7)
@@ -376,30 +381,45 @@ func workflowTooltip(
   accentColor: Color,
   layoutScale: CGFloat
 ) -> some View {
-  VStack(alignment: .leading, spacing: 4 * layoutScale) {
-    Text(formatDurationValue(durationMinutes))
-      .font(.custom("Figtree-SemiBold", size: 12 * layoutScale))
-      .foregroundStyle(accentColor)
-    Text(title)
-      .font(.custom("Figtree-Regular", size: 12 * layoutScale))
-      .foregroundStyle(Color.black)
-      .fixedSize(horizontal: false, vertical: true)
-  }
-  .padding(8 * layoutScale)
-  .frame(width: 200 * layoutScale, alignment: .leading)
-  .background(tooltipBackground(layoutScale: layoutScale))
-  .allowsHitTesting(false)
+  DailyWorkflowTooltip(
+    durationMinutes: durationMinutes,
+    title: title,
+    accentColor: accentColor,
+    layoutScale: layoutScale
+  )
 }
 
-func tooltipBackground(layoutScale: CGFloat) -> some View {
-  RoundedRectangle(cornerRadius: 4, style: .continuous)
-    .fill(Color.white)
-    .overlay(
+struct DailyWorkflowTooltip: View {
+  @Environment(\.dayflowTheme) private var theme
+
+  let durationMinutes: Double
+  let title: String
+  let accentColor: Color
+  let layoutScale: CGFloat
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4 * layoutScale) {
+      Text(formatDurationValue(durationMinutes))
+        .font(.custom("Figtree-SemiBold", size: 12 * layoutScale))
+        .foregroundStyle(accentColor)
+      Text(title)
+        .font(.custom("Figtree-Regular", size: 12 * layoutScale))
+        .foregroundStyle(theme.textPrimary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .padding(8 * layoutScale)
+    .frame(width: 200 * layoutScale, alignment: .leading)
+    .background(
       RoundedRectangle(cornerRadius: 4, style: .continuous)
-        .stroke(Color(hex: "EDE0CE"), lineWidth: 1)
+        .fill(theme.popoverFill)
+        .overlay(
+          RoundedRectangle(cornerRadius: 4, style: .continuous)
+            .stroke(theme.popoverBorder, lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 2, x: 0, y: 2)
     )
-    .shadow(
-      color: Color(red: 1, green: 0.63, blue: 0.54).opacity(0.25), radius: 2, x: 0, y: 2)
+    .allowsHitTesting(false)
+  }
 }
 
 struct DailyStatChip: View {

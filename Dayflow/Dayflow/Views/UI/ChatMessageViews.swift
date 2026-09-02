@@ -5,6 +5,8 @@ import SwiftUI
 // MARK: - Message Bubble
 
 struct MessageBubble: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let message: ChatMessage
 
   var body: some View {
@@ -27,7 +29,7 @@ struct MessageBubble: View {
         .textSelection(.enabled)
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color(hex: "F98D3D"))
+        .background(theme.accent)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
   }
@@ -50,11 +52,11 @@ struct MessageBubble: View {
       }
       .padding(.horizontal, 14)
       .padding(.vertical, 10)
-      .background(Color.white)
+      .background(theme.summaryCardFill)
       .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
       .overlay(
         RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .stroke(Color(hex: "E8E8E8"), lineWidth: 1)
+          .stroke(theme.summaryCardBorder, lineWidth: 1)
       )
       .contextMenu {
         Button("Copy") {
@@ -166,6 +168,8 @@ struct ChatMessageRow: View {
 }
 
 struct AssistantMessageFeedbackRow: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let selectedDirection: TimelineRatingDirection?
   let showsThanks: Bool
   let onCopy: () -> Void
@@ -195,7 +199,7 @@ struct AssistantMessageFeedbackRow: View {
       if showsThanks {
         Text("Thanks")
           .font(.custom("Figtree", size: 11).weight(.semibold))
-          .foregroundColor(Color(hex: "9A7C60"))
+          .foregroundColor(theme.textSecondary)
           .transition(thanksTransition)
       }
     }
@@ -204,6 +208,8 @@ struct AssistantMessageFeedbackRow: View {
 }
 
 struct AssistantMessageIconButton: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let systemName: String
   let accessibilityLabel: String
   let action: () -> Void
@@ -222,15 +228,15 @@ struct AssistantMessageIconButton: View {
     Button(action: action) {
       Image(systemName: systemName)
         .font(.system(size: 11, weight: .semibold))
-        .foregroundColor(Color(hex: "8F8F8F"))
+        .foregroundColor(theme.textMuted)
         .frame(width: 22, height: 22)
         .background(
           Circle()
-            .fill(isHovered ? Color.white : Color.clear)
+            .fill(isHovered ? theme.summaryCardFill : Color.clear)
         )
         .overlay(
           Circle()
-            .stroke(Color(hex: "E4E4E4"), lineWidth: isHovered ? 1 : 0)
+            .stroke(theme.summaryCardBorder, lineWidth: isHovered ? 1 : 0)
         )
     }
     .buttonStyle(.plain)

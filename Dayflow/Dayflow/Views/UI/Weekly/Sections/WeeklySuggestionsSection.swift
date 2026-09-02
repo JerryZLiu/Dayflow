@@ -7,7 +7,7 @@ struct WeeklySuggestionsSection: View {
     VStack(alignment: .leading, spacing: 24) {
       Text(snapshot.title)
         .font(.custom("InstrumentSerif-Regular", size: 24))
-        .foregroundStyle(Color(hex: "B46531"))
+        .foregroundStyle(WeeklyPalette.title)
 
       ViewThatFits(in: .horizontal) {
         HStack(alignment: .top, spacing: 32) {
@@ -38,10 +38,10 @@ struct WeeklySuggestionsSection: View {
     .padding(.horizontal, 36)
     .padding(.vertical, 28)
     .frame(maxWidth: .infinity, alignment: .topLeading)
-    .background(Color.white.opacity(0.75))
+    .background(WeeklyPalette.cardFillStrong)
     .overlay(
       RoundedRectangle(cornerRadius: 4, style: .continuous)
-        .stroke(Color(hex: "EBE6E3"), lineWidth: 1)
+        .stroke(WeeklyPalette.cardBorder, lineWidth: 1)
     )
     .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
   }
@@ -50,7 +50,7 @@ struct WeeklySuggestionsSection: View {
     VStack(alignment: .leading, spacing: 12) {
       Text(title)
         .font(.custom("Figtree-Bold", size: 14))
-        .foregroundStyle(Color(hex: "B46531"))
+        .foregroundStyle(WeeklyPalette.title)
 
       VStack(alignment: .leading, spacing: 12) {
         ForEach(items) { item in
@@ -73,7 +73,7 @@ struct WeeklySuggestionsSection: View {
         .font(.custom("Figtree-Bold", size: 12))
         + Text(" - \(item.detail)")
         .font(.custom("Figtree-Regular", size: 12)))
-        .foregroundStyle(Color(hex: "333333"))
+        .foregroundStyle(WeeklyPalette.text)
         .lineSpacing(2)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -150,5 +150,5 @@ struct WeeklySuggestionEntry: Identifiable {
 #Preview("1:1 Suggestions", traits: .fixedLayout(width: 958, height: 328)) {
   WeeklySuggestionsSection(snapshot: .figmaPreview)
     .padding(24)
-    .background(Color(hex: "F7F3F0"))
+    .background(WeeklyPalette.canvas)
 }

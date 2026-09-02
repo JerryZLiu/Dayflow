@@ -8,6 +8,7 @@ struct CanvasActivityCardStyle {
 }
 
 struct CanvasActivityCard: View {
+  @Environment(\.dayflowTheme) private var theme
   @AppStorage("showTimelineAppIcons") private var showTimelineAppIcons: Bool = true
   @State private var isHovering = false
 
@@ -65,15 +66,15 @@ struct CanvasActivityCard: View {
   private var backupIndicator: some View {
     Text("!")
       .font(Font.custom("Figtree", size: 9).weight(.semibold))
-      .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
+      .foregroundColor(theme.textSecondary)
       .frame(width: 14, height: 14)
       .background(
         Circle()
-          .fill(Color(red: 0.96, green: 0.94, blue: 0.91).opacity(0.9))
+          .fill(theme.chipFill)
       )
       .overlay(
         Circle()
-          .stroke(Color(red: 0.9, green: 0.9, blue: 0.9), lineWidth: 0.75)
+          .stroke(theme.chipBorder, lineWidth: 0.75)
       )
       .help(
         "This card fell back to a lower-quality Gemini model due to rate limiting, so output quality may be lower."
@@ -120,7 +121,7 @@ struct CanvasActivityCard: View {
               if let statusLine = statusLine {
                 Text(statusLine)
                   .font(Font.custom("Figtree", size: secondaryFontSize))
-                  .foregroundColor(Color(red: 0.55, green: 0.45, blue: 0.4))
+                  .foregroundColor(theme.textSecondary)
                   .lineLimit(1)
                   .truncationMode(.tail)
               }
@@ -172,13 +173,23 @@ struct CanvasActivityCard: View {
         maxHeight: height,
         alignment: isCompactCard ? .leading : .topLeading
       )
-      .background(isFailedCard ? Color(hex: "FFECE4") : Color(hex: "FFFBF8"))
+      .background(isFailedCard ? theme.cardFailedFill : theme.cardFill)
+      .background(theme.panelSolid)
       .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+      .overlay {
+        if !isFailedCard {
+          InnerGlow(
+            shape: RoundedRectangle(cornerRadius: 2, style: .continuous),
+            color: theme.cardInnerGlow,
+            radius: 3
+          )
+        }
+      }
       .overlay(
         RoundedRectangle(cornerRadius: 2, style: .continuous)
           .inset(by: 0.25)
           .stroke(
-            isFailedCard ? Color(red: 1, green: 0.16, blue: 0.11) : Color(hex: "E8E8E8"),
+            isFailedCard ? Color(red: 1, green: 0.16, blue: 0.11) : theme.cardBorder,
             style: isFailedCard
               ? StrokeStyle(lineWidth: 0.5, dash: [2.5, 2.5]) : StrokeStyle(lineWidth: 0.25)
           )

@@ -113,7 +113,8 @@ extension MainView {
   var timelineInspectorWidth: CGFloat {
     switch timelineMode {
     case .day:
-      return 358
+      // 358pt of content plus the 5pt inset the panel card sits in.
+      return 363
     case .week:
       return isWeekTimelineInspectorVisible ? weekInspectorWidth : 0
     }

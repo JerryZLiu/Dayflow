@@ -8,6 +8,7 @@ import SwiftUI
 
 struct AppRootView: View {
   @EnvironmentObject private var categoryStore: CategoryStore
+  @Binding var isShowingGitHubStarPrompt: Bool
   @State private var whatsNewNote: ReleaseNote? = nil
   @State private var activeWhatsNewVersion: String? = nil
   @State private var shouldMarkWhatsNewSeen = false
@@ -31,6 +32,9 @@ struct AppRootView: View {
           shouldMarkWhatsNewSeen = true
         }
       }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        showGitHubStarPromptIfEligible(source: "launch")
+      }
     }
     .onReceive(NotificationCenter.default.publisher(for: .showWhatsNew)) { _ in
       guard let release = WhatsNewConfiguration.latestRelease() else { return }
@@ -45,6 +49,14 @@ struct AppRootView: View {
           "version": release.version
         ])
     }
+    .onReceive(NotificationCenter.default.publisher(for: .timelineDataUpdated)) { _ in
+      showGitHubStarPromptIfEligible(source: "first_card")
+    }
+    .onChange(of: whatsNewNote == nil) { _, isDismissed in
+      if isDismissed {
+        showGitHubStarPromptIfEligible(source: "launch")
+      }
+    }
     .sheet(item: $whatsNewNote, onDismiss: handleWhatsNewDismissed) { note in
       ZStack {
         // Backdrop
@@ -55,8 +67,7 @@ struct AppRootView: View {
           closeWhatsNew()
         }
       }
-      .environment(\.colorScheme, .light)
-      .preferredColorScheme(.light)
+      .resolveDayflowTheme()
     }
   }
 
@@ -75,6 +86,21 @@ struct AppRootView: View {
       .ignoresSafeArea()
       .transition(.opacity.combined(with: .scale(scale: 0.985)))
       .zIndex(3)
+    }
+  }
+
+  private func showGitHubStarPromptIfEligible(source: String) {
+    guard !isShowingGitHubStarPrompt,
+      whatsNewNote == nil,
+      goalFlowPresentation == nil,
+      !GitHubStarPromptState.hasShown,
+      StorageManager.shared.hasAnyTimelineCards()
+    else { return }
+
+    GitHubStarPromptState.markShown()
+    AnalyticsService.shared.capture("github_star_prompt_shown", ["source": source])
+    withAnimation(.spring(response: 0.34, dampingFraction: 0.88)) {
+      isShowingGitHubStarPrompt = true
     }
   }
 
@@ -101,6 +127,7 @@ struct AppRootView: View {
       ])
     activeWhatsNewVersion = nil
     shouldMarkWhatsNewSeen = false
+    showGitHubStarPromptIfEligible(source: "launch")
   }
 
   private var currentAppVersion: String {
@@ -112,11 +139,13 @@ struct AppRootView: View {
 struct DayflowApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
   @AppStorage("didOnboard") private var didOnboard = false
+  @AppStorage(DayflowAppearance.storageKey) private var appearance: DayflowAppearance = .system
   @AppStorage("useBlankUI") private var useBlankUI = false
   @AppStorage("hasCompletedJournalOnboarding") private var hasCompletedJournalOnboarding = false
   @State private var showVideoLaunch = true
   @State private var contentOpacity = 0.0
   @State private var contentScale = 0.98
+  @State private var isShowingGitHubStarPrompt = false
   @StateObject private var categoryStore = CategoryStore()
   @StateObject private var journalCoordinator = JournalCoordinator()
 
@@ -135,15 +164,17 @@ struct DayflowApp: App {
         Group {
           if didOnboard {
             // Show UI after onboarding
-            AppRootView()
+            AppRootView(isShowingGitHubStarPrompt: $isShowingGitHubStarPrompt)
               .environmentObject(categoryStore)
               .environmentObject(updaterManager)
               .environmentObject(journalCoordinator)
           } else if !showVideoLaunch {
+            // Onboarding is designed light-only.
             OnboardingFlow()
               .environmentObject(AppState.shared)
               .environmentObject(categoryStore)
               .environmentObject(updaterManager)
+              .dayflowTheme(.light)
           }
         }
         .opacity(contentOpacity)
@@ -196,25 +227,33 @@ struct DayflowApp: App {
           .ignoresSafeArea()
           .transition(.opacity)
         }
+
+        if didOnboard && !showVideoLaunch && isShowingGitHubStarPrompt {
+          GitHubStarPromptCard(
+            onStar: starDayflow,
+            onDismiss: dismissGitHubStarPrompt
+          )
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+          .padding(.trailing, 24)
+          .padding(.bottom, 132)
+          .transition(.move(edge: .trailing).combined(with: .opacity))
+          .zIndex(10)
+        }
       }
       // Inline background behind the main app UI only
       .background {
         MainWindowRegistrationView()
 
         if didOnboard {
-          ZStack {
-            Image("MainUIBackground")
-              .resizable()
-              .scaledToFill()
-
-            Color(red: 0.98, green: 0.96, blue: 0.93)
-              .opacity(0.4)
-          }
-          .ignoresSafeArea()
-          .allowsHitTesting(false)
-          .accessibilityHidden(true)
+          DayflowWindowBackground()
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
       }
+      // Onboarding stays light; the main app follows the user's appearance setting.
+      .preferredColorScheme(didOnboard ? appearance.preferredColorScheme : .light)
+      .resolveDayflowTheme()
       .onAppear {
         if !showVideoLaunch {
           dispatchPendingNotificationNavigation(after: 0.1)
@@ -277,18 +316,39 @@ struct DayflowApp: App {
         .keyboardShortcut("N", modifiers: [.command, .shift])
       }
 
-      #if DEBUG
-        CommandGroup(after: .appInfo) {
-          Divider()
-          Button("Flow: Simulate Distraction") {
-            FlowSessionMirror.shared.simulateDistraction()
-          }
-          .keyboardShortcut("D", modifiers: [.command, .shift])
+      CommandGroup(after: .appInfo) {
+        Divider()
+        Button("Flow: Simulate Distraction") {
+          FlowSessionMirror.shared.simulateDistraction()
         }
-      #endif
+        .keyboardShortcut("D", modifiers: [.command, .shift])
+      }
     }
     .defaultSize(width: 1200, height: 800)
 
+  }
+
+  private func starDayflow() async {
+    AnalyticsService.shared.capture("github_star_prompt_clicked")
+    let starred = await GitHubStarService.starDayflow()
+    if starred {
+      AnalyticsService.shared.capture("github_star_completed", ["method": "gh"])
+    } else {
+      AnalyticsService.shared.capture("github_star_browser_fallback")
+      NSWorkspace.shared.open(GitHubStarPromptState.repositoryURL)
+    }
+    hideGitHubStarPrompt()
+  }
+
+  private func dismissGitHubStarPrompt() {
+    AnalyticsService.shared.capture("github_star_prompt_dismissed")
+    hideGitHubStarPrompt()
+  }
+
+  private func hideGitHubStarPrompt() {
+    withAnimation(.easeOut(duration: 0.2)) {
+      isShowingGitHubStarPrompt = false
+    }
   }
 
   private var hasPendingNotificationNavigation: Bool {
@@ -360,6 +420,22 @@ final class MainWindowController {
     }
 
     openWindowAction(id: "main")
+  }
+}
+
+/// Full-window gradient behind the main app (Figma: dark linear / light radial).
+private struct DayflowWindowBackground: View {
+  @Environment(\.dayflowTheme) private var theme
+
+  var body: some View {
+    GeometryReader { proxy in
+      Image(theme.isDark ? "DarkWindowBackground" : "LightWindowBackground")
+        .resizable()
+        .interpolation(.high)
+        .scaledToFill()
+        .frame(width: proxy.size.width, height: proxy.size.height)
+        .clipped()
+    }
   }
 }
 

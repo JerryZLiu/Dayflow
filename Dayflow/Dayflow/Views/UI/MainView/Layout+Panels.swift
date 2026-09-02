@@ -43,30 +43,17 @@ extension MainView {
   }
 
   private var leftColumn: some View {
-    // Left column: Logo on top, sidebar centered
-    VStack(spacing: 0) {
-      // Logo area (keeps same animation)
-      LogoBadgeView(imageName: "DayflowLogoMainApp", size: LogoPosition.logoSize)
-        .frame(height: 100)
-        .frame(maxWidth: .infinity)
-        .offset(y: LogoPosition.logoVerticalOffset)
-        .scaleEffect(logoScale)
-        .opacity(logoOpacity)
-
-      Spacer(minLength: 0)
-
-      // Sidebar in fixed-width gutter
-      VStack {
-        Spacer()
-        SidebarView(selectedIcon: $selectedIcon)
-          .frame(maxWidth: .infinity, alignment: .center)
-          .offset(y: sidebarOffset)
-          .opacity(sidebarOpacity)
-        Spacer()
-      }
-      Spacer(minLength: 0)
+    // Left column: sidebar centered vertically in the gutter. The logo badge
+    // that used to sit above it is hidden for now.
+    VStack {
+      Spacer()
+      SidebarView(selectedIcon: $selectedIcon)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .offset(y: sidebarOffset)
+        .opacity(sidebarOpacity)
+      Spacer()
     }
-    .frame(width: 100)
+    .frame(width: sidebarGutterWidth)
     .fixedSize(horizontal: true, vertical: false)
     .frame(maxHeight: .infinity)
     .layoutPriority(1)
@@ -109,17 +96,12 @@ extension MainView {
   }
 
   private var mainPanelBackground: some View {
-    ZStack {
-      RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .fill(Color.white)
-        .shadow(color: .black.opacity(0.04), radius: 4, x: 0, y: 0)
-      RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .fill(Color.white)
-        .blendMode(.destinationOut)
-      RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .fill(.white.opacity(0.22))
-    }
-    .compositingGroup()
+    let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+    return
+      shape
+      .fill(theme.panelFill)
+      .overlay(shape.strokeBorder(theme.panelBorder, lineWidth: 1))
+      .shadow(color: theme.panelShadow, radius: 12, x: 0, y: 0)
   }
 
   private func timelinePanel(geo: GeometryProxy) -> some View {
@@ -127,10 +109,8 @@ extension MainView {
       HStack(alignment: .top, spacing: 0) {
         timelineLeftColumn
           .zIndex(1)
-        Rectangle()
-          .fill(Color(hex: "ECECEC"))
+        Color.clear
           .frame(width: timelineInspectorDividerWidth)
-          .opacity(timelineInspectorDividerWidth == 0 ? 0 : 1)
           .frame(maxHeight: .infinity)
         timelineRightColumn(geo: geo)
       }
@@ -280,12 +260,13 @@ extension MainView {
     .allowsHitTesting(true)
   }
 
+  // Figma: the right panel is its own inset card (5pt from the panel edges,
+  // 6pt radius, hairline border) rather than a flush column.
   private func timelineRightColumn(geo: GeometryProxy) -> some View {
-    ZStack(alignment: .topLeading) {
-      if timelineInspectorWidth > 0 {
-        Color.white.opacity(0.7)
-      }
+    let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+    let inset: CGFloat = 5
 
+    return ZStack(alignment: .topLeading) {
       switch timelineMode {
       case .day:
         dayTimelineInspectorContent(geo: geo)
@@ -293,26 +274,22 @@ extension MainView {
         weekTimelineInspectorContent(geo: geo)
       }
     }
-    .frame(width: timelineInspectorWidth)
+    .frame(width: max(0, timelineInspectorWidth - inset))
     .frame(maxHeight: .infinity)
+    .clipShape(shape)
+    .background {
+      if timelineInspectorWidth > 0 {
+        shape
+          .fill(theme.rightPanelFill)
+          .overlay(shape.strokeBorder(theme.rightPanelBorder, lineWidth: 0.75))
+          .shadow(color: theme.rightPanelShadow, radius: 4, x: 0, y: 0)
+      }
+    }
+    .contentShape(shape)
+    .padding(.vertical, inset)
+    .padding(.trailing, inset)
+    .frame(width: timelineInspectorWidth)
     .opacity(contentOpacity)
-    .clipped()
-    .clipShape(
-      UnevenRoundedRectangle(
-        cornerRadii: .init(
-          topLeading: 0,
-          bottomLeading: 0, bottomTrailing: 8, topTrailing: 8
-        )
-      )
-    )
-    .contentShape(
-      UnevenRoundedRectangle(
-        cornerRadii: .init(
-          topLeading: 0,
-          bottomLeading: 0, bottomTrailing: 8, topTrailing: 8
-        )
-      )
-    )
   }
 
   @ViewBuilder
@@ -439,7 +416,7 @@ extension MainView {
   }
 
   private var weeklyHoursText: some View {
-    let textColor = Color(red: 0.84, green: 0.65, blue: 0.52)
+    let textColor = theme.textTertiary
     let parts = timelineTrackedMinutesParts
 
     return
@@ -460,9 +437,9 @@ extension MainView {
   }
 
   private var copyTimelineButton: some View {
-    let background = Color(red: 0.99, green: 0.93, blue: 0.88)
-    let stroke = Color(red: 0.97, green: 0.89, blue: 0.81)
-    let textColor = Color(red: 0.84, green: 0.65, blue: 0.52)
+    let background = theme.secondaryButtonFill
+    let stroke = theme.secondaryButtonBorder
+    let textColor = theme.secondaryButtonText
 
     // Slide up + fade: no text scaling (scaling distorts letterforms)
     let enterTransition = AnyTransition.opacity
@@ -506,8 +483,7 @@ extension MainView {
       .clipShape(RoundedRectangle(cornerRadius: 7))
       .overlay(
         RoundedRectangle(cornerRadius: 7)
-          .inset(by: 0.5)
-          .stroke(stroke, lineWidth: 1)
+          .strokeBorder(stroke, lineWidth: 1)
       )
       .contentShape(Rectangle())
     }

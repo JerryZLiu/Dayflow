@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct DayDistractionSummarySection: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let totalCapturedText: String
   let totalDistractedText: String
   let distractedRatio: Double
@@ -27,8 +29,6 @@ struct DayDistractionSummarySection: View {
     static let editorWidth: CGFloat = 358
     static let editorOffsetX: CGFloat = -18
     static let editorOffsetY: CGFloat = 28
-    static let titleColor = Color(hex: "333333")
-    static let subtitleColor = Color(hex: "707070")
   }
 
   var body: some View {
@@ -38,7 +38,7 @@ struct DayDistractionSummarySection: View {
       if isSelectionEmpty {
         Text("Edit categories to calculate distractions.")
           .font(.custom("Figtree", size: 11))
-          .foregroundColor(Design.subtitleColor)
+          .foregroundColor(theme.textSecondary)
       }
 
       DistractionSummaryCard(
@@ -71,7 +71,7 @@ struct DayDistractionSummarySection: View {
     HStack(alignment: .center, spacing: 6) {
       Text("Distractions so far")
         .font(.custom("InstrumentSerif-Regular", size: 22))
-        .foregroundColor(Design.titleColor)
+        .foregroundColor(theme.textPrimary)
 
       Spacer()
 

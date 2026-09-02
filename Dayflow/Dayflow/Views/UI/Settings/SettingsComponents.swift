@@ -21,18 +21,39 @@ enum SettingsStyle {
   static let sectionSpacing: CGFloat = 44
   static let rowVerticalPadding: CGFloat = 14
 
-  // Type colors
-  static let text = Color.black.opacity(0.9)
-  static let secondary = Color.black.opacity(0.55)
-  static let meta = Color.black.opacity(0.4)
+  // Type colors (resolve per appearance; dark values mirror the timeline tokens)
+  static let text = Color.dayflowAdaptive(
+    light: NSColor.black.withAlphaComponent(0.9),
+    dark: NSColor.white.withAlphaComponent(0.92))
+  static let secondary = Color.dayflowAdaptive(
+    light: NSColor.black.withAlphaComponent(0.55),
+    dark: NSColor.white.withAlphaComponent(0.6))
+  static let meta = Color.dayflowAdaptive(
+    light: NSColor.black.withAlphaComponent(0.4),
+    dark: NSColor.white.withAlphaComponent(0.45))
 
   // Structure
-  static let divider = Color.black.opacity(0.08)
+  static let divider = Color.dayflowAdaptive(
+    light: NSColor.black.withAlphaComponent(0.08),
+    dark: NSColor.white.withAlphaComponent(0.1))
+
+  // Subtle fills (secondary buttons, active tab pill, neutral badges)
+  static let subtleFill = Color.dayflowAdaptive(
+    light: NSColor.black.withAlphaComponent(0.05),
+    dark: NSColor.white.withAlphaComponent(0.08))
 
   // The one accent — used for primary buttons, active tab pill, progress
   // fills, inline links, focused states. Deliberately the only branded
-  // color on this surface.
-  static let ink = Color(red: 0.25, green: 0.17, blue: 0)
+  // color on this surface. Ink brown in light; the Figma peach in dark.
+  static let ink = Color.dayflowAdaptive(
+    light: NSColor(red: 0.25, green: 0.17, blue: 0, alpha: 1),
+    dark: NSColor(red: 1, green: 0.64, blue: 0.47, alpha: 1))
+
+  // Filled primary button. Ink in light; the Figma confirm orange in dark so
+  // white label text stays readable.
+  static let primaryButtonFill = Color.dayflowAdaptive(
+    light: NSColor(red: 0.25, green: 0.17, blue: 0, alpha: 1),
+    dark: NSColor(red: 0.82, green: 0.4, blue: 0.24, alpha: 1))
 
   // Destructive — only for red-stroked confirm buttons and error copy.
   static let destructive = Color(red: 0.76, green: 0.19, blue: 0.19)
@@ -202,7 +223,7 @@ struct SettingsPrimaryButton: View {
       .padding(.vertical, 9)
       .background(
         RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .fill(SettingsStyle.ink.opacity(isDisabled ? 0.4 : 1))
+          .fill(SettingsStyle.primaryButtonFill.opacity(isDisabled ? 0.4 : 1))
       )
     }
     .buttonStyle(SettingsButtonPressStyle())
@@ -233,7 +254,7 @@ struct SettingsSecondaryButton: View {
       .padding(.vertical, 7)
       .background(
         RoundedRectangle(cornerRadius: 7, style: .continuous)
-          .fill(Color.black.opacity(isDisabled ? 0.02 : 0.05))
+          .fill(SettingsStyle.subtleFill.opacity(isDisabled ? 0.4 : 1))
       )
     }
     .buttonStyle(SettingsButtonPressStyle())
@@ -291,7 +312,7 @@ struct SettingsStatusDot: View {
   private var color: Color {
     switch state {
     case .good: return SettingsStyle.statusGood
-    case .idle: return Color.black.opacity(0.5)
+    case .idle: return SettingsStyle.secondary
     case .warn: return SettingsStyle.statusWarn
     case .bad: return SettingsStyle.statusBad
     }
@@ -357,7 +378,7 @@ struct SettingsBadge: View {
       .padding(.vertical, 3)
       .background(
         RoundedRectangle(cornerRadius: 4, style: .continuous)
-          .fill(isAccent ? SettingsStyle.ink.opacity(0.1) : Color.black.opacity(0.05))
+          .fill(isAccent ? SettingsStyle.ink.opacity(0.1) : SettingsStyle.subtleFill)
       )
   }
 }

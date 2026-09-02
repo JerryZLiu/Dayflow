@@ -23,7 +23,7 @@ struct AppKitComposerTextField: NSViewRepresentable {
     let textView = ComposerTextView()
     textView.delegate = context.coordinator
     textView.font = Self.font
-    textView.textColor = NSColor(hex: "2F2A24") ?? .labelColor
+    textView.textColor = .labelColor
     textView.drawsBackground = false
     textView.isRichText = false
     textView.allowsUndo = true
@@ -40,7 +40,7 @@ struct AppKitComposerTextField: NSViewRepresentable {
     textView.configurePlaceholder(
       placeholder,
       font: Self.font,
-      color: NSColor(hex: "9B948D") ?? .secondaryLabelColor
+      color: .tertiaryLabelColor
     )
 
     let scrollView = NSScrollView()

@@ -15,6 +15,8 @@ struct DailyCopyPressButtonStyle: ButtonStyle {
 }
 
 struct DailyBulletCard: View {
+  @Environment(\.dayflowTheme) private var theme
+
   enum SeamMode {
     case standalone
     case joinedLeading
@@ -82,7 +84,7 @@ struct DailyBulletCard: View {
       VStack(alignment: .leading, spacing: 18 * scale) {
         Text(title)
           .font(.custom("InstrumentSerif-Regular", size: 24 * scale))
-          .foregroundStyle(Color(hex: "B46531"))
+          .foregroundStyle(theme.textSecondary)
           .frame(maxWidth: .infinity, alignment: .leading)
 
         itemListEditor
@@ -104,26 +106,13 @@ struct DailyBulletCard: View {
       }
     }
     .frame(maxWidth: .infinity, minHeight: max(180, 394 * scale), alignment: .topLeading)
-    .background(
-      cardShape
-        .fill(
-          LinearGradient(
-            gradient: Gradient(stops: [
-              .init(color: Color.white.opacity(0.6), location: 0.011932),
-              .init(color: Color.white, location: 0.5104),
-              .init(color: Color.white.opacity(0.6), location: 0.98092),
-            ]),
-            startPoint: UnitPoint(x: 1, y: 0.45),
-            endPoint: UnitPoint(x: 0, y: 0.55)
-          )
-        )
-    )
+    .background(cardShape.fill(theme.standupCardGradient))
     .clipShape(cardShape)
     .overlay(
       cardShape
-        .stroke(Color(hex: "EBE6E3"), lineWidth: max(0.7, 1 * scale))
+        .stroke(theme.standupCardBorder, lineWidth: 0.75)
     )
-    .shadow(color: Color.black.opacity(0.1), radius: 12 * scale, x: 0, y: 0)
+    .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
     .onAppear {
       setupKeyMonitor()
     }
@@ -151,7 +140,7 @@ struct DailyBulletCard: View {
 
               TextField("", text: bindingForItemText(id: itemID), axis: .vertical)
                 .font(.custom("Figtree-Regular", size: 14 * scale))
-                .foregroundStyle(Color.black)
+                .foregroundStyle(theme.textPrimary)
                 .textFieldStyle(.plain)
                 .lineLimit(1...6)
                 .multilineTextAlignment(.leading)
@@ -212,12 +201,12 @@ struct DailyBulletCard: View {
       HStack(spacing: 6 * scale) {
         Image(systemName: "plus")
           .font(.system(size: 18 * scale, weight: .regular))
-          .foregroundStyle(Color(hex: "999999"))
+          .foregroundStyle(theme.textMuted)
           .frame(width: 18 * scale, height: 18 * scale)
 
         Text("Add item")
           .font(.custom("Figtree-Regular", size: 13 * scale))
-          .foregroundStyle(Color(hex: "999999"))
+          .foregroundStyle(theme.textMuted)
           .lineLimit(1)
       }
       .padding(.vertical, 6 * scale)
@@ -295,6 +284,8 @@ struct DailyBulletCard: View {
 }
 
 struct DailyDragHandleIcon: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let scale: CGFloat
 
   var body: some View {
@@ -302,10 +293,10 @@ struct DailyDragHandleIcon: View {
       ForEach(0..<3, id: \.self) { _ in
         HStack(spacing: 2 * scale) {
           Circle()
-            .fill(Color(hex: "A5A5A5"))
+            .fill(theme.textMuted)
             .frame(width: 2.5 * scale, height: 2.5 * scale)
           Circle()
-            .fill(Color(hex: "A5A5A5"))
+            .fill(theme.textMuted)
             .frame(width: 2.5 * scale, height: 2.5 * scale)
         }
       }
@@ -315,6 +306,8 @@ struct DailyDragHandleIcon: View {
 }
 
 struct DailyBlockersSection: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let scale: CGFloat
   @Binding var title: String
   @Binding var prompt: String
@@ -323,7 +316,7 @@ struct DailyBlockersSection: View {
     VStack(alignment: .leading, spacing: 8 * scale) {
       TextField("Blockers", text: $title)
         .font(.custom("Figtree-Medium", size: 14 * scale))
-        .foregroundStyle(Color(hex: "BD9479"))
+        .foregroundStyle(theme.textSecondary)
         .textFieldStyle(.plain)
 
       HStack(alignment: .center, spacing: 8 * scale) {
@@ -332,7 +325,7 @@ struct DailyBlockersSection: View {
 
         TextField("Fill in any blockers you may have", text: $prompt, axis: .vertical)
           .font(.custom("Figtree-Regular", size: 14 * scale))
-          .foregroundStyle(Color(hex: "929292"))
+          .foregroundStyle(theme.textPrimary)
           .textFieldStyle(.plain)
           .lineLimit(1...4)
           .multilineTextAlignment(.leading)
@@ -343,10 +336,10 @@ struct DailyBlockersSection: View {
     .padding(.trailing, 26 * scale)
     .padding(.top, 14 * scale)
     .frame(maxWidth: .infinity, minHeight: 94 * scale, alignment: .topLeading)
-    .background(Color(hex: "F7F6F5"))
+    .background(theme.dailyTotalsFill)
     .overlay(alignment: .top) {
       Rectangle()
-        .fill(Color(hex: "EBE6E3"))
+        .fill(theme.standupCardBorder)
         .frame(height: max(0.7, 1 * scale))
     }
   }

@@ -1,18 +1,11 @@
 import SwiftUI
 
-private struct WeekStatusCardStyle {
-  let gradient: LinearGradient
-  let gradientOpacity: Double
-  let baseColor: Color
-  let strokeColor: Color
-  let strokeWidth: CGFloat
-  let shadowColor: Color
-  let shadowRadius: CGFloat
-}
-
 // The "Next card... / Paused / Resume" pill shown in today's column of the
 // Week view. The parent grid positions it; this view only renders the pill.
+// Colors mirror the Day view's status cards so both views flip together.
 struct WeekRecordingStatusCard: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let mode: RecordingControlMode
   let width: CGFloat
   let height: CGFloat
@@ -21,9 +14,12 @@ struct WeekRecordingStatusCard: View {
     height < 24
   }
 
-  var body: some View {
-    let style = cardStyle
+  private var isActive: Bool {
+    if case .active = mode { return true }
+    return false
+  }
 
+  var body: some View {
     HStack(spacing: 0) {
       label
       Spacer(minLength: 0)
@@ -36,61 +32,17 @@ struct WeekRecordingStatusCard: View {
     )
     .background(
       RoundedRectangle(cornerRadius: 2, style: .continuous)
-        .fill(style.baseColor)
+        .fill(theme.panelSolid)
         .overlay(
           RoundedRectangle(cornerRadius: 2, style: .continuous)
-            .fill(style.gradient)
-            .opacity(style.gradientOpacity)
+            .fill(isActive ? theme.generatingGradient : theme.pausedCardGradient)
         )
     )
-    .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 2, style: .continuous)
-        .inset(by: 0.375)
-        .stroke(style.strokeColor, lineWidth: style.strokeWidth)
-    )
-    .shadow(color: style.shadowColor, radius: style.shadowRadius, x: 0, y: 0)
-  }
-
-  private var cardStyle: WeekStatusCardStyle {
-    switch mode {
-    case .active:
-      return WeekStatusCardStyle(
-        gradient: LinearGradient(
-          stops: [
-            .init(color: Color(hex: "5E7FC0"), location: 0.00),
-            .init(color: Color(hex: "D88ECE"), location: 0.35),
-            .init(color: Color(hex: "FFC19E"), location: 0.68),
-            .init(color: Color(hex: "FFEDE0"), location: 1.00),
-          ],
-          startPoint: .leading,
-          endPoint: .trailing
-        ),
-        gradientOpacity: 0.70,
-        baseColor: Color(hex: "D9C6BA"),
-        strokeColor: Color.white.opacity(0.52),
-        strokeWidth: 0.75,
-        shadowColor: .black.opacity(0.10),
-        shadowRadius: 4
-      )
-
-    case .pausedTimed, .pausedIndefinite, .stopped:
-      return WeekStatusCardStyle(
-        gradient: LinearGradient(
-          stops: [
-            .init(color: Color(hex: "F7E6D5"), location: 0.13),
-            .init(color: Color(hex: "DADEE4"), location: 1.00),
-          ],
-          startPoint: .leading,
-          endPoint: .trailing
-        ),
-        gradientOpacity: 1.0,
-        baseColor: .clear,
-        strokeColor: .white,
-        strokeWidth: 1,
-        shadowColor: .black.opacity(0.03),
-        shadowRadius: 2
-      )
+    .overlay {
+      if !isActive {
+        RoundedRectangle(cornerRadius: 2, style: .continuous)
+          .stroke(theme.cardBorder.opacity(0.6), lineWidth: 0.5)
+      }
     }
   }
 
@@ -110,11 +62,11 @@ struct WeekRecordingStatusCard: View {
     case .pausedTimed, .pausedIndefinite:
       Label("Paused", systemImage: "pause.fill")
         .font(.custom("Figtree", size: 10).weight(.medium))
-        .foregroundColor(Color(hex: "888D95"))
+        .foregroundColor(theme.pausedCardText)
     case .stopped:
       Label("Resume", systemImage: "play.fill")
         .font(.custom("Figtree", size: 10).weight(.medium))
-        .foregroundColor(Color(hex: "888D95"))
+        .foregroundColor(theme.pausedCardText)
     }
   }
 

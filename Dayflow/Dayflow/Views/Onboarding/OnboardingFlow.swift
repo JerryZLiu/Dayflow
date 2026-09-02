@@ -272,10 +272,7 @@ struct OnboardingFlow: View {
     }
     .background {
       // Background at parent level - fills entire window!
-      Image("OnboardingBackgroundv2")
-        .resizable()
-        .aspectRatio(contentMode: .fill)
-        .ignoresSafeArea()
+      OnboardingBackdrop()
     }
     .preferredColorScheme(.light)
     .alert(
@@ -617,69 +614,56 @@ struct WelcomeView: View {
   @Binding var timelineOffset: CGFloat
   let onStart: () -> Void
 
+  // The splash artwork is authored at 1200×680. The flower button baked into
+  // the art sits at this center; the hit target scales with the artwork.
+  private let artworkSize = CGSize(width: 1200, height: 680)
+  private let startButtonCenter = CGPoint(x: 600, y: 243)
+  private let startButtonDiameter: CGFloat = 133
+
+  @State private var isHoveringStart = false
+
   var body: some View {
-    ZStack {
-      // Text and button container
-      VStack {
-        VStack(spacing: 20) {
-          Image("DayflowLogoMainApp")
-            .resizable()
-            .renderingMode(.original)
-            .scaledToFit()
-            .frame(height: 64)
-            .opacity(textOpacity)
+    GeometryReader { proxy in
+      let scale = max(
+        proxy.size.width / artworkSize.width,
+        proxy.size.height / artworkSize.height
+      )
+      let originX = (proxy.size.width - artworkSize.width * scale) / 2
+      let originY = (proxy.size.height - artworkSize.height * scale) / 2
 
-          Text(fullText)
-            .font(.custom("InstrumentSerif-Regular", size: 36))
-            .multilineTextAlignment(.center)
-            .foregroundColor(.black.opacity(0.8))
-            .padding(.horizontal, 20)
-            .minimumScaleFactor(0.5)
-            .lineLimit(3)
-            .frame(minHeight: 100)
-            .opacity(textOpacity)
-            .onAppear {
-              withAnimation(.easeOut(duration: 0.6)) {
-                textOpacity = 1
-              }
-            }
-
-          DayflowSurfaceButton(
-            action: onStart,
-            content: { Text("Start").font(.custom("Figtree", size: 16)).fontWeight(.semibold) },
-            background: Color(red: 0.25, green: 0.17, blue: 0),
-            foreground: .white,
-            borderColor: .clear,
-            cornerRadius: 8,
-            horizontalPadding: 28,
-            verticalPadding: 14,
-            minWidth: 160,
-            showOverlayStroke: true
-          )
-          .opacity(textOpacity)
-          .animation(.easeIn(duration: 0.3).delay(0.4), value: textOpacity)
-        }
-        .padding(.top, 20)
-
-        Spacer()
-      }
-      .zIndex(1)
-
-      // Timeline image
-      VStack {
-        Spacer()
-        Image("OnboardingTimeline")
+      ZStack(alignment: .topLeading) {
+        Image("OnboardingSplash")
           .resizable()
-          .aspectRatio(contentMode: .fit)
-          .frame(maxWidth: 800)
-          .offset(y: timelineOffset)
-          .opacity(timelineOffset > 0 ? 0 : 1)
-          .onAppear {
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.8, blendDuration: 0).delay(0.3))
-            {
-              timelineOffset = 0
-            }
-          }
+          .frame(width: artworkSize.width * scale, height: artworkSize.height * scale)
+          .offset(x: originX, y: originY)
+
+        Button(action: onStart) {
+          Circle()
+            .fill(Color.white.opacity(isHoveringStart ? 0.18 : 0))
+            .frame(
+              width: startButtonDiameter * scale,
+              height: startButtonDiameter * scale
+            )
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .pointingHandCursor()
+        .scaleEffect(isHoveringStart ? 1.04 : 1)
+        .animation(.easeOut(duration: 0.15), value: isHoveringStart)
+        .onHover { isHoveringStart = $0 }
+        .position(
+          x: originX + startButtonCenter.x * scale,
+          y: originY + startButtonCenter.y * scale
+        )
+      }
+      .frame(width: proxy.size.width, height: proxy.size.height)
+      .clipped()
+    }
+    .ignoresSafeArea()
+    .opacity(textOpacity)
+    .onAppear {
+      withAnimation(.easeOut(duration: 0.6)) {
+        textOpacity = 1
       }
     }
   }
@@ -775,14 +759,15 @@ struct OnboardingPrototypeDownloadReasonStep: View {
             .font(.custom("Figtree", size: 14))
             .fontWeight(.semibold)
         },
-        background: Color(hex: "402C00"),
+        background: Color(hex: "FF9F6F"),
         foreground: .white,
-        borderColor: .clear,
-        cornerRadius: 8,
+        borderColor: Color(hex: "F4C8B1"),
+        cornerRadius: 200,
         horizontalPadding: 59,
         verticalPadding: 12,
         minWidth: 234,
-        showOverlayStroke: true
+        showOverlayStroke: false,
+        innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)
       )
       .opacity(canContinue ? 1.0 : 0.4)
       .allowsHitTesting(canContinue)
@@ -980,14 +965,15 @@ struct OnboardingPrototypeReferralStep: View {
             .font(.custom("Figtree", size: 14))
             .fontWeight(.semibold)
         },
-        background: Color(hex: "402C00"),
+        background: Color(hex: "FF9F6F"),
         foreground: .white,
-        borderColor: .clear,
-        cornerRadius: 8,
+        borderColor: Color(hex: "F4C8B1"),
+        cornerRadius: 200,
         horizontalPadding: 59,
         verticalPadding: 12,
         minWidth: 234,
-        showOverlayStroke: true
+        showOverlayStroke: false,
+        innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)
       )
       .opacity(canContinue ? 1.0 : 0.4)
       .allowsHitTesting(canContinue)
@@ -1035,14 +1021,15 @@ struct CompletionView: View {
             .font(.custom("Figtree", size: 16))
             .fontWeight(.semibold)
         },
-        background: Color(red: 0.25, green: 0.17, blue: 0),
+        background: Color(hex: "FF9F6F"),
         foreground: .white,
-        borderColor: .clear,
-        cornerRadius: 8,
+        borderColor: Color(hex: "F4C8B1"),
+        cornerRadius: 200,
         horizontalPadding: 40,
         verticalPadding: 14,
         minWidth: 200,
-        showOverlayStroke: true
+        showOverlayStroke: false,
+        innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)
       )
       .padding(.top, 16)
     }

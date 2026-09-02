@@ -22,6 +22,8 @@ let chatViewMemoryUpdatedFormatter: DateFormatter = {
 }()
 
 struct ChatView: View {
+  @Environment(\.dayflowTheme) var theme
+
   @ObservedObject var chatService = ChatService.shared
   @StateObject var scrollModel = ChatScrollModel()
   @State var inputText = ""
@@ -137,6 +139,5 @@ struct ChatView: View {
     } message: {
       Text("Switching to \(pendingProviderLabel) will clear this chat's context.")
     }
-    .environment(\.colorScheme, .light)
   }
 }

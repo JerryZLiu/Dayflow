@@ -33,6 +33,9 @@ final class FlowSessionMirror: ObservableObject {
   private var deadlineTimer: Timer?
   private var toastTimer: Timer?
   private var snoozeUntil: Date?
+  /// Nudges shown for the current distraction incident; the second one in a
+  /// row escalates the creature to the fire animation.
+  private var nudgeStreak = 0
 
   private init() {
     // Survive a relaunch mid-session: restore the last snapshot, but drop
@@ -62,6 +65,7 @@ final class FlowSessionMirror: ObservableObject {
     case (.idle, .active), (.ended, .active):
       isDistracted = false
       snoozeUntil = nil
+      nudgeStreak = 0
       showToast("Your flow session starts now!")
       FlowDistractionAgent.shared.start(with: newSnapshot)
       AnalyticsService.shared.capture(
@@ -103,7 +107,9 @@ final class FlowSessionMirror: ObservableObject {
     webBridge?.sendEvent("distractionSimulated", payload: [:])
     guard snapshot.alertStyle != .quiet else { return }
     snoozeUntil = nil
-    overlay = .nudge(message: "Psst... I think you're getting distracted!")
+    nudgeStreak += 1
+    overlay = .nudge(
+      message: "Psst... I think you're getting distracted!", escalated: nudgeStreak >= 2)
     armDeadlineTimer()
   }
 
@@ -114,6 +120,7 @@ final class FlowSessionMirror: ObservableObject {
   func agentReportedFocusChange(isDistracted distracted: Bool) {
     guard snapshot.phase == .active else { return }
     isDistracted = distracted
+    if !distracted { nudgeStreak = 0 }
     webBridge?.sendEvent(distracted ? "distractionSimulated" : "distractionEnded", payload: [:])
     if !distracted, case .nudge = overlay {
       overlay = .hidden
@@ -127,7 +134,8 @@ final class FlowSessionMirror: ObservableObject {
     if let snoozeUntil, snoozeUntil > Date() { return }
     AnalyticsService.shared.capture(
       "flow_agent_nudge", ["alert_style": snapshot.alertStyle.rawValue])
-    overlay = .nudge(message: message)
+    nudgeStreak += 1
+    overlay = .nudge(message: message, escalated: nudgeStreak >= 2)
   }
 
   /// Short encouragement from the agent, shown as an auto-dismissing toast.
@@ -142,6 +150,7 @@ final class FlowSessionMirror: ObservableObject {
   func respondBackToWork() {
     isDistracted = false
     snoozeUntil = nil
+    nudgeStreak = 0
     webBridge?.sendEvent("overlayAction", payload: ["action": "backToWork"])
     FlowDistractionAgent.shared.noteUserEvent(
       "The user tapped \"I'll get back to work\" on your nudge.", markRefocused: true)
@@ -164,6 +173,7 @@ final class FlowSessionMirror: ObservableObject {
   func correctMistake() {
     isDistracted = false
     snoozeUntil = nil
+    nudgeStreak = 0
     webBridge?.sendEvent("distractionEnded", payload: [:])
     FlowDistractionAgent.shared.noteUserEvent(
       "The user says your nudge was a mistake — they were on task. Trust them, and be more lenient about screens like the one that triggered it.",
@@ -222,7 +232,9 @@ final class FlowSessionMirror: ObservableObject {
       snoozeUntil = nil
       // Still marked distracted after the snooze ran out → nudge again.
       if isDistracted, snapshot.phase == .active, snapshot.alertStyle != .quiet {
-        overlay = .nudge(message: "Snooze is up — ready to get back to it?")
+        nudgeStreak += 1
+        overlay = .nudge(
+          message: "Snooze is up — ready to get back to it?", escalated: nudgeStreak >= 2)
       }
     }
 

@@ -26,6 +26,8 @@ struct TimelineCalendarPopover: View {
   static let contentWidth: CGFloat = (columnWidth * 7) + (columnSpacing * 6)
   static let preferredWidth: CGFloat = contentWidth + (horizontalPadding * 2)
 
+  @Environment(\.dayflowTheme) private var theme
+
   @Binding var isPresented: Bool
   let selectedDate: Date
   let canSelectFutureDates: Bool
@@ -82,34 +84,27 @@ struct TimelineCalendarPopover: View {
     .padding(.top, Self.topPadding)
     .padding(.bottom, Self.bottomPadding)
     .frame(width: Self.preferredWidth, alignment: .topLeading)
-    // Figma node 4291:4828: backdrop-blur 10pt + rgba(255,255,255,0.5) tint.
     .background {
       ZStack {
         RoundedRectangle(cornerRadius: 8, style: .continuous)
           .fill(.ultraThinMaterial)
         RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .fill(Color.white.opacity(0.5))
+          .fill(theme.popoverFill)
       }
     }
     .overlay {
       RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .strokeBorder(Color(hex: "E9DAD1"), lineWidth: 1)
+        .strokeBorder(theme.popoverBorder, lineWidth: 1)
     }
     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     .shadow(color: .black.opacity(0.16), radius: 4, x: 0, y: 1)
-    // Force the light variant of `.ultraThinMaterial` regardless of the
-    // system appearance. Without this, macOS dark mode causes the material
-    // to render as a dark blur — the popover looks like a gray slab even
-    // though the rest of the app is light. Dayflow's palette is tuned for
-    // light mode; the Figma explicitly specifies a light translucent card.
-    .environment(\.colorScheme, .light)
   }
 
   private var monthHeader: some View {
     HStack(spacing: 0) {
       Text(Self.monthYearFormatter.string(from: displayMonth))
         .font(.custom("Figtree", size: 14))
-        .foregroundColor(.black)
+        .foregroundColor(theme.textPrimary)
         .lineLimit(1)
 
       Spacer(minLength: 0)
@@ -132,7 +127,7 @@ struct TimelineCalendarPopover: View {
     Button(action: action) {
       Image(systemName: systemName)
         .font(.system(size: 16, weight: .medium))
-        .foregroundColor(Color(hex: "A8A09A"))
+        .foregroundColor(theme.textMuted)
         .frame(width: 20, height: 20)
         .contentShape(Rectangle())
     }
@@ -151,7 +146,7 @@ struct TimelineCalendarPopover: View {
       ForEach(labels.indices, id: \.self) { i in
         Text(labels[i])
           .font(.custom("InstrumentSerif-Regular", size: 12))
-          .foregroundColor(.black)
+          .foregroundColor(theme.textPrimary)
           .frame(width: Self.columnWidth, height: Self.weekdayHeight)
       }
     }
@@ -167,7 +162,7 @@ struct TimelineCalendarPopover: View {
         ZStack {
           if isSelectedWeek {
             Capsule(style: .continuous)
-              .fill(Color(hex: "FC7103"))
+              .fill(theme.accent)
               .frame(
                 width: Self.contentWidth,
                 height: Self.selectedWeekHighlightHeight
@@ -203,9 +198,9 @@ struct TimelineCalendarPopover: View {
         return (!day.isCurrentMonth || isDisabled) ? .white.opacity(0.55) : .white
       }
       if !day.isCurrentMonth || isDisabled {
-        return Color(hex: "C1B5AC")
+        return theme.textMuted
       }
-      return showsSelectedDayCircle ? .white : .black
+      return showsSelectedDayCircle ? .white : theme.textPrimary
     }()
 
     return Button {
@@ -215,7 +210,7 @@ struct TimelineCalendarPopover: View {
       ZStack {
         if showsSelectedDayCircle {
           Circle()
-            .fill(Color(hex: "FC7103"))
+            .fill(theme.accent)
             .frame(width: Self.selectedCircleSize, height: Self.selectedCircleSize)
         }
         Text(day.label)

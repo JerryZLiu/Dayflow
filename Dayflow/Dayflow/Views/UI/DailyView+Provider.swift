@@ -43,17 +43,18 @@ extension DailyView {
     } label: {
       ZStack {
         Circle()
-          .fill(Color(hex: "F7F3F1"))
+          .fill(theme.controlFill)
+
+        InnerGlow(shape: Circle(), color: theme.controlInnerGlow, radius: 3)
 
         Circle()
-          .stroke(Color(hex: "E4D7D0"), lineWidth: max(1.1, 1.3 * scale))
+          .strokeBorder(theme.controlBorder, lineWidth: 0.75)
 
         Image(systemName: "gearshape.fill")
           .font(.system(size: 13 * scale, weight: .semibold))
-          .foregroundStyle(Color(hex: "B46531"))
+          .foregroundStyle(theme.controlText)
       }
       .frame(width: 38 * scale, height: 38 * scale)
-      .shadow(color: Color.black.opacity(0.03), radius: 5, x: 0, y: 2)
       .contentShape(Circle())
     }
     .buttonStyle(DailyCopyPressButtonStyle())
@@ -68,8 +69,7 @@ extension DailyView {
       dailyProviderPicker(scale: scale)
         .padding(16)
         .frame(width: 312)
-        .environment(\.colorScheme, .light)
-        .preferredColorScheme(.light)
+        .resolveDayflowTheme()
     }
   }
   func dailyProviderPicker(scale: CGFloat) -> some View {
@@ -78,11 +78,11 @@ extension DailyView {
         VStack(alignment: .leading, spacing: 2 * scale) {
           Text("Daily recap provider")
             .font(.custom("InstrumentSerif-Regular", size: 22 * scale))
-            .foregroundStyle(Color(hex: "2E221B"))
+            .foregroundStyle(theme.textPrimary)
 
           Text("Choose how Daily generates this recap, or turn generation off.")
             .font(.custom("Figtree-Regular", size: 12 * scale))
-            .foregroundStyle(Color(hex: "8B6B59"))
+            .foregroundStyle(theme.textSecondary)
         }
 
         Spacer(minLength: 0)
@@ -90,7 +90,7 @@ extension DailyView {
         if isRefreshingProviderAvailability {
           ProgressView()
             .controlSize(.small)
-            .tint(Color(hex: "B46531"))
+            .tint(theme.accent)
         }
       }
 
@@ -108,11 +108,11 @@ extension DailyView {
               VStack(alignment: .leading, spacing: 2 * scale) {
                 Text(provider.displayName)
                   .font(.custom("Figtree-SemiBold", size: 13 * scale))
-                  .foregroundStyle(Color(hex: isSelected ? "8F522C" : "2F241D"))
+                  .foregroundStyle(theme.textPrimary)
 
                 Text(availability.detail)
                   .font(.custom("Figtree-Regular", size: 12 * scale))
-                  .foregroundStyle(Color(hex: availability.isAvailable ? "8B6B59" : "B07A74"))
+                  .foregroundStyle(availability.isAvailable ? theme.textSecondary : theme.textMuted)
                   .multilineTextAlignment(.leading)
               }
 
@@ -120,24 +120,18 @@ extension DailyView {
 
               Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 14 * scale, weight: .semibold))
-                .foregroundStyle(
-                  isSelected ? Color(hex: "C96F3A") : Color(hex: "D3C6BE")
-                )
+                .foregroundStyle(isSelected ? theme.accent : theme.textMuted)
             }
             .padding(.horizontal, 12 * scale)
             .padding(.vertical, 10 * scale)
             .background(
               RoundedRectangle(cornerRadius: 14 * scale, style: .continuous)
-                .fill(
-                  isSelected
-                    ? Color(hex: "FFF4EC")
-                    : Color(hex: "FAF8F7")
-                )
+                .fill(isSelected ? theme.controlFill : theme.chipFill)
             )
             .overlay(
               RoundedRectangle(cornerRadius: 14 * scale, style: .continuous)
                 .stroke(
-                  isSelected ? Color(hex: "EBC4AB") : Color(hex: "E8E1DC"),
+                  isSelected ? theme.controlBorder : theme.chipBorder,
                   lineWidth: max(1, 1.2 * scale)
                 )
             )

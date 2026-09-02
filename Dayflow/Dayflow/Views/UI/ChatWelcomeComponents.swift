@@ -8,6 +8,8 @@ struct WelcomePrompt {
 }
 
 struct WelcomeSuggestionRow: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let prompt: WelcomePrompt
   let action: () -> Void
 
@@ -19,34 +21,34 @@ struct WelcomeSuggestionRow: View {
       HStack(spacing: 10) {
         Image(systemName: prompt.icon)
           .font(.system(size: 11, weight: .bold))
-          .foregroundColor(Color(hex: "C9670D"))
+          .foregroundColor(theme.accentText)
           .frame(width: 24, height: 24)
           .background(
             Circle()
-              .fill(Color(hex: "FFF0E1"))
+              .fill(theme.chatSoftAccentFill)
           )
 
         Text(prompt.text)
           .font(.custom("Figtree", size: 13).weight(.semibold))
-          .foregroundColor(Color(hex: "5C432F"))
+          .foregroundColor(theme.textPrimary)
           .frame(maxWidth: .infinity, alignment: .leading)
           .multilineTextAlignment(.leading)
           .lineLimit(2)
 
         Image(systemName: "arrow.up.right")
           .font(.system(size: 9, weight: .bold))
-          .foregroundColor(Color(hex: "D58A3D"))
+          .foregroundColor(theme.accentText)
           .padding(.trailing, 2)
       }
       .padding(.horizontal, 14)
       .padding(.vertical, 10)
       .background(
         RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .fill(isHovered ? Color.white.opacity(0.88) : Color.white.opacity(0.7))
+          .fill(isHovered ? theme.controlFill : theme.chipFill)
       )
       .overlay(
         RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .stroke(Color(hex: "EED7BF"), lineWidth: 1)
+          .stroke(isHovered ? theme.controlBorder : theme.chipBorder, lineWidth: 1)
       )
       .scaleEffect(reduceMotion ? 1 : (isHovered ? 1.01 : 1))
       .offset(y: reduceMotion ? 0 : (isHovered ? -1 : 0))
@@ -68,6 +70,8 @@ struct WelcomeSuggestionRow: View {
 // MARK: - Suggestion Chip
 
 struct SuggestionChip: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let text: String
   let action: () -> Void
 
@@ -77,16 +81,16 @@ struct SuggestionChip: View {
     Button(action: action) {
       Text(text)
         .font(.custom("Figtree", size: 12).weight(.medium))
-        .foregroundColor(Color(hex: "F96E00"))
+        .foregroundColor(theme.accentText)
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(
           RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .fill(Color(hex: "FFF4E9"))
+            .fill(theme.chatSoftAccentFill)
         )
         .overlay(
           RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .stroke(Color(hex: "F96E00").opacity(0.3), lineWidth: 1)
+            .stroke(theme.chatSoftAccentBorder, lineWidth: 1)
         )
         .scaleEffect(isHovered ? 1.02 : 1.0)
     }

@@ -2,11 +2,12 @@
 //  FlowOverlayView.swift
 //  Dayflow
 //
-//  SwiftUI content for the Flow desktop overlay panel, built to the Figma
-//  overlay mocks (node 503:34747): the creature peeks in over the screen's
-//  right edge, speaks through a gray bubble with a tail, and offers a stack
-//  of translucent pill actions. The panel window sits flush against the
-//  screen's right edge, so the creature's offscreen half clips naturally.
+//  SwiftUI content for the Flow desktop overlay panel. The creature is a
+//  video (HEVC with alpha, see FlowCreatureView) whose 1280×768 canvas bakes
+//  in the screen position: it peeks in over the right edge to wave or breathe
+//  fire, and drags out a tub for breaks. The speech bubble and action pills
+//  are laid over the video; the panel window sits flush against the screen's
+//  bottom-right corner so the offscreen half of the creature clips naturally.
 //
 
 import SwiftUI
@@ -15,56 +16,84 @@ struct FlowOverlayView: View {
   @ObservedObject private var mirror = FlowSessionMirror.shared
   @State private var showSnoozeOptions = false
 
-  /// Design canvas: mock coordinates were authored in a 281pt-wide region;
-  /// everything below uses that space shifted 19pt right into a 300pt root.
-  private let rootSize = CGSize(width: 300, height: 250)
+  /// The 1280×768 clip canvas rendered at half size, plus a little headroom
+  /// so bubbles can float above it.
+  private static let videoSize = CGSize(width: 640, height: 384)
+  private static let rootSize = CGSize(width: 680, height: 440)
 
   var body: some View {
     ZStack(alignment: .topLeading) {
+      // Always mounted: exit clips play while the overlay state is already
+      // .hidden, just before the panel fades out.
+      FlowCreatureVideoView()
+        .frame(width: Self.videoSize.width, height: Self.videoSize.height)
+        .offset(
+          x: Self.rootSize.width - Self.videoSize.width,
+          y: Self.rootSize.height - Self.videoSize.height)
+
       switch mirror.overlay {
       case .hidden:
         EmptyView()
       case .toast(let message):
-        creature
-        speechBubble(message)
-      case .nudge(let message):
-        creature
-        speechBubble(message)
+        speechBubble(message, layout: .edge)
+      case .nudge(let message, let escalated):
+        speechBubble(message, layout: escalated ? .scene : .edge)
         nudgePills
       case .onBreak:
-        creature
         breakBubble
       case .sessionEnded:
-        creature
-        speechBubble("Time's up! Great work.")
+        speechBubble("Time's up! Great work.", layout: .edge)
         sessionEndedPills
       }
     }
-    .frame(width: rootSize.width, height: rootSize.height, alignment: .topLeading)
-    .frame(width: 360, height: 320, alignment: .bottomTrailing)
+    .frame(width: Self.rootSize.width, height: Self.rootSize.height, alignment: .topLeading)
     .animation(.spring(duration: 0.3), value: mirror.overlay)
-    .onChange(of: mirror.overlay) { showSnoozeOptions = false }
+    .onChange(of: mirror.overlay) { oldValue, newValue in
+      showSnoozeOptions = false
+      updateCreature(from: oldValue, to: newValue)
+    }
+    .onAppear {
+      updateCreature(from: .hidden, to: mirror.overlay)
+    }
   }
 
-  // MARK: - Creature
+  // MARK: - Creature clip selection
 
-  /// The pixel-art creature, rotated so just its face peeks in over the
-  /// screen edge (the rest hangs offscreen past the window bounds).
-  private var creature: some View {
-    Image("FlowCreature")
-      .resizable()
-      .scaledToFit()
-      .frame(width: 131, height: 111)
-      .rotationEffect(.degrees(-43.27))
-      // Mock: rotated art centered at (~307, ~61) in this canvas — most of the
-      // body hangs past the trailing edge, offscreen.
-      .offset(x: 241, y: 6)
+  private func updateCreature(from old: FlowOverlayPresentation, to new: FlowOverlayPresentation) {
+    let player = FlowCreaturePlayer.shared
+    switch new {
+    case .hidden:
+      break  // Exit clips are driven by FlowOverlayController before hiding.
+    case .nudge(_, true):
+      player.play(.fireBegin, thenLoop: .fireLoop)
+    case .toast, .sessionEnded, .nudge:
+      if old == .hidden {
+        player.play(.entrance, thenLoop: .waveLoop)
+      } else {
+        player.ensureLoop(.waveLoop)
+      }
+    case .onBreak:
+      player.play(.bathBegin, thenLoop: .bathLoop)
+    }
   }
 
   // MARK: - Speech bubble
 
-  private func speechBubble(_ text: String) -> some View {
-    bubbleShell {
+  /// Where the bubble sits: `edge` next to the creature peeking at the right
+  /// edge, `scene` higher up and further left, clear of the fire/tub clips.
+  private enum BubbleLayout {
+    case edge, scene
+
+    var offset: CGPoint {
+      switch self {
+      case .edge: return CGPoint(x: 430, y: 190)
+      case .scene: return CGPoint(x: 310, y: 84)
+      }
+    }
+  }
+
+  private func speechBubble(_ text: String, layout: BubbleLayout) -> some View {
+    bubbleShell(layout: layout) {
       Text(text)
         .font(.custom("Figtree", size: 14))
         .foregroundColor(.black)
@@ -73,7 +102,7 @@ struct FlowOverlayView: View {
   }
 
   private var breakBubble: some View {
-    bubbleShell {
+    bubbleShell(layout: .scene) {
       VStack(alignment: .leading, spacing: 3) {
         Text("Break time!")
           .font(.custom("Figtree", size: 14))
@@ -87,7 +116,9 @@ struct FlowOverlayView: View {
     }
   }
 
-  private func bubbleShell<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+  private func bubbleShell<Content: View>(
+    layout: BubbleLayout, @ViewBuilder content: () -> Content
+  ) -> some View {
     content()
       .padding(.horizontal, 11)
       .padding(.vertical, 8)
@@ -104,7 +135,7 @@ struct FlowOverlayView: View {
           .frame(width: 30, height: 16)
           .offset(x: 19)
       }
-      .offset(x: 85, y: 41)
+      .offset(x: layout.offset.x, y: layout.offset.y)
   }
 
   // MARK: - Nudge pills
@@ -149,7 +180,7 @@ struct FlowOverlayView: View {
         pillText("Correct Flow's mistake")
       }
     }
-    .offset(x: 38, y: 98)
+    .offset(x: 388, y: 262)
   }
 
   private var sessionEndedPills: some View {
@@ -165,7 +196,7 @@ struct FlowOverlayView: View {
         pillText("Done")
       }
     }
-    .offset(x: 38, y: 98)
+    .offset(x: 388, y: 262)
   }
 
   private func pillText(_ title: String) -> some View {

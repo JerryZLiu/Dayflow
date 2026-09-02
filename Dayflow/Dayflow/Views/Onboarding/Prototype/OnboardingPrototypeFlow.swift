@@ -153,10 +153,7 @@ struct OnboardingPrototypeFlow: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background {
-      Image("OnboardingBackgroundv2")
-        .resizable()
-        .aspectRatio(contentMode: .fill)
-        .ignoresSafeArea()
+      OnboardingBackdrop()
     }
     .preferredColorScheme(.light)
     .onAppear {
@@ -254,14 +251,15 @@ private struct OnboardingPrototypePlaceholderStep: View {
               .font(.custom("Figtree", size: 15))
               .fontWeight(.semibold)
           },
-          background: Color(red: 0.25, green: 0.17, blue: 0),
+          background: Color(hex: "FF9F6F"),
           foreground: .white,
-          borderColor: .clear,
-          cornerRadius: 8,
+          borderColor: Color(hex: "F4C8B1"),
+          cornerRadius: 200,
           horizontalPadding: 28,
           verticalPadding: 14,
           minWidth: 170,
-          showOverlayStroke: true
+          showOverlayStroke: false,
+          innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)
         )
       }
     }

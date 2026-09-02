@@ -164,6 +164,7 @@ enum ReferralStepIcon {
 }
 
 struct ReferralStepRow: View {
+  @Environment(\.dayflowTheme) private var theme
   let icon: ReferralStepIcon
   let content: Text
 
@@ -172,7 +173,7 @@ struct ReferralStepRow: View {
       iconView
       content
         .font(.custom("Figtree", size: 12))
-        .foregroundColor(Color(hex: "333333"))
+        .foregroundColor(theme.textPrimary)
         .fixedSize(horizontal: false, vertical: true)
     }
   }
@@ -184,14 +185,14 @@ struct ReferralStepRow: View {
       Image("MenuBarOffIcon")
         .resizable()
         .renderingMode(.template)
-        .foregroundColor(Color(hex: "B8AA9E"))
+        .foregroundColor(theme.textMuted)
         .scaledToFit()
         .frame(width: 16, height: 13)
         .frame(width: 16, height: 14)
     case .system(let name):
       Image(systemName: name)
         .font(.system(size: 12, weight: .regular))
-        .foregroundColor(Color(hex: "B8AA9E"))
+        .foregroundColor(theme.textMuted)
         .frame(width: 16, height: 12)
     }
   }
@@ -200,49 +201,41 @@ struct ReferralStepRow: View {
 enum ReferralMiniButtonStyle {
   case copy
   case send
-
-  var foreground: Color {
-    switch self {
-    case .copy: return Color(hex: "D7A585")
-    case .send: return .white
-    }
-  }
-
-  var background: Color {
-    switch self {
-    case .copy: return Color(hex: "FFF5EA")
-    case .send: return Color(hex: "402C00")
-    }
-  }
-
-  var border: Color {
-    switch self {
-    case .copy: return Color(hex: "F7E4CE")
-    case .send: return Color.clear
-    }
-  }
 }
 
 struct ReferralMiniButton: View {
+  @Environment(\.dayflowTheme) private var theme
   let title: String
   let style: ReferralMiniButtonStyle
   var isDisabled = false
   let action: () -> Void
 
+  private var foreground: Color {
+    style == .copy ? theme.secondaryButtonText : theme.primaryButtonText
+  }
+
+  private var background: Color {
+    style == .copy ? theme.secondaryButtonFill : theme.primaryButtonFill
+  }
+
+  private var border: Color {
+    style == .copy ? theme.secondaryButtonBorder : .clear
+  }
+
   var body: some View {
     Button(action: action) {
       Text(title)
         .font(.custom("Nunito", size: 12))
-        .foregroundColor(style.foreground.opacity(isDisabled ? 0.45 : 1))
+        .foregroundColor(foreground.opacity(isDisabled ? 0.45 : 1))
         .frame(minWidth: 64, minHeight: 28)
         .padding(.horizontal, 18)
         .background(
           RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(style.background.opacity(isDisabled ? 0.45 : 1))
+            .fill(background.opacity(isDisabled ? 0.45 : 1))
         )
         .overlay(
           RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .stroke(style.border.opacity(isDisabled ? 0.45 : 1), lineWidth: style == .copy ? 1 : 0)
+            .stroke(border.opacity(isDisabled ? 0.45 : 1), lineWidth: style == .copy ? 1 : 0)
         )
     }
     .buttonStyle(.plain)
@@ -252,6 +245,7 @@ struct ReferralMiniButton: View {
 }
 
 struct ReferralFieldText: View {
+  @Environment(\.dayflowTheme) private var theme
   let icon: String
   let text: String
   let color: Color
@@ -260,7 +254,7 @@ struct ReferralFieldText: View {
     HStack(spacing: 6) {
       Image(systemName: icon)
         .font(.system(size: 12, weight: .regular))
-        .foregroundColor(Color(hex: "AFA8A0"))
+        .foregroundColor(theme.textMuted)
         .frame(width: 16)
 
       Text(text)
@@ -273,13 +267,18 @@ struct ReferralFieldText: View {
     .padding(.horizontal, 8)
     .background(
       RoundedRectangle(cornerRadius: 4, style: .continuous)
-        .fill(Color.white)
+        .fill(theme.inputFill)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 4, style: .continuous)
+        .stroke(theme.inputBorder, lineWidth: 1)
     )
     .textSelection(.enabled)
   }
 }
 
 struct ReferralEmailField: View {
+  @Environment(\.dayflowTheme) private var theme
   @Binding var email: String
   let isDisabled: Bool
 
@@ -287,25 +286,30 @@ struct ReferralEmailField: View {
     HStack(spacing: 6) {
       Image(systemName: "envelope.fill")
         .font(.system(size: 12, weight: .regular))
-        .foregroundColor(Color(hex: "AFA8A0"))
+        .foregroundColor(theme.textMuted)
         .frame(width: 16)
 
       TextField("email@example.com", text: $email)
         .textFieldStyle(.plain)
         .font(.custom("Figtree", size: 12))
-        .foregroundColor(Color(hex: "333333"))
+        .foregroundColor(theme.textPrimary)
         .disabled(isDisabled)
     }
     .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
     .padding(.horizontal, 8)
     .background(
       RoundedRectangle(cornerRadius: 4, style: .continuous)
-        .fill(Color.white)
+        .fill(theme.inputFill)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 4, style: .continuous)
+        .stroke(theme.inputBorder, lineWidth: 1)
     )
   }
 }
 
 struct ReferralCodeField: View {
+  @Environment(\.dayflowTheme) private var theme
   @Binding var code: String
   let isDisabled: Bool
 
@@ -313,13 +317,13 @@ struct ReferralCodeField: View {
     HStack(spacing: 6) {
       Image(systemName: "number")
         .font(.system(size: 12, weight: .regular))
-        .foregroundColor(Color(hex: "AFA8A0"))
+        .foregroundColor(theme.textMuted)
         .frame(width: 16)
 
       TextField("ABC123", text: $code)
         .textFieldStyle(.plain)
         .font(.system(size: 12, weight: .semibold, design: .monospaced))
-        .foregroundColor(Color(hex: "333333"))
+        .foregroundColor(theme.textPrimary)
         .disabled(isDisabled)
         .onChange(of: code) { _, newValue in
           let normalized = String(
@@ -334,23 +338,28 @@ struct ReferralCodeField: View {
     .padding(.horizontal, 8)
     .background(
       RoundedRectangle(cornerRadius: 4, style: .continuous)
-        .fill(Color.white)
+        .fill(theme.inputFill)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 4, style: .continuous)
+        .stroke(theme.inputBorder, lineWidth: 1)
     )
   }
 }
 
 struct EmptyReferralState: View {
+  @Environment(\.dayflowTheme) private var theme
   let text: String
 
   var body: some View {
     Text(text)
       .font(.custom("Figtree", size: 12))
-      .foregroundColor(Color(hex: "72706D"))
+      .foregroundColor(theme.textSecondary)
       .frame(maxWidth: .infinity, alignment: .center)
       .padding(.vertical, 24)
       .background(
         RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .fill(Color.white.opacity(0.6))
+          .fill(theme.summaryCardFill)
       )
   }
 }

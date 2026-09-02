@@ -3,6 +3,50 @@ import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - Weekly palette
+//
+// Weekly sections keep their colors in static `Design` enums, which can't read
+// the SwiftUI theme environment. These resolve per appearance instead, using
+// the same values as the light/dark DayflowTheme tokens.
+enum WeeklyPalette {
+  private static func hex(_ value: String, alpha: CGFloat = 1) -> NSColor {
+    (NSColor(hex: value) ?? .black).withAlphaComponent(alpha)
+  }
+
+  private static func adaptive(_ light: NSColor, _ dark: NSColor) -> Color {
+    Color.dayflowAdaptive(light: light, dark: dark)
+  }
+
+  static let canvas = adaptive(hex("FBF6EF"), .clear)
+  static let cardFill = adaptive(
+    NSColor.white.withAlphaComponent(0.6), NSColor.white.withAlphaComponent(0.12))
+  static let cardFillStrong = adaptive(
+    NSColor.white.withAlphaComponent(0.78), NSColor.white.withAlphaComponent(0.14))
+  static let cardBorder = adaptive(hex("EBE6E3"), hex("717171"))
+  static let cardInnerStroke = adaptive(.white, NSColor.white.withAlphaComponent(0.12))
+  static let solid = adaptive(.white, hex("272A3C"))
+  static let footer = adaptive(hex("FAF7F5"), hex("ABA8B9", alpha: 0.2))
+  static let title = adaptive(hex("B46531"), hex("F77952"))
+  static let accent = adaptive(hex("DF8351"), hex("F77952"))
+  static let text = adaptive(hex("333333"), .white)
+  static let secondaryText = adaptive(hex("777777"), hex("DDDDDD"))
+  static let mutedText = adaptive(hex("A5A5A5"), hex("B4B4B4"))
+  static let rowFill = adaptive(hex("F2F2F2"), NSColor.white.withAlphaComponent(0.08))
+  static let rowBorder = adaptive(hex("E5E4E3"), hex("4E4E4E"))
+  static let divider = adaptive(hex("E5DFD9"), hex("4E4E4E"))
+  static let axis = adaptive(hex("5A534C", alpha: 0.9), hex("DDDDDD"))
+  static let axisSoft = adaptive(hex("C9C2BC"), NSColor.white.withAlphaComponent(0.25))
+  static let emptyCell = adaptive(hex("F2F2F2"), NSColor.white.withAlphaComponent(0.08))
+  static let swatchNeutral = adaptive(hex("CFC7C1"), hex("6E6E6E"))
+  static let softAccentFill = adaptive(hex("FFF5EA"), hex("F77952", alpha: 0.18))
+  static let softAccentBorder = adaptive(hex("F7E4CE"), hex("F77952", alpha: 0.4))
+  static let highlightChipFill = adaptive(hex("FFECE0"), hex("F77952", alpha: 0.18))
+  static let tooltipFill = adaptive(
+    NSColor.white.withAlphaComponent(0.96), hex("272A3C", alpha: 0.96))
+  static let shadow = adaptive(
+    NSColor.black.withAlphaComponent(0.05), NSColor.black.withAlphaComponent(0.25))
+}
+
 struct WeeklyView: View {
   @EnvironmentObject private var categoryStore: CategoryStore
   @Environment(\.scenePhase) private var scenePhase
@@ -64,8 +108,7 @@ struct WeeklyView: View {
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .background(Color(hex: "FBF6EF"))
-    .environment(\.colorScheme, .light)
+    .background(WeeklyPalette.canvas)
     .animation(.easeInOut(duration: 0.22), value: isWeeklyAccessUnlocked)
     .onAppear {
       refreshWeeklyAccessState()
@@ -455,10 +498,10 @@ private struct WeeklyDataRequirementView: View {
   var body: some View {
     ZStack {
       RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .fill(Color(hex: "FFF7EF"))
+        .fill(WeeklyPalette.cardFillStrong)
         .overlay(
           RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .stroke(Color.white, lineWidth: 1)
+            .stroke(WeeklyPalette.cardInnerStroke, lineWidth: 1)
         )
         .shadow(color: Color(hex: "80450D").opacity(0.12), radius: 12, x: 0, y: 2)
 
@@ -466,11 +509,11 @@ private struct WeeklyDataRequirementView: View {
         VStack(spacing: 5) {
           Text("Keep recording to unlock this week")
             .font(.custom("InstrumentSerif-Regular", size: 24))
-            .foregroundStyle(Color(hex: "333333"))
+            .foregroundStyle(WeeklyPalette.text)
 
           Text("Weekly insights need at least 15 hours of recorded activity for the selected week.")
             .font(.custom("Figtree-Regular", size: 14))
-            .foregroundStyle(Color(hex: "796E64"))
+            .foregroundStyle(WeeklyPalette.secondaryText)
             .multilineTextAlignment(.center)
             .lineLimit(2)
         }
@@ -481,7 +524,7 @@ private struct WeeklyDataRequirementView: View {
 
         Text(remainingText)
           .font(.custom("Figtree-Medium", size: 13))
-          .foregroundStyle(Color(hex: "8A7768"))
+          .foregroundStyle(WeeklyPalette.secondaryText)
       }
       .padding(.horizontal, 28)
       .frame(maxWidth: 540)
@@ -521,13 +564,13 @@ private struct WeeklyDataRequirementPill: View {
       .frame(height: 58)
       .background(
         Capsule(style: .continuous)
-          .fill(Color(hex: "FFEBD6"))
+          .fill(WeeklyPalette.highlightChipFill)
       )
       .overlay(
         Capsule(style: .continuous)
           .stroke(Color(hex: "FF8904").opacity(0.5), lineWidth: 1)
       )
-      .shadow(color: Color(hex: "FDE7D1"), radius: 8, x: 0, y: 2)
+      .shadow(color: WeeklyPalette.shadow, radius: 8, x: 0, y: 2)
   }
 }
 
@@ -541,7 +584,7 @@ private struct WeeklyDataRequirementProgressBar: View {
 
       ZStack(alignment: .leading) {
         Capsule(style: .continuous)
-          .fill(Color(hex: "EAE0DD"))
+          .fill(WeeklyPalette.rowFill)
 
         LinearGradient(
           colors: [Color(hex: "C6D9FF"), Color(hex: "FF9A78")],
@@ -841,14 +884,14 @@ private struct WeeklyGraphicDownloadButton: View {
     Button(action: action) {
       Image(systemName: "arrow.down.to.line")
         .font(.system(size: 10, weight: .medium))
-        .foregroundStyle(Color(hex: "DF8351"))
+        .foregroundStyle(WeeklyPalette.accent)
         .frame(width: 12, height: 12)
         .frame(width: 24, height: 20)
-        .background(Color(hex: "FFF5EA"))
+        .background(WeeklyPalette.softAccentFill)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .overlay(
           RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .stroke(Color(hex: "F7E4CE"), lineWidth: 0.75)
+            .stroke(WeeklyPalette.softAccentBorder, lineWidth: 0.75)
         )
         .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
@@ -882,7 +925,11 @@ private enum WeeklyGraphicExporter {
     renderer.proposedSize = ProposedViewSize(width: size.width, height: size.height)
     renderer.scale = exportScale
 
-    guard let image = renderer.cgImage else {
+    var renderedImage: CGImage?
+    NSAppearance(named: .aqua)?.performAsCurrentDrawingAppearance {
+      renderedImage = renderer.cgImage
+    }
+    guard let image = renderedImage else {
       NSSound.beep()
       return
     }
@@ -964,13 +1011,13 @@ private struct WeeklyExportWatermark: View {
     .frame(height: 26)
     .background(
       Capsule(style: .continuous)
-        .fill(Color.white.opacity(0.94))
+        .fill(WeeklyPalette.tooltipFill)
     )
     .overlay(
       Capsule(style: .continuous)
-        .stroke(Color(hex: "EBE6E3"), lineWidth: 1)
+        .stroke(WeeklyPalette.cardBorder, lineWidth: 1)
     )
-    .shadow(color: Color.black.opacity(0.05), radius: 6, y: 2)
+    .shadow(color: WeeklyPalette.shadow, radius: 6, y: 2)
   }
 }
 
@@ -979,11 +1026,11 @@ private struct WeeklyGeneratedWithDayflowText: View {
     HStack(spacing: 3) {
       Text("Generated with")
         .font(.custom("Figtree-SemiBold", size: 10))
-        .foregroundStyle(Color(hex: "786A61"))
+        .foregroundStyle(WeeklyPalette.secondaryText)
 
       Text("Dayflow")
         .font(.custom("Figtree-Bold", size: 10))
-        .foregroundStyle(Color(hex: "B46531"))
+        .foregroundStyle(WeeklyPalette.title)
     }
   }
 }

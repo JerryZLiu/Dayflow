@@ -23,11 +23,11 @@ struct WeeklyContextChartsSection: View {
     static let xAxisTopSpacing: CGFloat = 8
     static let lineWidth: CGFloat = 2
     static let pointSize: CGFloat = 42
-    static let borderColor = Color(hex: "EBE6E3")
-    static let backgroundColor = Color.white.opacity(0.78)
-    static let footerBackgroundColor = Color.white.opacity(0.58)
-    static let axisColor = Color(hex: "5A534C").opacity(0.9)
-    static let labelColor = Color.black
+    static let borderColor = WeeklyPalette.cardBorder
+    static let backgroundColor = WeeklyPalette.cardFillStrong
+    static let footerBackgroundColor = WeeklyPalette.cardFill
+    static let axisColor = WeeklyPalette.axis
+    static let labelColor = WeeklyPalette.text
   }
 
   private var chartWidth: CGFloat {
@@ -61,7 +61,7 @@ struct WeeklyContextChartsSection: View {
       VStack(alignment: .leading, spacing: Design.chartTopSpacing) {
         Text("Context shift and distractions comparison")
           .font(.custom("InstrumentSerif-Regular", size: 20))
-          .foregroundStyle(Color(hex: "B46531"))
+          .foregroundStyle(WeeklyPalette.title)
           .lineLimit(1)
           .minimumScaleFactor(0.82)
           .padding(.bottom, Design.titleSpacing - Design.chartTopSpacing)
@@ -75,7 +75,7 @@ struct WeeklyContextChartsSection: View {
       .background(Design.backgroundColor)
       .overlay(alignment: .bottom) {
         Rectangle()
-          .fill(Color(hex: "EBE6E3"))
+          .fill(WeeklyPalette.cardBorder)
           .frame(height: 1)
       }
 
@@ -184,7 +184,7 @@ struct WeeklyContextChartsSection: View {
 
       Text(snapshot.comparison.insight)
         .font(.custom("Figtree-Regular", size: 14))
-        .foregroundStyle(Color.black)
+        .foregroundStyle(WeeklyPalette.text)
         .lineLimit(2)
         .minimumScaleFactor(0.82)
 
@@ -214,7 +214,7 @@ private struct WeeklyContextDistributionCard: View {
     static let plotHeight: CGFloat = 283
     static let contextColor = Color(hex: "B097FF")
     static let distractionColor = Color(hex: "FF7C5A")
-    static let axisColor = Color(hex: "C9C2BC")
+    static let axisColor = WeeklyPalette.axisSoft
   }
 
   init(snapshot: WeeklyContextDistributionSnapshot, width: CGFloat = Design.width) {
@@ -234,7 +234,7 @@ private struct WeeklyContextDistributionCard: View {
     VStack(alignment: .leading, spacing: 0) {
       Text("Context shift and distractions distribution")
         .font(.custom("InstrumentSerif-Regular", size: 18))
-        .foregroundStyle(Color(hex: "B46531"))
+        .foregroundStyle(WeeklyPalette.title)
         .padding(.leading, 25)
         .padding(.top, 18)
 
@@ -250,7 +250,7 @@ private struct WeeklyContextDistributionCard: View {
           ForEach(hourTicks, id: \.self) { tick in
             Text(tick)
               .font(.custom("Figtree-Regular", size: 8))
-              .foregroundStyle(Color.black)
+              .foregroundStyle(WeeklyPalette.text)
 
             if tick != hourTicks.last {
               Spacer(minLength: 0)
@@ -268,7 +268,7 @@ private struct WeeklyContextDistributionCard: View {
         ForEach(snapshot.days, id: \.self) { day in
           Text(day)
             .font(.custom("Figtree-Regular", size: 10))
-            .foregroundStyle(Color.black)
+            .foregroundStyle(WeeklyPalette.text)
             .frame(maxWidth: .infinity)
         }
       }
@@ -277,7 +277,7 @@ private struct WeeklyContextDistributionCard: View {
       .padding(.leading, 70)
     }
     .frame(width: width, height: Design.height, alignment: .topLeading)
-    .background(Color.white.opacity(0.75))
+    .background(WeeklyPalette.cardFillStrong)
     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
   }
 
@@ -335,7 +335,7 @@ private struct WeeklyContextDistributionCard: View {
 
       Text(title)
         .font(.custom("Figtree-Regular", size: 10))
-        .foregroundStyle(Color.black)
+        .foregroundStyle(WeeklyPalette.text)
     }
   }
 }
@@ -350,7 +350,7 @@ private struct WeeklyContextComparisonBarCard: View {
     static let mainHeight: CGFloat = 369
     static let barAreaHeight: CGFloat = 204
     static let maxBarHeight: CGFloat = 180
-    static let axisColor = Color(hex: "C9C2BC")
+    static let axisColor = WeeklyPalette.axisSoft
   }
 
   init(snapshot: WeeklyContextComparisonSnapshot, width: CGFloat = Design.width) {
@@ -367,7 +367,7 @@ private struct WeeklyContextComparisonBarCard: View {
       VStack(alignment: .leading, spacing: 0) {
         Text("Context shift and distractions comparison")
           .font(.custom("InstrumentSerif-Regular", size: 18))
-          .foregroundStyle(Color(hex: "B46531"))
+          .foregroundStyle(WeeklyPalette.title)
           .padding(.top, 22)
           .padding(.leading, 25)
 
@@ -380,10 +380,10 @@ private struct WeeklyContextComparisonBarCard: View {
           .frame(maxWidth: .infinity)
       }
       .frame(width: width, height: Design.mainHeight, alignment: .topLeading)
-      .background(Color.white.opacity(0.75))
+      .background(WeeklyPalette.cardFillStrong)
       .overlay(alignment: .bottom) {
         Rectangle()
-          .fill(Color(hex: "EBE6E3"))
+          .fill(WeeklyPalette.cardBorder)
           .frame(height: 1)
       }
 
@@ -407,7 +407,7 @@ private struct WeeklyContextComparisonBarCard: View {
 
           Text(day.day)
             .font(.custom("Figtree-Regular", size: 12))
-            .foregroundStyle(Color.black)
+            .foregroundStyle(WeeklyPalette.text)
             .padding(.top, 10)
         }
       }
@@ -468,7 +468,7 @@ private struct WeeklyContextComparisonBarCard: View {
 
       Text(title)
         .font(.custom("Figtree-Regular", size: 10))
-        .foregroundStyle(Color.black)
+        .foregroundStyle(WeeklyPalette.text)
     }
   }
 
@@ -482,7 +482,7 @@ private struct WeeklyContextComparisonBarCard: View {
 
         Text(snapshot.insight)
           .font(.custom("Figtree-Regular", size: 12))
-          .foregroundStyle(Color.black)
+          .foregroundStyle(WeeklyPalette.text)
           .lineSpacing(1)
           .frame(maxWidth: .infinity, alignment: .leading)
       }
@@ -491,7 +491,7 @@ private struct WeeklyContextComparisonBarCard: View {
     }
     .padding(.horizontal, 18)
     .frame(width: width, height: 58, alignment: .center)
-    .background(Color(hex: "FAF7F5"))
+    .background(WeeklyPalette.footer)
   }
 }
 
@@ -589,5 +589,5 @@ private func minutes(_ time: String) -> Int {
 #Preview("Context Charts", traits: .fixedLayout(width: 958, height: 427)) {
   WeeklyContextChartsSection(snapshot: .figmaPreview)
     .padding(24)
-    .background(Color(hex: "FBF6EF"))
+    .background(WeeklyPalette.canvas)
 }
