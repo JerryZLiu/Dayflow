@@ -12,6 +12,9 @@ extension OllamaProvider {
     var temperature: Double = 0.7
     var max_tokens: Int = 4000
     var stream: Bool = false
+    // Suppresses the reasoning stream on hybrid thinking models (e.g. Qwen3.5).
+    // Nil is never encoded, so engines that don't know the field are unaffected.
+    var reasoning_effort: String? = nil
   }
 
   struct ChatMessage: Codable {
@@ -51,6 +54,17 @@ extension OllamaProvider {
       throw NSError(
         domain: "OllamaProvider", code: 15,
         userInfo: [NSLocalizedDescriptionKey: "Invalid local endpoint URL"])
+    }
+
+    var request = request
+    if localEngine == "ollama" || localEngine == "lmstudio" {
+      // Ollama's and LM Studio's OpenAI-compatible endpoints enable thinking by
+      // default for hybrid reasoning models (e.g. Qwen3.5, Qwen3-VL) with no
+      // model-level way to turn it off, which makes each vision call 5-10x slower
+      // and can blow the 60s request timeout. Both honor "none" (verified on
+      // Ollama 0.32.14 and LM Studio 0.4.21); non-thinking models ignore the
+      // field. Custom endpoints are left untouched: some providers reject "none".
+      request.reasoning_effort = "none"
     }
 
     var urlRequest = URLRequest(url: resolvedURL)
