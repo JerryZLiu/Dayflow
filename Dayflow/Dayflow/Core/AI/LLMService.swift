@@ -175,7 +175,7 @@ final class LLMService: LLMServicing {
       print("❌ [LLMService] OpenAI-compatible provider unavailable: incomplete configuration")
       return nil
     }
-    let apiKey = KeychainManager.shared.retrieve(for: OpenAICompatiblePreferences.keychainProvider)
+    let apiKey = OpenAICompatiblePreferences.apiKey(for: configuration.preset)
     let runtimeConfiguration = OpenAICompatibleRuntimeConfiguration(
       configuration: configuration,
       bearerToken: apiKey

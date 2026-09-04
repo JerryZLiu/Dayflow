@@ -12,6 +12,26 @@ final class OpenAICompatibleConfigurationTests: XCTestCase {
     }
   }
 
+  private final class InMemoryKeychain: OpenAICompatibleKeychainStoring {
+    var values: [String: String] = [:]
+
+    func retrieve(for provider: String) -> String? {
+      values[provider]
+    }
+
+    @discardableResult
+    func store(_ apiKey: String, for provider: String) -> Bool {
+      values[provider] = apiKey
+      return true
+    }
+
+    @discardableResult
+    func delete(for provider: String) -> Bool {
+      values.removeValue(forKey: provider)
+      return true
+    }
+  }
+
   func testOpenRouterPresetBuildsChatCompletionsURL() {
     let configuration = OpenAICompatibleConfiguration.openRouter(
       modelID: "  openai/example-model  ")
@@ -24,6 +44,149 @@ final class OpenAICompatibleConfigurationTests: XCTestCase {
       "https://openrouter.ai/api/v1/chat/completions"
     )
     XCTAssertTrue(configuration.isComplete)
+  }
+
+  func testSiliconFlowPresetUsesVisionModelDefaults() {
+    let configuration = OpenAICompatibleConfiguration.siliconFlow()
+
+    XCTAssertEqual(configuration.preset, .siliconFlow)
+    XCTAssertEqual(configuration.preset.displayName, "SiliconFlow")
+    XCTAssertEqual(configuration.baseURL, "https://api.siliconflow.com/v1")
+    XCTAssertEqual(configuration.modelID, "Qwen/Qwen3.6-35B-A3B")
+    XCTAssertEqual(
+      configuration.chatCompletionsURL?.absoluteString,
+      "https://api.siliconflow.com/v1/chat/completions"
+    )
+    XCTAssertTrue(configuration.isComplete)
+  }
+
+  func testAPIKeyNormalizationRemovesPastedWhitespace() {
+    XCTAssertEqual(
+      OpenAICompatiblePreferences.normalizedAPIKey("  sk-test-\n 123 \t"),
+      "sk-test-123"
+    )
+  }
+
+  func testSiliconFlowTestRequestDisablesThinking() throws {
+    let request = LocalLLMChatRequest(
+      model: "Qwen/Qwen3.6-35B-A3B",
+      messages: [],
+      maxTokens: LocalLLMTestConstants.maxTestTokens,
+      enableThinking: false
+    )
+    let encoder = JSONEncoder()
+    encoder.keyEncodingStrategy = .convertToSnakeCase
+    let body = try JSONSerialization.jsonObject(
+      with: try encoder.encode(request)
+    ) as? [String: Any]
+
+    XCTAssertEqual(body?["enable_thinking"] as? Bool, false)
+  }
+
+  func testChatRequestOnlySiliconFlowIncludesDisabledThinking() throws {
+    for preset in OpenAICompatiblePreset.allCases {
+      let configuration = OpenAICompatibleConfiguration(
+        preset: preset,
+        baseURL: "https://example.com/v1",
+        modelID: "vision-model"
+      )
+      let runtimeConfiguration = OpenAICompatibleRuntimeConfiguration(
+        configuration: configuration,
+        bearerToken: nil
+      )
+      let provider = OllamaProvider(openAICompatible: runtimeConfiguration)
+      let chatRequest = OllamaProvider.ChatRequest(
+        model: provider.savedModelId,
+        messages: [],
+        enable_thinking: provider.enableThinkingParameter
+      )
+
+      let request = try provider.makeChatURLRequest(chatRequest)
+      let body = try XCTUnwrap(request.httpBody)
+      let decoded = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: body) as? [String: Any]
+      )
+
+      if preset == .siliconFlow {
+        XCTAssertEqual(decoded["enable_thinking"] as? Bool, false)
+      } else {
+        XCTAssertNil(decoded["enable_thinking"])
+      }
+    }
+  }
+
+  func testLegacyAPIKeyMigratesOnlyToSelectedPreset() {
+    let keychain = InMemoryKeychain()
+    keychain.values[OpenAICompatiblePreferences.keychainProvider] = " legacy-key\n"
+
+    let migratedKey = OpenAICompatiblePreferences.apiKey(
+      for: .siliconFlow,
+      keychain: keychain
+    )
+
+    XCTAssertEqual(migratedKey, "legacy-key")
+    XCTAssertEqual(
+      keychain.values[OpenAICompatiblePreferences.keychainProvider(for: .siliconFlow)],
+      "legacy-key"
+    )
+    XCTAssertNil(keychain.values[OpenAICompatiblePreferences.keychainProvider])
+    XCTAssertNil(
+      OpenAICompatiblePreferences.apiKey(
+        for: .openRouter,
+        migrateLegacyKey: false,
+        keychain: keychain
+      )
+    )
+    XCTAssertNil(
+      OpenAICompatiblePreferences.apiKey(
+        for: .custom,
+        migrateLegacyKey: false,
+        keychain: keychain
+      )
+    )
+  }
+
+  func testPresetAPIKeysRemainIsolated() {
+    let keychain = InMemoryKeychain()
+    for preset in OpenAICompatiblePreset.allCases {
+      keychain.values[OpenAICompatiblePreferences.keychainProvider(for: preset)] =
+        "\(preset.rawValue)-key"
+    }
+
+    for preset in OpenAICompatiblePreset.allCases {
+      XCTAssertEqual(
+        OpenAICompatiblePreferences.apiKey(
+          for: preset,
+          migrateLegacyKey: false,
+          keychain: keychain
+        ),
+        "\(preset.rawValue)-key"
+      )
+    }
+    XCTAssertNil(keychain.values[OpenAICompatiblePreferences.keychainProvider])
+  }
+
+  func testChatResponseAcceptsTextContentParts() throws {
+    let data = Data(
+      #"{"choices":[{"message":{"content":[{"type":"text","text":"white"}]}}]}"#.utf8
+    )
+
+    let response = try JSONDecoder().decode(OllamaProvider.ChatResponse.self, from: data)
+
+    XCTAssertEqual(response.choices.first?.message.content, "white")
+  }
+
+  func testChatResponseRejectsNullOrUnsupportedContent() {
+    let responses = [
+      #"{"choices":[{"message":{"content":null}}]}"#,
+      #"{"choices":[{"message":{"content":123}}]}"#,
+    ]
+
+    for response in responses {
+      XCTAssertThrowsError(
+        try JSONDecoder().decode(OllamaProvider.ChatResponse.self, from: Data(response.utf8))
+      )
+    }
   }
 
   func testConfigurationPreferencesRoundTripInIsolatedDefaults() throws {
@@ -43,6 +206,27 @@ final class OpenAICompatibleConfigurationTests: XCTestCase {
     OpenAICompatiblePreferences.reset(in: defaults)
     XCTAssertNil(OpenAICompatiblePreferences.load(from: defaults))
     XCTAssertEqual(OpenAICompatiblePreferences.keychainProvider, "openai_compatible")
+  }
+
+  func testSiliconFlowConfigurationSurvivesReloadFromFreshDefaults() throws {
+    let suiteName = "OpenAICompatibleConfigurationTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let configuration = OpenAICompatibleConfiguration.siliconFlow()
+
+    XCTAssertTrue(OpenAICompatiblePreferences.save(configuration, to: defaults))
+
+    // A new UserDefaults instance models the next app launch reading persisted configuration.
+    let reloadedDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    let reloadedConfiguration = OpenAICompatiblePreferences.load(from: reloadedDefaults)
+    XCTAssertEqual(reloadedConfiguration, configuration)
+    XCTAssertEqual(reloadedConfiguration?.preset, .siliconFlow)
+    XCTAssertEqual(reloadedConfiguration?.baseURL, OpenAICompatibleConfiguration.siliconFlowBaseURL)
+    XCTAssertEqual(
+      reloadedConfiguration?.modelID,
+      OpenAICompatibleConfiguration.siliconFlowDefaultModelID
+    )
   }
 
   func testInjectedRuntimeBuildsIndependentBearerRequest() throws {

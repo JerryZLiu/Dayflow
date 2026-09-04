@@ -6,6 +6,7 @@ enum LocalLLMTestConstants {
   static let blankImageDataURL = LocalLLMTestImageFactory.blankImageDataURL(
     width: 1280, height: 720)
   static let prompt = "What color is this image? Answer with a single word."
+  static let maxTestTokens = 64
   static let slowMachineMessage =
     "It took longer than 30 seconds, so your machine doesn't appear powerful enough to run this model locally."
   static let maxLatency: TimeInterval = 30
@@ -58,12 +59,17 @@ struct LocalLLMTestView: View {
   @Binding var apiKey: String
   let engine: LocalEngine
   let showInputs: Bool
+  let apiKeyRequired: Bool
+  let normalizeAPIKey: Bool
+  let enableThinking: Bool?
+  let maxTokens: Int
   let buttonLabel: String
   let basePlaceholder: String?
   let modelPlaceholder: String?
   let credentialStorageDescription: String
   let requiresMeaningfulResponse: Bool
   let enforcesLocalLatencyLimit: Bool
+  let onTestStart: () -> Void
   let onTestComplete: (Bool) -> Void
 
   init(
@@ -72,6 +78,10 @@ struct LocalLLMTestView: View {
     apiKey: Binding<String> = .constant(""),
     engine: LocalEngine,
     showInputs: Bool = true,
+    apiKeyRequired: Bool = false,
+    normalizeAPIKey: Bool = false,
+    enableThinking: Bool? = nil,
+    maxTokens: Int = 10,
     buttonLabel: String = "Test Local API",
     basePlaceholder: String? = nil,
     modelPlaceholder: String? = nil,
@@ -79,6 +89,7 @@ struct LocalLLMTestView: View {
       "Stored locally in UserDefaults and sent as a Bearer token for custom endpoints.",
     requiresMeaningfulResponse: Bool = false,
     enforcesLocalLatencyLimit: Bool = true,
+    onTestStart: @escaping () -> Void = {},
     onTestComplete: @escaping (Bool) -> Void
   ) {
     _baseURL = baseURL
@@ -86,24 +97,33 @@ struct LocalLLMTestView: View {
     _apiKey = apiKey
     self.engine = engine
     self.showInputs = showInputs
+    self.apiKeyRequired = apiKeyRequired
+    self.normalizeAPIKey = normalizeAPIKey
+    self.enableThinking = enableThinking
+    self.maxTokens = maxTokens
     self.buttonLabel = buttonLabel
     self.basePlaceholder = basePlaceholder
     self.modelPlaceholder = modelPlaceholder
     self.credentialStorageDescription = credentialStorageDescription
     self.requiresMeaningfulResponse = requiresMeaningfulResponse
     self.enforcesLocalLatencyLimit = enforcesLocalLatencyLimit
+    self.onTestStart = onTestStart
     self.onTestComplete = onTestComplete
   }
 
   let accentColor = Color(red: 0.25, green: 0.17, blue: 0)
   let successAccentColor = Color(red: 0.34, green: 1, blue: 0.45)
-  var trimmedAPIKey: String {
-    apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+  var requestAPIKey: String {
+    if normalizeAPIKey {
+      return OpenAICompatiblePreferences.normalizedAPIKey(apiKey)
+    }
+    return apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   @State var isTesting = false
   @State var resultMessage: String?
   @State var success: Bool = false
+  @State private var testGeneration = 0
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -130,7 +150,7 @@ struct LocalLLMTestView: View {
 
         if engine == .custom {
           VStack(alignment: .leading, spacing: 6) {
-            Text("API key (optional)")
+            Text(apiKeyRequired ? "API key (required)" : "API key (optional)")
               .font(.custom("Figtree", size: 12))
               .fontWeight(.semibold)
               .foregroundColor(SettingsStyle.secondary)
@@ -165,14 +185,39 @@ struct LocalLLMTestView: View {
         }
       }
     }
+    .onDisappear {
+      testGeneration += 1
+      isTesting = false
+    }
   }
   func runTest() {
     guard !isTesting else { return }
+    testGeneration += 1
+    let generation = testGeneration
     isTesting = true
     success = false
     resultMessage = nil
+    onTestStart()
 
-    guard let url = LocalEndpointUtilities.chatCompletionsURL(baseURL: baseURL) else {
+    let key = requestAPIKey
+    let requestEngine = engine
+    guard !apiKeyRequired || !key.isEmpty else {
+      resultMessage = "Enter an API key"
+      isTesting = false
+      onTestComplete(false)
+      return
+    }
+
+    let requestModelID = modelId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !requestModelID.isEmpty else {
+      resultMessage = "Enter a model ID"
+      isTesting = false
+      onTestComplete(false)
+      return
+    }
+
+    let requestBaseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let url = LocalEndpointUtilities.chatCompletionsURL(baseURL: requestBaseURL) else {
       resultMessage = "Invalid base URL"
       isTesting = false
       onTestComplete(false)
@@ -180,7 +225,7 @@ struct LocalLLMTestView: View {
     }
 
     let payload = LocalLLMChatRequest(
-      model: modelId,
+      model: requestModelID,
       messages: [
         LocalLLMChatMessage(
           role: "user",
@@ -190,7 +235,8 @@ struct LocalLLMTestView: View {
           ]
         )
       ],
-      maxTokens: 10
+      maxTokens: maxTokens,
+      enableThinking: enableThinking
     )
 
     var request = URLRequest(url: url)
@@ -199,8 +245,8 @@ struct LocalLLMTestView: View {
     if engine == .lmstudio {
       request.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
     }
-    if engine == .custom && !trimmedAPIKey.isEmpty {
-      request.setValue("Bearer \(trimmedAPIKey)", forHTTPHeaderField: "Authorization")
+    if engine == .custom && !key.isEmpty {
+      request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
     }
     let encoder = JSONEncoder()
     encoder.keyEncodingStrategy = .convertToSnakeCase
@@ -211,6 +257,19 @@ struct LocalLLMTestView: View {
 
     URLSession.shared.dataTask(with: request) { data, response, error in
       DispatchQueue.main.async {
+        let currentBaseURL = self.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentModelID = self.modelId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard generation == self.testGeneration,
+          requestEngine == self.engine,
+          requestBaseURL == currentBaseURL,
+          requestModelID == currentModelID,
+          key == self.requestAPIKey
+        else {
+          self.isTesting = false
+          self.success = false
+          self.resultMessage = nil
+          return
+        }
         let duration = Date().timeIntervalSince(startedAt)
         if enforcesLocalLatencyLimit && duration > LocalLLMTestConstants.maxLatency {
           self.resultMessage = LocalLLMTestConstants.slowMachineMessage
@@ -263,6 +322,7 @@ struct LocalLLMChatRequest: Codable {
   let model: String
   let messages: [LocalLLMChatMessage]
   let maxTokens: Int
+  let enableThinking: Bool?
 }
 
 struct LocalLLMChatMessage: Codable {

@@ -96,11 +96,11 @@ struct OnboardingPrototypeChooseProviderStep: View {
     ),
     ComparisonProvider(
       providerID: .openAICompatible,
-      title: "OpenRouter / Custom",
+      title: "OpenAI-compatible",
       accuracy: RatedValue(text: "Varies", rating: .medium),
       subscription: "API credits",
       ease: RatedValue(text: "API key and model", rating: .medium),
-      notes: "Uses OpenRouter or any OpenAI-compatible endpoint."
+      notes: "Uses OpenRouter, SiliconFlow, or any OpenAI-compatible endpoint."
     ),
     ComparisonProvider(
       providerID: .local,
