@@ -104,7 +104,7 @@ struct OnboardingPrototypeRoleSelectionStep: View {
         },
         content: {
           Text("Continue")
-            .font(.custom("Figtree", size: 14))
+            .font(.custom("Figtree", size: 16))
             .fontWeight(.medium)
         },
         background: Color(hex: "FF9F6F"),
@@ -112,7 +112,7 @@ struct OnboardingPrototypeRoleSelectionStep: View {
         borderColor: Color(hex: "F4C8B1"),
         cornerRadius: 200,
         horizontalPadding: 59,
-        verticalPadding: 12,
+        verticalPadding: 18,
         minWidth: 234,
         showOverlayStroke: false,
         innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)

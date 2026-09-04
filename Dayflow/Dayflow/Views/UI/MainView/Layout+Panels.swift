@@ -49,7 +49,7 @@ extension MainView {
       Spacer()
       SidebarView(selectedIcon: $selectedIcon)
         .frame(maxWidth: .infinity, alignment: .center)
-        .offset(y: sidebarOffset)
+        .offset(y: sidebarOffset + sidebarTuner.iconYOffset)
         .opacity(sidebarOpacity)
       Spacer()
     }
@@ -100,6 +100,11 @@ extension MainView {
     return
       shape
       .fill(theme.panelFill)
+      .overlay(
+        // Light-mode-only inner shadow (white 25%, 4px fade); dark keeps
+        // its shipped panel look.
+        InnerGlow(shape: shape, color: theme.isDark ? .clear : theme.panelInnerGlow, radius: 4)
+      )
       .overlay(shape.strokeBorder(theme.panelBorder, lineWidth: 1))
       .shadow(color: theme.panelShadow, radius: 12, x: 0, y: 0)
   }
@@ -280,7 +285,7 @@ extension MainView {
     .background {
       if timelineInspectorWidth > 0 {
         shape
-          .fill(theme.rightPanelFill)
+          .fill(theme.rightPanelFill.opacityOverride(opacityOverrides.rightPanel))
           .overlay(shape.strokeBorder(theme.rightPanelBorder, lineWidth: 0.75))
           .shadow(color: theme.rightPanelShadow, radius: 4, x: 0, y: 0)
       }
@@ -421,10 +426,10 @@ extension MainView {
 
     return
       (Text(parts.bold)
-      .font(Font.custom("Figtree", size: 10).weight(.bold))
+      .font(Font.custom("Figtree", size: stylePreviewAfter ? 14 : 10).weight(.bold))
       .foregroundColor(textColor)
       + Text(parts.rest)
-      .font(Font.custom("Figtree", size: 10).weight(.regular))
+      .font(Font.custom("Figtree", size: stylePreviewAfter ? 14 : 10).weight(.regular))
       .foregroundColor(textColor))
       .background(
         GeometryReader { proxy in
@@ -459,7 +464,7 @@ extension MainView {
             Image(systemName: "checkmark")
               .font(.system(size: 11.5, weight: .medium))
             Text("Copied")
-              .font(Font.custom("Figtree", size: 11.5).weight(.medium))
+              .font(Font.custom("Figtree", size: stylePreviewAfter ? 14 : 11.5).weight(.medium))
           }
           .transition(.asymmetric(insertion: enterTransition, removal: exitTransition))
         } else {
@@ -471,15 +476,20 @@ extension MainView {
               .scaledToFit()
               .frame(width: 11.5, height: 11.5)
             Text("Copy timeline")
-              .font(Font.custom("Figtree", size: 11.5).weight(.medium))
+              .font(Font.custom("Figtree", size: stylePreviewAfter ? 14 : 11.5).weight(.medium))
           }
           .transition(.asymmetric(insertion: enterTransition, removal: exitTransition))
         }
       }
       .animation(.spring(response: 0.3, dampingFraction: 0.85), value: copyTimelineState)
-      .frame(width: 104, height: 23)
+      .frame(width: stylePreviewAfter ? 122 : 104, height: stylePreviewAfter ? 26 : 23)
       .foregroundColor(textColor)
       .background(background)
+      .background {
+        if theme.isDark {
+          Rectangle().fill(.ultraThinMaterial)
+        }
+      }
       .clipShape(RoundedRectangle(cornerRadius: 7))
       .overlay(
         RoundedRectangle(cornerRadius: 7)

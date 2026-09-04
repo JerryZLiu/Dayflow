@@ -36,13 +36,15 @@ struct WeeklyWorkflowSection: View {
     static let sectionWidth: CGFloat = 958
     static let cornerRadius: CGFloat = 4
     static let borderColor = WeeklyPalette.cardBorder
-    static let backgroundColor = WeeklyPalette.cardFillStrong
+    @MainActor static var backgroundColor: Color { WeeklyPalette.contextCardFill }
     static let dividerColor = WeeklyPalette.divider
     static let titleColor = WeeklyPalette.title
     static let textColor = WeeklyPalette.text
     static let mutedTextColor = WeeklyPalette.secondaryText
     static let totalTitleColor = WeeklyPalette.secondaryText
     static let totalNameColor = WeeklyPalette.text
+    // Shared (tunable) footer fill, matching the context charts footer.
+    @MainActor static var footerBackgroundColor: Color { WeeklyPalette.footerSectionFill }
     static let emptyCellColor = WeeklyPalette.emptyCell
     static let axisColor = WeeklyPalette.divider
 
@@ -90,6 +92,7 @@ struct WeeklyWorkflowSection: View {
       RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
         .fill(Design.backgroundColor)
     )
+    .clipShape(RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous))
     .overlay(alignment: .topLeading) {
       Text(snapshot.title)
         .font(.custom("InstrumentSerif-Regular", size: 20))
@@ -182,10 +185,12 @@ struct WeeklyWorkflowSection: View {
       }
       .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
       .frame(maxWidth: .infinity, alignment: .leading)
+      .background(Design.footerBackgroundColor)
     } else {
       footerContent
         .padding(Design.footerPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Design.footerBackgroundColor)
     }
   }
 

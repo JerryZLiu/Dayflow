@@ -5,18 +5,23 @@ import UserNotifications
 
 extension DailyView {
   @ViewBuilder
-  func actionRow(scale: CGFloat) -> some View {
-    let actionButtons = HStack(spacing: 10 * scale) {
+  func actionButtons(scale: CGFloat) -> some View {
+    HStack(spacing: 10 * scale) {
       if hasPersistedStandupEntry {
         standupCopyButton(scale: scale)
       }
       standupRegenerateButton(scale: scale)
       dailyProviderButton(scale: scale)
     }
+  }
 
+  /// "Before" layout: buttons in their own trailing-aligned row below the
+  /// workflow grid instead of inline with the standup heading.
+  @ViewBuilder
+  func actionRow(scale: CGFloat) -> some View {
     HStack {
       Spacer(minLength: 0)
-      actionButtons
+      actionButtons(scale: scale)
     }
   }
   /// Peach "glass" pill shared by the Daily action buttons (Figma: Copy and
@@ -114,7 +119,7 @@ extension DailyView {
             .lineLimit(1)
             .opacity(transientRegenerateButtonLabel == nil ? 0 : 1)
         }
-        .frame(minWidth: 108 * scale, alignment: .leading)
+        .frame(minWidth: stylePreviewAfter ? nil : 108 * scale, alignment: .leading)
       }
       .foregroundStyle(theme.controlText)
       .padding(.horizontal, 12 * scale)
@@ -153,9 +158,23 @@ extension DailyView {
     titles: DailyStandupSectionTitles
   ) -> some View {
     VStack(alignment: .leading, spacing: 8 * scale) {
-      Text(heading)
-        .font(.custom("InstrumentSerif-Regular", size: 24 * scale))
-        .foregroundStyle(theme.textSecondary)
+      if stylePreviewAfter {
+        HStack(alignment: .center, spacing: 12 * scale) {
+          Text(heading)
+            .font(.custom("InstrumentSerif-Regular", size: 22 * scale))
+            .foregroundStyle(theme.textSecondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+
+          Spacer(minLength: 0)
+
+          actionButtons(scale: scale)
+        }
+      } else {
+        Text(heading)
+          .font(.custom("InstrumentSerif-Regular", size: 24 * scale))
+          .foregroundStyle(theme.textSecondary)
+      }
 
       if useSingleColumn {
         VStack(alignment: .leading, spacing: 12 * scale) {

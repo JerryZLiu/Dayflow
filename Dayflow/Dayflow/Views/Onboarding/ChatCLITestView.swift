@@ -5,6 +5,7 @@ import SwiftUI
 struct ChatCLITestView: View {
   let selectedTool: CLITool?
   let onTestComplete: (Bool) -> Void
+  var usesOnboardingStyle: Bool = false
 
   let accentColor = Color(red: 0.25, green: 0.17, blue: 0)
   let successAccentColor = Color(red: 0.34, green: 1, blue: 0.45)
@@ -17,17 +18,51 @@ struct ChatCLITestView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
       Text("We'll ask your CLI a simple question to verify it's working and signed in.")
-        .font(.custom("Figtree", size: 12))
-        .foregroundColor(SettingsStyle.secondary)
+        .font(.custom("Figtree", size: usesOnboardingStyle ? 16 : 12))
+        .foregroundColor(usesOnboardingStyle ? Color(hex: "898989") : SettingsStyle.secondary)
         .fixedSize(horizontal: false, vertical: true)
 
-      SettingsPrimaryButton(
-        title: isTesting ? "Testing…" : "Test CLI",
-        systemImage: "bolt.fill",
-        isLoading: isTesting,
-        isDisabled: selectedTool == nil,
-        action: runTest
-      )
+      if usesOnboardingStyle {
+        DayflowSurfaceButton(
+          action: runTest,
+          content: {
+            HStack(spacing: 4) {
+              Group {
+                if isTesting {
+                  ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.6)
+                } else {
+                  Image(systemName: "bolt.fill").font(.system(size: 13, weight: .semibold))
+                }
+              }
+              .frame(width: 16, height: 16)
+              Text(isTesting ? "Testing…" : "Test CLI")
+                .font(.custom("Figtree", size: 14))
+                .fontWeight(.medium)
+            }
+          },
+          background: Color(hex: "FDCEA4"),
+          foreground: Color(hex: "926244"),
+          borderColor: Color(hex: "F1CEBC"),
+          cornerRadius: 200,
+          horizontalPadding: 24,
+          verticalPadding: 8,
+          fixedHeight: 41,
+          showOverlayStroke: false,
+          innerGlowColor: Color(hex: "FFECE6")
+        )
+        .disabled(isTesting || selectedTool == nil)
+        .opacity(selectedTool == nil ? 0.5 : 1)
+      } else {
+        SettingsPrimaryButton(
+          title: isTesting ? "Testing…" : "Test CLI",
+          systemImage: "bolt.fill",
+          isLoading: isTesting,
+          isDisabled: selectedTool == nil,
+          action: runTest
+        )
+      }
 
       if selectedTool == nil {
         Text("Select ChatGPT or Claude above before running the test.")

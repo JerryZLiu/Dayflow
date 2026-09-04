@@ -19,7 +19,7 @@ struct WeeklyTreemapSection: View {
     static let sectionSize = CGSize(width: 958, height: 549)
     static let cornerRadius: CGFloat = 4
     static let borderColor = WeeklyPalette.cardBorder
-    static let background = WeeklyPalette.cardFill
+    @MainActor static var background: Color { WeeklyPalette.cardFill }
     static let titleOrigin = CGPoint(x: 40, y: 34)
     static let contentOrigin = CGPoint(x: 40, y: 86)
     static let contentTrailingInset: CGFloat = 40

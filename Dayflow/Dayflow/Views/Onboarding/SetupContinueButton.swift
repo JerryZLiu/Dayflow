@@ -12,6 +12,7 @@ struct SetupContinueButton: View {
   let isEnabled: Bool
   let action: () -> Void
 
+  @Environment(\.dayflowTheme) private var theme
   @State private var isPressed = false
   @State private var isHovered = false
 
@@ -23,26 +24,27 @@ struct SetupContinueButton: View {
 
   var body: some View {
     Button(action: isEnabled ? action : {}) {
-      HStack(alignment: .center, spacing: 8) {
+      HStack(alignment: .center, spacing: 6) {
         Text(title)
-          .font(.custom("Figtree", size: 16))
-          .fontWeight(.semibold)
-          .foregroundColor(.white)
+          .font(.custom("Figtree", size: 14))
+          .fontWeight(.regular)
+        Image(systemName: "chevron.right")
+          .font(.system(size: 12, weight: .medium))
       }
-      .padding(.horizontal, 59)
-      .padding(.vertical, 18)
-      .frame(width: 160, alignment: .center)
-      .background(
-        Color(red: 0.25, green: 0.17, blue: 0)
-      )
-      .cornerRadius(12)
-      .shadow(color: .black.opacity(0.25), radius: 0.25, x: 0, y: 0.5)
-      .shadow(color: .black.opacity(0.16), radius: 0.5, x: 0, y: 1)
-      .shadow(color: .black.opacity(0.3), radius: 6, x: 0, y: 2)
+      .foregroundColor(.white)
+      .padding(.leading, 36)
+      .padding(.trailing, 32)
+      .frame(height: 44)
+      .background(theme.primaryButtonFill)
+      .cornerRadius(200)
+      .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
       .overlay(
-        RoundedRectangle(cornerRadius: 12)
-          .inset(by: 0.75)
-          .stroke(.white.opacity(0.17), lineWidth: 1.5)
+        Capsule()
+          .inset(by: 0.25)
+          .stroke(theme.primaryButtonBorder, lineWidth: 0.5)
+      )
+      .overlay(
+        InnerGlow(shape: Capsule(), color: theme.primaryButtonInnerGlow, radius: 3)
       )
       .opacity(isEnabled ? 1.0 : 0.4)
     }

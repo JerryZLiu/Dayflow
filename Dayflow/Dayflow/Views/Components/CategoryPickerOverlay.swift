@@ -2,10 +2,13 @@ import AppKit
 import SwiftUI
 
 struct CategoryPickerOverlay: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let categories: [TimelineCategory]
   let currentCategoryName: String
   var onSelect: (TimelineCategory) -> Void
   var onNavigateToEditor: () -> Void
+  var onDismiss: () -> Void
 
   private var orderedCategories: [TimelineCategory] {
     let trimmedCurrent = currentCategoryName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -37,17 +40,19 @@ struct CategoryPickerOverlay: View {
           } label: {
             CategoryPickerPill(
               category: category,
-              isSelected: isSelected(category)
+              isSelected: isSelected(category),
+              isDark: theme.isDark
             )
           }
           .buttonStyle(.plain)
           .pointingHandCursor()
         }
       }
+      .padding(.trailing, 32)
       .frame(maxWidth: .infinity, alignment: .leading)
 
       Rectangle()
-        .fill(Color(red: 0.91, green: 0.89, blue: 0.86))
+        .fill(theme.isDark ? Color.white.opacity(0.14) : Color(red: 0.91, green: 0.89, blue: 0.86))
         .frame(height: 1)
 
       helperContent
@@ -58,37 +63,61 @@ struct CategoryPickerOverlay: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(backgroundView)
     .clipShape(
-      UnevenRoundedRectangle(
-        cornerRadii: .init(
-          topLeading: 0,
-          bottomLeading: 0,
-          bottomTrailing: 0,
-          topTrailing: 6
-        )
-      )
+      RoundedRectangle(cornerRadius: 6)
     )
     .overlay(
-      UnevenRoundedRectangle(
-        cornerRadii: .init(
-          topLeading: 0,
-          bottomLeading: 0,
-          bottomTrailing: 0,
-          topTrailing: 6
-        )
+      RoundedRectangle(cornerRadius: 6)
+      .stroke(
+        theme.isDark ? theme.popoverBorder : Color(red: 0.91, green: 0.88, blue: 0.87),
+        lineWidth: 1
       )
-      .stroke(Color(red: 0.91, green: 0.88, blue: 0.87), lineWidth: 1)
     )
+    .overlay(alignment: .topTrailing) {
+      dismissButton
+    }
+  }
+
+  private var dismissButton: some View {
+    Button(action: onDismiss) {
+      Image(systemName: "checkmark")
+        .font(.system(size: 11, weight: .bold))
+        .foregroundColor(theme.isDark ? .white : Color(red: 0.39, green: 0.35, blue: 0.33))
+        .frame(width: 26, height: 26)
+        .background(
+          theme.isDark ? Color.white.opacity(0.28) : Color.white.opacity(0.9)
+        )
+        .clipShape(
+          UnevenRoundedRectangle(
+            cornerRadii: .init(
+              topLeading: 0,
+              bottomLeading: 8,
+              bottomTrailing: 0,
+              topTrailing: 6
+            )
+          )
+        )
+    }
+    .buttonStyle(.plain)
+    .pointingHandCursor()
+    .accessibilityLabel("Done")
   }
 
   private var backgroundView: some View {
-    Color(red: 0.98, green: 0.96, blue: 0.95).opacity(0.86)
-      .background(.ultraThinMaterial)
+    Group {
+      if theme.isDark {
+        Color(hex: "424755")
+          .background(.ultraThinMaterial)
+      } else {
+        Color(red: 0.98, green: 0.96, blue: 0.95).opacity(0.86)
+          .background(.ultraThinMaterial)
+      }
+    }
   }
 
   private var helperContent: some View {
     let baseFont = Font.custom("Figtree", size: 12)
-    let baseColor = Color(red: 0.39, green: 0.35, blue: 0.33)
-    let linkColor = Color(red: 1.0, green: 0.4, blue: 0.0)
+    let baseColor = theme.isDark ? theme.textTertiary : Color(red: 0.39, green: 0.35, blue: 0.33)
+    let linkColor = theme.isDark ? theme.accentText : Color(red: 1.0, green: 0.4, blue: 0.0)
     let linkURL = URL(string: "dayflow://category-editor")!
 
     var intro = AttributedString(
@@ -131,6 +160,7 @@ struct CategoryPickerOverlay: View {
 private struct CategoryPickerPill: View {
   let category: TimelineCategory
   let isSelected: Bool
+  var isDark: Bool = false
 
   private var categoryColor: Color {
     if let nsColor = NSColor(hex: category.colorHex) {
@@ -141,7 +171,13 @@ private struct CategoryPickerPill: View {
 
   private var background: some View {
     Group {
-      if isSelected {
+      if isDark {
+        if isSelected {
+          Color(red: 226 / 255, green: 160 / 255, blue: 121 / 255).opacity(0.4)
+        } else {
+          Color.white.opacity(0.14)
+        }
+      } else if isSelected {
         LinearGradient(
           colors: [
             Color(red: 1.0, green: 0.99, blue: 0.97),
@@ -157,10 +193,17 @@ private struct CategoryPickerPill: View {
   }
 
   private var borderColor: Color {
+    if isDark {
+      return isSelected ? Color(hex: "875C46") : Color.white.opacity(0.18)
+    }
     if isSelected {
       return Color(red: 0.98, green: 0.73, blue: 0.50)
     }
     return Color(red: 0.88, green: 0.88, blue: 0.88)
+  }
+
+  private var textColor: Color {
+    isDark ? .white : Color(red: 0.2, green: 0.2, blue: 0.2)
   }
 
   var body: some View {
@@ -174,7 +217,7 @@ private struct CategoryPickerPill: View {
           Font.custom("Figtree", size: 13)
             .weight(.medium)
         )
-        .foregroundColor(Color(red: 0.2, green: 0.2, blue: 0.2))
+        .foregroundColor(textColor)
         .lineLimit(1)
     }
     .padding(.horizontal, 6)

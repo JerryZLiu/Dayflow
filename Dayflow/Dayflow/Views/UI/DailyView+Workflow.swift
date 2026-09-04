@@ -10,9 +10,9 @@ extension DailyView {
       let availableWidth = max(320, geometry.size.width)
       let layoutWidth = min(availableWidth, maxLayoutWidth)
       let scale: CGFloat = 1.1
-      let horizontalInset = 16 * scale
-      let topInset = max(22, 20 * scale)
-      let bottomInset = 16 * scale
+      let horizontalInset = CGFloat(styleTweaks.horizontalMargin)
+      let topInset: CGFloat = stylePreviewAfter ? 40 : max(22, 20 * scale)
+      let bottomInset = CGFloat(styleTweaks.bottomSpace)
       let sectionSpacing = 20 * scale
       let contentWidth = max(320, layoutWidth - (horizontalInset * 2))
       let useSingleColumn = false
@@ -22,7 +22,13 @@ extension DailyView {
         VStack(alignment: .leading, spacing: sectionSpacing) {
           topControls(scale: scale)
           workflowSection(scale: scale, isViewingToday: isViewingToday)
-          actionRow(scale: scale)
+            .padding(.horizontal, CGFloat(styleTweaks.todayPadding))
+            // "After": gap between the date row and this section is 32pt
+            // total (VStack spacing + this padding).
+            .padding(.top, stylePreviewAfter ? 32 - sectionSpacing : 0)
+          if !stylePreviewAfter {
+            actionRow(scale: scale)
+          }
           highlightsAndTasksSection(
             useSingleColumn: useSingleColumn,
             contentWidth: contentWidth,
@@ -30,6 +36,9 @@ extension DailyView {
             heading: standupSectionHeading(for: selectedDate),
             titles: standupSectionTitles(for: selectedDate, sourceDay: standupSourceDay)
           )
+          // Gap between the workflow grid and the standup section: the
+          // "Section gap" tweak is the total (VStack spacing + this padding).
+          .padding(.top, max(0, CGFloat(styleTweaks.sectionGap) - sectionSpacing))
         }
         .frame(width: contentWidth, alignment: .leading)
         .padding(.horizontal, horizontalInset)
@@ -129,7 +138,7 @@ extension DailyView {
     return VStack(alignment: .leading, spacing: 8 * scale) {
       HStack {
         Text(headingText)
-          .font(.custom("InstrumentSerif-Regular", size: 24 * scale))
+          .font(.custom("InstrumentSerif-Regular", size: (stylePreviewAfter ? 22 : 24) * scale))
           .foregroundStyle(theme.textSecondary)
 
         Spacer()
@@ -165,7 +174,9 @@ extension DailyView {
         InnerGlow(
           shape: RoundedRectangle(cornerRadius: 4, style: .continuous),
           color: theme.summaryCardInnerGlow,
-          radius: 4
+          radius: 4,
+          spread: stylePreviewAfter ? 3 : 4,
+          blur: stylePreviewAfter ? 2.5 : 4
         )
       )
       .overlay(

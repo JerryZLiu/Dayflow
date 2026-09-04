@@ -181,11 +181,13 @@ struct OnboardingFlow: View {
           onBack: {
             setStep(.llmSelection)
           },
-          onComplete: {
-            guard saveRouting(primary: selectedProviderID, presentsError: false) else {
+          onComplete: { configuredProviderID in
+            guard saveRouting(primary: configuredProviderID, presentsError: false) else {
               return false
             }
-            recordCurrentProvider(selectedProviderID)
+            // Keep the stored selection in sync if the user switched CLI tools mid-setup
+            selectedProviderIDRawValue = configuredProviderID.rawValue
+            recordCurrentProvider(configuredProviderID)
             advance()
             return true
           }
@@ -675,22 +677,16 @@ struct OnboardingCategoryColorStepView: View {
   @EnvironmentObject private var categoryStore: CategoryStore
 
   var body: some View {
-    VStack(spacing: 32) {
-      ColorOrganizerRoot(
-        presentationStyle: .embedded,
-        flowMode: .colorsOnly,
-        onBack: onBack,
-        onDismiss: {
-          onNext()
-        },
-        analyticsSurface: "onboarding"
-      )
-      .environmentObject(categoryStore)
-      .frame(maxWidth: .infinity)
-      .frame(minHeight: 600)
-    }
-    .padding(.horizontal, 40)
-    .padding(.vertical, 60)
+    ColorOrganizerRoot(
+      presentationStyle: .embedded,
+      flowMode: .colorsOnly,
+      onBack: onBack,
+      onDismiss: {
+        onNext()
+      },
+      analyticsSurface: "onboarding"
+    )
+    .environmentObject(categoryStore)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }
@@ -756,15 +752,15 @@ struct OnboardingPrototypeDownloadReasonStep: View {
         },
         content: {
           Text("Continue")
-            .font(.custom("Figtree", size: 14))
-            .fontWeight(.semibold)
+            .font(.custom("Figtree", size: 16))
+            .fontWeight(.medium)
         },
         background: Color(hex: "FF9F6F"),
         foreground: .white,
         borderColor: Color(hex: "F4C8B1"),
         cornerRadius: 200,
         horizontalPadding: 59,
-        verticalPadding: 12,
+        verticalPadding: 18,
         minWidth: 234,
         showOverlayStroke: false,
         innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)
@@ -962,15 +958,15 @@ struct OnboardingPrototypeReferralStep: View {
         },
         content: {
           Text("Continue")
-            .font(.custom("Figtree", size: 14))
-            .fontWeight(.semibold)
+            .font(.custom("Figtree", size: 16))
+            .fontWeight(.medium)
         },
         background: Color(hex: "FF9F6F"),
         foreground: .white,
         borderColor: Color(hex: "F4C8B1"),
         cornerRadius: 200,
         horizontalPadding: 59,
-        verticalPadding: 12,
+        verticalPadding: 18,
         minWidth: 234,
         showOverlayStroke: false,
         innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)

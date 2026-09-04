@@ -218,18 +218,7 @@ extension WeeklyDashboardBuilder {
   }
 
   private static func treemapPalette(for colorHex: String) -> WeeklyTreemapPalette {
-    let accent = NSColor(hex: colorHex) ?? .systemBlue
-    let color = Color(nsColor: accent)
-    let tileFill = accent.blended(with: 0.86, of: .white) ?? .white
-    let tileBorder = accent.blended(with: 0.36, of: .white) ?? accent
-
-    return WeeklyTreemapPalette(
-      shellFill: color.opacity(0.25),
-      shellBorder: color.opacity(0.62),
-      tileFill: Color(nsColor: tileFill),
-      tileBorder: Color(nsColor: tileBorder),
-      headerText: color
-    )
+    .category(hex: colorHex)
   }
 
   private static func sankeySourceName(for weekRange: WeeklyDateRange) -> String {

@@ -18,6 +18,7 @@ struct DayflowSurfaceButton<Content: View>: View {
   var horizontalPadding: CGFloat = 18
   var verticalPadding: CGFloat = 12
   var minWidth: CGFloat? = nil
+  var fixedHeight: CGFloat? = nil  // Fixed button height (vertical padding still applies to content)
   var showShadow: Bool = true
   var showOverlayStroke: Bool = false  // New parameter for white overlay stroke
   var isSecondaryStyle: Bool = false  // New parameter for white/secondary buttons
@@ -45,6 +46,7 @@ struct DayflowSurfaceButton<Content: View>: View {
       .padding(.horizontal, horizontalPadding)
       .padding(.vertical, verticalPadding)
       .frame(minWidth: minWidth)
+      .frame(height: fixedHeight)
       .background(background)
       .overlay(
         Group {

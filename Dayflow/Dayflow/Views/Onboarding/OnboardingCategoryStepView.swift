@@ -38,8 +38,6 @@ struct OnboardingCategoryStepView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      Spacer().frame(height: 80)
-
       GeometryReader { proxy in
         let totalWidth = proxy.size.width - 160  // account for horizontal padding
         let leftWidth = totalWidth * 0.38
@@ -53,9 +51,9 @@ struct OnboardingCategoryStepView: View {
             .frame(width: rightWidth, alignment: .leading)
         }
         .padding(.horizontal, 80)
+        .padding(.vertical, 40)
+        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .center)
       }
-
-      Spacer()
 
       buttonRow
         .padding(.bottom, 40)
@@ -110,20 +108,29 @@ struct OnboardingCategoryStepView: View {
   // MARK: - Right Column
 
   private var categoryCardsColumn: some View {
-    ScrollView(showsIndicators: false) {
-      VStack(spacing: 12) {
-        ForEach(categories) { category in
-          if editingCategoryID == category.id {
-            editingCard(for: category)
-          } else {
-            readOnlyCard(for: category)
-          }
-        }
+    // Hug content height so the block centers vertically; scroll only when needed
+    ViewThatFits(in: .vertical) {
+      cardsStack
 
-        addCategoryButton
+      ScrollView(showsIndicators: false) {
+        cardsStack
       }
-      .padding(5)  // prevent shadow clipping
     }
+  }
+
+  private var cardsStack: some View {
+    VStack(spacing: 12) {
+      ForEach(categories) { category in
+        if editingCategoryID == category.id {
+          editingCard(for: category)
+        } else {
+          readOnlyCard(for: category)
+        }
+      }
+
+      addCategoryButton
+    }
+    .padding(5)  // prevent shadow clipping
   }
 
   // MARK: - Editing Card
@@ -133,7 +140,7 @@ struct OnboardingCategoryStepView: View {
       colorSwatch(hex: category.colorHex)
 
       TextField("Category name", text: $draftName)
-        .font(.custom("Figtree", size: 12).weight(.bold))
+        .font(.custom("Figtree", size: 12).weight(.medium))
         .textFieldStyle(.plain)
         .foregroundColor(.black)
 
@@ -190,7 +197,7 @@ struct OnboardingCategoryStepView: View {
       colorSwatch(hex: category.colorHex)
 
       Text(category.name)
-        .font(.custom("Figtree", size: 12).weight(.bold))
+        .font(.custom("Figtree", size: 12).weight(.medium))
         .foregroundColor(.black)
 
       Spacer()
@@ -297,13 +304,13 @@ struct OnboardingCategoryStepView: View {
       // Back button (outlined)
       Button(action: onBack) {
         Text("Back")
-          .font(.custom("Figtree", size: 12).weight(.medium))
+          .font(.custom("Figtree", size: 14).weight(.medium))
           .tracking(-0.48)
           .foregroundColor(Color(hex: "B6B6B6"))
-          .padding(.horizontal, 40)
-          .padding(.vertical, 12)
+          .padding(.horizontal, 32)
+          .frame(height: 44)
           .overlay(
-            RoundedRectangle(cornerRadius: 4)
+            Capsule()
               .stroke(Color(hex: "B6B6B6"), lineWidth: 1)
           )
       }
@@ -325,14 +332,27 @@ struct OnboardingCategoryStepView: View {
           ])
         onNext()
       } label: {
-        Text("Next")
-          .font(.custom("Figtree", size: 12).weight(.medium))
-          .tracking(-0.48)
-          .foregroundColor(.white)
-          .padding(.horizontal, 40)
-          .padding(.vertical, 12)
-          .background(Color(hex: "402B00"))
-          .cornerRadius(4)
+        HStack(spacing: 6) {
+          Text("Next")
+            .font(.custom("Figtree", size: 14).weight(.medium))
+            .tracking(-0.48)
+          Image(systemName: "chevron.right")
+            .font(.system(size: 12, weight: .medium))
+        }
+        .foregroundColor(.white)
+        .padding(.leading, 36)
+        .padding(.trailing, 32)
+        .frame(height: 44)
+          .background(Color(hex: "FF9F6F"))
+          .overlay(
+            Capsule()
+              .inset(by: 0.25)
+              .stroke(Color(hex: "F4C8B1"), lineWidth: 0.5)
+          )
+          .overlay(
+            InnerGlow(shape: Capsule(), color: Color(hex: "FFDCCB").opacity(0.9), radius: 3)
+          )
+          .cornerRadius(200)
       }
       .buttonStyle(.plain)
       .pointingHandCursor()

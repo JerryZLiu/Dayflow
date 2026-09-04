@@ -70,8 +70,8 @@ struct SettingsView: View {
         LLMProviderSetupView(
           providerType: wrapper.providerID,
           onBack: { providersViewModel.cancelProviderSetup() },
-          onComplete: {
-            let succeeded = providersViewModel.handleProviderSetupCompletion(wrapper.providerID)
+          onComplete: { configuredProviderID in
+            let succeeded = providersViewModel.handleProviderSetupCompletion(configuredProviderID)
             if succeeded {
               providersViewModel.cancelProviderSetup()
             }

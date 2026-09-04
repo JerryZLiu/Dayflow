@@ -53,10 +53,6 @@ struct ReferralSurveyView: View {
             ForEach(row, id: \.id) { option in
               referralOptionView(option)
             }
-
-            if row.count == 1 {
-              Spacer(minLength: 0)
-            }
           }
         }
       }
@@ -165,14 +161,25 @@ struct ReferralSurveyView: View {
 
   private var detailField: some View {
     TextField(currentDetailPlaceholder, text: $customReferral)
-      .textFieldStyle(RoundedBorderTextFieldStyle())
+      .textFieldStyle(.plain)
       .font(.custom("Figtree", size: 13))
+      .foregroundColor(Color(hex: "634D42"))
+      .padding(.horizontal, 12)
+      .frame(height: 34)
+      .frame(maxWidth: .infinity)
+      .background(Color.white.opacity(0.4))
+      .cornerRadius(5)
+      .overlay(
+        RoundedRectangle(cornerRadius: 5)
+          .stroke(Color(hex: "E4D3C2"), lineWidth: 1)
+      )
+      .shadow(
+        color: Color(hex: "AF7246").opacity(0.15),
+        radius: 2, x: 0, y: 0
+      )
       .opacity(selectedReferral?.requiresDetail == true ? 1 : 0)
       .disabled(selectedReferral?.requiresDetail != true)
       .allowsHitTesting(selectedReferral?.requiresDetail == true)
-      .frame(height: 44)
-      .frame(maxWidth: .infinity)
-      .padding(.horizontal, 12)
       .padding(.top, 6)
   }
 

@@ -187,6 +187,8 @@ struct DayflowTheme {
   let dailyStatValue: Color
   let standupCardGradient: LinearGradient
   let standupCardBorder: Color
+  let standupBlockersFill: Color
+  let standupBlockersBorder: Color
 
   // Standard text field / input
   let inputFill: Color
@@ -204,26 +206,43 @@ struct DayflowTheme {
 // MARK: - Light
 
 extension DayflowTheme {
-  static let light = DayflowTheme(
+  /// The in-progress "After" light palette.
+  static let light = lightPalette(after: true)
+  /// The shipped light palette, rendered when the style preview is "Before".
+  static let lightBefore = lightPalette(after: false)
+
+  private static func lightPalette(after: Bool) -> DayflowTheme {
+    DayflowTheme(
     isDark: false,
     windowBackground: AnyShapeStyle(
-      RadialGradient(
-        stops: [
-          .init(color: Color(hex: "FFE6CF"), location: 0),
-          .init(color: Color(hex: "FFE6E0"), location: 0.37),
-          .init(color: Color(hex: "DAEAFC"), location: 0.99),
-        ],
-        center: UnitPoint(x: 0.59, y: 1.0),
-        startRadius: 0,
-        endRadius: 1250
-      )
+      after
+        ? RadialGradient(
+          stops: [
+            .init(color: Color(hex: "FFE6CF"), location: 0.17),
+            .init(color: Color(hex: "FFE6E0"), location: 0.33),
+            .init(color: Color(hex: "D6E8FF"), location: 1),
+          ],
+          center: UnitPoint(x: 0.64, y: 1.0),
+          startRadius: 0,
+          endRadius: 1250
+        )
+        : RadialGradient(
+          stops: [
+            .init(color: Color(hex: "FFE6CF"), location: 0),
+            .init(color: Color(hex: "FFE6E0"), location: 0.37),
+            .init(color: Color(hex: "DAEAFC"), location: 0.99),
+          ],
+          center: UnitPoint(x: 0.59, y: 1.0),
+          startRadius: 0,
+          endRadius: 1250
+        )
     ),
     windowBorder: Color(hex: "DBDBDB"),
 
     panelFill: AnyShapeStyle(Color(hex: "FBFBFB").opacity(0.55)),
     panelBorder: Color(hex: "FAFAFA"),
     panelShadow: Color.black.opacity(0.08),
-    panelInnerGlow: .clear,
+    panelInnerGlow: after ? Color.white.opacity(0.25) : .clear,
     panelSolid: Color(hex: "FBF6F4"),
 
     sidebarSelectedFill: LinearGradient(
@@ -267,7 +286,7 @@ extension DayflowTheme {
     hourLabelFuture: Color(hex: "594838"),
     hourLine: Color.black.opacity(0.12),
 
-    cardFill: Color.white.opacity(0.9),
+    cardFill: Color.white.opacity(after ? 0.61 : 0.9),
     cardBorder: Color(hex: "D0D0D0"),
     cardInnerGlow: Color.white,
     cardTitle: Color(hex: "333333"),
@@ -294,7 +313,7 @@ extension DayflowTheme {
 
     weekCardFillOpacity: 0.2,
 
-    rightPanelFill: Color.white.opacity(0.3),
+    rightPanelFill: Color.white.opacity(after ? 0.6 : 0.3),
     rightPanelBorder: Color(hex: "ECECEC"),
     rightPanelShadow: Color.black.opacity(0.05),
     rightPanelDivider: Color(hex: "E7E5E3"),
@@ -356,7 +375,7 @@ extension DayflowTheme {
     sheetWheelBorder: Color(hex: "E6DDD9"),
     sheetWheelDimText: Color(hex: "AAA6A3"),
 
-    dailyGridFill: Color.white.opacity(0.75),
+    dailyGridFill: Color.white.opacity(after ? 0.46 : 0.75),
     dailyGridBorder: Color(hex: "EBE6E3"),
     dailyTotalsFill: Color(hex: "FAF7F5"),
     dailyEmptyCell: Color(hex: "989898").opacity(0.1),
@@ -373,29 +392,42 @@ extension DayflowTheme {
       endPoint: .trailing
     ),
     standupCardBorder: Color(hex: "E5E5E5"),
+    standupBlockersFill: Color(hex: "E3DBD2").opacity(0.25),
+    standupBlockersBorder: Color(hex: "E5E5E5"),
 
     inputFill: Color.white.opacity(0.9),
     inputBorder: Color(hex: "E1E1E1"),
 
-    chatBackground: AnyShapeStyle(
-      LinearGradient(
-        colors: [Color(hex: "FFFAF5"), Color(hex: "FFF6EC")],
-        startPoint: .top,
-        endPoint: .bottom
-      )
-    ),
+    // "After" is clear so the chat page shows the shared main-panel background
+    // (FBFBFB @ 55% with FAFAFA stroke, inner glow, drop shadow).
+    chatBackground: after
+      ? AnyShapeStyle(Color.clear)
+      : AnyShapeStyle(
+        LinearGradient(
+          colors: [Color(hex: "FFFAF5"), Color(hex: "FFF6EC")],
+          startPoint: .top,
+          endPoint: .bottom
+        )
+      ),
     chatSoftAccentFill: Color(hex: "FFF4E9"),
     chatSoftAccentBorder: Color(hex: "F96E00").opacity(0.25),
     chatSidePanelFill: Color.white,
     chatSidePanelHeaderFill: Color(hex: "F5F5F5"),
     chatCodeFill: Color(hex: "FAF7F2")
-  )
+    )
+  }
 }
 
 // MARK: - Dark
 
 extension DayflowTheme {
-  static let dark = DayflowTheme(
+  /// The in-progress "After" dark palette.
+  static let dark = darkPalette(after: true)
+  /// The shipped dark palette, rendered when the style preview is "Before".
+  static let darkBefore = darkPalette(after: false)
+
+  private static func darkPalette(after: Bool) -> DayflowTheme {
+    DayflowTheme(
     isDark: true,
     windowBackground: AnyShapeStyle(
       LinearGradient(
@@ -475,9 +507,9 @@ extension DayflowTheme {
     hourLabelFuture: Color(hex: "DDDDDD").opacity(0.4),
     hourLine: Color.white.opacity(0.18),
 
-    cardFill: Color.white.opacity(0.15),
+    cardFill: after ? Color(hex: "3A3A4C") : Color.white.opacity(0.15),
     cardBorder: Color(hex: "999999"),
-    cardInnerGlow: Color.white.opacity(0.15),
+    cardInnerGlow: Color.white.opacity(after ? 0.08 : 0.15),
     cardTitle: .white,
     cardTime: Color(hex: "B4B4B4"),
     cardFailedFill: Color(red: 1, green: 89 / 255, blue: 80 / 255).opacity(0.22),
@@ -516,7 +548,7 @@ extension DayflowTheme {
     summaryCardFill: Color.white.opacity(0.12),
     summaryCardBorder: Color(hex: "717171"),
     summaryCardShadow: .clear,
-    summaryCardInnerGlow: Color.white.opacity(0.25),
+    summaryCardInnerGlow: Color.white.opacity(after ? 0.12 : 0.25),
     summaryValue: Color(hex: "F77952"),
 
     donutRingBackground: Color.white.opacity(0.2),
@@ -579,6 +611,8 @@ extension DayflowTheme {
       endPoint: .trailing
     ),
     standupCardBorder: Color(hex: "4E4E4E"),
+    standupBlockersFill: Color(hex: "ABA8B9").opacity(0.2),
+    standupBlockersBorder: Color(hex: "4E4E4E"),
 
     inputFill: Color.white.opacity(0.1),
     inputBorder: Color(hex: "666666"),
@@ -589,7 +623,8 @@ extension DayflowTheme {
     chatSidePanelFill: Color(hex: "272A3C"),
     chatSidePanelHeaderFill: Color.white.opacity(0.06),
     chatCodeFill: Color.black.opacity(0.25)
-  )
+    )
+  }
 }
 
 // MARK: - Environment plumbing
@@ -610,9 +645,14 @@ extension EnvironmentValues {
 /// `@Environment(\.dayflowTheme)`.
 private struct DayflowThemeResolver: ViewModifier {
   @Environment(\.colorScheme) private var colorScheme
+  @ObservedObject private var preview = StylePreview.shared
 
   func body(content: Content) -> some View {
-    content.environment(\.dayflowTheme, colorScheme == .dark ? .dark : .light)
+    content.environment(
+      \.dayflowTheme,
+      colorScheme == .dark
+        ? (preview.showAfter ? .dark : .darkBefore)
+        : (preview.showAfter ? .light : .lightBefore))
   }
 }
 
@@ -652,11 +692,15 @@ struct InnerGlow<S: InsettableShape>: View {
   let shape: S
   let color: Color
   var radius: CGFloat = 4
+  /// Stroke width of the glow band; defaults to `radius`.
+  var spread: CGFloat? = nil
+  /// Softness of the band's edges; defaults to `radius`.
+  var blur: CGFloat? = nil
 
   var body: some View {
     shape
-      .strokeBorder(color, lineWidth: radius)
-      .blur(radius: radius)
+      .strokeBorder(color, lineWidth: spread ?? radius)
+      .blur(radius: blur ?? radius)
       .clipShape(shape)
       .allowsHitTesting(false)
   }

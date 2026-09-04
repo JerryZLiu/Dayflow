@@ -68,7 +68,7 @@ struct CLIDetector {
   }
 }
 
-struct ChatCLIDetectionStepView<NextButton: View>: View {
+struct ChatCLIDetectionStepView: View {
   let codexStatus: CLIDetectionState
   let codexReport: CLIDetectionReport?
   let claudeStatus: CLIDetectionState
@@ -78,7 +78,6 @@ struct ChatCLIDetectionStepView<NextButton: View>: View {
   let onInstall: (CLITool) -> Void
   let selectedTool: CLITool?
   let onSelectTool: (CLITool) -> Void
-  @ViewBuilder let nextButton: () -> NextButton
 
   let accentColor = Color(hex: "FF9F6F")
 
@@ -87,7 +86,7 @@ struct ChatCLIDetectionStepView<NextButton: View>: View {
       Text(
         "Dayflow can talk to ChatGPT (via the Codex CLI) or Claude Code. You only need one installed and signed in on this Mac. After installing, run `codex auth` or `claude login` in Terminal to connect it to your account."
       )
-      .font(.custom("Figtree", size: 14))
+      .font(.custom("Figtree", size: 16))
       .foregroundColor(Color(hex: "333333"))
 
       HStack(alignment: .top, spacing: 18) {
@@ -106,29 +105,30 @@ struct ChatCLIDetectionStepView<NextButton: View>: View {
       Text(
         "Tip: Once both are installed, you can choose which provider Dayflow uses from Settings → AI Provider."
       )
-      .font(.custom("Figtree", size: 14))
+      .font(.custom("Figtree", size: 16))
       .foregroundColor(Color(hex: "333333"))
 
-      VStack(alignment: .leading, spacing: 14) {
-        Text("Choose which provider Dayflow should use")
-          .font(.custom("Figtree", size: 14))
-          .fontWeight(.medium)
-          .foregroundColor(Color(hex: "333333"))
-        HStack(spacing: 12) {
-          ForEach(CLITool.allCases, id: \.self) { tool in
-            selectionButton(for: tool)
+      VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 14) {
+          Text("Choose which provider Dayflow should use")
+            .font(.custom("Figtree", size: 14))
+            .fontWeight(.medium)
+            .foregroundColor(Color(hex: "333333"))
+          HStack(spacing: 12) {
+            ForEach(CLITool.allCases, id: \.self) { tool in
+              selectionButton(for: tool)
+            }
           }
         }
-      }
-      .padding(16)
-      .background(Color.white.opacity(0.6))
-      .cornerRadius(12)
-      .overlay(
-        RoundedRectangle(cornerRadius: 12)
-          .stroke(Color(hex: "EDE5E1"), lineWidth: 1)
-      )
+        .padding(16)
+        .frame(maxWidth: 516)
+        .background(Color.white.opacity(0.6))
+        .cornerRadius(12)
+        .overlay(
+          RoundedRectangle(cornerRadius: 12)
+            .stroke(Color(hex: "EDE5E1"), lineWidth: 1)
+        )
 
-      HStack {
         DayflowSurfaceButton(
           action: {
             if !isChecking {
@@ -136,40 +136,32 @@ struct ChatCLIDetectionStepView<NextButton: View>: View {
             }
           },
           content: {
-            HStack(spacing: 8) {
+            HStack(spacing: 4) {
               if isChecking {
-                ProgressView().scaleEffect(0.7)
+                ProgressView().scaleEffect(0.6).frame(width: 16, height: 16)
               } else {
-                Image(systemName: "arrow.clockwise").font(.system(size: 13, weight: .semibold))
+                Image(systemName: "arrow.clockwise")
+                  .font(.system(size: 13, weight: .semibold))
+                  .frame(width: 16, height: 16)
               }
-              Text(isChecking ? "Checking…" : "Check again")
+              Text(isChecking ? "Checking…" : "Check")
                 .font(.custom("Figtree", size: 14))
                 .fontWeight(.medium)
             }
           },
-          background: Color(hex: "FF9F6F"),
-          foreground: .white,
-          borderColor: Color(hex: "F4C8B1"),
+          background: Color(hex: "FDCEA4"),
+          foreground: Color(hex: "926244"),
+          borderColor: Color(hex: "F1CEBC"),
           cornerRadius: 200,
-          horizontalPadding: 32,
-          verticalPadding: 12,
+          horizontalPadding: 24,
+          verticalPadding: 8,
+          fixedHeight: 41,
           showOverlayStroke: false,
-          innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)
+          innerGlowColor: Color(hex: "FFECE6")
         )
         .disabled(isChecking)
-
-        Spacer()
-
-        nextButton()
-          .opacity(canContinue ? 1.0 : 0.5)
-          .allowsHitTesting(canContinue)
       }
     }
-  }
-
-  var canContinue: Bool {
-    guard let selectedTool else { return false }
-    return isToolAvailable(selectedTool)
   }
 
   func isToolAvailable(_ tool: CLITool) -> Bool {
@@ -187,13 +179,12 @@ struct ChatCLIDetectionStepView<NextButton: View>: View {
   func selectionButton(for tool: CLITool) -> some View {
     let enabled = isToolAvailable(tool)
     Button(action: {
-      if enabled {
-        onSelectTool(tool)
-      }
+      onSelectTool(tool)
     }) {
       HStack(spacing: 12) {
         Image(systemName: selectedTool == tool ? "largecircle.fill.circle" : "circle")
-          .font(.system(size: 18, weight: .regular))
+          .font(.system(size: 22, weight: .regular))
+          .frame(width: 24, height: 24)
           .foregroundColor(selectedTool == tool ? accentColor : Color(hex: "D0C8C2"))
         VStack(alignment: .leading, spacing: 4) {
           Text(tool.shortName)
@@ -218,9 +209,7 @@ struct ChatCLIDetectionStepView<NextButton: View>: View {
       )
     }
     .buttonStyle(.plain)
-    .disabled(!enabled)
-    .opacity(enabled ? 1.0 : 0.5)
-    .pointingHandCursor(enabled: enabled)
+    .pointingHandCursor()
   }
 }
 
@@ -245,7 +234,7 @@ struct ChatCLIToolStatusRow: View {
           .fontWeight(.semibold)
           .foregroundColor(.black)
 
-        Spacer(minLength: 40)
+        Spacer(minLength: 53)
 
         statusView
       }
@@ -273,7 +262,6 @@ struct ChatCLIToolStatusRow: View {
       }
     }
     .padding(14)
-    .frame(maxWidth: .infinity, alignment: .leading)
     .background(Color.white.opacity(0.9))
     .cornerRadius(12)
     .overlay(

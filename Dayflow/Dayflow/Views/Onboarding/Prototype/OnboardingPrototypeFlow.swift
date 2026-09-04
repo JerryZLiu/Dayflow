@@ -236,12 +236,13 @@ private struct OnboardingPrototypePlaceholderStep: View {
           },
           background: .white,
           foreground: Color(red: 0.25, green: 0.17, blue: 0),
-          borderColor: .clear,
-          cornerRadius: 8,
-          horizontalPadding: 28,
-          verticalPadding: 14,
+          borderColor: Color(hex: "B6B6B6"),
+          cornerRadius: 200,
+          horizontalPadding: 12,
+          verticalPadding: 0,
           minWidth: 170,
-          isSecondaryStyle: true
+          fixedHeight: 36,
+          showShadow: false
         )
 
         DayflowSurfaceButton(

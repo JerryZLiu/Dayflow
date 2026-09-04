@@ -235,10 +235,11 @@ struct DayflowApp: App {
           )
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
           .padding(.trailing, 24)
-          .padding(.bottom, 132)
+          .padding(.bottom, 24)
           .transition(.move(edge: .trailing).combined(with: .opacity))
           .zIndex(10)
         }
+
       }
       // Inline background behind the main app UI only
       .background {
@@ -254,6 +255,10 @@ struct DayflowApp: App {
       // Onboarding stays light; the main app follows the user's appearance setting.
       .preferredColorScheme(didOnboard ? appearance.preferredColorScheme : .light)
       .resolveDayflowTheme()
+      .resolveStylePreview()
+      .resolveOpacityOverrides()
+      .resolveGlowOverrides()
+      .resolveCardColorOverrides()
       .onAppear {
         if !showVideoLaunch {
           dispatchPendingNotificationNavigation(after: 0.1)
@@ -426,15 +431,27 @@ final class MainWindowController {
 /// Full-window gradient behind the main app (Figma: dark linear / light radial).
 private struct DayflowWindowBackground: View {
   @Environment(\.dayflowTheme) private var theme
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
+  @Environment(\.opacityOverrides) private var opacityOverrides
+  @ObservedObject private var backgroundTuner = BackgroundTuner.shared
 
   var body: some View {
     GeometryReader { proxy in
-      Image(theme.isDark ? "DarkWindowBackground" : "LightWindowBackground")
-        .resizable()
-        .interpolation(.high)
-        .scaledToFill()
-        .frame(width: proxy.size.width, height: proxy.size.height)
-        .clipped()
+      Group {
+        if !theme.isDark && stylePreviewAfter {
+          // "After": light background driven by the dev tuner.
+          TunedGradientBackground(settings: backgroundTuner.settings)
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        } else {
+          Image(theme.isDark ? "DarkWindowBackground" : "LightWindowBackground")
+            .resizable()
+            .interpolation(.high)
+            .scaledToFill()
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
+        }
+      }
+      .opacity(opacityOverrides.background ?? 1)
     }
   }
 }

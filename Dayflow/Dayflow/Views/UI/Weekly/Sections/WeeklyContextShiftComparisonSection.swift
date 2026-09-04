@@ -17,7 +17,7 @@ struct WeeklyContextShiftComparisonSection: View {
     static let sectionWidth: CGFloat = 958
     static let sectionHeight: CGFloat = 414
     static let cornerRadius: CGFloat = 6
-    static let background = WeeklyPalette.canvas
+    @MainActor static var background: Color { WeeklyPalette.canvas }
     static let axisColor = WeeklyPalette.axis
     static let labelColor = WeeklyPalette.text
     static let insightBorder = WeeklyPalette.cardBorder

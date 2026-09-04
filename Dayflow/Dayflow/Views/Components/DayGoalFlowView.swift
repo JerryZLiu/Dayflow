@@ -123,6 +123,7 @@ struct DayGoalFlowOverlay: View {
 
 struct DayGoalFlowView: View {
   @Environment(\.dayflowTheme) private var theme
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
 
   let review: DayGoalReviewSnapshot
   let categories: [TimelineCategory]
@@ -472,14 +473,38 @@ struct DayGoalFlowView: View {
         .foregroundColor(theme.primaryButtonText)
         .lineLimit(1)
         .frame(width: 120, height: 36)
-        .background(RoundedRectangle(cornerRadius: 6).fill(theme.primaryButtonFill))
-        .overlay(
-          InnerGlow(
-            shape: RoundedRectangle(cornerRadius: 6), color: theme.primaryButtonInnerGlow, radius: 3
-          )
+        .background(
+          Group {
+            if stylePreviewAfter {
+              Capsule().fill(theme.primaryButtonFill)
+            } else {
+              RoundedRectangle(cornerRadius: 6).fill(theme.primaryButtonFill)
+            }
+          }
         )
         .overlay(
-          RoundedRectangle(cornerRadius: 6).strokeBorder(theme.primaryButtonBorder, lineWidth: 0.75)
+          Group {
+            if stylePreviewAfter {
+              InnerGlow(
+                shape: Capsule(), color: theme.primaryButtonInnerGlow, radius: 3
+              )
+            } else {
+              InnerGlow(
+                shape: RoundedRectangle(cornerRadius: 6), color: theme.primaryButtonInnerGlow,
+                radius: 3
+              )
+            }
+          }
+        )
+        .overlay(
+          Group {
+            if stylePreviewAfter {
+              Capsule().strokeBorder(theme.primaryButtonBorder, lineWidth: 0.75)
+            } else {
+              RoundedRectangle(cornerRadius: 6).strokeBorder(
+                theme.primaryButtonBorder, lineWidth: 0.75)
+            }
+          }
         )
     }
     .buttonStyle(DayflowPressScaleButtonStyle(pressedScale: 0.97))
@@ -494,10 +519,26 @@ struct DayGoalFlowView: View {
         .foregroundColor(theme.secondaryButtonText)
         .lineLimit(1)
         .frame(width: 120, height: 36)
-        .background(RoundedRectangle(cornerRadius: 6).fill(theme.secondaryButtonFill))
+        .background(
+          Group {
+            if stylePreviewAfter {
+              Capsule().fill(theme.secondaryButtonFill)
+            } else {
+              RoundedRectangle(cornerRadius: 6).fill(theme.secondaryButtonFill)
+            }
+          }
+        )
         .overlay(
-          RoundedRectangle(cornerRadius: 6).strokeBorder(
-            theme.secondaryButtonBorder, lineWidth: 0.75))
+          Group {
+            if stylePreviewAfter {
+              Capsule().strokeBorder(
+                theme.secondaryButtonBorder, lineWidth: 0.75)
+            } else {
+              RoundedRectangle(cornerRadius: 6).strokeBorder(
+                theme.secondaryButtonBorder, lineWidth: 0.75)
+            }
+          }
+        )
     }
     .buttonStyle(DayflowPressScaleButtonStyle(pressedScale: 0.97))
     .hoverScaleEffect(scale: 1.02)

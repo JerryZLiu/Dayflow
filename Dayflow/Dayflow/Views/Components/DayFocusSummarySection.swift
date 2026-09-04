@@ -9,6 +9,7 @@ import SwiftUI
 
 struct DayFocusSummarySection: View {
   @Environment(\.dayflowTheme) private var theme
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
 
   let totalFocusText: String
   let focusBlocks: [FocusBlock]
@@ -68,9 +69,11 @@ struct DayFocusSummarySection: View {
         .font(.custom("InstrumentSerif-Regular", size: 22))
         .foregroundColor(theme.textPrimary)
 
-      Image(systemName: "info.circle")
-        .font(.system(size: 12))
-        .foregroundColor(theme.textMuted)
+      if !stylePreviewAfter {
+        Image(systemName: "info.circle")
+          .font(.system(size: 12))
+          .foregroundColor(theme.textMuted)
+      }
 
       Spacer()
 
@@ -84,6 +87,7 @@ struct DayFocusSummarySection: View {
 
 private struct TotalFocusCard: View {
   @Environment(\.dayflowTheme) private var theme
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
 
   let value: String
 
@@ -94,9 +98,11 @@ private struct TotalFocusCard: View {
           .font(.custom("InstrumentSerif-Regular", size: 16))
           .foregroundColor(theme.textPrimary)
 
-        Image(systemName: "info.circle")
-          .font(.system(size: 12))
-          .foregroundColor(theme.textMuted)
+        if !stylePreviewAfter {
+          Image(systemName: "info.circle")
+            .font(.system(size: 12))
+            .foregroundColor(theme.textMuted)
+        }
 
         Spacer()
       }
@@ -117,13 +123,22 @@ private struct TotalFocusCard: View {
 // (dark) or a faint drop shadow (light). Shared by the focus cards.
 struct DaySummaryCardModifier: ViewModifier {
   @Environment(\.dayflowTheme) private var theme
+  @Environment(\.glowOverrides) private var glowOverrides
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
 
   func body(content: Content) -> some View {
     let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
     content
-      .background(theme.summaryCardFill)
+      .background(theme.summaryCardFill.opacityOverride(glowOverrides.boxFillOpacity))
       .clipShape(shape)
-      .overlay(InnerGlow(shape: shape, color: theme.summaryCardInnerGlow, radius: 3))
+      .overlay(
+        InnerGlow(
+          shape: shape,
+          color: theme.summaryCardInnerGlow.opacityOverride(glowOverrides.boxOpacity),
+          radius: 3,
+          spread: glowOverrides.boxSpread.map { CGFloat($0) } ?? 3,
+          blur: glowOverrides.boxBlur.map { CGFloat($0) } ?? (stylePreviewAfter ? 2.5 : 3)
+        ))
       .overlay(shape.strokeBorder(theme.summaryCardBorder, lineWidth: 0.5))
       .shadow(color: theme.summaryCardShadow, radius: 4, x: 0, y: 1)
   }

@@ -6,6 +6,8 @@
 import SwiftUI
 
 struct CategoryPickerView: View {
+  @Environment(\.dayflowTheme) private var theme
+
   let currentCategory: String
   let categories: [TimelineCategory]
   var onCategorySelected: (TimelineCategory) -> Void
@@ -31,7 +33,9 @@ struct CategoryPickerView: View {
           .frame(height: 0)
           .overlay(
             Rectangle()
-              .fill(Color(red: 0.91, green: 0.89, blue: 0.86))
+              .fill(
+                theme.isDark ? Color.white.opacity(0.14) : Color(red: 0.91, green: 0.89, blue: 0.86)
+              )
               .frame(height: 1)
           )
           .padding(.horizontal, 0)
@@ -45,12 +49,14 @@ struct CategoryPickerView: View {
                 "To help Dayflow organize your activities more accurately, try adding more details to the descriptions in your categories "
               )
               .font(Font.custom("Figtree", size: 10).weight(.medium))
-              .foregroundColor(Color(red: 0.39, green: 0.35, blue: 0.33))  // #635953
+              .foregroundColor(helperTextColor)
 
               Button(action: onNavigateToEditor) {
                 Text("here")
                   .font(Font.custom("Figtree", size: 10).weight(.medium))
-                  .foregroundColor(Color(red: 1.0, green: 0.4, blue: 0.0))  // #ff6600
+                  .foregroundColor(
+                    theme.isDark ? theme.accentText : Color(red: 1.0, green: 0.4, blue: 0.0)
+                  )
                   .underline()
               }
               .buttonStyle(.plain)
@@ -58,14 +64,16 @@ struct CategoryPickerView: View {
 
               Text(".")
                 .font(Font.custom("Figtree", size: 10).weight(.medium))
-                .foregroundColor(Color(red: 0.39, green: 0.35, blue: 0.33))
+                .foregroundColor(helperTextColor)
             }
             .padding(.leading, 2.188)
 
             // Lightbulb icon overlaid
             Image(systemName: "lightbulb.fill")
               .font(.system(size: 7))
-              .foregroundColor(Color(red: 0.49, green: 0.47, blue: 0.46))  // #7c7875
+              .foregroundColor(
+                theme.isDark ? theme.textMuted : Color(red: 0.49, green: 0.47, blue: 0.46)
+              )
               .offset(x: 0, y: 2)
           }
         }
@@ -76,12 +84,16 @@ struct CategoryPickerView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(
       ZStack {
-        // Backdrop blur effect - rgba(250,244,241,0.86) with blur
-        Color(red: 0.98, green: 0.96, blue: 0.95).opacity(0.86)
-          .background(.ultraThinMaterial)
+        if theme.isDark {
+          theme.popoverFill
+            .background(.ultraThinMaterial)
+        } else {
+          // Backdrop blur effect - rgba(250,244,241,0.86) with blur
+          Color(red: 0.98, green: 0.96, blue: 0.95).opacity(0.86)
+            .background(.ultraThinMaterial)
+        }
       }
       .overlay(
-        // Border - #e9e1de
         UnevenRoundedRectangle(
           cornerRadii: .init(
             topLeading: 0,
@@ -90,7 +102,10 @@ struct CategoryPickerView: View {
             topTrailing: 6
           )
         )
-        .stroke(Color(red: 0.91, green: 0.88, blue: 0.87), lineWidth: 1)
+        .stroke(
+          theme.isDark ? theme.popoverBorder : Color(red: 0.91, green: 0.88, blue: 0.87),
+          lineWidth: 1
+        )
       )
     )
     .clipShape(
@@ -108,14 +123,21 @@ struct CategoryPickerView: View {
       Button(action: {}) {
         Image(systemName: "checkmark")
           .font(.system(size: 8))
-          .foregroundColor(Color(red: 0.2, green: 0.2, blue: 0.2))
+          .foregroundColor(theme.isDark ? .white : Color(red: 0.2, green: 0.2, blue: 0.2))
           .frame(width: 8, height: 8)
       }
       .buttonStyle(.plain)
       .padding(6)
       .background(
-        Color(red: 0.98, green: 0.98, blue: 0.98).opacity(0.8)
-          .background(.ultraThinMaterial)
+        Group {
+          if theme.isDark {
+            Color.white.opacity(0.14)
+              .background(.ultraThinMaterial)
+          } else {
+            Color(red: 0.98, green: 0.98, blue: 0.98).opacity(0.8)
+              .background(.ultraThinMaterial)
+          }
+        }
       )
       .clipShape(
         UnevenRoundedRectangle(
@@ -136,10 +158,17 @@ struct CategoryPickerView: View {
             topTrailing: 6
           )
         )
-        .stroke(Color(red: 0.89, green: 0.89, blue: 0.89), lineWidth: 1)
+        .stroke(
+          theme.isDark ? theme.popoverBorder : Color(red: 0.89, green: 0.89, blue: 0.89),
+          lineWidth: 1
+        )
       )
       .offset(x: -8, y: 8)
     }
+  }
+
+  private var helperTextColor: Color {
+    theme.isDark ? theme.textTertiary : Color(red: 0.39, green: 0.35, blue: 0.33)
   }
 
   private func isCategorySelected(_ category: TimelineCategory) -> Bool {

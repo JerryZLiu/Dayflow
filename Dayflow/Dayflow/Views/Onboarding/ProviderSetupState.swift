@@ -34,7 +34,7 @@ class ProviderSetupState: ObservableObject {
 
   var lastSavedGeminiModel: GeminiModel
   var hasStartedCLICheck = false
-  private(set) var configuredProviderID: LLMProviderID?
+  @Published private(set) var configuredProviderID: LLMProviderID?
 
   init() {
     let defaults = UserDefaults.standard
@@ -126,41 +126,8 @@ class ProviderSetupState: ObservableObject {
             "All set!", "Local AI is configured and ready to use with Dayflow.")),
       ]
     case .chatGPT, .claude:
-      let isClaude = provider == .claude
-      preferredCLITool = isClaude ? .claude : .codex
-      let providerName = isClaude ? "Claude" : "ChatGPT"
-      let cliName = isClaude ? "Claude Code" : "Codex CLI"
-      steps = [
-        SetupStep(
-          id: "intro",
-          title: "Before you begin",
-          contentType: .information(
-            "Install \(cliName)",
-            "Dayflow uses \(cliName) through your existing \(providerName) subscription. Install it and sign in on this Mac, then we'll verify the connection."
-          )
-        ),
-        SetupStep(
-          id: "detect",
-          title: "Check installations",
-          contentType: .cliDetection
-        ),
-        SetupStep(
-          id: "test",
-          title: "Test connection",
-          contentType: .information(
-            "Test Connection",
-            "Run a quick test to verify your CLI is working and signed in."
-          )
-        ),
-        SetupStep(
-          id: "complete",
-          title: "Complete",
-          contentType: .information(
-            "All set!",
-            "\(providerName) is configured and ready to use with Dayflow."
-          )
-        ),
-      ]
+      preferredCLITool = provider == .claude ? .claude : .codex
+      steps = chatCLISteps(for: provider)
       codexCLIStatus = .unknown
       claudeCLIStatus = .unknown
       codexCLIReport = nil
@@ -215,6 +182,65 @@ class ProviderSetupState: ObservableObject {
             "All set!", "Gemini is now configured and ready to use with Dayflow.")),
       ]
     }
+  }
+
+  private func chatCLISteps(for provider: LLMProviderID) -> [SetupStep] {
+    let isClaude = provider == .claude
+    let providerName = isClaude ? "Claude" : "ChatGPT"
+    let cliName = isClaude ? "Claude Code" : "Codex CLI"
+    return [
+      SetupStep(
+        id: "intro",
+        title: "Before you begin",
+        contentType: .information(
+          "",
+          "Dayflow uses \(cliName) through your existing \(providerName) subscription. Install it and sign in on this Mac, then we'll verify the connection."
+        )
+      ),
+      SetupStep(
+        id: "detect",
+        title: "Check installations",
+        contentType: .cliDetection
+      ),
+      SetupStep(
+        id: "test",
+        title: "Test connection",
+        contentType: .information(
+          "Test Connection",
+          "Run a quick test to verify your CLI is working and signed in."
+        )
+      ),
+      SetupStep(
+        id: "complete",
+        title: "Complete",
+        contentType: .information(
+          "All set!",
+          "\(providerName) is configured and ready to use with Dayflow."
+        )
+      ),
+    ]
+  }
+
+  /// Swap the active chat-CLI provider mid-flow (e.g. user picked ChatGPT but selects
+  /// Claude on the detection step). Rewrites the step copy in place without resetting
+  /// detection results or the user's position in the flow.
+  private func switchChatCLIProvider(to provider: LLMProviderID) {
+    guard configuredProviderID == .chatGPT || configuredProviderID == .claude,
+      provider == .chatGPT || provider == .claude,
+      provider != configuredProviderID
+    else { return }
+    configuredProviderID = provider
+    let refreshedSteps = chatCLISteps(for: provider)
+    for (index, refreshed) in refreshedSteps.enumerated() where index < steps.count {
+      var step = refreshed
+      if steps[index].isCompleted {
+        step.markCompleted()
+      }
+      steps[index] = step
+    }
+    // The connection test targets the selected CLI, so a switch invalidates it
+    hasTestedConnection = false
+    testSuccessful = false
   }
 
   func goNext() {
@@ -339,26 +365,22 @@ class ProviderSetupState: ObservableObject {
   }
 
   func selectPreferredCLITool(_ tool: CLITool) {
-    if let fixedTool = fixedCLITool, tool != fixedTool { return }
-    guard isToolAvailable(tool) else { return }
+    guard preferredCLITool != tool else { return }
     preferredCLITool = tool
+    switchChatCLIProvider(to: tool == .claude ? .claude : .chatGPT)
     captureChatCLIToolSelected(tool)
   }
 
   func ensurePreferredCLIToolIsValid() {
-    if let fixedCLITool {
-      preferredCLITool = fixedCLITool
-      return
-    }
-    if let current = preferredCLITool, isToolAvailable(current) {
+    // Keep an explicit selection even if that CLI isn't installed yet — the
+    // Next button stays disabled until it's detected.
+    if preferredCLITool != nil {
       return
     }
     if isToolAvailable(.codex) {
       preferredCLITool = .codex
     } else if isToolAvailable(.claude) {
       preferredCLITool = .claude
-    } else {
-      preferredCLITool = nil
     }
   }
 
@@ -430,17 +452,6 @@ class ProviderSetupState: ObservableObject {
     case .claude:
       if claudeCLIStatus.isInstalled { return true }
       return claudeCLIReport?.resolvedPath != nil
-    }
-  }
-
-  private var fixedCLITool: CLITool? {
-    switch configuredProviderID {
-    case .chatGPT:
-      return .codex
-    case .claude:
-      return .claude
-    default:
-      return nil
     }
   }
 

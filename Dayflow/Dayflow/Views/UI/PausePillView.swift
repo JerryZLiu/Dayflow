@@ -9,6 +9,7 @@ import SwiftUI
 ///   Paused → Idle:  status out, pill 84→73 (bounce 0.35), content morph back
 struct PausePillView: View {
   @Environment(\.dayflowTheme) private var theme
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
   @ObservedObject private var appState = AppState.shared
   @ObservedObject private var pauseManager = PauseManager.shared
 
@@ -129,9 +130,15 @@ struct PausePillView: View {
   private var pill: some View {
     ZStack(alignment: .leading) {
       // Idle/menu use the Figma "glass" control fill; paused keeps its orange.
+      // "After" mode matches the primary "Set goals" button instead of
+      // the gradient.
       ZStack {
         theme.controlFill.opacity(phase == .paused ? 0 : 1)
-        Grad.paused.opacity(phase == .paused ? 1 : 0)
+        if stylePreviewAfter {
+          theme.primaryButtonFill.opacity(phase == .paused ? 1 : 0)
+        } else {
+          Grad.paused.opacity(phase == .paused ? 1 : 0)
+        }
       }
       .allowsHitTesting(false)
       .animation(.easeInOut(duration: 0.35), value: phase)
@@ -139,7 +146,12 @@ struct PausePillView: View {
       ZStack {
         InnerGlow(shape: Capsule(), color: theme.controlInnerGlow, radius: 3)
           .opacity(phase == .paused ? 0 : 1)
-        shineLayer(Col.shinePaused).opacity(phase == .paused ? 1 : 0)
+        if stylePreviewAfter {
+          InnerGlow(shape: Capsule(), color: theme.primaryButtonInnerGlow, radius: 3)
+            .opacity(phase == .paused ? 1 : 0)
+        } else {
+          shineLayer(Col.shinePaused).opacity(phase == .paused ? 1 : 0)
+        }
       }
       .allowsHitTesting(false)
       .animation(.easeInOut(duration: 0.35), value: phase)
@@ -166,8 +178,11 @@ struct PausePillView: View {
 
       Capsule()
         .strokeBorder(
-          phase == .paused ? Color(hex: "FFE1C9") : theme.controlBorder,
-          lineWidth: 0.75
+          phase == .paused
+            ? (stylePreviewAfter
+              ? theme.primaryButtonBorder : Color(hex: "FFE1C9"))
+            : theme.controlBorder,
+          lineWidth: phase == .paused && stylePreviewAfter ? 1 : 0.75
         )
         .allowsHitTesting(false)
         .animation(.easeInOut(duration: 0.35), value: phase)

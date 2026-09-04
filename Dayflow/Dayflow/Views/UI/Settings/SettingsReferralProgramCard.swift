@@ -205,6 +205,7 @@ enum ReferralMiniButtonStyle {
 
 struct ReferralMiniButton: View {
   @Environment(\.dayflowTheme) private var theme
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
   let title: String
   let style: ReferralMiniButtonStyle
   var isDisabled = false
@@ -225,7 +226,7 @@ struct ReferralMiniButton: View {
   var body: some View {
     Button(action: action) {
       Text(title)
-        .font(.custom("Nunito", size: 12))
+        .font(.custom(stylePreviewAfter ? "Figtree" : "Nunito", size: 12))
         .foregroundColor(foreground.opacity(isDisabled ? 0.45 : 1))
         .frame(minWidth: 64, minHeight: 28)
         .padding(.horizontal, 18)

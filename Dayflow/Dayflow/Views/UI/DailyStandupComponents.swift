@@ -16,6 +16,8 @@ struct DailyCopyPressButtonStyle: ButtonStyle {
 
 struct DailyBulletCard: View {
   @Environment(\.dayflowTheme) private var theme
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
+  @ObservedObject private var styleTweaks = StandupStyleTweaks.shared
 
   enum SeamMode {
     case standalone
@@ -83,8 +85,8 @@ struct DailyBulletCard: View {
     VStack(alignment: .leading, spacing: 0) {
       VStack(alignment: .leading, spacing: 18 * scale) {
         Text(title)
-          .font(.custom("InstrumentSerif-Regular", size: 24 * scale))
-          .foregroundStyle(theme.textSecondary)
+          .font(.custom("InstrumentSerif-Regular", size: (stylePreviewAfter ? 20 : 24) * scale))
+          .foregroundStyle(theme.isDark ? theme.textSecondary : styleTweaks.headingColor)
           .frame(maxWidth: .infinity, alignment: .leading)
 
         itemListEditor
@@ -98,11 +100,7 @@ struct DailyBulletCard: View {
         .padding(.bottom, style == .tasks ? 24 * scale : 20 * scale)
 
       if style == .tasks {
-        DailyBlockersSection(
-          scale: scale,
-          title: $blockersTitle,
-          prompt: $blockersBody
-        )
+        blockersSection
       }
     }
     .frame(maxWidth: .infinity, minHeight: max(180, 394 * scale), alignment: .topLeading)
@@ -110,14 +108,43 @@ struct DailyBulletCard: View {
     .clipShape(cardShape)
     .overlay(
       cardShape
-        .stroke(theme.standupCardBorder, lineWidth: 0.75)
+        .stroke(
+          theme.isDark ? theme.standupCardBorder : styleTweaks.strokeColor,
+          lineWidth: 0.75
+        )
     )
-    .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
+    .shadow(
+      color: theme.isDark ? Color.black.opacity(0.1) : styleTweaks.shadowColor,
+      radius: theme.isDark ? 8 : styleTweaks.shadowBlur,
+      x: 0,
+      y: theme.isDark ? 4 : styleTweaks.shadowDistance
+    )
     .onAppear {
       setupKeyMonitor()
     }
     .onDisappear {
       removeKeyMonitor()
+    }
+  }
+
+  @ViewBuilder
+  private var blockersSection: some View {
+    if stylePreviewAfter {
+      GeometryReader { proxy in
+        DailyBlockersSection(
+          scale: scale,
+          title: $blockersTitle,
+          prompt: $blockersBody
+        )
+        .frame(height: proxy.size.height * 0.85, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+      }
+    } else {
+      DailyBlockersSection(
+        scale: scale,
+        title: $blockersTitle,
+        prompt: $blockersBody
+      )
     }
   }
 
@@ -307,6 +334,8 @@ struct DailyDragHandleIcon: View {
 
 struct DailyBlockersSection: View {
   @Environment(\.dayflowTheme) private var theme
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
+  @ObservedObject private var styleTweaks = StandupStyleTweaks.shared
 
   let scale: CGFloat
   @Binding var title: String
@@ -316,7 +345,7 @@ struct DailyBlockersSection: View {
     VStack(alignment: .leading, spacing: 8 * scale) {
       TextField("Blockers", text: $title)
         .font(.custom("Figtree-Medium", size: 14 * scale))
-        .foregroundStyle(theme.textSecondary)
+        .foregroundStyle(theme.isDark ? theme.textSecondary : styleTweaks.headingColor)
         .textFieldStyle(.plain)
 
       HStack(alignment: .center, spacing: 8 * scale) {
@@ -335,12 +364,13 @@ struct DailyBlockersSection: View {
     .padding(.leading, 26 * scale)
     .padding(.trailing, 26 * scale)
     .padding(.top, 14 * scale)
-    .frame(maxWidth: .infinity, minHeight: 94 * scale, alignment: .topLeading)
-    .background(theme.dailyTotalsFill)
-    .overlay(alignment: .top) {
+    .frame(
+      maxWidth: .infinity, minHeight: 94 * scale,
+      maxHeight: stylePreviewAfter ? .infinity : nil, alignment: .topLeading)
+    .background(theme.standupBlockersFill)
+    .overlay {
       Rectangle()
-        .fill(theme.standupCardBorder)
-        .frame(height: max(0.7, 1 * scale))
+        .stroke(theme.standupBlockersBorder, lineWidth: max(0.7, 1 * scale))
     }
   }
 }

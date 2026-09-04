@@ -33,40 +33,21 @@ struct GitHubStarPromptCard: View {
   @State private var isStarring = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      HStack(spacing: 14) {
-        Image(systemName: "checkmark")
-          .font(.system(size: 16, weight: .semibold))
-          .foregroundStyle(theme.controlText)
-          .frame(width: 42, height: 42)
-          .background(Circle().fill(theme.controlFill))
-          .overlay(InnerGlow(shape: Circle(), color: theme.controlInnerGlow, radius: 3))
-          .overlay(Circle().strokeBorder(theme.controlBorder, lineWidth: 0.75))
-
+    VStack(spacing: 40) {
+      VStack(spacing: 12) {
         Text("Your first card is ready!")
-          .font(.custom("Figtree", size: 20).weight(.semibold))
+          .font(.custom("Figtree", size: 16).weight(.semibold))
           .foregroundStyle(theme.textPrimary)
+          .frame(maxWidth: .infinity)
 
-        Spacer()
-
-        Button(action: onDismiss) {
-          Image(systemName: "xmark")
-            .font(.system(size: 17, weight: .medium))
-            .foregroundStyle(theme.textPrimary)
-            .frame(width: 32, height: 32)
-        }
-        .buttonStyle(.plain)
-        .pointingHandCursor()
-        .accessibilityLabel("Dismiss")
+        Text("If you’re enjoying Dayflow so far, a GitHub star helps other people discover it.")
+          .font(.custom("Figtree", size: 14))
+          .foregroundStyle(theme.textPrimary)
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: .infinity, alignment: .leading)
       }
 
-      Text("If you’re enjoying Dayflow so far, a GitHub star helps other people discover it.")
-        .font(.custom("Figtree", size: 17))
-        .foregroundStyle(theme.textSecondary)
-        .lineSpacing(4)
-        .fixedSize(horizontal: false, vertical: true)
-
-      HStack(spacing: 12) {
+      VStack(spacing: 11) {
         Button {
           guard !isStarring else { return }
           isStarring = true
@@ -75,33 +56,24 @@ struct GitHubStarPromptCard: View {
             isStarring = false
           }
         } label: {
-          HStack(spacing: 8) {
+          HStack(spacing: 4) {
             if isStarring {
               ProgressView()
                 .controlSize(.small)
                 .tint(theme.primaryButtonText)
             } else {
               Image(systemName: "star")
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 14, weight: .medium))
             }
-            Text(isStarring ? "Starring…" : "Star Dayflow on GitHub")
-              .font(.custom("Figtree", size: 17).weight(.semibold))
+            Text(isStarring ? "Starring…" : "Give a star on GitHub")
+              .font(.custom("Figtree", size: 14).weight(.medium))
           }
           .foregroundStyle(theme.primaryButtonText)
           .frame(maxWidth: .infinity)
-          .frame(height: 54)
-          .background(RoundedRectangle(cornerRadius: 12).fill(theme.primaryButtonFill))
-          .overlay(
-            InnerGlow(
-              shape: RoundedRectangle(cornerRadius: 12),
-              color: theme.primaryButtonInnerGlow,
-              radius: 3
-            )
-          )
-          .overlay(
-            RoundedRectangle(cornerRadius: 12)
-              .strokeBorder(theme.primaryButtonBorder, lineWidth: 0.75)
-          )
+          .frame(height: 40)
+          .background(Capsule().fill(theme.primaryButtonFill))
+          .overlay(InnerGlow(shape: Capsule(), color: theme.primaryButtonInnerGlow, radius: 3))
+          .overlay(Capsule().strokeBorder(theme.primaryButtonBorder, lineWidth: theme.isDark ? 0.5 : 0.75))
         }
         .buttonStyle(.plain)
         .pointingHandCursor()
@@ -109,41 +81,38 @@ struct GitHubStarPromptCard: View {
 
         Button(action: onDismiss) {
           Text("Later")
-            .font(.custom("Figtree", size: 17).weight(.semibold))
+            .font(.custom("Figtree", size: 14).weight(theme.isDark ? .medium : .regular))
             .foregroundStyle(theme.secondaryButtonText)
-            .frame(width: 126, height: 54)
-            .background(RoundedRectangle(cornerRadius: 12).fill(theme.secondaryButtonFill))
+            .frame(maxWidth: .infinity)
+            .frame(height: 40)
+            .background(RoundedRectangle(cornerRadius: 20).fill(theme.secondaryButtonFill))
             .overlay(
-              RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(theme.secondaryButtonBorder, lineWidth: 0.75)
+              RoundedRectangle(cornerRadius: 20)
+                .strokeBorder(theme.secondaryButtonBorder, lineWidth: theme.isDark ? 1 : 0.75)
             )
         }
         .buttonStyle(.plain)
         .pointingHandCursor()
       }
     }
-    .padding(24)
-    .frame(width: 510)
+    .padding(20)
+    .frame(width: 339)
     .background(
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
         .fill(.ultraThinMaterial)
     )
     .background(
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .fill(theme.popoverFill)
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .fill(theme.isDark ? Color(hex: "272F43") : Color(hex: "FFFBF9").opacity(0.9))
     )
     .overlay(
-      InnerGlow(
-        shape: RoundedRectangle(cornerRadius: 16, style: .continuous),
-        color: theme.summaryCardInnerGlow,
-        radius: 4
-      )
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .strokeBorder(theme.isDark ? Color(hex: "5B5B5B") : Color(hex: "E3DAD1"), lineWidth: 1)
     )
-    .overlay(
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .strokeBorder(theme.popoverBorder, lineWidth: 0.75)
+    .shadow(
+      color: theme.isDark ? Color(hex: "463B54") : Color(hex: "E5DDD5"),
+      radius: theme.isDark ? 16 : 12, x: 0, y: 4
     )
-    .shadow(color: .black.opacity(theme.isDark ? 0.35 : 0.11), radius: 18, x: 0, y: 8)
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Star Dayflow on GitHub")
   }

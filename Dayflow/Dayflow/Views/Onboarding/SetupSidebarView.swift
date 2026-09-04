@@ -16,7 +16,7 @@ struct SetupSidebarView: View {
 
   var body: some View {
     // Just the steps list - no extra VStack or ScrollView
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: 24) {
       ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
         SetupSidebarItem(
           title: step.title,
@@ -29,7 +29,6 @@ struct SetupSidebarView: View {
         )
       }
     }
-    .padding(.horizontal, 20)
     .frame(maxWidth: .infinity)
   }
 
@@ -56,36 +55,41 @@ struct SetupSidebarItem: View {
 
   var body: some View {
     Button(action: onTap) {
-      HStack(alignment: .center, spacing: 8) {
-        Group {
-          if isCompleted && !isSelected {
-            Image(systemName: "checkmark.circle")
-              .font(.system(size: 14, weight: .medium))
-              .foregroundColor(textColor)
-          } else if isSelected {
+      Group {
+        if isSelected {
+          HStack(alignment: .center, spacing: 8) {
             Image(systemName: "chevron.right")
-              .font(.system(size: 14, weight: .medium))
+              .font(.system(size: 15, weight: .medium))
               .foregroundColor(textColor)
-          } else {
-            Color.clear
+              .frame(width: 20, height: 20)
+
+            itemLabel
+
+            Spacer(minLength: 0)
           }
+          .padding(.leading, 10)
+          .padding(.trailing, 16)
+          .padding(.vertical, 10)
+          .background(selectedBackground)
+        } else if isCompleted {
+          HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+              .font(.system(size: 15, weight: .medium))
+              .foregroundColor(Color(hex: "21A638"))
+              .frame(width: 16, height: 16)
+
+            itemLabel
+          }
+          .padding(.leading, 14)
+        } else {
+          // Upcoming step: bare label aligned with the other labels (10+20+8 / 14+16+8 = 38)
+          itemLabel
+            .opacity(0.5)
+            .padding(.leading, 38)
         }
-        .frame(width: 20, height: 20)
-
-        Text(title)
-          .font(.custom("Figtree", size: 16))
-          .fontWeight(.medium)
-          .foregroundColor(textColor)
-          .opacity(isSelected || isCompleted ? 1 : 0.5)
-
-        Spacer()
       }
-      .padding(.leading, 10)
-      .padding(.trailing, 16)
-      .padding(.vertical, 10)
       .frame(maxWidth: .infinity, alignment: .leading)
       .contentShape(Rectangle())
-      .background(selectedBackground)
     }
     .buttonStyle(DayflowPressScaleButtonStyle(pressedScale: 0.97))
     .pointingHandCursor()
@@ -97,16 +101,20 @@ struct SetupSidebarItem: View {
     }
   }
 
-  @ViewBuilder
+  private var itemLabel: some View {
+    Text(title)
+      .font(.custom("Figtree", size: 16))
+      .fontWeight(.medium)
+      .foregroundColor(textColor)
+  }
+
   private var selectedBackground: some View {
-    if isSelected {
-      let shape = RoundedRectangle(cornerRadius: 10)
+    let shape = RoundedRectangle(cornerRadius: 10)
+    return
       shape
-        .fill(Color(hex: "FFFAF8"))
-        .overlay(InnerGlow(shape: shape, color: .white, radius: 4))
-        .overlay(shape.strokeBorder(Color(hex: "FFB693"), lineWidth: 1))
-        .shadow(color: Color(hex: "D5D3D9"), radius: 2, x: 0, y: 1)
-        .matchedGeometryEffect(id: "selection", in: namespace)
-    }
+      .fill(Color(hex: "FFFAF8"))
+      .overlay(shape.strokeBorder(Color(hex: "FFB693"), lineWidth: 1))
+      .shadow(color: Color(hex: "D5D3D9"), radius: 2, x: 0, y: 1)
+      .matchedGeometryEffect(id: "selection", in: namespace)
   }
 }

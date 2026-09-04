@@ -21,7 +21,7 @@ struct WeeklyTreemapCategoryCard: View {
         .fill(category.palette.shellFill)
         .overlay(
           RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
-            .stroke(category.palette.shellBorder, lineWidth: 1)
+            .stroke(category.palette.shellBorder, lineWidth: 0.75)
         )
 
       VStack(spacing: 0) {
@@ -125,7 +125,7 @@ struct WeeklyTreemapLeafTile: View {
         .fill(palette.tileFill)
         .overlay(
           RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
-            .stroke(palette.tileBorder, lineWidth: 1)
+            .stroke(palette.tileBorder, lineWidth: 0.5)
         )
         .overlay {
           if app.isPlaceholder {
@@ -174,11 +174,7 @@ struct WeeklyTreemapLeafTile: View {
         .minimumScaleFactor(0.85)
 
       if let change = app.change {
-        Text(change.text)
-          .font(.system(size: typography.deltaFontSize, design: .monospaced))
-          .foregroundStyle(change.color)
-          .lineLimit(1)
-          .minimumScaleFactor(0.85)
+        WeeklyTreemapChangeBadge(change: change, fontSize: typography.deltaFontSize)
       }
     }
   }
@@ -271,10 +267,7 @@ struct WeeklyTreemapHoverCard: View {
         .lineLimit(1)
 
       if let change = app.change {
-        Text(change.text)
-          .font(.system(size: 12, design: .monospaced))
-          .foregroundStyle(change.color)
-          .lineLimit(1)
+        WeeklyTreemapChangeBadge(change: change, fontSize: 12)
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -292,6 +285,25 @@ struct WeeklyTreemapHoverCard: View {
         .stroke(palette.shellBorder.opacity(0.95), lineWidth: 1)
     )
     .shadow(color: WeeklyPalette.shadow, radius: 14, x: 0, y: 6)
+  }
+}
+
+struct WeeklyTreemapChangeBadge: View {
+  let change: WeeklyTreemapChange
+  let fontSize: CGFloat
+
+  var body: some View {
+    Text(change.text)
+      .font(.system(size: fontSize, design: .monospaced))
+      .foregroundStyle(change.color)
+      .lineLimit(1)
+      .minimumScaleFactor(0.85)
+      .padding(.horizontal, 5)
+      .padding(.vertical, 2)
+      .background(
+        RoundedRectangle(cornerRadius: 4, style: .continuous)
+          .fill(change.badgeFill)
+      )
   }
 }
 

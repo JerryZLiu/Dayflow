@@ -12,7 +12,7 @@ struct WeeklyFocusHeatmapSection: View {
     static let cardHeight: CGFloat = 238
     static let cornerRadius: CGFloat = 4
     static let borderColor = WeeklyPalette.cardBorder
-    static let backgroundColor = WeeklyPalette.cardFillStrong
+    @MainActor static var backgroundColor: Color { WeeklyPalette.contextCardFill }
     static let titleColor = WeeklyPalette.title
 
     static let topPadding: CGFloat = 34
@@ -538,7 +538,7 @@ private enum DesignColor {
   static let edgeFadeStrength = 0.65
   static let neutralThreshold = 0.045
 
-  static let neutral = WeeklyPalette.rowFill
+  static let neutral = WeeklyPalette.emptyCell
   static let focusSoft = Color(hex: "E3DBFD")
   static let focusDark = Color(hex: "4276E9")
   static let distractionSoft = Color(hex: "F8D1CA")

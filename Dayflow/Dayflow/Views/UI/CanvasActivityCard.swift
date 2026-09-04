@@ -9,6 +9,9 @@ struct CanvasActivityCardStyle {
 
 struct CanvasActivityCard: View {
   @Environment(\.dayflowTheme) private var theme
+  @Environment(\.opacityOverrides) private var opacityOverrides
+  @Environment(\.glowOverrides) private var glowOverrides
+  @Environment(\.cardColorOverrides) private var cardColorOverrides
   @AppStorage("showTimelineAppIcons") private var showTimelineAppIcons: Bool = true
   @State private var isHovering = false
 
@@ -173,15 +176,24 @@ struct CanvasActivityCard: View {
         maxHeight: height,
         alignment: isCompactCard ? .leading : .topLeading
       )
-      .background(isFailedCard ? theme.cardFailedFill : theme.cardFill)
-      .background(theme.panelSolid)
+      .background(
+        (isFailedCard
+          ? theme.cardFailedFill
+          : theme.cardFill.cardFillOverride(cardColorOverrides.cardFillHex))
+          .opacityOverride(opacityOverrides.card)
+      )
+      // Solid backing fades with the card override so low values read as
+      // genuinely transparent instead of revealing an opaque panel color.
+      .background(theme.panelSolid.opacity(opacityOverrides.card ?? 1))
       .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
       .overlay {
         if !isFailedCard {
           InnerGlow(
             shape: RoundedRectangle(cornerRadius: 2, style: .continuous),
-            color: theme.cardInnerGlow,
-            radius: 3
+            color: theme.cardInnerGlow.opacityOverride(glowOverrides.cardOpacity),
+            radius: 3,
+            spread: glowOverrides.cardSpread.map { CGFloat($0) },
+            blur: glowOverrides.cardBlur.map { CGFloat($0) }
           )
         }
       }

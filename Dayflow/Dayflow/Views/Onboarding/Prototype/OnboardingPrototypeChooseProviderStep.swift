@@ -50,6 +50,7 @@ private struct ComparisonProvider: Identifiable {
 // MARK: - Choose Provider Step
 
 struct OnboardingPrototypeChooseProviderStep: View {
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
   let hasPaidAI: Bool
   let flowID: String
   let flowVariant: String
@@ -123,6 +124,9 @@ struct OnboardingPrototypeChooseProviderStep: View {
         .padding(.top, 12)
         .padding(.bottom, 24)
 
+      // 3 equal spacers above + 4 below keep the gap ratio at 3:4 as the window resizes.
+      ForEach(0..<3) { _ in Spacer(minLength: 0) }
+
       if isShowingDayflowProSignIn {
         DayflowProOnboardingSignInPanel(
           hasPaidAI: hasPaidAI,
@@ -148,9 +152,9 @@ struct OnboardingPrototypeChooseProviderStep: View {
           .transition(.opacity)
       }
 
-      Spacer(minLength: 20)
+      ForEach(0..<4) { _ in Spacer(minLength: 0) }
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     .task {
       let installed = await Task.detached(priority: .utility) {
         (
@@ -371,7 +375,7 @@ struct OnboardingPrototypeChooseProviderStep: View {
       },
       content: {
         Text("Select")
-          .font(.custom("Nunito", size: 14))
+          .font(.custom(stylePreviewAfter ? "Figtree" : "Nunito", size: 14))
           .fontWeight(.semibold)
           .tracking(-0.14)
       },

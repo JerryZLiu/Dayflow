@@ -62,6 +62,7 @@ struct CategoryTimeData: Identifiable {
 
 struct CategoryDonutChart: View {
   @Environment(\.dayflowTheme) private var theme
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
 
   let data: [CategoryTimeData]
   let size: CGFloat
@@ -96,8 +97,8 @@ struct CategoryDonutChart: View {
     // Figma: 205pt donut, ~25pt ring, 2pt track showing outside and 3pt inside the ring.
     let chartSize = size - 4
     let innerRadiusRatio: CGFloat = 0.75
-    // Calculate actual radii for the gradient overlay
     let outerRadius = chartSize / 2
+    let glowSpread: CGFloat = 4
 
     return ZStack {
       // Background circle with light grey fill and shadow
@@ -106,39 +107,53 @@ struct CategoryDonutChart: View {
         .frame(width: size, height: size)
         .shadow(color: theme.donutShadow, radius: 5, x: 0, y: 0)
 
-      // Swift Charts donut
-      Chart(data) { item in
-        SectorMark(
-          angle: .value("Duration", item.duration),
-          innerRadius: .ratio(innerRadiusRatio),
-          angularInset: 1.5
-        )
-        .cornerRadius(6)
-        .foregroundStyle(item.color)
-      }
-      .chartLegend(.hidden)
-      .frame(width: chartSize, height: chartSize)
+      if stylePreviewAfter {
+        // Sector fills: category color at 80% opacity (per mock)
+        sectorChart(fillOpacity: 0.8, ringOuterRadius: outerRadius)
+          .frame(width: chartSize, height: chartSize)
 
-      // Gradient overlay: lighter at inner edge, fading to clear at outer edge
-      Circle()
-        .fill(
-          RadialGradient(
-            stops: [
-              .init(color: .white.opacity(0.35), location: innerRadiusRatio),
-              .init(color: .white.opacity(0), location: 1.0),
-            ],
-            center: .center,
-            startRadius: 0,
-            endRadius: outerRadius
-          )
-        )
+        // Inner glow: a 4px full-color band just inside each sector's perimeter,
+        // built by punching a shrunken copy out of a full-color copy, then blurring.
+        ZStack {
+          sectorChart(fillOpacity: 1, ringOuterRadius: outerRadius)
+          sectorChart(fillOpacity: 1, ringOuterRadius: outerRadius, shrunkBy: glowSpread)
+            .blendMode(.destinationOut)
+        }
+        .compositingGroup()
+        .blur(radius: glowSpread)
+        .mask(sectorChart(fillOpacity: 1, ringOuterRadius: outerRadius))
         .frame(width: chartSize, height: chartSize)
         .allowsHitTesting(false)  // Don't block interactions
+      } else {
+        // "Before": shipped rendering — full-opacity sectors with a white
+        // radial sheen fading toward the outer edge.
+        sectorChart(fillOpacity: 1, ringOuterRadius: outerRadius)
+          .frame(width: chartSize, height: chartSize)
 
-      // White circle in center - slightly smaller than donut hole to show grey gap on inner edge
+        Circle()
+          .fill(
+            RadialGradient(
+              stops: [
+                .init(color: .white.opacity(0.35), location: innerRadiusRatio),
+                .init(color: .white.opacity(0), location: 1.0),
+              ],
+              center: .center,
+              startRadius: 0,
+              endRadius: outerRadius
+            )
+          )
+          .frame(width: chartSize, height: chartSize)
+          .allowsHitTesting(false)  // Don't block interactions
+      }
+
+      // White circle in center - slightly smaller than donut hole to show grey gap on inner edge.
+      // In dark mode ("After") the hole is punched out instead so the panel
+      // background shows through.
       let innerGap: CGFloat = 6
+      let punchOutHole = stylePreviewAfter && theme.isDark
       Circle()
-        .fill(theme.donutCenterFill)
+        .fill(punchOutHole ? Color.black : theme.donutCenterFill)
+        .blendMode(punchOutHole ? .destinationOut : .normal)
         .frame(
           width: chartSize * innerRadiusRatio - innerGap,
           height: chartSize * innerRadiusRatio - innerGap)
@@ -146,7 +161,27 @@ struct CategoryDonutChart: View {
       // Center content
       centerContent
     }
+    .compositingGroup()
     .frame(width: size, height: size)
+  }
+
+  /// One copy of the donut's sector geometry. `shrunkBy` insets every edge
+  /// (inner, outer, and angular) so the difference with the full-size copy
+  /// forms the inner-glow band.
+  private func sectorChart(
+    fillOpacity: Double, ringOuterRadius: CGFloat, shrunkBy spread: CGFloat = 0
+  ) -> some View {
+    Chart(data) { item in
+      SectorMark(
+        angle: .value("Duration", item.duration),
+        innerRadius: spread > 0 ? .fixed(ringOuterRadius * 0.75 + spread) : .ratio(0.75),
+        outerRadius: spread > 0 ? .inset(spread) : .automatic,
+        angularInset: 1.5 + spread
+      )
+      .cornerRadius(max(6 - spread, 0))
+      .foregroundStyle(item.color.opacity(fillOpacity))
+    }
+    .chartLegend(.hidden)
   }
 
   private var centerContent: some View {

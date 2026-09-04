@@ -17,16 +17,62 @@ enum WeeklyPalette {
     Color.dayflowAdaptive(light: light, dark: dark)
   }
 
-  static let canvas = adaptive(hex("FBF6EF"), .clear)
-  static let cardFill = adaptive(
-    NSColor.white.withAlphaComponent(0.6), NSColor.white.withAlphaComponent(0.12))
-  static let cardFillStrong = adaptive(
-    NSColor.white.withAlphaComponent(0.78), NSColor.white.withAlphaComponent(0.14))
-  static let cardBorder = adaptive(hex("EBE6E3"), hex("717171"))
+  // "After" is clear in both modes so the weekly page shows the shared
+  // main-panel background (FBFBFB @ 55% with FAFAFA stroke, inner glow,
+  // drop shadow); "Before" keeps the shipped cream canvas in light mode.
+  @MainActor static var canvas: Color {
+    StylePreview.shared.showAfter
+      ? adaptive(.clear, .clear)
+      : adaptive(hex("FBF6EF"), .clear)
+  }
+  // All weekly cards share one light fill (white @ 46% in the refreshed
+  // style); "Before" keeps the shipped per-card values. The WeeklyCardTuner
+  // dev tool can override the light color and opacity.
+  @MainActor private static func tunedLightCardFill(defaultOpacity: CGFloat) -> NSColor {
+    let overrides = WeeklyCardTuner.shared.overrides
+    let base = overrides.cardColorHex.flatMap { NSColor(hex: $0) } ?? .white
+    return base.withAlphaComponent(overrides.cardOpacity.map { CGFloat($0) } ?? defaultOpacity)
+  }
+  @MainActor private static var lightCardFill: NSColor {
+    tunedLightCardFill(defaultOpacity: StylePreview.shared.showAfter ? 0.46 : 0.75)
+  }
+  @MainActor private static var lightCardFillStrong: NSColor {
+    tunedLightCardFill(defaultOpacity: StylePreview.shared.showAfter ? 0.46 : 0.78)
+  }
+  // Footer strips inside cards ("Week total", the insight row). In the
+  // refreshed light style they match the daily view's totals strip (the
+  // theme's dailyTotalsFill, FAF7F5); "Before" layers the shipped translucent
+  // white. WeeklyCardTuner can override the light color and opacity.
+  @MainActor static var footerSectionFill: Color {
+    let overrides = WeeklyCardTuner.shared.overrides
+    let light: NSColor
+    if overrides.sectionColorHex != nil || overrides.sectionOpacity != nil {
+      let base = overrides.sectionColorHex.flatMap { NSColor(hex: $0) } ?? .white
+      light = base.withAlphaComponent(overrides.sectionOpacity.map { CGFloat($0) } ?? 1)
+    } else if StylePreview.shared.showAfter {
+      light = hex("FAF7F5")
+    } else {
+      light = NSColor.white.withAlphaComponent(0.75)
+    }
+    return adaptive(light, hex("7F7A94", alpha: 0.1))
+  }
+  @MainActor static var cardFill: Color {
+    adaptive(lightCardFill, hex("7F7A94", alpha: 0.1))
+  }
+  @MainActor static var cardFillStrong: Color {
+    adaptive(lightCardFillStrong, NSColor.white.withAlphaComponent(0.14))
+  }
+  // Context charts, workflow, and focus heatmap cards: cardFillStrong in
+  // light, but matches cardFill in dark so they read the same as the other
+  // weekly cards.
+  @MainActor static var contextCardFill: Color {
+    adaptive(lightCardFillStrong, hex("7F7A94", alpha: 0.1))
+  }
+  static let cardBorder = adaptive(hex("EBE6E3"), hex("4E4E4E"))
   static let cardInnerStroke = adaptive(.white, NSColor.white.withAlphaComponent(0.12))
   static let solid = adaptive(.white, hex("272A3C"))
   static let footer = adaptive(hex("FAF7F5"), hex("ABA8B9", alpha: 0.2))
-  static let title = adaptive(hex("B46531"), hex("F77952"))
+  static let title = adaptive(hex("FF9A64"), hex("FF9A64"))
   static let accent = adaptive(hex("DF8351"), hex("F77952"))
   static let text = adaptive(hex("333333"), .white)
   static let secondaryText = adaptive(hex("777777"), hex("DDDDDD"))
@@ -36,7 +82,7 @@ enum WeeklyPalette {
   static let divider = adaptive(hex("E5DFD9"), hex("4E4E4E"))
   static let axis = adaptive(hex("5A534C", alpha: 0.9), hex("DDDDDD"))
   static let axisSoft = adaptive(hex("C9C2BC"), NSColor.white.withAlphaComponent(0.25))
-  static let emptyCell = adaptive(hex("F2F2F2"), NSColor.white.withAlphaComponent(0.08))
+  static let emptyCell = adaptive(hex("989898", alpha: 0.1), NSColor.white.withAlphaComponent(0.08))
   static let swatchNeutral = adaptive(hex("CFC7C1"), hex("6E6E6E"))
   static let softAccentFill = adaptive(hex("FFF5EA"), hex("F77952", alpha: 0.18))
   static let softAccentBorder = adaptive(hex("F7E4CE"), hex("F77952", alpha: 0.4))
@@ -50,6 +96,9 @@ enum WeeklyPalette {
 struct WeeklyView: View {
   @EnvironmentObject private var categoryStore: CategoryStore
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
+  @ObservedObject private var spacingTuner = WeeklySpacingTuner.shared
+  @ObservedObject private var cardTuner = WeeklyCardTuner.shared
 
   @AppStorage("weeklyAccessManuallyLocked") private var isManuallyLocked = false
 
@@ -125,7 +174,11 @@ struct WeeklyView: View {
 
   private var weeklyDashboard: some View {
     GeometryReader { geometry in
-      let layout = WeeklyAdaptiveLayout(panelWidth: geometry.size.width)
+      let layout = WeeklyAdaptiveLayout(
+        panelWidth: geometry.size.width,
+        spacingOverrides: spacingTuner.overrides,
+        stylePreviewAfter: stylePreviewAfter
+      )
 
       ScrollView(.vertical, showsIndicators: false) {
         VStack(spacing: 0) {
@@ -154,7 +207,7 @@ struct WeeklyView: View {
                 downloadButtonOrigin: CGPoint(x: 79, y: 16),
                 fileName: exportFileName("weekly-workflow"),
                 exportWidth: WeeklyWorkflowSection.exportWidth(for: dashboardSnapshot.workflow),
-                displayHeight: WeeklyAdaptiveLayout.workflowHeight,
+                displayHeight: stylePreviewAfter ? nil : WeeklyAdaptiveLayout.workflowHeight,
                 exportHeight: WeeklyAdaptiveLayout.workflowHeight,
                 watermarkPlacement: .bottomTrailing
               ) { width in
@@ -653,8 +706,12 @@ private struct WeeklyAdaptiveLayout {
     contentWidth * 933 / 1748
   }
 
+  var spacingOverrides: WeeklySpacingOverrides = .none
+  var stylePreviewAfter = true
+
   var sectionSpacing: CGFloat {
-    24
+    guard stylePreviewAfter else { return 24 }
+    return spacingOverrides.sectionSpacing.map { CGFloat($0) } ?? 32
   }
 
   var compactTopRowSpacing: CGFloat {
@@ -662,11 +719,12 @@ private struct WeeklyAdaptiveLayout {
   }
 
   var headerBottomPadding: CGFloat {
-    16
+    guard stylePreviewAfter else { return 16 }
+    return spacingOverrides.headerSpacing.map { CGFloat($0) } ?? 40
   }
 
   var topPadding: CGFloat {
-    28
+    stylePreviewAfter ? 40 : 28
   }
 
   var bottomPadding: CGFloat {
@@ -685,7 +743,7 @@ private struct WeeklyExportableGraphic<Content: View>: View {
   let downloadButtonOrigin: CGPoint
   let fileName: String
   let exportWidth: CGFloat
-  let displayHeight: CGFloat
+  let displayHeight: CGFloat?
   let exportHeight: CGFloat
   let watermarkPlacement: WeeklyExportWatermarkPlacement
   let content: (CGFloat) -> Content
@@ -700,7 +758,7 @@ private struct WeeklyExportableGraphic<Content: View>: View {
     downloadButtonOrigin: CGPoint,
     fileName: String,
     exportWidth: CGFloat = WeeklyAdaptiveLayout.designContentWidth,
-    displayHeight: CGFloat,
+    displayHeight: CGFloat?,
     exportHeight: CGFloat,
     watermarkPlacement: WeeklyExportWatermarkPlacement,
     @ViewBuilder content: @escaping (CGFloat) -> Content,
@@ -726,7 +784,7 @@ private struct WeeklyExportableGraphic<Content: View>: View {
     downloadButtonOrigin: CGPoint,
     fileName: String,
     exportWidth: CGFloat = WeeklyAdaptiveLayout.designContentWidth,
-    displayHeight: CGFloat,
+    displayHeight: CGFloat?,
     exportHeight: CGFloat,
     watermarkPlacement: WeeklyExportWatermarkPlacement,
     @ViewBuilder content: @escaping (CGFloat) -> Content
@@ -912,9 +970,10 @@ private enum WeeklyGraphicExporter {
     watermarkPlacement: WeeklyExportWatermarkPlacement,
     @ViewBuilder content: () -> Content
   ) {
+    let exportAfter = MainActor.assumeIsolated { StylePreview.shared.showAfter }
     let exportView = content()
       .frame(width: size.width, height: size.height, alignment: .topLeading)
-      .background(Color(hex: "FBF6EF"))
+      .background(Color(hex: exportAfter ? "FBFBFB" : "FBF6EF"))
       .overlay(alignment: watermarkPlacement.alignment) {
         WeeklyExportWatermark()
           .padding(watermarkPlacement.padding)

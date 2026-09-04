@@ -124,19 +124,47 @@ struct WeeklyTreemapApp: Identifiable {
 }
 
 struct WeeklyTreemapChange {
+  enum Kind {
+    case positive
+    case negative
+    case neutral
+  }
+
   let text: String
-  let color: Color
+  let kind: Kind
+
+  var color: Color {
+    switch kind {
+    case .positive:
+      return Color.dayflowAdaptive(light: NSColor(hex: "089041") ?? .black, dark: NSColor(hex: "E0FBEE") ?? .white)
+    case .negative:
+      return Color.dayflowAdaptive(light: NSColor(hex: "E25922") ?? .black, dark: NSColor(hex: "FCE3E1") ?? .white)
+    case .neutral:
+      return Color(hex: "8D8C8A")
+    }
+  }
+
+  var badgeFill: Color {
+    switch kind {
+    case .positive:
+      return Color.dayflowAdaptive(light: NSColor(hex: "D1EAE4") ?? .white, dark: NSColor(hex: "58927F") ?? .black)
+    case .negative:
+      return Color.dayflowAdaptive(light: NSColor(hex: "FAE0D8") ?? .white, dark: NSColor(hex: "CA6D59") ?? .black)
+    case .neutral:
+      return .clear
+    }
+  }
 
   static func positive(_ minutes: Int) -> WeeklyTreemapChange {
-    WeeklyTreemapChange(text: "+ \(minutes)m", color: Color(hex: "3AA34C"))
+    WeeklyTreemapChange(text: "+ \(minutes)m", kind: .positive)
   }
 
   static func negative(_ minutes: Int) -> WeeklyTreemapChange {
-    WeeklyTreemapChange(text: "- \(minutes)m", color: Color(hex: "DE2121"))
+    WeeklyTreemapChange(text: "- \(minutes)m", kind: .negative)
   }
 
   static func neutral(_ minutes: Int) -> WeeklyTreemapChange {
-    WeeklyTreemapChange(text: "\(minutes)m", color: Color(hex: "8D8C8A"))
+    WeeklyTreemapChange(text: "\(minutes)m", kind: .neutral)
   }
 }
 
@@ -147,45 +175,25 @@ struct WeeklyTreemapPalette {
   let tileBorder: Color
   let headerText: Color
 
-  static let design = WeeklyTreemapPalette(
-    shellFill: Color(hex: "DE9DFC").opacity(0.25),
-    shellBorder: Color(hex: "E2A3FF"),
-    tileFill: Color(hex: "FAF3FF"),
-    tileBorder: Color(hex: "E6B0FF"),
-    headerText: Color(hex: "B922FF")
-  )
+  // Figma "Edits after first implementation": the treemap layers the raw
+  // category color at fixed opacities over the themed card background, so a
+  // single formula holds for both light and dark mode.
+  static func category(hex: String) -> WeeklyTreemapPalette {
+    let base = Color(hex: hex)
+    return WeeklyTreemapPalette(
+      shellFill: base.opacity(0.25),
+      shellBorder: base.opacity(0.75),
+      tileFill: base.opacity(0.42),
+      tileBorder: base,
+      headerText: Color.dayflowAdaptive(light: NSColor(hex: "6D6D6D") ?? .darkGray, dark: NSColor(hex: "DFDFDF") ?? .lightGray)
+    )
+  }
 
-  static let communication = WeeklyTreemapPalette(
-    shellFill: Color(hex: "2DBFAE").opacity(0.25),
-    shellBorder: Color(hex: "76CCC2"),
-    tileFill: Color(hex: "E4F9F7"),
-    tileBorder: Color(hex: "B4D2CE"),
-    headerText: Color(hex: "00907F")
-  )
-
-  static let testing = WeeklyTreemapPalette(
-    shellFill: Color(hex: "FC7645").opacity(0.25),
-    shellBorder: Color(hex: "F7936F"),
-    tileFill: Color(hex: "FFEDE7"),
-    tileBorder: Color(hex: "FFB9A1"),
-    headerText: Color(hex: "F04407")
-  )
-
-  static let research = WeeklyTreemapPalette(
-    shellFill: Color(hex: "93BCFF").opacity(0.25),
-    shellBorder: Color(hex: "91AEF1"),
-    tileFill: Color(hex: "EEF4FF"),
-    tileBorder: Color(hex: "B9D4FF"),
-    headerText: Color(hex: "2061F5")
-  )
-
-  static let general = WeeklyTreemapPalette(
-    shellFill: Color(hex: "8D8C8A").opacity(0.18),
-    shellBorder: Color(hex: "C8C2BC"),
-    tileFill: Color(hex: "F5F3F1"),
-    tileBorder: Color(hex: "D8D2CC"),
-    headerText: Color(hex: "77706A")
-  )
+  static let design = WeeklyTreemapPalette.category(hex: "DE9DFC")
+  static let communication = WeeklyTreemapPalette.category(hex: "2DBFAE")
+  static let testing = WeeklyTreemapPalette.category(hex: "FC7645")
+  static let research = WeeklyTreemapPalette.category(hex: "93BCFF")
+  static let general = WeeklyTreemapPalette.category(hex: "727272")
 }
 
 extension TimeInterval {

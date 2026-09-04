@@ -9,7 +9,7 @@ struct WeeklyOverviewSection: View {
     static let cornerRadius: CGFloat = 4
     static let titleColor = WeeklyPalette.title
     static let borderColor = WeeklyPalette.cardBorder
-    static let topCardBackground = WeeklyPalette.cardFill
+    @MainActor static var topCardBackground: Color { WeeklyPalette.cardFill }
     static let footerBackground = WeeklyPalette.footer
     static let bodyTextColor = WeeklyPalette.text
     static let secondaryTextColor = WeeklyPalette.secondaryText

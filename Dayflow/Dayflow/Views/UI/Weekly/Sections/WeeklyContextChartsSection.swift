@@ -24,8 +24,20 @@ struct WeeklyContextChartsSection: View {
     static let lineWidth: CGFloat = 2
     static let pointSize: CGFloat = 42
     static let borderColor = WeeklyPalette.cardBorder
-    static let backgroundColor = WeeklyPalette.cardFillStrong
-    static let footerBackgroundColor = WeeklyPalette.cardFill
+    // "After" uses the dark-adjusted context card fill; "Before" keeps the
+    // shipped strong card fill.
+    @MainActor static var backgroundColor: Color {
+      StylePreview.shared.showAfter
+        ? WeeklyPalette.contextCardFill : WeeklyPalette.cardFillStrong
+    }
+    // The card fill is translucent, so stacking more fills on the chart and
+    // footer sections compounds their opacity over the card-level fill. In the
+    // refreshed style the chart section stays clear so the single card-level
+    // fill shows through; the footer uses the shared (tunable) footer fill.
+    @MainActor static var chartSectionBackgroundColor: Color {
+      StylePreview.shared.showAfter ? .clear : WeeklyPalette.cardFillStrong
+    }
+    @MainActor static var footerBackgroundColor: Color { WeeklyPalette.footerSectionFill }
     static let axisColor = WeeklyPalette.axis
     static let labelColor = WeeklyPalette.text
   }
@@ -72,7 +84,7 @@ struct WeeklyContextChartsSection: View {
       .padding(.top, Design.topPadding)
       .padding(.horizontal, Design.horizontalPadding)
       .frame(width: width, height: Design.height - Design.footerHeight, alignment: .topLeading)
-      .background(Design.backgroundColor)
+      .background(Design.chartSectionBackgroundColor)
       .overlay(alignment: .bottom) {
         Rectangle()
           .fill(WeeklyPalette.cardBorder)

@@ -518,14 +518,16 @@ struct DayflowProOnboardingSignInPanel: View {
           .lineLimit(1)
           .fixedSize(horizontal: true, vertical: false)
       },
-      background: enabled ? Color(hex: "402C00") : Color(hex: "D8CCBD"),
+      background: enabled ? Color(hex: "FF9F6F") : Color(hex: "FF9F6F").opacity(0.3),
       foreground: .white,
-      borderColor: .clear,
-      cornerRadius: scaled(8),
-      horizontalPadding: scaled(22),
-      verticalPadding: scaled(11),
+      borderColor: Color(hex: "F4C8B1"),
+      cornerRadius: 200,
+      horizontalPadding: 12,
+      verticalPadding: 0,
       minWidth: scaled(150),
-      showOverlayStroke: true
+      fixedHeight: 36,
+      showOverlayStroke: false,
+      innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)
     )
     .disabled(!enabled)
     .opacity(enabled ? 1 : 0.85)
@@ -545,12 +547,13 @@ struct DayflowProOnboardingSignInPanel: View {
       },
       background: Color.white.opacity(0.64),
       foreground: Color(hex: "492304"),
-      borderColor: .clear,
-      cornerRadius: scaled(8),
-      horizontalPadding: scaled(16),
-      verticalPadding: scaled(11),
+      borderColor: Color(hex: "B6B6B6"),
+      cornerRadius: 200,
+      horizontalPadding: 12,
+      verticalPadding: 0,
       minWidth: scaled(116),
-      isSecondaryStyle: true
+      fixedHeight: 36,
+      showShadow: false
     )
     .disabled(!enabled)
     .opacity(enabled ? 1 : 0.7)

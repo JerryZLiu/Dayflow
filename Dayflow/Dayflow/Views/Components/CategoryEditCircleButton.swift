@@ -17,7 +17,7 @@ struct CategoryEditCircleButton: View {
         .resizable()
         .renderingMode(.template)
         .scaledToFit()
-        .foregroundColor(theme.controlText)
+        .foregroundColor(theme.isDark ? theme.controlText : .white)
         .frame(width: resolvedIconSize, height: resolvedIconSize)
         .frame(width: diameter, height: diameter)
         .background(Circle().fill(theme.editButtonFill))

@@ -23,6 +23,11 @@ struct ThumbRatingButtons: View {
   var isEnabled: Bool = true
   var onRate: (TimelineRatingDirection) -> Void
 
+  @Environment(\.dayflowTheme) private var theme
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
+
+  private var usesDarkChrome: Bool { stylePreviewAfter && theme.isDark }
+
   var body: some View {
     HStack(spacing: 0) {
       rateButton(for: .up)
@@ -38,18 +43,24 @@ struct ThumbRatingButtons: View {
       onRate(direction)
     }) {
       Image("ThumbsUp")
-        .renderingMode(.original)
+        .renderingMode(usesDarkChrome ? .template : .original)
         .resizable()
         .scaledToFit()
         .frame(width: 14, height: 14)
         .scaleEffect(x: direction == .down ? -1 : 1, y: direction == .down ? -1 : 1)
+        .foregroundColor(usesDarkChrome ? Color.white.opacity(0.75) : nil)
         .padding(4)
         .frame(width: 22, height: 22)
         .background(
           Circle()
-            .fill(isSelected ? Color.white : Color.clear)
+            .fill(
+              isSelected
+                ? (usesDarkChrome ? Color.white.opacity(0.2) : Color.white)
+                : Color.clear
+            )
             .shadow(
-              color: isSelected ? Color.black.opacity(0.08) : Color.clear, radius: 6, x: 0, y: 3)
+              color: isSelected && !usesDarkChrome ? Color.black.opacity(0.08) : Color.clear,
+              radius: 6, x: 0, y: 3)
         )
     }
     .buttonStyle(.plain)
@@ -68,9 +79,14 @@ struct TimelineRateSummaryView: View {
   var onRate: ((TimelineRatingDirection) -> Void)? = nil
   var onDelete: (() -> Void)? = nil
 
+  @Environment(\.dayflowTheme) private var theme
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
+
   @State private var selectedDirection: TimelineRatingDirection? = nil
   @State private var deleteButtonState: TimelineDeleteButtonState = .idle
   @State private var deleteResetTask: Task<Void, Never>? = nil
+
+  private var usesDarkChrome: Bool { stylePreviewAfter && theme.isDark }
 
   private var canDelete: Bool {
     isEnabled && onDelete != nil && deleteButtonState != .deleting
@@ -78,17 +94,13 @@ struct TimelineRateSummaryView: View {
 
   var body: some View {
     HStack(alignment: .center, spacing: 0) {
-      if onDelete != nil {
-        deleteButton
-      }
-
-      Spacer(minLength: 0)
-
       HStack(spacing: 8) {
         Text(title)
           .font(Font.custom("Figtree", size: 12).weight(.medium))
           .foregroundColor(
-            Color(red: 0.49, green: 0.47, blue: 0.46)
+            (usesDarkChrome
+              ? Color.white.opacity(0.9)
+              : Color(red: 0.49, green: 0.47, blue: 0.46))
               .opacity(isEnabled ? 0.95 : 0.45)
           )
 
@@ -100,17 +112,35 @@ struct TimelineRateSummaryView: View {
           onRate?(direction)
         }
       }
+
+      Spacer(minLength: 0)
+
+      if onDelete != nil {
+        deleteButton
+      }
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 3)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color(red: 0.98, green: 0.98, blue: 0.98))
+    .background(
+      usesDarkChrome ? Color(hex: "494B5B") : Color(red: 0.98, green: 0.98, blue: 0.98)
+    )
     .overlay(
       Rectangle()
         .inset(by: 0.5)
-        .stroke(Color(red: 0.93, green: 0.93, blue: 0.93), lineWidth: 1)
+        .stroke(
+          usesDarkChrome
+            ? Color.white.opacity(0.08)
+            : Color(red: 0.93, green: 0.93, blue: 0.93),
+          lineWidth: 1
+        )
     )
-    .shadow(color: Color.white.opacity(1.0), radius: 9, x: 0, y: -4)
+    .shadow(
+      color: usesDarkChrome
+        ? Color(red: 39 / 255, green: 47 / 255, blue: 67 / 255).opacity(0.5)
+        : Color.white.opacity(1.0),
+      radius: usesDarkChrome ? 18 : 9, x: 0, y: -4
+    )
     .opacity(isEnabled ? 1 : 0.6)
     .onChange(of: activityID) {
       selectedDirection = nil
@@ -124,7 +154,7 @@ struct TimelineRateSummaryView: View {
 
   private var deleteButton: some View {
     let transition = AnyTransition.opacity.combined(with: .scale(scale: 0.5))
-    let idleText = Color(hex: "C05C54")
+    let idleText = usesDarkChrome ? theme.accentText : Color(hex: "C05C54")
     let idleIconTextOpacity = 0.9
     let confirmBackground = Color(hex: "DF6055")
     let confirmStroke = Color(hex: "CB4E43")

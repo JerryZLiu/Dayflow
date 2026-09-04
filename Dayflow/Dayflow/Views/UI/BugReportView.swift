@@ -3,6 +3,15 @@ import SwiftUI
 
 struct BugReportView: View {
   @Environment(\.dayflowTheme) private var theme
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
+
+  /// "After" softens the button borders; "Before" keeps the shipped look.
+  private var buttonBorderColor: Color {
+    stylePreviewAfter
+      ? (theme.isDark ? Color(hex: "777777") : Color(hex: "D0D0D0"))
+      : theme.textPrimary
+  }
+
   private let emailAddress = "jerry@dayflow.so"
   private let discordInviteURL = URL(string: "https://discord.gg/9YPAtctE6k")
   private let callBookingURL = URL(string: "https://cal.com/jerry-liu/15min")
@@ -49,7 +58,7 @@ struct BugReportView: View {
               },
               background: theme.secondaryButtonFill,
               foreground: theme.textPrimary,
-              borderColor: theme.textPrimary,
+              borderColor: buttonBorderColor,
               cornerRadius: 18,
               horizontalPadding: 28,
               verticalPadding: 16,
@@ -71,7 +80,7 @@ struct BugReportView: View {
               },
               background: theme.secondaryButtonFill,
               foreground: theme.textPrimary,
-              borderColor: theme.textPrimary,
+              borderColor: buttonBorderColor,
               cornerRadius: 18,
               horizontalPadding: 28,
               verticalPadding: 16,
@@ -90,7 +99,7 @@ struct BugReportView: View {
               },
               background: theme.secondaryButtonFill,
               foreground: theme.textPrimary,
-              borderColor: theme.textPrimary,
+              borderColor: buttonBorderColor,
               cornerRadius: 18,
               horizontalPadding: 28,
               verticalPadding: 16,
@@ -119,7 +128,7 @@ struct BugReportView: View {
               },
               background: theme.secondaryButtonFill,
               foreground: theme.textPrimary,
-              borderColor: theme.textPrimary,
+              borderColor: buttonBorderColor,
               cornerRadius: 14,
               horizontalPadding: 22,
               verticalPadding: 14,
@@ -142,7 +151,7 @@ struct BugReportView: View {
               },
               background: theme.secondaryButtonFill,
               foreground: theme.textPrimary,
-              borderColor: theme.textPrimary,
+              borderColor: buttonBorderColor,
               cornerRadius: 14,
               horizontalPadding: 20,
               verticalPadding: 14,

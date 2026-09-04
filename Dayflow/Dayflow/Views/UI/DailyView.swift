@@ -5,6 +5,8 @@ import UserNotifications
 
 struct DailyView: View {
   @Environment(\.dayflowTheme) var theme
+  @Environment(\.stylePreviewAfter) var stylePreviewAfter
+  @ObservedObject var styleTweaks = StandupStyleTweaks.shared
   @AppStorage("isDailyUnlocked") var isUnlocked: Bool = false
   @Binding var selectedDate: Date
   @EnvironmentObject var categoryStore: CategoryStore

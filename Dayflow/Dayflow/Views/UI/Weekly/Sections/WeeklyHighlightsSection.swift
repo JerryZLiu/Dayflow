@@ -13,7 +13,7 @@ struct WeeklyHighlightsSection: View {
     static let width: CGFloat = 470
     static let height: CGFloat = 298
     static let borderColor = WeeklyPalette.cardBorder
-    static let background = WeeklyPalette.cardFill
+    @MainActor static var background: Color { WeeklyPalette.cardFill }
     static let titleColor = WeeklyPalette.title
   }
 

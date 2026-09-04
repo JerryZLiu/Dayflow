@@ -13,6 +13,8 @@ struct ActivityCard: View {
   var onTitleChange: ((String, TimelineActivity) -> Void)? = nil
   var onNavigateToCategoryEditor: (() -> Void)? = nil
   var onRetryBatchCompleted: ((Int64) -> Void)? = nil
+  @Environment(\.dayflowTheme) private var theme
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
   @EnvironmentObject private var appState: AppState
   @EnvironmentObject private var categoryStore: CategoryStore
   @EnvironmentObject private var retryCoordinator: RetryCoordinator
@@ -41,6 +43,8 @@ struct ActivityCard: View {
     return formatter
   }()
 
+  private var usesDarkChrome: Bool { stylePreviewAfter && theme.isDark }
+
   var body: some View {
     if let activity = activity {
       ZStack(alignment: .top) {
@@ -62,13 +66,25 @@ struct ActivityCard: View {
               commitCategorySelection(selectedCategory, for: activity)
             },
             onNavigateToEditor: {
-              withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+              withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                 showCategoryPicker = false
               }
               onNavigateToCategoryEditor?()
+            },
+            onDismiss: {
+              withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                showCategoryPicker = false
+              }
             }
           )
-          .transition(.move(edge: .top).combined(with: .opacity))
+          .transition(
+            .asymmetric(
+              insertion: .move(edge: .top).combined(with: .opacity)
+                .animation(.spring(response: 0.3, dampingFraction: 0.85)),
+              removal: .move(edge: .top).combined(with: .opacity)
+                .animation(.easeIn(duration: 0.3))
+            )
+          )
           .zIndex(1)
         }
       }
@@ -169,16 +185,25 @@ struct ActivityCard: View {
             .font(
               Font.custom("Figtree", size: 12)
             )
-            .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
+            .foregroundColor(
+              usesDarkChrome ? theme.textSecondary : Color(red: 0.2, green: 0.2, blue: 0.2)
+            )
             .lineLimit(1)
-            .padding(.horizontal, 6)
+            .padding(.horizontal, usesDarkChrome ? 6 : 8)
             .padding(.vertical, 4)
-            .background(Color(red: 0.96, green: 0.94, blue: 0.91).opacity(0.9))
+            .background(
+              usesDarkChrome
+                ? Color(hex: "494B5B")
+                : Color.white.opacity(0.76)
+            )
             .cornerRadius(6)
             .overlay(
               RoundedRectangle(cornerRadius: 6)
-                .inset(by: 0.38)
-                .stroke(Color(red: 0.9, green: 0.9, blue: 0.9), lineWidth: 0.75)
+                .inset(by: usesDarkChrome ? 0.38 : 0.25)
+                .stroke(
+                  usesDarkChrome ? Color(hex: "888888") : Color(red: 0.88, green: 0.88, blue: 0.88),
+                  lineWidth: usesDarkChrome ? 0.75 : 0.5
+                )
             )
 
             Spacer(minLength: 6)
@@ -192,35 +217,35 @@ struct ActivityCard: View {
 
                   Text(badge.name)
                     .font(Font.custom("Figtree", size: 12))
-                    .foregroundColor(Color(red: 0.2, green: 0.2, blue: 0.2))
+                    .foregroundColor(
+                      usesDarkChrome ? theme.chipText : Color(red: 0.2, green: 0.2, blue: 0.2)
+                    )
                     .lineLimit(1)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(Color.white.opacity(0.76))
+                .background(usesDarkChrome ? theme.chipFill : Color.white.opacity(0.76))
                 .cornerRadius(6)
                 .overlay(
                   RoundedRectangle(cornerRadius: 6)
                     .inset(by: 0.25)
-                    .stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.5)
+                    .stroke(
+                      usesDarkChrome ? theme.chipBorder : Color(red: 0.88, green: 0.88, blue: 0.88),
+                      lineWidth: 0.5
+                    )
                 )
               }
 
               if !isFailedCard(activity) {
-                Button(action: {
-                  withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
-                    showCategoryPicker.toggle()
-                  }
-                }) {
-                  Image("CategorySwapButton")
-                    .resizable()
-                    .renderingMode(.original)
-                    .frame(width: 24, height: 24)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .hoverScaleEffect(scale: 1.02)
-                .pointingHandCursorOnHover(reassertOnPressEnd: true)
-                .accessibilityLabel(Text("Change category"))
+                CategoryEditCircleButton(
+                  action: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                      showCategoryPicker.toggle()
+                    }
+                  },
+                  diameter: 24,
+                  accessibilityLabel: "Change category"
+                )
               }
             }
           }
@@ -293,7 +318,7 @@ struct ActivityCard: View {
           Font.custom("Figtree", size: 16)
             .weight(.semibold)
         )
-        .foregroundColor(.black)
+        .foregroundColor(stylePreviewAfter && theme.isDark ? .white : .black)
         .focused($titleFieldFocused)
         .onSubmit { commitTitleEdit(for: activity) }
         .onExitCommand { isEditingTitle = false }
@@ -310,19 +335,15 @@ struct ActivityCard: View {
             Font.custom("Figtree", size: 16)
               .weight(.semibold)
           )
-          .foregroundColor(.black)
+          .foregroundColor(stylePreviewAfter && theme.isDark ? .white : .black)
           .onTapGesture { startTitleEdit(for: activity) }
 
         if isHoveringTitle && !isFailedCard(activity) {
-          Button(action: { startTitleEdit(for: activity) }) {
-            Image("CategorySwapButton")
-              .resizable()
-              .renderingMode(.original)
-              .frame(width: 24, height: 24)
-          }
-          .buttonStyle(PlainButtonStyle())
-          .pointingHandCursorOnHover(reassertOnPressEnd: true)
-          .accessibilityLabel(Text("Edit title"))
+          CategoryEditCircleButton(
+            action: { startTitleEdit(for: activity) },
+            diameter: 24,
+            accessibilityLabel: "Edit title"
+          )
         }
       }
       .onHover { hovering in
@@ -360,7 +381,7 @@ struct ActivityCard: View {
           .font(
             Font.custom("Figtree", size: 12)
           )
-          .foregroundColor(.black)
+          .foregroundColor(stylePreviewAfter && theme.isDark ? .white : .black)
           .lineLimit(nil)
           .fixedSize(horizontal: false, vertical: true)
           .textSelection(.enabled)
@@ -379,7 +400,7 @@ struct ActivityCard: View {
             .font(
               Font.custom("Figtree", size: 12)
             )
-            .foregroundColor(.black)
+            .foregroundColor(stylePreviewAfter && theme.isDark ? .white : .black)
             .lineLimit(nil)
             .fixedSize(horizontal: false, vertical: true)
             .textSelection(.enabled)
@@ -471,7 +492,7 @@ struct ActivityCard: View {
       .background(Color(red: 0.91, green: 0.85, blue: 0.8))
       .cornerRadius(200)
     } else {
-      // Retry button - orange pill
+      // Retry button - orange pill matching the primary "Resume" button
       Button(action: { handleRetry(for: activity) }) {
         HStack(alignment: .center, spacing: 4) {
           Text("Retry")
@@ -479,11 +500,20 @@ struct ActivityCard: View {
           Image(systemName: "arrow.clockwise")
             .font(.system(size: 13, weight: .medium))
         }
-        .foregroundColor(.white)
+        .foregroundColor(theme.primaryButtonText)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color(red: 1, green: 0.54, blue: 0.17))
-        .cornerRadius(200)
+        .background(
+          Capsule(style: .continuous)
+            .fill(theme.primaryButtonFill)
+            .overlay(
+              InnerGlow(
+                shape: Capsule(style: .continuous), color: theme.primaryButtonInnerGlow, radius: 3)
+            )
+            .overlay(
+              Capsule(style: .continuous).strokeBorder(theme.primaryButtonBorder, lineWidth: 1)
+            )
+        )
       }
       .buttonStyle(PlainButtonStyle())
       .disabled(isDisabled)
@@ -506,7 +536,7 @@ struct ActivityCard: View {
       .lowercased()
     let normalizedNew = category.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
       showCategoryPicker = false
     }
 

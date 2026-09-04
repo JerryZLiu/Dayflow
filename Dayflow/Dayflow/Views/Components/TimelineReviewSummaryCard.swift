@@ -246,10 +246,14 @@ struct TimelineReviewSummaryCard: View {
     placeholder: Bool
   ) -> ReviewMetricStyle {
     let barColor = placeholder ? theme.targetsTrackFill : baseColor
-    let barShadow =
-      placeholder
-      ? Color(red: 225 / 255, green: 210 / 255, blue: 203 / 255).opacity(0.25)
-      : shadow
+    let barShadow: Color
+    if theme.isDark {
+      barShadow = Color.black.opacity(0.35)
+    } else if placeholder {
+      barShadow = Color(red: 225 / 255, green: 210 / 255, blue: 203 / 255).opacity(0.25)
+    } else {
+      barShadow = shadow
+    }
     let gradient = LinearGradient(
       colors: [barColor.opacity(0.5), barColor],
       startPoint: .topLeading,

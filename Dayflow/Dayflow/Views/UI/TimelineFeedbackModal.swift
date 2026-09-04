@@ -68,6 +68,7 @@ struct TimelineFeedbackModal: View {
   let onClose: () -> Void
 
   @FocusState private var isEditorFocused: Bool
+  @Environment(\.dayflowTheme) private var theme
 
   var body: some View {
     ZStack(alignment: .topTrailing) {
@@ -76,9 +77,9 @@ struct TimelineFeedbackModal: View {
       Button(action: onClose) {
         Image(systemName: "xmark")
           .font(.system(size: 12.5, weight: .semibold))
-          .foregroundColor(Color(hex: "FF8046").opacity(0.7))
+          .foregroundColor(theme.isDark ? Color(hex: "C9CBD6") : Color(hex: "FF8046").opacity(0.7))
           .frame(width: 22, height: 22)
-          .background(Color.white.opacity(0.9))
+          .background(theme.isDark ? Color.clear : Color.white.opacity(0.9))
           .clipShape(Circle())
       }
       .buttonStyle(.plain)
@@ -104,22 +105,44 @@ struct TimelineFeedbackModal: View {
     .frame(width: 286)
     .background(
       RoundedRectangle(cornerRadius: 6)
-        .fill(
-          LinearGradient(
-            gradient: Gradient(stops: [
-              .init(color: Color(hex: "FFF4E9"), location: 0),
-              .init(color: Color.white, location: 0.85),
-            ]),
-            startPoint: .bottom,
-            endPoint: .top
-          )
-        )
+        .fill(cardFill)
     )
     .overlay(
       RoundedRectangle(cornerRadius: 6)
-        .stroke(Color(hex: "ECECEC"), lineWidth: 1)
+        .stroke(theme.isDark ? Color(hex: "585858") : Color(hex: "ECECEC"), lineWidth: 1)
     )
-    .shadow(color: Color.black.opacity(0.07), radius: 12, x: 0, y: 6)
+    .shadow(
+      color: Color.black.opacity(theme.isDark ? 0.35 : 0.07), radius: 12, x: 0, y: 6)
+  }
+
+  private var cardFill: AnyShapeStyle {
+    if theme.isDark {
+      return AnyShapeStyle(
+        LinearGradient(
+          gradient: Gradient(stops: [
+            .init(color: Color(hex: "272F43"), location: 0),
+            .init(color: Color(hex: "272F43"), location: 0.3),
+            .init(color: Color(hex: "3F3D52"), location: 0.85),
+          ]),
+          startPoint: .bottom,
+          endPoint: .top
+        )
+      )
+    }
+    return AnyShapeStyle(
+      LinearGradient(
+        gradient: Gradient(stops: [
+          .init(color: Color(hex: "FFF4E9"), location: 0),
+          .init(color: Color.white, location: 0.85),
+        ]),
+        startPoint: .bottom,
+        endPoint: .top
+      )
+    )
+  }
+
+  private var primaryText: Color {
+    theme.isDark ? .white : Color(hex: "333333")
   }
 
   private var formContent: some View {
@@ -127,29 +150,30 @@ struct TimelineFeedbackModal: View {
       VStack(spacing: 12) {
         Text(content.formTitle)
           .font(Font.custom("InstrumentSerif-Regular", size: 18))
-          .foregroundColor(Color(hex: "333333"))
+          .foregroundColor(primaryText)
           .multilineTextAlignment(.center)
 
         Text(content.formSubtitle)
-          .font(Font.custom("Figtree", size: 13).weight(.medium))
-          .foregroundColor(Color(hex: "333333"))
+          .font(Font.custom("Figtree", size: 14))
+          .foregroundColor(primaryText)
           .multilineTextAlignment(.center)
       }
 
       VStack(spacing: 8) {
         ZStack(alignment: .topLeading) {
           TextEditor(text: $message)
-            .font(Font.custom("Figtree", size: 12).weight(.medium))
-            .foregroundColor(Color(hex: "333333"))
+            .font(Font.custom("Figtree", size: 12))
+            .foregroundColor(primaryText)
             .padding(.horizontal, 6)
             .padding(.vertical, 8)
-            .background(Color.white)
+            .background(theme.isDark ? Color.white.opacity(0.06) : Color.white)
             .frame(height: 90)
             .cornerRadius(4)
             .overlay(
               RoundedRectangle(cornerRadius: 4)
-                .stroke(Color(hex: "D9D9D9"), lineWidth: 1)
+                .stroke(theme.isDark ? Color(hex: "5C5F70") : Color(hex: "D9D9D9"), lineWidth: 1)
             )
+            .background(ThinScrollerInstaller())
             .focused($isEditorFocused)
             .onAppear {
               DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -160,8 +184,8 @@ struct TimelineFeedbackModal: View {
 
           if message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             Text(content.placeholder)
-              .font(Font.custom("Figtree", size: 12).weight(.medium))
-              .foregroundColor(Color(hex: "AAAAAA"))
+              .font(Font.custom("Figtree", size: 12))
+              .foregroundColor(theme.isDark ? Color(hex: "9BA0B0") : Color(hex: "AAAAAA"))
               .padding(.horizontal, 12)
               .padding(.vertical, 12)
           }
@@ -172,7 +196,7 @@ struct TimelineFeedbackModal: View {
         } label: {
           HStack(alignment: .top, spacing: 8) {
             RoundedRectangle(cornerRadius: 2)
-              .stroke(Color(hex: "FF8046"), lineWidth: shareLogs ? 0 : 1)
+              .stroke(Color(hex: "AAAAAA"), lineWidth: shareLogs ? 0 : 1)
               .frame(width: 14, height: 14)
               .overlay(
                 Image(systemName: "checkmark")
@@ -182,12 +206,15 @@ struct TimelineFeedbackModal: View {
               )
               .background(
                 RoundedRectangle(cornerRadius: 2)
-                  .fill(shareLogs ? Color(hex: "FF8046") : Color.clear)
+                  .fill(
+                    shareLogs
+                      ? (theme.isDark ? Color(hex: "D1653E") : Color(hex: "FF8046"))
+                      : Color.clear)
               )
 
             Text(content.shareLogsLabel)
-              .font(Font.custom("Figtree", size: 10).weight(.medium))
-              .foregroundColor(Color.black)
+              .font(Font.custom("Figtree", size: 12))
+              .foregroundColor(theme.isDark ? Color.white : Color.black)
               .fixedSize(horizontal: false, vertical: true)
           }
           .frame(maxWidth: .infinity, alignment: .leading)
@@ -198,13 +225,16 @@ struct TimelineFeedbackModal: View {
       }
 
       Button(action: onSubmit) {
+        // Matches the paused pill's "Resume" button chrome.
         Text(content.submitButtonTitle)
-          .font(Font.custom("Figtree", size: 12).weight(.medium))
-          .foregroundColor(.white)
+          .font(Font.custom("Figtree", size: 12))
+          .foregroundColor(theme.primaryButtonText)
           .frame(maxWidth: .infinity)
-          .frame(height: 30)
-          .background(Color(hex: "FF8046"))
-          .cornerRadius(4)
+          .frame(height: 32)
+          .background(theme.primaryButtonFill)
+          .overlay(InnerGlow(shape: Capsule(), color: theme.primaryButtonInnerGlow, radius: 3))
+          .overlay(Capsule().strokeBorder(theme.primaryButtonBorder, lineWidth: 1))
+          .clipShape(Capsule())
       }
       .buttonStyle(.plain)
       .pointingHandCursor()
@@ -215,15 +245,15 @@ struct TimelineFeedbackModal: View {
     VStack(spacing: 20) {
       Text(content.thanksTitle)
         .font(Font.custom("InstrumentSerif-Regular", size: 18))
-        .foregroundColor(Color(hex: "333333"))
+        .foregroundColor(primaryText)
         .multilineTextAlignment(.center)
         .padding(.bottom, 4)
 
       VStack(alignment: .leading, spacing: 12) {
         if let thanksBody = content.thanksBody {
           Text(thanksBody)
-            .font(Font.custom("Figtree", size: 12).weight(.medium))
-            .foregroundColor(Color(hex: "333333"))
+            .font(Font.custom("Figtree", size: 12))
+            .foregroundColor(primaryText)
             .multilineTextAlignment(.leading)
         }
 
@@ -252,6 +282,61 @@ extension TimelineFeedbackModal {
       )
       .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
       .accessibilityLabel(Text(accessibilityLabel ?? "Feedback illustration"))
+  }
+}
+
+// MARK: - Thin scroll bar for the feedback text editor
+
+/// Draws the vertical scroller knob at half the standard width.
+private final class ThinFeedbackScroller: NSScroller {
+  override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {}
+
+  override func drawKnob() {
+    let knob = rect(for: .knob)
+    guard knob.width > 0, knob.height > 0 else { return }
+    let width = knob.width * 0.5
+    let knobRect = NSRect(x: knob.midX - width / 2, y: knob.minY, width: width, height: knob.height)
+    let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    (isDark ? NSColor.white : NSColor.black).withAlphaComponent(0.4).setFill()
+    NSBezierPath(roundedRect: knobRect, xRadius: width / 2, yRadius: width / 2).fill()
+  }
+}
+
+/// Finds the `TextEditor`'s enclosing scroll view and swaps in the thin scroller.
+private struct ThinScrollerInstaller: NSViewRepresentable {
+  func makeNSView(context: Context) -> NSView {
+    let view = NSView()
+    DispatchQueue.main.async { install(near: view) }
+    return view
+  }
+
+  func updateNSView(_ nsView: NSView, context: Context) {
+    DispatchQueue.main.async { install(near: nsView) }
+  }
+
+  private func install(near view: NSView) {
+    var ancestor = view.superview
+    var hops = 0
+    while let current = ancestor, hops < 6 {
+      if let scrollView = textEditorScrollView(in: current) {
+        if !(scrollView.verticalScroller is ThinFeedbackScroller) {
+          scrollView.verticalScroller = ThinFeedbackScroller()
+        }
+        return
+      }
+      ancestor = current.superview
+      hops += 1
+    }
+  }
+
+  private func textEditorScrollView(in view: NSView) -> NSScrollView? {
+    if let scrollView = view as? NSScrollView, scrollView.documentView is NSTextView {
+      return scrollView
+    }
+    for subview in view.subviews {
+      if let found = textEditorScrollView(in: subview) { return found }
+    }
+    return nil
   }
 }
 

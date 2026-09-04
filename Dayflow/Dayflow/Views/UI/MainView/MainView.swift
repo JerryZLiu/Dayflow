@@ -17,6 +17,8 @@ struct MainView: View {
   @EnvironmentObject var categoryStore: CategoryStore
   @Environment(\.accessibilityReduceMotion) var reduceMotion
   @Environment(\.dayflowTheme) var theme
+  @Environment(\.stylePreviewAfter) var stylePreviewAfter
+  @Environment(\.opacityOverrides) var opacityOverrides
   @ObservedObject private var authManager = DayflowAuthManager.shared
   @State var selectedIcon: SidebarIcon = .timeline
   @State var selectedDate = timelineDisplayDate(from: Date())
@@ -37,6 +39,8 @@ struct MainView: View {
   @State var refreshActivitiesTrigger: Int = 0
   @ObservedObject var inactivity = InactivityMonitor.shared
   @ObservedObject var pauseManager = PauseManager.shared
+  @ObservedObject var panelGapTuner = PanelGapTuner.shared
+  @ObservedObject var sidebarTuner = SidebarTuner.shared
 
   // Animation states for orchestrated entrance - Emil Kowalski principles
   @State var logoScale: CGFloat = 0.8

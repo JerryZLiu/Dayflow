@@ -405,7 +405,7 @@ extension MainView {
     if showCategoryEditor {
       ColorOrganizerRoot(
         presentationStyle: .sheet,
-        onDismiss: { showCategoryEditor = false }, completionButtonTitle: "Save", showsTitles: true
+        onDismiss: { showCategoryEditor = false }, completionButtonTitle: "Done", showsTitles: true
       )
       .environmentObject(categoryStore)
       // Removed .contentShape(Rectangle()) and .onTapGesture to allow keyboard input

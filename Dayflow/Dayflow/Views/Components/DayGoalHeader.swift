@@ -617,6 +617,7 @@ struct DayGoalHeader: View {
 
 private struct GoalMetricSummaryText: View {
   @Environment(\.dayflowTheme) private var theme
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
 
   let value: String
   let suffix: String
@@ -629,7 +630,7 @@ private struct GoalMetricSummaryText: View {
     HStack(alignment: .firstTextBaseline, spacing: 2) {
       if isProminent {
         Text(value)
-          .font(.custom("Nunito", size: 16).weight(.bold))
+          .font(.custom(stylePreviewAfter ? "Figtree" : "Nunito", size: 16).weight(.bold))
           .foregroundStyle(
             LinearGradient(
               colors: [gradientStart, gradientEnd],
@@ -644,7 +645,10 @@ private struct GoalMetricSummaryText: View {
       }
 
       Text(suffix)
-        .font(.custom(isProminent ? "Nunito" : "Figtree", size: 11))
+        .font(
+          .custom(
+            stylePreviewAfter ? "Figtree" : (isProminent ? "Nunito" : "Figtree"), size: 11)
+        )
         .foregroundColor(theme.isDark ? theme.textSecondary : theme.textTertiary)
     }
     .lineLimit(1)
@@ -916,6 +920,7 @@ private struct TargetIconBubble: View {
   }
 
   @Environment(\.dayflowTheme) private var theme
+  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
 
   let kind: Kind
   var tint: Color? = nil
@@ -932,11 +937,15 @@ private struct TargetIconBubble: View {
       switch kind {
       case .focus:
         assetImage("DayGoalFocus")
-          .frame(width: 25, height: 26)
+          .frame(
+            width: stylePreviewAfter ? 20 : 25,
+            height: stylePreviewAfter ? 20 : 26)
 
       case .distraction:
         assetImage("DayGoalDistraction")
-          .frame(width: 23, height: 23)
+          .frame(
+            width: stylePreviewAfter ? 20 : 23,
+            height: stylePreviewAfter ? 20 : 23)
       }
     }
   }
