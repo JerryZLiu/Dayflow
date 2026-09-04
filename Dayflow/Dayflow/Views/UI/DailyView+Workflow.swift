@@ -10,9 +10,9 @@ extension DailyView {
       let availableWidth = max(320, geometry.size.width)
       let layoutWidth = min(availableWidth, maxLayoutWidth)
       let scale: CGFloat = 1.1
-      let horizontalInset = CGFloat(styleTweaks.horizontalMargin)
+      let horizontalInset = CGFloat(StandupStyle.horizontalMargin)
       let topInset: CGFloat = stylePreviewAfter ? 40 : max(22, 20 * scale)
-      let bottomInset = CGFloat(styleTweaks.bottomSpace)
+      let bottomInset = CGFloat(StandupStyle.bottomSpace)
       let sectionSpacing = 20 * scale
       let contentWidth = max(320, layoutWidth - (horizontalInset * 2))
       let useSingleColumn = false
@@ -22,7 +22,7 @@ extension DailyView {
         VStack(alignment: .leading, spacing: sectionSpacing) {
           topControls(scale: scale)
           workflowSection(scale: scale, isViewingToday: isViewingToday)
-            .padding(.horizontal, CGFloat(styleTweaks.todayPadding))
+            .padding(.horizontal, CGFloat(StandupStyle.todayPadding))
             // "After": gap between the date row and this section is 32pt
             // total (VStack spacing + this padding).
             .padding(.top, stylePreviewAfter ? 32 - sectionSpacing : 0)
@@ -38,7 +38,7 @@ extension DailyView {
           )
           // Gap between the workflow grid and the standup section: the
           // "Section gap" tweak is the total (VStack spacing + this padding).
-          .padding(.top, max(0, CGFloat(styleTweaks.sectionGap) - sectionSpacing))
+          .padding(.top, max(0, CGFloat(StandupStyle.sectionGap) - sectionSpacing))
         }
         .frame(width: contentWidth, alignment: .leading)
         .padding(.horizontal, horizontalInset)

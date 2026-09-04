@@ -23,7 +23,6 @@ struct ColorOrganizerRoot: View {
   var analyticsSurface: String? = nil
   @EnvironmentObject private var categoryStore: CategoryStore
   @Environment(\.dayflowTheme) private var theme
-  @ObservedObject private var modalTuner = CategoryModalTuner.shared
 
   private enum CategorySetupStage: String, Hashable {
     case details
@@ -140,7 +139,7 @@ struct ColorOrganizerRoot: View {
           Text("Customize your categories")
             .font(
               Font.custom(
-                "Instrument Serif", size: modalTuner.overrides.titleSize ?? 36))
+                "Instrument Serif", size: 36))
             .foregroundColor(theme.isDark ? .white : .black)
             .frame(maxWidth: .infinity, alignment: .center)
             .opacity(stage == .details ? 1 : 0)
@@ -173,24 +172,23 @@ struct ColorOrganizerRoot: View {
           .opacity(stage == .colors ? 1 : 0)
           .allowsHitTesting(stage == .colors)
         }
-        .offset(x: modalTuner.overrides.sectionXOffset.map { CGFloat($0) } ?? 4)
+        .offset(x: 4)
 
         if presentationStyle == .sheet {
           bottomButtonBar
             .padding(
               .top,
-              (modalTuner.overrides.buttonGap.map { CGFloat($0) } ?? 70) - verticalSpacing)
+              70 - verticalSpacing)
         }
       }
       .padding(
         .horizontal,
-        modalTuner.overrides.horizontalMargin.map { CGFloat($0) }
-          ?? (isCompact ? innerHorizontalPadding : 62)
+        isCompact ? innerHorizontalPadding : 62
       )
-      .padding(.top, modalTuner.overrides.topMargin.map { CGFloat($0) } ?? (isCompact ? 32 : 58))
+      .padding(.top, isCompact ? 32 : 58)
       .padding(
         .bottom,
-        (modalTuner.overrides.bottomMargin.map { CGFloat($0) } ?? (isCompact ? 32 : 48))
+        CGFloat(isCompact ? 32 : 48)
           // Embedded style pins Back/Next in a bottom-trailing overlay; keep
           // room for them so centered content never sits underneath.
           + (presentationStyle == .embedded ? 76 : 0)
@@ -252,7 +250,7 @@ struct ColorOrganizerRoot: View {
 
           Text("Edit title and description")
             .font(
-              Font.custom("Instrument Serif", size: modalTuner.overrides.subtitleSize ?? 30))
+              Font.custom("Instrument Serif", size: 30))
             .foregroundColor(theme.isDark ? .white : .black)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -309,7 +307,7 @@ struct ColorOrganizerRoot: View {
 
           Text("Edit colors")
             .font(
-              Font.custom("Instrument Serif", size: modalTuner.overrides.subtitleSize ?? 30))
+              Font.custom("Instrument Serif", size: 30))
             .foregroundColor(theme.isDark ? .white : .black)
             .frame(maxWidth: .infinity, alignment: .leading)
         }

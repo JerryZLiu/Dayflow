@@ -17,7 +17,6 @@ struct DailyCopyPressButtonStyle: ButtonStyle {
 struct DailyBulletCard: View {
   @Environment(\.dayflowTheme) private var theme
   @Environment(\.stylePreviewAfter) private var stylePreviewAfter
-  @ObservedObject private var styleTweaks = StandupStyleTweaks.shared
 
   enum SeamMode {
     case standalone
@@ -86,7 +85,7 @@ struct DailyBulletCard: View {
       VStack(alignment: .leading, spacing: 18 * scale) {
         Text(title)
           .font(.custom("InstrumentSerif-Regular", size: (stylePreviewAfter ? 20 : 24) * scale))
-          .foregroundStyle(theme.isDark ? theme.textSecondary : styleTweaks.headingColor)
+          .foregroundStyle(theme.isDark ? theme.textSecondary : StandupStyle.headingColor)
           .frame(maxWidth: .infinity, alignment: .leading)
 
         itemListEditor
@@ -109,15 +108,15 @@ struct DailyBulletCard: View {
     .overlay(
       cardShape
         .stroke(
-          theme.isDark ? theme.standupCardBorder : styleTweaks.strokeColor,
+          theme.isDark ? theme.standupCardBorder : StandupStyle.strokeColor,
           lineWidth: 0.75
         )
     )
     .shadow(
-      color: theme.isDark ? Color.black.opacity(0.1) : styleTweaks.shadowColor,
-      radius: theme.isDark ? 8 : styleTweaks.shadowBlur,
+      color: theme.isDark ? Color.black.opacity(0.1) : StandupStyle.shadowColor,
+      radius: theme.isDark ? 8 : StandupStyle.shadowBlur,
       x: 0,
-      y: theme.isDark ? 4 : styleTweaks.shadowDistance
+      y: theme.isDark ? 4 : StandupStyle.shadowDistance
     )
     .onAppear {
       setupKeyMonitor()
@@ -335,7 +334,6 @@ struct DailyDragHandleIcon: View {
 struct DailyBlockersSection: View {
   @Environment(\.dayflowTheme) private var theme
   @Environment(\.stylePreviewAfter) private var stylePreviewAfter
-  @ObservedObject private var styleTweaks = StandupStyleTweaks.shared
 
   let scale: CGFloat
   @Binding var title: String
@@ -345,7 +343,7 @@ struct DailyBlockersSection: View {
     VStack(alignment: .leading, spacing: 8 * scale) {
       TextField("Blockers", text: $title)
         .font(.custom("Figtree-Medium", size: 14 * scale))
-        .foregroundStyle(theme.isDark ? theme.textSecondary : styleTweaks.headingColor)
+        .foregroundStyle(theme.isDark ? theme.textSecondary : StandupStyle.headingColor)
         .textFieldStyle(.plain)
 
       HStack(alignment: .center, spacing: 8 * scale) {

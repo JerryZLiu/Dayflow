@@ -2,16 +2,11 @@ import Charts
 import SwiftUI
 
 struct WeeklyDonutSection: View {
-  @AppStorage(WeeklyDonutSizePreference.storageKey) private var donutScale: Double =
-    WeeklyDonutSizePreference.defaultScale
-  @AppStorage(WeeklyDonutSizePreference.legendGapKey) private var legendGap: Double =
-    WeeklyDonutSizePreference.defaultLegendGap
-  @AppStorage(WeeklyDonutSizePreference.contentYKey) private var contentYOffset: Double =
-    WeeklyDonutSizePreference.defaultContentY
-  @AppStorage(WeeklyDonutSizePreference.chartLegendGapKey) private var chartLegendGap: Double =
-    WeeklyDonutSizePreference.defaultChartLegendGap
-  @AppStorage(WeeklyDonutSizePreference.contentXKey) private var contentXOffset: Double =
-    WeeklyDonutSizePreference.defaultContentX
+  private let donutScale = WeeklyDonutLayout.scale
+  private let legendGap = WeeklyDonutLayout.legendGap
+  private let contentYOffset = WeeklyDonutLayout.contentY
+  private let chartLegendGap = WeeklyDonutLayout.chartLegendGap
+  private let contentXOffset = WeeklyDonutLayout.contentX
 
   let snapshot: WeeklyDonutSnapshot
   let isLoading: Bool
@@ -310,171 +305,18 @@ private struct WeeklyDonutEmptyState: View {
   }
 }
 
-// Defaults are the tuned design values: 86% size, 70pt name–% gap, 38pt
-// chart–legend gap, and the chart + legend block centered then nudged
-// +30pt right / +17pt down.
-enum WeeklyDonutSizePreference {
-  static let storageKey = "weeklyDonutSizeScale"
-  static let defaultScale: Double = 0.86
-  static let range: ClosedRange<Double> = 0.6...1.15
-
+// Tuned design values: 86% size, 70pt name-% gap, 38pt chart-legend gap,
+// and the chart + legend block centered then nudged +30pt right / +17pt down.
+enum WeeklyDonutLayout {
+  static let scale: Double = 0.86
   /// Trailing inset on the legend's % column, pulling it toward the names.
-  static let legendGapKey = "weeklyDonutLegendGap"
-  static let defaultLegendGap: Double = 70
-  static let legendGapRange: ClosedRange<Double> = 0...120
-
+  static let legendGap: Double = 70
   /// Vertical offset of the chart + legend block from the card's center.
   /// The title stays put; chart and legend stay center-aligned to each other.
-  static let contentYKey = "weeklyDonutContentYOffset"
-  static let defaultContentY: Double = 17
-  static let contentYRange: ClosedRange<Double> = -40...60
-
+  static let contentY: Double = 17
   /// Spacing between the pie chart and the legend to its right.
-  static let chartLegendGapKey = "weeklyDonutChartLegendGap"
-  static let defaultChartLegendGap: Double = 38
-  static let chartLegendGapRange: ClosedRange<Double> = 0...80
-
+  static let chartLegendGap: Double = 38
   /// Horizontal offset of the chart + legend block from its default position.
-  static let contentXKey = "weeklyDonutContentXOffset"
-  static let defaultContentX: Double = 30
-  static let contentXRange: ClosedRange<Double> = -60...60
+  static let contentX: Double = 30
 }
 
-/// Bottom-left dev cluster button that opens the pie chart size slider.
-/// Writes the shared scale preference, so the same adjustment applies in
-/// both light and dark mode.
-struct WeeklyDonutSizeTunerButton: View {
-  @Environment(\.dayflowTheme) private var theme
-  @State private var isHovering = false
-  @State private var isPresenting = false
-
-  var body: some View {
-    Button {
-      isPresenting.toggle()
-    } label: {
-      Image(systemName: "chart.pie")
-        .font(.system(size: 13, weight: .medium))
-        .foregroundColor(theme.isDark ? .white : Color(hex: "2B2B2B"))
-        .frame(width: 30, height: 30)
-        .background(
-          Circle()
-            .fill(theme.isDark ? Color(hex: "1C1E2A").opacity(0.92) : Color.white.opacity(0.92))
-            .shadow(color: .black.opacity(theme.isDark ? 0.5 : 0.18), radius: 10, y: 3)
-        )
-        .overlay(
-          Circle()
-            .stroke(
-              theme.isDark ? Color.white.opacity(0.14) : Color.black.opacity(0.1), lineWidth: 1)
-        )
-        .contentShape(Circle())
-    }
-    .buttonStyle(.plain)
-    .opacity(isHovering || isPresenting ? 1.0 : 0.55)
-    .scaleEffect(isHovering || isPresenting ? 1.0 : 0.96, anchor: .bottomLeading)
-    .animation(.easeOut(duration: 0.15), value: isHovering)
-    .onHover { isHovering = $0 }
-    .popover(isPresented: $isPresenting, arrowEdge: .trailing) {
-      WeeklyDonutSizeTunerPanel()
-    }
-    .accessibilityLabel("Adjust pie chart size")
-  }
-}
-
-private struct WeeklyDonutSizeTunerPanel: View {
-  @AppStorage(WeeklyDonutSizePreference.storageKey) private var donutScale: Double =
-    WeeklyDonutSizePreference.defaultScale
-  @AppStorage(WeeklyDonutSizePreference.legendGapKey) private var legendGap: Double =
-    WeeklyDonutSizePreference.defaultLegendGap
-  @AppStorage(WeeklyDonutSizePreference.contentYKey) private var contentYOffset: Double =
-    WeeklyDonutSizePreference.defaultContentY
-  @AppStorage(WeeklyDonutSizePreference.chartLegendGapKey) private var chartLegendGap: Double =
-    WeeklyDonutSizePreference.defaultChartLegendGap
-  @AppStorage(WeeklyDonutSizePreference.contentXKey) private var contentXOffset: Double =
-    WeeklyDonutSizePreference.defaultContentX
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      HStack {
-        Text("Weekly pie chart")
-          .font(.system(size: 13, weight: .semibold))
-        Spacer()
-        Button("Reset") {
-          donutScale = WeeklyDonutSizePreference.defaultScale
-          legendGap = WeeklyDonutSizePreference.defaultLegendGap
-          contentYOffset = WeeklyDonutSizePreference.defaultContentY
-          chartLegendGap = WeeklyDonutSizePreference.defaultChartLegendGap
-          contentXOffset = WeeklyDonutSizePreference.defaultContentX
-        }
-        .buttonStyle(.plain)
-        .font(.system(size: 11))
-        .foregroundColor(.secondary)
-      }
-
-      tunerSlider(
-        "Size",
-        value: $donutScale,
-        range: WeeklyDonutSizePreference.range,
-        readout: String(format: "%.0f%%", donutScale * 100)
-      )
-      tunerSlider(
-        "Name–% gap",
-        value: $legendGap,
-        range: WeeklyDonutSizePreference.legendGapRange,
-        readout: String(format: "%.0fpt", legendGap)
-      )
-      tunerSlider(
-        "Chart–legend",
-        value: $chartLegendGap,
-        range: WeeklyDonutSizePreference.chartLegendGapRange,
-        readout: String(format: "%.0fpt", chartLegendGap)
-      )
-      tunerSlider(
-        "X offset",
-        value: $contentXOffset,
-        range: WeeklyDonutSizePreference.contentXRange,
-        readout: String(format: "%+.0fpt", contentXOffset)
-      )
-      tunerSlider(
-        "Y offset",
-        value: $contentYOffset,
-        range: WeeklyDonutSizePreference.contentYRange,
-        readout: String(format: "%+.0fpt", contentYOffset)
-      )
-
-      Text("Applies in both light and dark mode.")
-        .font(.system(size: 10))
-        .foregroundColor(.secondary)
-    }
-    .padding(16)
-    .frame(width: 280)
-  }
-
-  @ViewBuilder
-  private func tunerSlider(
-    _ title: String,
-    value: Binding<Double>,
-    range: ClosedRange<Double>,
-    readout: String
-  ) -> some View {
-    HStack(spacing: 8) {
-      Text(title)
-        .font(.system(size: 11))
-        .foregroundColor(.secondary)
-        .frame(width: 70, alignment: .leading)
-      Slider(value: value, in: range)
-      Text(readout)
-        .font(.system(size: 10).monospacedDigit())
-        .foregroundColor(.secondary)
-        .frame(width: 38, alignment: .trailing)
-    }
-  }
-}
-
-#Preview("Weekly Donut Section", traits: .fixedLayout(width: 488, height: 305)) {
-  WeeklyDonutSection(
-    snapshot: .figmaPreview,
-    isLoading: false
-  )
-  .padding(16)
-  .background(WeeklyPalette.canvas)
-}

@@ -256,9 +256,6 @@ struct DayflowApp: App {
       .preferredColorScheme(didOnboard ? appearance.preferredColorScheme : .light)
       .resolveDayflowTheme()
       .resolveStylePreview()
-      .resolveOpacityOverrides()
-      .resolveGlowOverrides()
-      .resolveCardColorOverrides()
       .onAppear {
         if !showVideoLaunch {
           dispatchPendingNotificationNavigation(after: 0.1)
@@ -431,27 +428,20 @@ final class MainWindowController {
 /// Full-window gradient behind the main app (Figma: dark linear / light radial).
 private struct DayflowWindowBackground: View {
   @Environment(\.dayflowTheme) private var theme
-  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
-  @Environment(\.opacityOverrides) private var opacityOverrides
-  @ObservedObject private var backgroundTuner = BackgroundTuner.shared
 
   var body: some View {
     GeometryReader { proxy in
-      Group {
-        if !theme.isDark && stylePreviewAfter {
-          // "After": light background driven by the dev tuner.
-          TunedGradientBackground(settings: backgroundTuner.settings)
-            .frame(width: proxy.size.width, height: proxy.size.height)
-        } else {
-          Image(theme.isDark ? "DarkWindowBackground" : "LightWindowBackground")
-            .resizable()
-            .interpolation(.high)
-            .scaledToFill()
-            .frame(width: proxy.size.width, height: proxy.size.height)
-            .clipped()
-        }
+      if theme.isDark {
+        Image("DarkWindowBackground")
+          .resizable()
+          .interpolation(.high)
+          .scaledToFill()
+          .frame(width: proxy.size.width, height: proxy.size.height)
+          .clipped()
+      } else {
+        LightWindowGradient()
+          .frame(width: proxy.size.width, height: proxy.size.height)
       }
-      .opacity(opacityOverrides.background ?? 1)
     }
   }
 }

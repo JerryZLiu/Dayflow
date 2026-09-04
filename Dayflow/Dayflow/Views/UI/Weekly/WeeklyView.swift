@@ -26,48 +26,17 @@ enum WeeklyPalette {
       : adaptive(hex("FBF6EF"), .clear)
   }
   // All weekly cards share one light fill (white @ 46% in the refreshed
-  // style); "Before" keeps the shipped per-card values. The WeeklyCardTuner
-  // dev tool can override the light color and opacity.
-  @MainActor private static func tunedLightCardFill(defaultOpacity: CGFloat) -> NSColor {
-    let overrides = WeeklyCardTuner.shared.overrides
-    let base = overrides.cardColorHex.flatMap { NSColor(hex: $0) } ?? .white
-    return base.withAlphaComponent(overrides.cardOpacity.map { CGFloat($0) } ?? defaultOpacity)
-  }
-  @MainActor private static var lightCardFill: NSColor {
-    tunedLightCardFill(defaultOpacity: StylePreview.shared.showAfter ? 0.46 : 0.75)
-  }
-  @MainActor private static var lightCardFillStrong: NSColor {
-    tunedLightCardFill(defaultOpacity: StylePreview.shared.showAfter ? 0.46 : 0.78)
-  }
-  // Footer strips inside cards ("Week total", the insight row). In the
-  // refreshed light style they match the daily view's totals strip (the
-  // theme's dailyTotalsFill, FAF7F5); "Before" layers the shipped translucent
-  // white. WeeklyCardTuner can override the light color and opacity.
-  @MainActor static var footerSectionFill: Color {
-    let overrides = WeeklyCardTuner.shared.overrides
-    let light: NSColor
-    if overrides.sectionColorHex != nil || overrides.sectionOpacity != nil {
-      let base = overrides.sectionColorHex.flatMap { NSColor(hex: $0) } ?? .white
-      light = base.withAlphaComponent(overrides.sectionOpacity.map { CGFloat($0) } ?? 1)
-    } else if StylePreview.shared.showAfter {
-      light = hex("FAF7F5")
-    } else {
-      light = NSColor.white.withAlphaComponent(0.75)
-    }
-    return adaptive(light, hex("7F7A94", alpha: 0.1))
-  }
-  @MainActor static var cardFill: Color {
-    adaptive(lightCardFill, hex("7F7A94", alpha: 0.1))
-  }
-  @MainActor static var cardFillStrong: Color {
-    adaptive(lightCardFillStrong, NSColor.white.withAlphaComponent(0.14))
-  }
+  // style).
+  private static let lightCardFill = NSColor.white.withAlphaComponent(0.46)
+  // Footer strips inside cards ("Week total", the insight row) match the
+  // daily view's totals strip (the theme's dailyTotalsFill, FAF7F5).
+  static let footerSectionFill = adaptive(hex("FAF7F5"), hex("7F7A94", alpha: 0.1))
+  static let cardFill = adaptive(lightCardFill, hex("7F7A94", alpha: 0.1))
+  static let cardFillStrong = adaptive(lightCardFill, NSColor.white.withAlphaComponent(0.14))
   // Context charts, workflow, and focus heatmap cards: cardFillStrong in
   // light, but matches cardFill in dark so they read the same as the other
   // weekly cards.
-  @MainActor static var contextCardFill: Color {
-    adaptive(lightCardFillStrong, hex("7F7A94", alpha: 0.1))
-  }
+  static let contextCardFill = adaptive(lightCardFill, hex("7F7A94", alpha: 0.1))
   static let cardBorder = adaptive(hex("EBE6E3"), hex("4E4E4E"))
   static let cardInnerStroke = adaptive(.white, NSColor.white.withAlphaComponent(0.12))
   static let solid = adaptive(.white, hex("272A3C"))
@@ -97,8 +66,6 @@ struct WeeklyView: View {
   @EnvironmentObject private var categoryStore: CategoryStore
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.stylePreviewAfter) private var stylePreviewAfter
-  @ObservedObject private var spacingTuner = WeeklySpacingTuner.shared
-  @ObservedObject private var cardTuner = WeeklyCardTuner.shared
 
   @AppStorage("weeklyAccessManuallyLocked") private var isManuallyLocked = false
 
@@ -176,7 +143,6 @@ struct WeeklyView: View {
     GeometryReader { geometry in
       let layout = WeeklyAdaptiveLayout(
         panelWidth: geometry.size.width,
-        spacingOverrides: spacingTuner.overrides,
         stylePreviewAfter: stylePreviewAfter
       )
 
@@ -706,12 +672,10 @@ private struct WeeklyAdaptiveLayout {
     contentWidth * 933 / 1748
   }
 
-  var spacingOverrides: WeeklySpacingOverrides = .none
   var stylePreviewAfter = true
 
   var sectionSpacing: CGFloat {
-    guard stylePreviewAfter else { return 24 }
-    return spacingOverrides.sectionSpacing.map { CGFloat($0) } ?? 32
+    stylePreviewAfter ? 32 : 24
   }
 
   var compactTopRowSpacing: CGFloat {
@@ -719,8 +683,7 @@ private struct WeeklyAdaptiveLayout {
   }
 
   var headerBottomPadding: CGFloat {
-    guard stylePreviewAfter else { return 16 }
-    return spacingOverrides.headerSpacing.map { CGFloat($0) } ?? 40
+    stylePreviewAfter ? 40 : 16
   }
 
   var topPadding: CGFloat {

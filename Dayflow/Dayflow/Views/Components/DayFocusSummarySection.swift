@@ -123,21 +123,19 @@ private struct TotalFocusCard: View {
 // (dark) or a faint drop shadow (light). Shared by the focus cards.
 struct DaySummaryCardModifier: ViewModifier {
   @Environment(\.dayflowTheme) private var theme
-  @Environment(\.glowOverrides) private var glowOverrides
-  @Environment(\.stylePreviewAfter) private var stylePreviewAfter
 
   func body(content: Content) -> some View {
     let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
     content
-      .background(theme.summaryCardFill.opacityOverride(glowOverrides.boxFillOpacity))
+      .background(theme.summaryCardFill)
       .clipShape(shape)
       .overlay(
         InnerGlow(
           shape: shape,
-          color: theme.summaryCardInnerGlow.opacityOverride(glowOverrides.boxOpacity),
+          color: theme.summaryCardInnerGlow,
           radius: 3,
-          spread: glowOverrides.boxSpread.map { CGFloat($0) } ?? 3,
-          blur: glowOverrides.boxBlur.map { CGFloat($0) } ?? (stylePreviewAfter ? 2.5 : 3)
+          spread: 3,
+          blur: 2.5
         ))
       .overlay(shape.strokeBorder(theme.summaryCardBorder, lineWidth: 0.5))
       .shadow(color: theme.summaryCardShadow, radius: 4, x: 0, y: 1)

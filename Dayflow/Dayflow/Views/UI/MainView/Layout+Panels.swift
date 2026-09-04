@@ -49,7 +49,7 @@ extension MainView {
       Spacer()
       SidebarView(selectedIcon: $selectedIcon)
         .frame(maxWidth: .infinity, alignment: .center)
-        .offset(y: sidebarOffset + sidebarTuner.iconYOffset)
+        .offset(y: sidebarOffset)
         .opacity(sidebarOpacity)
       Spacer()
     }
@@ -285,7 +285,7 @@ extension MainView {
     .background {
       if timelineInspectorWidth > 0 {
         shape
-          .fill(theme.rightPanelFill.opacityOverride(opacityOverrides.rightPanel))
+          .fill(theme.rightPanelFill)
           .overlay(shape.strokeBorder(theme.rightPanelBorder, lineWidth: 0.75))
           .shadow(color: theme.rightPanelShadow, radius: 4, x: 0, y: 0)
       }

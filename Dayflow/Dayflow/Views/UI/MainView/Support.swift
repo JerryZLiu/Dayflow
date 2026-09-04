@@ -121,11 +121,7 @@ extension MainView {
   }
 
   var timelineInspectorDividerWidth: CGFloat {
-    // "Before" keeps the shipped 1pt divider; "After" opens up a tunable gap.
-    let gap: CGFloat =
-      stylePreviewAfter
-      ? (PanelGapTuner.shared.overrides.inspectorGap.map { CGFloat($0) } ?? 12)
-      : 1
+    let gap: CGFloat = 12
     switch timelineMode {
     case .day:
       return gap
