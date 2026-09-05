@@ -11,6 +11,7 @@ import AppKit
 import Combine
 import CoreGraphics
 import Foundation
+import OSLog
 @preconcurrency import ScreenCaptureKit
 import Sentry
 
@@ -35,6 +36,7 @@ private enum InputIdleSnapshot {
 // MARK: - Debug Logging
 
 private let recorderDebugLogging = false
+private let recorderLogger = Logger(subsystem: "teleportlabs.com.Dayflow", category: "screen-capture")
 @inline(__always) func dbg(_ msg: @autoclosure () -> String) {
   guard recorderDebugLogging else { return }
   print("[Recorder] \(msg())")
@@ -82,6 +84,13 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
   @MainActor
   init(autoStart: Bool = true) {
+    let didCompleteOnboarding = UserDefaults.standard.bool(forKey: "didOnboard")
+    let history = ScreenCapturePermissionHistory(
+      didCompleteOnboarding: didCompleteOnboarding)
+    authorization = ScreenCaptureAuthorizationCoordinator(
+      wasGranted: history.wasGranted,
+      history: history
+    )
     super.init()
     dbg("init – autoStart = \(autoStart)")
 
@@ -125,6 +134,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
   deinit {
     sub?.cancel()
     activeDisplaySub?.cancel()
+    authorizationRecoveryTask?.cancel()
     dbg("deinit")
   }
 
@@ -139,6 +149,8 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
   private var tracker: ActiveDisplayTracker!
   private var currentDisplayID: CGDirectDisplayID?
   private var requestedDisplayID: CGDirectDisplayID?
+  private let authorization: ScreenCaptureAuthorizationCoordinator
+  private var authorizationRecoveryTask: Task<Void, Never>?
 
   // ScreenCaptureKit objects (refreshed on each capture cycle).
   // Written on `q` (stop/permission loss) and from async setup/refresh tasks,
@@ -204,6 +216,9 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     q.async { [weak self] in
       guard let self else { return }
       self.stopCaptureTimer()
+      self.authorizationRecoveryTask?.cancel()
+      self.authorizationRecoveryTask = nil
+      Task { await self.authorization.cancelConfirmation() }
       self.cachedContent = nil
       self.cachedDisplay = nil
       self.currentDisplayID = nil
@@ -219,8 +234,8 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
   // MARK: - Capture Setup
 
   private func setupCapture(attempt: Int = 1, maxAttempts: Int = 4) async {
-    guard ScreenRecordingPermissionNotice.isGranted else {
-      handleMissingScreenRecordingPermission(reason: "setupCapture")
+    guard await authorization.checkBeforeCapture() else {
+      await handleScreenCaptureUnavailable(reason: "setupCapture")
       return
     }
 
@@ -229,6 +244,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       let content = try await SCShareableContent.excludingDesktopWindows(
         false, onScreenWindowsOnly: true)
       cachedContent = content
+      await authorization.recordCaptureSuccess()
 
       // 2. Choose display: prefer requested → active. Defer if preferred is missing from the snapshot.
       let displaysByID: [CGDirectDisplayID: SCDisplay] = Dictionary(
@@ -289,8 +305,13 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     } catch {
       dbg("setupCapture failed [attempt \(attempt)] – \(error.localizedDescription)")
 
-      if !ScreenRecordingPermissionNotice.isGranted {
-        handleMissingScreenRecordingPermission(reason: "setupCapture_failed_permission")
+      let nsError = error as NSError
+      let preflightGranted = await authorization.checkBeforeCapture()
+      if !preflightGranted || nsError.domain == SCStreamErrorDomain {
+        await handleScreenCaptureUnavailable(
+          reason: "setupCapture_failed_permission",
+          error: nsError
+        )
         return
       }
 
@@ -298,7 +319,6 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         self?.transition(to: .idle, context: "setupCapture failed")
       }
 
-      let nsError = error as NSError
       let isNoDisplay = (error as? ScreenRecorderError) == .noDisplay
 
       if isNoDisplay && attempt < maxAttempts {
@@ -352,8 +372,8 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       dbg("captureScreenshot skipped - no display")
       return
     }
-    guard ScreenRecordingPermissionNotice.isGranted else {
-      handleMissingScreenRecordingPermission(reason: "captureScreenshot")
+    guard await authorization.checkBeforeCapture() else {
+      await handleScreenCaptureUnavailable(reason: "captureScreenshot")
       return
     }
 
@@ -409,6 +429,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         contentFilter: filter,
         configuration: config
       )
+      await authorization.recordCaptureSuccess()
 
       // 4. Encode into the current HEVC segment and register in the database
       try appendFrame(image, capturedAt: captureTime, idleSecondsAtCapture: idleSecondsAtCapture)
@@ -417,13 +438,18 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     } catch {
       dbg("❌ Screenshot capture failed: \(error.localizedDescription)")
 
-      if !ScreenRecordingPermissionNotice.isGranted {
-        handleMissingScreenRecordingPermission(reason: "captureScreenshot_failed_permission")
+      let nsError = error as NSError
+      let preflightGranted = await authorization.checkBeforeCapture()
+      if !preflightGranted || nsError.domain == SCStreamErrorDomain {
+        await handleScreenCaptureUnavailable(
+          reason: "captureScreenshot_failed_permission",
+          error: nsError
+        )
         return
       }
 
       // If display became unavailable, try to refresh
-      if (error as NSError).domain == SCStreamErrorDomain {
+      if nsError.domain == SCStreamErrorDomain {
         dbg("SCStream error - will refresh display on next capture")
         Task { await refreshDisplay() }
       }
@@ -455,8 +481,8 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
   }
 
   private func refreshDisplay() async {
-    guard ScreenRecordingPermissionNotice.isGranted else {
-      handleMissingScreenRecordingPermission(reason: "refreshDisplay")
+    guard await authorization.checkBeforeCapture() else {
+      await handleScreenCaptureUnavailable(reason: "refreshDisplay")
       return
     }
 
@@ -464,6 +490,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       let content = try await SCShareableContent.excludingDesktopWindows(
         false, onScreenWindowsOnly: true)
       cachedContent = content
+      await authorization.recordCaptureSuccess()
 
       // Prefer requested display over current; hold if missing from snapshot.
       let targetID = requestedDisplayID ?? currentDisplayID
@@ -484,8 +511,13 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         currentDisplayID = first.displayID
       }
     } catch {
-      if !ScreenRecordingPermissionNotice.isGranted {
-        handleMissingScreenRecordingPermission(reason: "refreshDisplay_failed_permission")
+      let nsError = error as NSError
+      let preflightGranted = await authorization.checkBeforeCapture()
+      if !preflightGranted || nsError.domain == SCStreamErrorDomain {
+        await handleScreenCaptureUnavailable(
+          reason: "refreshDisplay_failed_permission",
+          error: nsError
+        )
         return
       }
 
@@ -493,28 +525,55 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     }
   }
 
-  private func handleMissingScreenRecordingPermission(reason: String) {
+  private func handleScreenCaptureUnavailable(
+    reason: String,
+    error: NSError? = nil
+  ) async {
+    if let error {
+      recorderLogger.error(
+        "ScreenCaptureKit failure domain=\(error.domain, privacy: .public) code=\(error.code, privacy: .public)"
+      )
+      await authorization.recordCaptureFailure(error)
+    }
+    let authorizationState = await authorization.state
+
     q.async { [weak self] in
       guard let self else { return }
       self.stopCaptureTimer()
       self.cachedContent = nil
       self.cachedDisplay = nil
       self.currentDisplayID = nil
-      if self.state != .idle {
-        self.transition(to: .idle, context: "missing screen recording permission")
+      if self.state != .paused {
+        self.transition(to: .paused, context: "screen capture temporarily unavailable")
       }
-      self.wantsRecording = false
+      self.scheduleAuthorizationConfirmation()
     }
 
-    Task { @MainActor in
-      if AppState.shared.isRecording {
-        AppState.shared.setRecording(
-          false,
-          analyticsReason: "permission_missing",
-          persistPreference: false
-        )
+    ScreenRecordingPermissionNotice.postAuthorizationState(
+      authorizationState,
+      reason: reason
+    )
+  }
+
+  private func scheduleAuthorizationConfirmation() {
+    guard authorizationRecoveryTask == nil else { return }
+    authorizationRecoveryTask = Task { [weak self] in
+      guard let self else { return }
+      await authorization.confirmWithoutPrompting()
+      let authorizationState = await authorization.state
+      ScreenRecordingPermissionNotice.postAuthorizationState(
+        authorizationState,
+        reason: "confirmation_complete"
+      )
+
+      q.async { [weak self] in
+        guard let self else { return }
+        self.authorizationRecoveryTask = nil
+        guard self.wantsRecording else { return }
+        guard authorizationState == .granted else { return }
+        self.transition(to: .idle, context: "screen capture permission recovered")
+        self.start()
       }
-      ScreenRecordingPermissionNotice.post(reason: reason)
     }
   }
 

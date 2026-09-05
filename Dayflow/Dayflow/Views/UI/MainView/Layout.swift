@@ -94,6 +94,9 @@ extension MainView {
       .onReceive(NotificationCenter.default.publisher(for: .showScreenRecordingPermissionNotice)) {
         handleShowScreenRecordingPermissionNoticeNotification($0)
       }
+      .onReceive(NotificationCenter.default.publisher(for: .screenCaptureAuthorizationStateChanged)) {
+        handleScreenCaptureAuthorizationStateChanged($0)
+      }
       .onReceive(NotificationCenter.default.publisher(for: .timelineDataUpdated)) {
         handleTimelineDataUpdatedNotification($0)
       }
@@ -309,12 +312,30 @@ extension MainView {
     showScreenRecordingNoticeIfNeeded()
   }
 
+  private func handleScreenCaptureAuthorizationStateChanged(_ notification: Notification) {
+    guard let state = notification.object as? ScreenCaptureAuthorizationState else { return }
+    screenCaptureAuthorizationState = state
+    switch state {
+    case .granted:
+      showScreenRecordingPermissionNotice = false
+      didDismissScreenRecordingPermissionNoticeThisSession = false
+    case .needsUserReview:
+      guard !didDismissScreenRecordingPermissionNoticeThisSession else { return }
+      withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+        showScreenRecordingPermissionNotice = true
+      }
+    case .unknown, .temporarilyUnavailable:
+      showScreenRecordingPermissionNotice = false
+    }
+  }
+
   private func showScreenRecordingNoticeIfNeeded() {
     guard !didDismissScreenRecordingPermissionNoticeThisSession else { return }
     guard !ScreenRecordingPermissionNotice.isGranted else {
       showScreenRecordingPermissionNotice = false
       return
     }
+    guard !ScreenRecordingPermissionNotice.permissionWasGranted else { return }
     guard AppState.shared.getSavedPreference() == true || appState.isRecording else { return }
 
     withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
@@ -324,6 +345,7 @@ extension MainView {
 
   private func handleAppDidBecomeActive() {
     if ScreenRecordingPermissionNotice.isGranted {
+      screenCaptureAuthorizationState = .granted
       showScreenRecordingPermissionNotice = false
       didDismissScreenRecordingPermissionNoticeThisSession = false
     }
@@ -500,12 +522,12 @@ private struct ScreenRecordingPermissionNoticeView: View {
           .padding(.top, 2)
 
         VStack(alignment: .leading, spacing: 3) {
-          Text("Screen recording access needed")
+          Text("Recording paused")
             .font(.custom("Figtree", size: 13))
             .fontWeight(.semibold)
             .foregroundColor(.black.opacity(0.86))
 
-          Text("Dayflow cannot update your timeline until access is restored.")
+          Text("Dayflow could not confirm screen access. Your recording choice is still on.")
             .font(.custom("Figtree", size: 12))
             .foregroundColor(.black.opacity(0.62))
             .fixedSize(horizontal: false, vertical: true)
@@ -528,7 +550,7 @@ private struct ScreenRecordingPermissionNoticeView: View {
           HStack(spacing: 6) {
             Image(systemName: "gearshape")
               .font(.system(size: 12))
-            Text("Open System Settings")
+            Text("Review Permission")
               .font(.custom("Figtree", size: 12))
               .fontWeight(.semibold)
           }

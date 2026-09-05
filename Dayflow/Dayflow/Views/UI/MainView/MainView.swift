@@ -83,6 +83,7 @@ struct MainView: View {
   @State var weeklyHoursIntersectsCard: Bool = false
   @State var timelineFailureToastPayload: TimelineFailureToastPayload?
   @State var showScreenRecordingPermissionNotice = false
+  @State var screenCaptureAuthorizationState: ScreenCaptureAuthorizationState = .unknown
   @State var didDismissScreenRecordingPermissionNoticeThisSession = false
   @State var pendingGoalPromptDay: String?
   @Binding var goalFlowPresentation: DayGoalFlowPresentation?
