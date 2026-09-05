@@ -3,11 +3,13 @@ import SwiftUI
 struct SettingsOtherTabView: View {
   @ObservedObject var viewModel: OtherSettingsViewModel
   @ObservedObject var launchAtLoginManager: LaunchAtLoginManager
+  @ObservedObject private var updaterManager = UpdaterManager.shared
   @FocusState private var isOutputLanguageFocused: Bool
 
   var body: some View {
     VStack(alignment: .leading, spacing: SettingsStyle.sectionSpacing) {
       appPreferencesSection
+      updatesSection
       outputLanguageSection
     }
   }
@@ -109,6 +111,69 @@ struct SettingsOtherTabView: View {
         )
 
         Spacer()
+      }
+    }
+  }
+
+  // MARK: - Updates
+
+  private var updatesSection: some View {
+    SettingsSection(
+      title: "Updates",
+      subtitle: "Control how Dayflow checks for new versions."
+    ) {
+      VStack(alignment: .leading, spacing: 0) {
+        SettingsRow(
+          label: "Automatically check for updates",
+          subtitle:
+            "When off, Dayflow only checks for updates when you click the button below."
+        ) {
+          SettingsToggle(
+            isOn: Binding(
+              get: { updaterManager.automaticallyChecksForUpdates },
+              set: { updaterManager.setAutomaticallyChecksForUpdates($0) }
+            ))
+        }
+
+        SettingsRow(
+          label: "Automatically download and install updates",
+          subtitle: "Requires automatic checking to be enabled."
+        ) {
+          SettingsToggle(
+            isOn: Binding(
+              get: { updaterManager.automaticallyDownloadsUpdates },
+              set: { updaterManager.setAutomaticallyDownloadsUpdates($0) }
+            ))
+          .disabled(!updaterManager.automaticallyChecksForUpdates)
+        }
+
+        SettingsRow(
+          label: "Check for updates now",
+          subtitle: updaterManager.statusText.isEmpty ? nil : updaterManager.statusText
+        ) {
+          if updaterManager.isChecking {
+            ProgressView()
+              .controlSize(.small)
+          } else {
+            SettingsSecondaryButton(
+              title: "Check now",
+              action: { updaterManager.checkForUpdates(showUI: true) }
+            )
+            .disabled(!updaterManager.canCheckForUpdates)
+          }
+        }
+
+        if let url = updaterManager.pendingReleaseNotesURL {
+          SettingsRow(
+            label: "Latest release notes",
+            subtitle: url.host ?? url.absoluteString
+          ) {
+            SettingsSecondaryButton(
+              title: "View changelog",
+              action: { updaterManager.openReleaseNotes() }
+            )
+          }
+        }
       }
     }
   }

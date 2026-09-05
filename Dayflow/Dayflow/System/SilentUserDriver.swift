@@ -3,6 +3,12 @@ import Sparkle
 
 // A no-UI user driver that silently installs updates immediately
 final class SilentUserDriver: NSObject, SPUUserDriver {
+  // Mirrors SPUUpdater.automaticallyDownloadsUpdates. UpdaterManager keeps this
+  // in sync via KVO so the user-controlled "automatically download and install"
+  // toggle in Settings takes effect on the very next update check, even if
+  // Sparkle's permission prompt is skipped.
+  var allowsSilentInstall: Bool = true
+
   func show(
     _ request: SPUUpdatePermissionRequest, reply: @escaping (SUUpdatePermissionResponse) -> Void
   ) {
@@ -30,9 +36,17 @@ final class SilentUserDriver: NSObject, SPUUserDriver {
     with appcastItem: SUAppcastItem, state: SPUUserUpdateState,
     reply: @escaping (SPUUserUpdateChoice) -> Void
   ) {
-    print("[Sparkle] Update found: \(appcastItem.displayVersionString)")
-    // Always proceed to install
-    reply(.install)
+    print(
+      "[Sparkle] Update found: \(appcastItem.displayVersionString); autoInstall=\(allowsSilentInstall)"
+    )
+    if allowsSilentInstall {
+      // User opted into auto-install: install silently as before
+      reply(.install)
+    } else {
+      // Dismiss the update for now — the user can check manually via Settings
+      // when ready.
+      reply(.dismiss)
+    }
   }
 
   func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
