@@ -4,6 +4,20 @@ import XCTest
 @testable import Dayflow
 
 final class ScreenCaptureStreamLifecycleTests: XCTestCase {
+  func testWindowOpenedAfterLaunchRefreshesApplicationCatalog() {
+    // The launch-time snapshot cannot include an app that has no window yet.
+    let launchSnapshot: Set<Int32> = [10]
+    XCTAssertFalse(
+      ScreenCaptureApplicationCatalog.needsRefresh(
+        visibleApplicationPIDs: [10], snapshotApplicationPIDs: launchSnapshot))
+    XCTAssertTrue(
+      ScreenCaptureApplicationCatalog.needsRefresh(
+        visibleApplicationPIDs: [10, 20], snapshotApplicationPIDs: launchSnapshot))
+    XCTAssertFalse(
+      ScreenCaptureApplicationCatalog.needsRefresh(
+        visibleApplicationPIDs: [10, 20], snapshotApplicationPIDs: [10, 20]))
+  }
+
   func testQueuedFrameIsInvalidAfterPrivacyChange() async throws {
     let builder = ScreenCaptureStreamBuilderSpy()
     let saved = SavedFramesSpy()

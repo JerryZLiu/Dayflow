@@ -597,8 +597,8 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     if excludedIDs.isEmpty {
       return SCContentFilter(display: display, excludingWindows: [])
     }
-    // An allowlist also excludes apps launched after this content snapshot. A launch event
-    // refreshes the list; a late foreground-app check cannot establish a captured frame's privacy.
+    // An allowlist also excludes apps launched after this content snapshot. Launch events and
+    // visible-window metadata refresh it; a foreground-app check cannot establish frame privacy.
     let allowedApplications = content.applications.filter {
       !excludedIDs.contains($0.bundleIdentifier.lowercased())
         && !excludedIDs.contains($0.applicationName.lowercased())
@@ -647,7 +647,32 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
           "Frame save failed domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public)"
         )
       }
+      self.refreshApplicationCatalogIfNeeded()
     }
+  }
+
+  private func refreshApplicationCatalogIfNeeded() {
+    let blockedIDs = Set(RecordingPrivacyPreferences.blockedApplicationIdentifiers())
+    guard !blockedIDs.isEmpty, let content = cachedContent,
+      let windows = CGWindowListCopyWindowInfo(
+        [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+      ) as? [[String: Any]]
+    else { return }
+    // App launch can precede its first window. Read only owner PIDs at the existing frame cadence;
+    // do not open another capture session or require Accessibility to observe window creation.
+    let windowOwners = Set(windows.compactMap { ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value })
+    let visibleApplications = Set(NSWorkspace.shared.runningApplications.compactMap { app -> Int32? in
+      guard app.activationPolicy == .regular, windowOwners.contains(app.processIdentifier),
+        !blockedIDs.contains(app.bundleIdentifier?.lowercased() ?? ""),
+        !blockedIDs.contains(app.localizedName?.lowercased() ?? "")
+      else { return nil }
+      return app.processIdentifier
+    })
+    guard ScreenCaptureApplicationCatalog.needsRefresh(
+      visibleApplicationPIDs: visibleApplications,
+      snapshotApplicationPIDs: Set(content.applications.map(\.processID))
+    ) else { return }
+    requestDisplayRefresh()
   }
 
   /// Re-checks state right before writing so a capture that was in flight during

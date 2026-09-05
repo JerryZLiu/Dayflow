@@ -1,5 +1,13 @@
 import Foundation
 
+enum ScreenCaptureApplicationCatalog {
+  static func needsRefresh(
+    visibleApplicationPIDs: Set<Int32>, snapshotApplicationPIDs: Set<Int32>
+  ) -> Bool {
+    !visibleApplicationPIDs.isSubset(of: snapshotApplicationPIDs)
+  }
+}
+
 struct ScreenCaptureFilterDescriptor: Equatable, Sendable {
   let displayID: UInt32
   let width: Int
