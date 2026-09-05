@@ -660,18 +660,22 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     else { return }
     // App launch can precede its first window. Read only owner PIDs at the existing frame cadence;
     // do not open another capture session or require Accessibility to observe window creation.
-    let windowOwners = Set(windows.compactMap { ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value })
-    let visibleApplications = Set(NSWorkspace.shared.runningApplications.compactMap { app -> Int32? in
-      guard app.activationPolicy == .regular, windowOwners.contains(app.processIdentifier),
-        !blockedIDs.contains(app.bundleIdentifier?.lowercased() ?? ""),
-        !blockedIDs.contains(app.localizedName?.lowercased() ?? "")
-      else { return nil }
-      return app.processIdentifier
-    })
-    guard ScreenCaptureApplicationCatalog.needsRefresh(
-      visibleApplicationPIDs: visibleApplications,
-      snapshotApplicationPIDs: Set(content.applications.map(\.processID))
-    ) else { return }
+    let windowOwners = Set(
+      windows.compactMap { ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value })
+    let visibleApplications = Set(
+      NSWorkspace.shared.runningApplications.compactMap { app -> Int32? in
+        guard app.activationPolicy == .regular, windowOwners.contains(app.processIdentifier),
+          !blockedIDs.contains(app.bundleIdentifier?.lowercased() ?? ""),
+          !blockedIDs.contains(app.localizedName?.lowercased() ?? "")
+        else { return nil }
+        return app.processIdentifier
+      })
+    guard
+      ScreenCaptureApplicationCatalog.needsRefresh(
+        visibleApplicationPIDs: visibleApplications,
+        snapshotApplicationPIDs: Set(content.applications.map(\.processID))
+      )
+    else { return }
     requestDisplayRefresh()
   }
 
