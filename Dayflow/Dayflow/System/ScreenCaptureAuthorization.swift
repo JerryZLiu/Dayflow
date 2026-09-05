@@ -130,9 +130,6 @@ actor ScreenCaptureAuthorizationCoordinator {
   func checkBeforeCapture() -> Bool {
     let granted = access.preflight()
     model.observePreflight(granted: granted)
-    if granted {
-      history?.markGranted()
-    }
     return granted
   }
 
@@ -151,6 +148,10 @@ actor ScreenCaptureAuthorizationCoordinator {
       failure = .screenCaptureKit(domain: error.domain, code: error.code)
     }
     model.observeCaptureFailure(failure, preflightGranted: access.preflight())
+  }
+
+  func preflightIsGranted() -> Bool {
+    access.preflight()
   }
 
   func beginConfirmationIfNeeded() {

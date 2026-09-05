@@ -92,7 +92,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let didOnboard = UserDefaults.standard.bool(forKey: "didOnboard")
     let passedScreenRecordingStep =
       didOnboard || OnboardingStep.hasPassedScreenRecordingStep(rawValue: onboardingStep)
-    let permissionHistory = ScreenCapturePermissionHistory(
+    _ = ScreenCapturePermissionHistory(
       didCompleteOnboarding: passedScreenRecordingStep)
 
     // Seed recording flag low, then create recorder so the first
@@ -104,11 +104,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     if passedScreenRecordingStep {
       // Onboarding complete - enable persistence and restore user preference
       AppState.shared.enablePersistence()
-
-      let preflightGranted = ScreenRecordingPermissionNotice.isGranted
-      if preflightGranted {
-        permissionHistory.markGranted()
-      }
 
       // Restore the user's recording choice. ScreenRecorder pauses safely when
       // a non-prompting preflight check is temporarily false.

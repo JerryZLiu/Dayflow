@@ -348,6 +348,7 @@ extension MainView {
       screenCaptureAuthorizationState = .granted
       showScreenRecordingPermissionNotice = false
       didDismissScreenRecordingPermissionNoticeThisSession = false
+      NotificationCenter.default.post(name: .resumeScreenCaptureRequested, object: nil)
     }
 
     // Check if day changed while app was backgrounded

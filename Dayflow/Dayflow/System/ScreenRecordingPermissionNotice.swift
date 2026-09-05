@@ -6,11 +6,7 @@ enum ScreenRecordingPermissionNotice {
   private static let history = ScreenCapturePermissionHistory()
 
   static var isGranted: Bool {
-    let granted = CGPreflightScreenCaptureAccess()
-    if granted {
-      history.markGranted()
-    }
-    return granted
+    CGPreflightScreenCaptureAccess()
   }
 
   static var permissionWasGranted: Bool {
