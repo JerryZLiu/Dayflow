@@ -22,6 +22,12 @@ struct ScreenCaptureSetupToken: Equatable, Sendable {
   fileprivate let generation: UInt64
 }
 
+struct ScreenCaptureFrameToken: Equatable, Sendable {
+  fileprivate let generation: UInt64
+  fileprivate let filterRevision: UInt64
+  let blockedApplicationIdentifiers: [String]
+}
+
 enum ScreenCaptureManualResumePolicy {
   static func shouldResume(
     wantsRecording: Bool,
@@ -59,31 +65,34 @@ struct ScreenCaptureFrameCadence<Frame: Sendable>: Sendable {
 }
 
 final class ScreenCaptureStreamLifecycle<Frame: Sendable>: @unchecked Sendable {
-  typealias Builder = @Sendable (
-    ScreenCaptureFilterDescriptor,
-    ScreenCaptureStreamSettings,
-    @escaping @Sendable (Frame?, Date) -> Void,
-    @escaping @Sendable (NSError) -> Void
-  ) throws -> ScreenCaptureStreamSession
-  typealias SaveFrame = @Sendable (Frame, Date) -> Void
+  typealias Builder =
+    @Sendable (
+      ScreenCaptureFilterDescriptor,
+      ScreenCaptureStreamSettings,
+      @escaping @Sendable (Frame?, Date) -> Void,
+      @escaping @Sendable (NSError) -> Void
+    ) throws -> ScreenCaptureStreamSession
+  typealias SaveFrame = @Sendable (Frame, Date, ScreenCaptureFrameToken) -> Void
 
   private let lock = NSLock()
   private let settings: ScreenCaptureStreamSettings
   private let builder: Builder
   private let saveFrame: SaveFrame
-  private let handleError: @Sendable (NSError) -> Void
+  private let handleError: @Sendable (NSError, ScreenCaptureSetupToken) -> Void
   private var session: ScreenCaptureStreamSession?
   private var cadence: ScreenCaptureFrameCadence<Frame>
   private var generation: UInt64 = 0
   private var pendingStop: Task<Void, Never>?
   private var filterUpdateRevision: UInt64 = 0
   private var blockedFilterUpdateRevision: UInt64?
+  private var activeFilter: ScreenCaptureFilterDescriptor?
+  private var pendingFilterUpdate: Task<Void, Error>?
 
   init(
     interval: TimeInterval,
     builder: @escaping Builder,
     saveFrame: @escaping SaveFrame,
-    handleError: @escaping @Sendable (NSError) -> Void = { _ in }
+    handleError: @escaping @Sendable (NSError, ScreenCaptureSetupToken) -> Void = { _, _ in }
   ) {
     settings = ScreenCaptureStreamSettings(frameInterval: interval, queueDepth: 3)
     cadence = ScreenCaptureFrameCadence(interval: interval)
@@ -94,6 +103,10 @@ final class ScreenCaptureStreamLifecycle<Frame: Sendable>: @unchecked Sendable {
 
   var hasActiveSession: Bool {
     lock.withLock { session != nil }
+  }
+
+  var currentSetup: ScreenCaptureSetupToken {
+    lock.withLock { ScreenCaptureSetupToken(generation: generation) }
   }
 
   func beginSetup() -> ScreenCaptureSetupToken {
@@ -122,12 +135,14 @@ final class ScreenCaptureStreamLifecycle<Frame: Sendable>: @unchecked Sendable {
         self?.receiveFrame(frame, capturedAt: capturedAt, setup: setup)
       },
       { [weak self] error in
-        self?.handleError(error)
+        guard let self, self.isCurrentSetup(setup) else { return }
+        self.handleError(error, setup)
       }
     )
     let accepted = lock.withLock { () -> Bool in
       guard setup.generation == generation, session == nil else { return false }
       session = created
+      activeFilter = filter
       cadence.reset()
       blockedFilterUpdateRevision = nil
       return true
@@ -147,6 +162,7 @@ final class ScreenCaptureStreamLifecycle<Frame: Sendable>: @unchecked Sendable {
           blockedFilterUpdateRevision = nil
         }
       }
+      await created.stop()
       throw error
     }
 
@@ -160,23 +176,44 @@ final class ScreenCaptureStreamLifecycle<Frame: Sendable>: @unchecked Sendable {
   }
 
   func updateFilter(_ filter: ScreenCaptureFilterDescriptor) async throws {
-    let update = lock.withLock { () -> (ScreenCaptureStreamSession, UInt64)? in
-      guard let session else { return nil }
+    let update = lock.withLock { () -> Task<Void, Error>? in
+      guard let current = session else { return nil }
+      filterUpdateRevision &+= 1
+      blockedFilterUpdateRevision = filterUpdateRevision
+      let revision = filterUpdateRevision
+      cadence.reset()
+      let previous = pendingFilterUpdate
+      let task = Task { [self] in
+        _ = await previous?.result
+        guard lock.withLock({ isSameSession(session, current) }) else { return }
+        try await current.updateFilter(filter)
+        lock.withLock {
+          guard isSameSession(session, current), blockedFilterUpdateRevision == revision else {
+            return
+          }
+          activeFilter = filter
+          cadence.reset()
+          blockedFilterUpdateRevision = nil
+        }
+      }
+      pendingFilterUpdate = task
+      return task
+    }
+    try await update?.value
+  }
+
+  func invalidateFilter() {
+    lock.withLock {
       filterUpdateRevision &+= 1
       blockedFilterUpdateRevision = filterUpdateRevision
       cadence.reset()
-      return (session, filterUpdateRevision)
     }
-    guard let (current, revision) = update else { return }
+  }
 
-    try await current.updateFilter(filter)
-
+  func isCurrentFrame(_ token: ScreenCaptureFrameToken) -> Bool {
     lock.withLock {
-      guard isSameSession(session, current), blockedFilterUpdateRevision == revision else {
-        return
-      }
-      cadence.reset()
-      blockedFilterUpdateRevision = nil
+      session != nil && blockedFilterUpdateRevision == nil
+        && generation == token.generation && filterUpdateRevision == token.filterRevision
     }
   }
 
@@ -185,6 +222,7 @@ final class ScreenCaptureStreamLifecycle<Frame: Sendable>: @unchecked Sendable {
       generation &+= 1
       let current = session
       session = nil
+      activeFilter = nil
       cadence.reset()
       blockedFilterUpdateRevision = nil
       let previousStop = pendingStop
@@ -208,16 +246,24 @@ final class ScreenCaptureStreamLifecycle<Frame: Sendable>: @unchecked Sendable {
     capturedAt: Date,
     setup: ScreenCaptureSetupToken
   ) {
-    let frameToSave = lock.withLock { () -> Frame? in
+    let frameToSave = lock.withLock { () -> (Frame, ScreenCaptureFrameToken)? in
       guard
         setup.generation == generation,
         session != nil,
-        blockedFilterUpdateRevision == nil
+        blockedFilterUpdateRevision == nil,
+        let filter = activeFilter
       else { return nil }
-      return cadence.frameToSave(frame, at: capturedAt)
+      guard let frame = cadence.frameToSave(frame, at: capturedAt) else { return nil }
+      return (
+        frame,
+        ScreenCaptureFrameToken(
+          generation: generation,
+          filterRevision: filterUpdateRevision,
+          blockedApplicationIdentifiers: filter.excludedApplicationIDs)
+      )
     }
-    if let frameToSave {
-      saveFrame(frameToSave, capturedAt)
+    if let (frame, token) = frameToSave {
+      saveFrame(frame, capturedAt, token)
     }
   }
 

@@ -1,8 +1,88 @@
 import Foundation
 import XCTest
+
 @testable import Dayflow
 
 final class ScreenCaptureStreamLifecycleTests: XCTestCase {
+  func testQueuedFrameIsInvalidAfterPrivacyChange() async throws {
+    let builder = ScreenCaptureStreamBuilderSpy()
+    let saved = SavedFramesSpy()
+    let lifecycle = ScreenCaptureStreamLifecycle<Data>(
+      interval: 10, builder: builder.makeSessionHandler, saveFrame: saved.saveHandler)
+    let filter = ScreenCaptureFilterDescriptor(
+      displayID: 1, width: 100, height: 100, excludedApplicationIDs: ["private"])
+    try await lifecycle.start(filter: filter, setup: lifecycle.beginSetup())
+    builder.session?.emit(Data([1]), at: Date())
+    let token = try XCTUnwrap(saved.tokens.first)
+    XCTAssertTrue(lifecycle.isCurrentFrame(token))
+    lifecycle.invalidateFilter()
+    XCTAssertFalse(lifecycle.isCurrentFrame(token))
+    try await lifecycle.updateFilter(filter)
+    XCTAssertFalse(lifecycle.isCurrentFrame(token))
+    builder.session?.emit(Data([2]), at: Date())
+    XCTAssertTrue(lifecycle.isCurrentFrame(try XCTUnwrap(saved.tokens.last)))
+    await lifecycle.stop()
+    XCTAssertFalse(lifecycle.isCurrentFrame(try XCTUnwrap(saved.tokens.last)))
+  }
+
+  func testFilterUpdatesCannotCompleteOutOfOrder() async throws {
+    let overlap = expectation(description: "filter operations must not overlap")
+    overlap.isInverted = true
+    let session = SerializedFilterSession(onOverlap: { overlap.fulfill() })
+    let lifecycle = ScreenCaptureStreamLifecycle<Data>(
+      interval: 10, builder: { _, _, _, _ in session }, saveFrame: { _, _, _ in })
+    func filter(_ id: UInt32) -> ScreenCaptureFilterDescriptor {
+      .init(displayID: id, width: 100, height: 100, excludedApplicationIDs: [])
+    }
+    try await lifecycle.start(filter: filter(1), setup: lifecycle.beginSetup())
+    let first = Task { try await lifecycle.updateFilter(filter(2)) }
+    while !(await session.firstHasStarted) { await Task.yield() }
+    let second = Task { try await lifecycle.updateFilter(filter(3)) }
+    await fulfillment(of: [overlap], timeout: 0.1)
+    await session.releaseFirst()
+    try await first.value
+    try await second.value
+    let applied = await session.applied
+    XCTAssertEqual(applied, [2, 3])
+  }
+
+  func testPrivacyChangeDuringStartupBlocksFramesUntilFilterUpdate() async throws {
+    let gate = ScreenCaptureStartGate()
+    let builder = ScreenCaptureStreamBuilderSpy()
+    builder.startGate = gate
+    let savedFrames = SavedFramesSpy()
+    let lifecycle = ScreenCaptureStreamLifecycle<Data>(
+      interval: 10, builder: builder.makeSessionHandler, saveFrame: savedFrames.saveHandler)
+    let filter = ScreenCaptureFilterDescriptor(
+      displayID: 1, width: 100, height: 100, excludedApplicationIDs: [])
+    let start = Task { try await lifecycle.start(filter: filter, setup: lifecycle.beginSetup()) }
+    while !(await gate.hasBegun()) { await Task.yield() }
+    lifecycle.invalidateFilter()
+    await gate.release()
+    try await start.value
+    builder.session?.emit(Data([1]), at: Date())
+    XCTAssertTrue(savedFrames.frames.isEmpty)
+    try await lifecycle.updateFilter(filter)
+    builder.session?.emit(Data([2]), at: Date())
+    XCTAssertEqual(savedFrames.frames, [Data([2])])
+  }
+
+  func testStoppedStreamCannotReportErrorsToReplacement() async throws {
+    let builder = ScreenCaptureStreamBuilderSpy()
+    let errors = SavedFramesSpy()
+    let lifecycle = ScreenCaptureStreamLifecycle<Data>(
+      interval: 10, builder: builder.makeSessionHandler, saveFrame: { _, _, _ in },
+      handleError: { _, _ in errors.save(Data([1]), capturedAt: Date()) })
+    let filter = ScreenCaptureFilterDescriptor(
+      displayID: 1, width: 100, height: 100, excludedApplicationIDs: [])
+    try await lifecycle.start(filter: filter, setup: lifecycle.beginSetup())
+    let oldSession = try XCTUnwrap(builder.session)
+    await lifecycle.stop()
+    try await lifecycle.start(filter: filter, setup: lifecycle.beginSetup())
+    oldSession.emitError()
+    XCTAssertTrue(errors.frames.isEmpty)
+  }
+
   func testActiveStreamRejectsManualResume() {
     XCTAssertFalse(
       ScreenCaptureManualResumePolicy.shouldResume(
@@ -49,7 +129,7 @@ final class ScreenCaptureStreamLifecycleTests: XCTestCase {
     let lifecycle = ScreenCaptureStreamLifecycle(
       interval: 10,
       builder: builder.makeSessionHandler,
-      saveFrame: { _, _ in }
+      saveFrame: { _, _, _ in }
     )
     let first = ScreenCaptureFilterDescriptor(
       displayID: 1, width: 1920, height: 1080, excludedApplicationIDs: [])
@@ -98,7 +178,7 @@ final class ScreenCaptureStreamLifecycleTests: XCTestCase {
     let lifecycle = ScreenCaptureStreamLifecycle(
       interval: 10,
       builder: builder.makeSessionHandler,
-      saveFrame: { _, _ in }
+      saveFrame: { _, _, _ in }
     )
     try await lifecycle.start(
       filter: ScreenCaptureFilterDescriptor(
@@ -120,7 +200,7 @@ final class ScreenCaptureStreamLifecycleTests: XCTestCase {
     let lifecycle = ScreenCaptureStreamLifecycle(
       interval: 10,
       builder: builder.makeSessionHandler,
-      saveFrame: { _, _ in }
+      saveFrame: { _, _, _ in }
     )
     let setup = lifecycle.beginSetup()
 
@@ -186,7 +266,7 @@ final class ScreenCaptureStreamLifecycleTests: XCTestCase {
     let lifecycle = ScreenCaptureStreamLifecycle(
       interval: 10,
       builder: builder.makeSessionHandler,
-      saveFrame: { _, _ in }
+      saveFrame: { _, _, _ in }
     )
     let filter = ScreenCaptureFilterDescriptor(
       displayID: 1, width: 1920, height: 1080, excludedApplicationIDs: [])
@@ -275,11 +355,11 @@ private final class ScreenCaptureStreamBuilderSpy: @unchecked Sendable {
     onError: @escaping @Sendable (NSError) -> Void
   ) throws -> ScreenCaptureStreamSession {
     _ = filter
-    _ = onError
     makeCount += 1
     self.settings = settings
     let session = ScreenCaptureStreamSessionSpy(
       onFrame: onFrame,
+      onError: onError,
       startGate: startGate,
       stopGate: stopGate,
       updateGate: updateGate
@@ -303,6 +383,7 @@ private final class WeakReference<Value: AnyObject> {
 
 private final class ScreenCaptureStreamSessionSpy: ScreenCaptureStreamSession, @unchecked Sendable {
   private let onFrame: @Sendable (Data?, Date) -> Void
+  private let onError: @Sendable (NSError) -> Void
   private let startGate: ScreenCaptureStartGate?
   private let stopGate: ScreenCaptureStopGate?
   private let updateGate: ScreenCaptureFilterUpdateGate?
@@ -312,11 +393,13 @@ private final class ScreenCaptureStreamSessionSpy: ScreenCaptureStreamSession, @
 
   init(
     onFrame: @escaping @Sendable (Data?, Date) -> Void,
+    onError: @escaping @Sendable (NSError) -> Void,
     startGate: ScreenCaptureStartGate?,
     stopGate: ScreenCaptureStopGate?,
     updateGate: ScreenCaptureFilterUpdateGate?
   ) {
     self.onFrame = onFrame
+    self.onError = onError
     self.startGate = startGate
     self.stopGate = stopGate
     self.updateGate = updateGate
@@ -342,6 +425,10 @@ private final class ScreenCaptureStreamSessionSpy: ScreenCaptureStreamSession, @
 
   func emit(_ data: Data?, at date: Date) {
     onFrame(data, date)
+  }
+
+  func emitError() {
+    onError(NSError(domain: "late-stream", code: 1))
   }
 }
 
@@ -405,17 +492,45 @@ private actor ScreenCaptureFilterUpdateGate {
 private final class SavedFramesSpy: @unchecked Sendable {
   private let lock = NSLock()
   private(set) var frames: [Data] = []
+  private(set) var tokens: [ScreenCaptureFrameToken] = []
 
   var saveHandler: ScreenCaptureStreamLifecycle<Data>.SaveFrame {
-    { [weak self] data, capturedAt in
-      self?.save(data, capturedAt: capturedAt)
+    { [weak self] data, capturedAt, token in
+      self?.save(data, capturedAt: capturedAt, token: token)
     }
   }
 
-  func save(_ data: Data, capturedAt: Date) {
+  func save(_ data: Data, capturedAt: Date, token: ScreenCaptureFrameToken? = nil) {
     _ = capturedAt
     lock.lock()
     frames.append(data)
+    if let token { tokens.append(token) }
     lock.unlock()
+  }
+}
+
+private actor SerializedFilterSession: ScreenCaptureStreamSession {
+  private let onOverlap: @Sendable () -> Void
+  private var firstContinuation: CheckedContinuation<Void, Never>?
+  private var active = false
+  private(set) var firstHasStarted = false
+  private(set) var applied: [UInt32] = []
+
+  init(onOverlap: @escaping @Sendable () -> Void) { self.onOverlap = onOverlap }
+  func start() async throws {}
+  func stop() async {}
+  func updateFilter(_ filter: ScreenCaptureFilterDescriptor) async throws {
+    if active { onOverlap() }
+    active = true
+    if filter.displayID == 2 {
+      firstHasStarted = true
+      await withCheckedContinuation { firstContinuation = $0 }
+    }
+    applied.append(filter.displayID)
+    active = false
+  }
+  func releaseFirst() {
+    firstContinuation?.resume()
+    firstContinuation = nil
   }
 }
