@@ -384,12 +384,12 @@ extension MainView {
   }
 
   private func handleScreenRecordingPermissionNoticeOpenSettings() {
-    AnalyticsService.shared.capture("screen_permission_notice_clicked_settings")
+    AnalyticsService.shared.capture("screen_permission_notice_clicked_review")
     didDismissScreenRecordingPermissionNoticeThisSession = true
     withAnimation(.spring(response: 0.25, dampingFraction: 0.92)) {
       showScreenRecordingPermissionNotice = false
     }
-    ScreenRecordingPermissionNotice.openSystemSettings()
+    ScreenRecordingPermissionNotice.reviewAfterUserAction()
   }
 
   private func handleScreenRecordingPermissionNoticeDismiss() {

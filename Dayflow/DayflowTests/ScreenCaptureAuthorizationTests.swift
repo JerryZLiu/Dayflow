@@ -66,6 +66,19 @@ final class ScreenCaptureAuthorizationTests: XCTestCase {
     XCTAssertEqual(state, .needsUserReview)
   }
 
+  func testExplicitReviewCanRequestPermission() {
+    let access = ScreenCaptureAccessSpy(
+      preflightResults: [false],
+      requestResult: true
+    )
+
+    let granted = ScreenCapturePermissionReview.requestAfterUserAction(access: access)
+
+    XCTAssertTrue(granted)
+    XCTAssertEqual(access.preflightCallCount, 1)
+    XCTAssertEqual(access.requestCallCount, 1)
+  }
+
   func testPermissionHistoryPersistsFirstSuccess() throws {
     let suite = "ScreenCaptureAuthorizationTests.\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -91,11 +104,13 @@ final class ScreenCaptureAuthorizationTests: XCTestCase {
 private final class ScreenCaptureAccessSpy: ScreenCaptureAuthorizationAccess, @unchecked Sendable {
   private let lock = NSLock()
   private var results: [Bool]
+  private let requestResult: Bool
   private(set) var preflightCallCount = 0
   private(set) var requestCallCount = 0
 
-  init(preflightResults: [Bool]) {
+  init(preflightResults: [Bool], requestResult: Bool = false) {
     results = preflightResults
+    self.requestResult = requestResult
   }
 
   func preflight() -> Bool {
@@ -109,7 +124,7 @@ private final class ScreenCaptureAccessSpy: ScreenCaptureAuthorizationAccess, @u
     lock.lock()
     defer { lock.unlock() }
     requestCallCount += 1
-    return false
+    return requestResult
   }
 }
 

@@ -56,4 +56,15 @@ enum ScreenRecordingPermissionNotice {
 
     NSWorkspace.shared.open(url)
   }
+
+  static func reviewAfterUserAction() {
+    guard ScreenCapturePermissionReview.requestAfterUserAction() else {
+      openSystemSettings()
+      return
+    }
+
+    history.markGranted()
+    postAuthorizationState(.granted, reason: "explicit_user_review")
+    NotificationCenter.default.post(name: .resumeScreenCaptureRequested, object: nil)
+  }
 }

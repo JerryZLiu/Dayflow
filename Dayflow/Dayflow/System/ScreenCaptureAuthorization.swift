@@ -99,6 +99,14 @@ struct SystemScreenCaptureAuthorizationAccess: ScreenCaptureAuthorizationAccess 
   }
 }
 
+enum ScreenCapturePermissionReview {
+  static func requestAfterUserAction(
+    access: ScreenCaptureAuthorizationAccess = SystemScreenCaptureAuthorizationAccess()
+  ) -> Bool {
+    access.preflight() || access.request()
+  }
+}
+
 actor ScreenCaptureAuthorizationCoordinator {
   typealias Sleep = @Sendable (TimeInterval) async -> Void
 
