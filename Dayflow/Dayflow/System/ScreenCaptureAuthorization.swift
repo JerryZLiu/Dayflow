@@ -29,6 +29,7 @@ struct ScreenCaptureAuthorizationModel: Equatable, Sendable {
 
   mutating func observePreflight(granted: Bool) {
     guard granted else {
+      guard state != .needsUserReview else { return }
       state = wasGranted ? .temporarilyUnavailable : .needsUserReview
       return
     }
@@ -114,12 +115,15 @@ actor ScreenCaptureAuthorizationCoordinator {
   private let access: ScreenCaptureAuthorizationAccess
   private let history: ScreenCapturePermissionHistory?
   private let sleep: Sleep
+  private let stateChanged: @Sendable (ScreenCaptureAuthorizationState) -> Void
   private var confirmationTask: Task<Void, Never>?
+  private var confirmationID: UUID?
 
   init(
     wasGranted: Bool,
     access: ScreenCaptureAuthorizationAccess = SystemScreenCaptureAuthorizationAccess(),
     history: ScreenCapturePermissionHistory? = nil,
+    stateChanged: @escaping @Sendable (ScreenCaptureAuthorizationState) -> Void = { _ in },
     sleep: @escaping Sleep = { delay in
       guard delay > 0 else { return }
       try? await Task.sleep(for: .seconds(delay))
@@ -129,6 +133,7 @@ actor ScreenCaptureAuthorizationCoordinator {
     self.access = access
     self.history = history
     self.sleep = sleep
+    self.stateChanged = stateChanged
   }
 
   var state: ScreenCaptureAuthorizationState {
@@ -138,7 +143,22 @@ actor ScreenCaptureAuthorizationCoordinator {
   func checkBeforeCapture() -> Bool {
     let granted = access.preflight()
     model.observePreflight(granted: granted)
+    stateChanged(model.state)
     return granted
+  }
+
+  func performCaptureRequest<T>(_ request: @Sendable () async throws -> T) async throws -> T {
+    guard checkBeforeCapture() else {
+      beginConfirmationIfNeeded()
+      throw ScreenCaptureRequestUnavailable()
+    }
+    do {
+      return try await request()
+    } catch {
+      recordCaptureFailure(error as NSError)
+      beginConfirmationIfNeeded()
+      throw error
+    }
   }
 
   func recordCaptureSuccess() {
@@ -146,6 +166,8 @@ actor ScreenCaptureAuthorizationCoordinator {
     history?.markGranted()
     confirmationTask?.cancel()
     confirmationTask = nil
+    confirmationID = nil
+    stateChanged(model.state)
   }
 
   func recordCaptureFailure(_ error: NSError) {
@@ -156,6 +178,7 @@ actor ScreenCaptureAuthorizationCoordinator {
       failure = .screenCaptureKit(domain: error.domain, code: error.code)
     }
     model.observeCaptureFailure(failure, preflightGranted: access.preflight())
+    stateChanged(model.state)
   }
 
   func preflightIsGranted() -> Bool {
@@ -163,10 +186,12 @@ actor ScreenCaptureAuthorizationCoordinator {
   }
 
   func beginConfirmationIfNeeded() {
-    guard confirmationTask == nil else { return }
+    guard confirmationTask == nil, model.state == .temporarilyUnavailable else { return }
+    let id = UUID()
+    confirmationID = id
     confirmationTask = Task { [weak self] in
       await self?.confirmWithoutPrompting()
-      await self?.clearConfirmationTask()
+      await self?.clearConfirmationTask(id)
     }
   }
 
@@ -177,6 +202,7 @@ actor ScreenCaptureAuthorizationCoordinator {
       guard !Task.isCancelled else { return }
       let granted = access.preflight()
       model.observeConfirmationPreflight(granted: granted)
+      stateChanged(model.state)
       if granted {
         history?.markGranted()
         return
@@ -187,9 +213,18 @@ actor ScreenCaptureAuthorizationCoordinator {
   func cancelConfirmation() {
     confirmationTask?.cancel()
     confirmationTask = nil
+    confirmationID = nil
   }
 
-  private func clearConfirmationTask() {
+  private func clearConfirmationTask(_ id: UUID) {
+    guard confirmationID == id else { return }
     confirmationTask = nil
+    confirmationID = nil
+  }
+}
+
+struct ScreenCaptureRequestUnavailable: LocalizedError {
+  var errorDescription: String? {
+    "Screen capture is paused. Review Screen Recording permission in Dayflow."
   }
 }

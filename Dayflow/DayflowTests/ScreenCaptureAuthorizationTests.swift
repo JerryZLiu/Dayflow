@@ -2,6 +2,19 @@ import XCTest
 @testable import Dayflow
 
 final class ScreenCaptureAuthorizationTests: XCTestCase {
+  func testBackgroundRequestDoesNotReachCaptureWhenPreflightFails() async {
+    let access = ScreenCaptureAccessSpy(preflightResults: [false])
+    let coordinator = ScreenCaptureAuthorizationCoordinator(wasGranted: true, access: access)
+    do {
+      _ = try await coordinator.performCaptureRequest { true }
+      XCTFail("Capture must be blocked before the OS request")
+    } catch {
+      XCTAssertTrue(error is ScreenCaptureRequestUnavailable)
+    }
+    XCTAssertEqual(access.requestCallCount, 0)
+    await coordinator.cancelConfirmation()
+  }
+
   func testFirstUseDenialUsesOnboardingPath() {
     var model = ScreenCaptureAuthorizationModel(wasGranted: false)
 
