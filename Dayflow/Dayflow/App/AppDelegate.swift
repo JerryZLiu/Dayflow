@@ -5,7 +5,6 @@
 
 import AppKit
 import Combine
-import ScreenCaptureKit
 import ServiceManagement
 
 @MainActor
@@ -91,6 +90,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Check if we've passed the screen recording permission step
     let onboardingStep = OnboardingStepMigration.migrateIfNeeded()
     let didOnboard = UserDefaults.standard.bool(forKey: "didOnboard")
+    let passedScreenRecordingStep =
+      didOnboard || OnboardingStep.hasPassedScreenRecordingStep(rawValue: onboardingStep)
+    _ = ScreenCapturePermissionHistory(
+      didCompleteOnboarding: passedScreenRecordingStep)
 
     // Seed recording flag low, then create recorder so the first
     // transition to true will reliably start capture.
@@ -98,56 +101,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     recorder = ScreenRecorder(autoStart: true)
 
     // Only attempt to start recording if we're past the screen step or fully onboarded.
-    if didOnboard || OnboardingStep.hasPassedScreenRecordingStep(rawValue: onboardingStep) {
+    if passedScreenRecordingStep {
       // Onboarding complete - enable persistence and restore user preference
       AppState.shared.enablePersistence()
 
-      // Try to start recording, but handle permission failures gracefully
-      Task { [weak self] in
-        guard let self else { return }
-        guard ScreenRecordingPermissionNotice.isGranted else {
-          await MainActor.run {
-            AppState.shared.setRecording(
-              false,
-              analyticsReason: "auto",
-              persistPreference: false
-            )
-          }
-          if didOnboard {
-            ScreenRecordingPermissionNotice.post(reason: "launch_preflight_missing")
-          }
-          self.flushPendingDeepLinks()
-          return
-        }
-
-        do {
-          // Check if we have permission by trying to access content
-          _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-          // Permission granted - restore saved preference or default to ON
-          await MainActor.run {
-            let savedPref = AppState.shared.getSavedPreference()
-            AppState.shared.setRecording(savedPref ?? true, analyticsReason: "auto")
-          }
-          let finalState = await MainActor.run { AppState.shared.isRecording }
-          AnalyticsService.shared.capture(
-            "recording_toggled", ["enabled": finalState, "reason": "auto"])
-        } catch {
-          // No permission or error - don't start recording
-          // User will need to grant permission in onboarding
-          await MainActor.run {
-            AppState.shared.setRecording(
-              false,
-              analyticsReason: "auto",
-              persistPreference: false
-            )
-          }
-          if didOnboard {
-            ScreenRecordingPermissionNotice.post(reason: "launch_shareable_content_failed")
-          }
-          print("Screen recording permission not granted, skipping auto-start")
-        }
-        self.flushPendingDeepLinks()
-      }
+      // Restore the user's recording choice. ScreenRecorder pauses safely when
+      // a non-prompting preflight check is temporarily false.
+      let savedPref = AppState.shared.getSavedPreference()
+      AppState.shared.setRecording(savedPref ?? true, analyticsReason: "auto")
+      AnalyticsService.shared.capture(
+        "recording_toggled", ["enabled": AppState.shared.isRecording, "reason": "auto"])
+      flushPendingDeepLinks()
     } else {
       // Still in early onboarding, don't enable persistence yet
       // Keep recording off and don't persist this state

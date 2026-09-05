@@ -37,8 +37,18 @@ enum RecordingControl {
   static func start(reason: String) {
     Task { @MainActor in
       guard await hasScreenRecordingPermission() else {
-        print("[RecordingControl] Screen recording permission not granted; start ignored")
-        ScreenRecordingPermissionNotice.post(reason: "recording_control_start")
+        if ScreenRecordingPermissionNotice.permissionWasGranted {
+          PauseManager.shared.clearPauseState()
+          AppState.shared.setRecording(true, analyticsReason: reason)
+          ScreenRecordingPermissionNotice.postAuthorizationState(
+            .temporarilyUnavailable,
+            reason: "recording_control_start"
+          )
+          NotificationCenter.default.post(name: .resumeScreenCaptureRequested, object: nil)
+        } else {
+          print("[RecordingControl] Screen recording permission not granted; start ignored")
+          ScreenRecordingPermissionNotice.post(reason: "recording_control_start")
+        }
         return
       }
 

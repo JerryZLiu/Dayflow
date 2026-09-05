@@ -17,6 +17,7 @@ struct RecordingPrivacyApplication: Identifiable, Equatable, Sendable {
 }
 
 enum RecordingPrivacyPreferences {
+  static let didChangeNotification = Notification.Name("recordingPrivacyPreferencesDidChange")
   private static let blockedApplicationIdentifiersKey =
     "recordingPrivacyBlockedApplicationIdentifiers"
   private static let didSeedDefaultSecretAppsKey = "recordingPrivacyDidSeedDefaultSecretApps"
@@ -80,6 +81,7 @@ enum RecordingPrivacyPreferences {
     defaults: UserDefaults = .standard
   ) {
     defaults.set(normalizedIdentifiers(from: identifiers), forKey: blockedApplicationIdentifiersKey)
+    NotificationCenter.default.post(name: didChangeNotification, object: nil)
   }
 
   static func seedDefaultSecretApplicationsIfNeeded(

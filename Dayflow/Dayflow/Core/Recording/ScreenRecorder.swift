@@ -10,12 +10,129 @@
 import AppKit
 import Combine
 import CoreGraphics
+import CoreImage
+import CoreMedia
 import Foundation
+import OSLog
 @preconcurrency import ScreenCaptureKit
 import Sentry
 
 // MARK: - Configuration
 // Capture interval and resolution live in `ScreenshotConfig` (RecordingPreferences.swift).
+
+private final class DayflowScreenCaptureStreamSession: NSObject, @unchecked Sendable,
+  ScreenCaptureStreamSession, SCStreamOutput, SCStreamDelegate
+{
+  typealias ResolveFilter = @Sendable (ScreenCaptureFilterDescriptor) throws -> SCContentFilter
+
+  private let outputQueue = DispatchQueue(
+    label: "com.dayflow.recorder.stream-output",
+    qos: .userInitiated
+  )
+  private let settings: ScreenCaptureStreamSettings
+  private let resolveFilter: ResolveFilter
+  private let onFrame: @Sendable (CGImage?, Date) -> Void
+  private let onError: @Sendable (NSError) -> Void
+  private let imageContext = CIContext(options: [.cacheIntermediates: false])
+  private var stream: SCStream!
+
+  init(
+    descriptor: ScreenCaptureFilterDescriptor,
+    filter: SCContentFilter,
+    settings: ScreenCaptureStreamSettings,
+    resolveFilter: @escaping ResolveFilter,
+    onFrame: @escaping @Sendable (CGImage?, Date) -> Void,
+    onError: @escaping @Sendable (NSError) -> Void
+  ) throws {
+    self.settings = settings
+    self.resolveFilter = resolveFilter
+    self.onFrame = onFrame
+    self.onError = onError
+    super.init()
+
+    stream = SCStream(
+      filter: filter,
+      configuration: Self.configuration(for: descriptor, settings: settings),
+      delegate: self
+    )
+    try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: outputQueue)
+  }
+
+  func start() async throws {
+    try await stream.startCapture()
+  }
+
+  func updateFilter(_ descriptor: ScreenCaptureFilterDescriptor) async throws {
+    let filter = try resolveFilter(descriptor)
+    try await stream.updateContentFilter(filter)
+    try await stream.updateConfiguration(Self.configuration(for: descriptor, settings: settings))
+    await withCheckedContinuation { continuation in
+      outputQueue.async { continuation.resume() }
+    }
+  }
+
+  func stop() async {
+    try? await stream.stopCapture()
+    try? stream.removeStreamOutput(self, type: .screen)
+  }
+
+  func stream(
+    _ stream: SCStream,
+    didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
+    of outputType: SCStreamOutputType
+  ) {
+    guard outputType == .screen else { return }
+    guard sampleBuffer.isValid else { return }
+    let capturedAt = Date()
+    guard let status = frameStatus(in: sampleBuffer) else { return }
+    if status == .idle {
+      onFrame(nil, capturedAt)
+      return
+    }
+    guard status == .complete || status == .started else { return }
+    guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
+    guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+
+    let image = CIImage(cvPixelBuffer: pixelBuffer)
+    guard let cgImage = imageContext.createCGImage(image, from: image.extent) else { return }
+    onFrame(cgImage, capturedAt)
+  }
+
+  func stream(_ stream: SCStream, didStopWithError error: Error) {
+    onError(error as NSError)
+  }
+
+  private func frameStatus(in sampleBuffer: CMSampleBuffer) -> SCFrameStatus? {
+    guard
+      let attachments = CMSampleBufferGetSampleAttachmentsArray(
+        sampleBuffer,
+        createIfNecessary: false
+      ) as? [[SCStreamFrameInfo: Any]],
+      let statusRawValue = attachments.first?[.status] as? Int
+    else {
+      return nil
+    }
+    return SCFrameStatus(rawValue: statusRawValue)
+  }
+
+  private static func configuration(
+    for descriptor: ScreenCaptureFilterDescriptor,
+    settings: ScreenCaptureStreamSettings
+  ) -> SCStreamConfiguration {
+    let configuration = SCStreamConfiguration()
+    configuration.width = descriptor.width
+    configuration.height = descriptor.height
+    configuration.scalesToFit = true
+    configuration.showsCursor = true
+    configuration.capturesAudio = false
+    configuration.queueDepth = settings.queueDepth
+    configuration.minimumFrameInterval = CMTime(
+      seconds: settings.frameInterval,
+      preferredTimescale: 600
+    )
+    return configuration
+  }
+}
 
 private enum InputIdleSnapshot {
   // Bridge kCGAnyInputEventType into Swift without relying on a generated symbol name.
@@ -35,6 +152,8 @@ private enum InputIdleSnapshot {
 // MARK: - Debug Logging
 
 private let recorderDebugLogging = false
+private let recorderLogger = Logger(
+  subsystem: "teleportlabs.com.Dayflow", category: "screen-capture")
 @inline(__always) func dbg(_ msg: @autoclosure () -> String) {
   guard recorderDebugLogging else { return }
   print("[Recorder] \(msg())")
@@ -82,7 +201,15 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
   @MainActor
   init(autoStart: Bool = true) {
+    let didCompleteOnboarding = UserDefaults.standard.bool(forKey: "didOnboard")
+    let history = ScreenCapturePermissionHistory(
+      didCompleteOnboarding: didCompleteOnboarding)
+    authorization = ScreenCaptureAuthorizationCoordinator(
+      wasGranted: history.wasGranted,
+      history: history
+    )
     super.init()
+    streamLifecycle = makeStreamLifecycle(interval: ScreenshotConfig.interval)
     dbg("init – autoStart = \(autoStart)")
 
     wantsRecording = AppState.shared.isRecording
@@ -114,6 +241,48 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         self.q.async { [weak self] in self?.handleActiveDisplayChange(newID) }
       }
 
+    privacySub = NotificationCenter.default.publisher(
+      for: RecordingPrivacyPreferences.didChangeNotification
+    )
+    .sink { [weak self] _ in
+      self?.streamLifecycle.invalidateFilter()
+      self?.q.async { [weak self] in
+        self?.requestDisplayRefresh()
+      }
+    }
+
+    applicationSub = NSWorkspace.shared.notificationCenter.publisher(
+      for: NSWorkspace.didLaunchApplicationNotification
+    ).merge(
+      with: NSWorkspace.shared.notificationCenter.publisher(
+        for: NSWorkspace.didTerminateApplicationNotification
+      )
+    ).sink { [weak self] _ in
+      guard !RecordingPrivacyPreferences.blockedApplicationIdentifiers().isEmpty else { return }
+      self?.q.async { [weak self] in self?.requestDisplayRefresh() }
+    }
+
+    manualResumeSub = NotificationCenter.default.publisher(for: .resumeScreenCaptureRequested)
+      .sink { [weak self] _ in
+        self?.q.async { [weak self] in
+          guard let self else { return }
+          guard
+            ScreenCaptureManualResumePolicy.shouldResume(
+              wantsRecording: self.wantsRecording,
+              hasActiveSession: self.streamLifecycle.hasActiveSession
+            )
+          else { return }
+          self.authorizationRecoveryTask?.cancel()
+          self.authorizationRecoveryTask = nil
+          self.captureRestartTask?.cancel()
+          self.captureRestartTask = nil
+          if self.retryState.isRetryRunning {
+            self.retryState.finishRetry(recovered: false)
+          }
+          self.scheduleCaptureRestart(manual: true)
+        }
+      }
+
     // Honor the current flag once (after subscriptions exist)
     if autoStart, AppState.shared.isRecording { start() }
 
@@ -122,23 +291,64 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     FrameStore.shared.reconcileAfterLaunch()
   }
 
+  private func makeStreamLifecycle(
+    interval: TimeInterval
+  ) -> ScreenCaptureStreamLifecycle<CGImage> {
+    ScreenCaptureStreamLifecycle(
+      interval: interval,
+      builder: { [weak self] descriptor, settings, onFrame, onError in
+        guard let self else { throw ScreenRecorderError.screenshotFailed }
+        return try self.makeStreamSession(
+          descriptor: descriptor,
+          settings: settings,
+          onFrame: onFrame,
+          onError: onError
+        )
+      },
+      saveFrame: { [weak self] image, capturedAt, token in
+        self?.saveCapturedFrame(image, capturedAt: capturedAt, token: token)
+      },
+      handleError: { [weak self] error, setup in
+        self?.handleStreamFailure(error, setup: setup)
+      }
+    )
+  }
+
   deinit {
     sub?.cancel()
     activeDisplaySub?.cancel()
+    privacySub?.cancel()
+    applicationSub?.cancel()
+    manualResumeSub?.cancel()
+    authorizationRecoveryTask?.cancel()
+    captureRestartTask?.cancel()
+    streamFailureTask?.cancel()
     dbg("deinit")
   }
 
   // MARK: - Properties
 
   private let q = DispatchQueue(label: "com.dayflow.recorder", qos: .userInitiated)
-  private var captureTimer: DispatchSourceTimer?
   private var sub: AnyCancellable?
   private var activeDisplaySub: AnyCancellable?
+  private var privacySub: AnyCancellable?
+  private var applicationSub: AnyCancellable?
+  private var displayRefreshTask: Task<Void, Never>?
+  private var displayRefreshID: UUID?
+  private var displayRefreshPending = false
+  private var manualResumeSub: AnyCancellable?
   private var state: RecorderState = .idle
   private var wantsRecording = false
   private var tracker: ActiveDisplayTracker!
   private var currentDisplayID: CGDirectDisplayID?
   private var requestedDisplayID: CGDirectDisplayID?
+  private let authorization: ScreenCaptureAuthorizationCoordinator
+  private var authorizationRecoveryTask: Task<Void, Never>?
+  private var streamLifecycle: ScreenCaptureStreamLifecycle<CGImage>!
+  private var captureRestartTask: Task<Void, Never>?
+  private var streamFailureTask: Task<Void, Never>?
+  private var retryState = ScreenCaptureRetryState()
+  private var recoveryUsesBackoff = false
 
   // ScreenCaptureKit objects (refreshed on each capture cycle).
   // Written on `q` (stop/permission loss) and from async setup/refresh tasks,
@@ -196,14 +406,28 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       }
 
       self.transition(to: .starting, context: "user/system start")
-      Task { await self.setupCapture() }
+      let setup = self.streamLifecycle.beginSetup()
+      Task { await self.setupCapture(setup: setup) }
     }
   }
 
   func stop() {
     q.async { [weak self] in
       guard let self else { return }
-      self.stopCaptureTimer()
+      self.displayRefreshTask?.cancel()
+      self.displayRefreshTask = nil
+      self.displayRefreshID = nil
+      self.displayRefreshPending = false
+      self.authorizationRecoveryTask?.cancel()
+      self.authorizationRecoveryTask = nil
+      self.captureRestartTask?.cancel()
+      self.captureRestartTask = nil
+      self.streamFailureTask?.cancel()
+      self.streamFailureTask = nil
+      self.retryState.markRecovered()
+      Task { await self.authorization.cancelConfirmation() }
+      let stopTask = self.streamLifecycle.requestStop()
+      Task { await stopTask.value }
       self.cachedContent = nil
       self.cachedDisplay = nil
       self.currentDisplayID = nil
@@ -218,17 +442,25 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
   // MARK: - Capture Setup
 
-  private func setupCapture(attempt: Int = 1, maxAttempts: Int = 4) async {
-    guard ScreenRecordingPermissionNotice.isGranted else {
-      handleMissingScreenRecordingPermission(reason: "setupCapture")
+  private func setupCapture(
+    setup: ScreenCaptureSetupToken,
+    attempt: Int = 1,
+    maxAttempts: Int = 4
+  ) async {
+    guard streamLifecycle.isCurrentSetup(setup) else { return }
+    guard await authorization.checkBeforeCapture() else {
+      await handleScreenCaptureUnavailable(reason: "setupCapture")
       return
     }
+    guard streamLifecycle.isCurrentSetup(setup) else { return }
 
     do {
       // 1. Get shareable content (requires screen recording permission)
       let content = try await SCShareableContent.excludingDesktopWindows(
         false, onScreenWindowsOnly: true)
+      guard streamLifecycle.isCurrentSetup(setup) else { return }
       cachedContent = content
+      await authorization.recordCaptureSuccess()
 
       // 2. Choose display: prefer requested → active. Defer if preferred is missing from the snapshot.
       let displaysByID: [CGDirectDisplayID: SCDisplay] = Dictionary(
@@ -266,31 +498,51 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         dbg("Setup complete - awaiting display availability")
       }
 
-      // 3. Start capture timer
+      guard let display else { throw ScreenRecorderError.noDisplay }
+      let descriptor = makeFilterDescriptor(display: display, content: content)
+      try await streamLifecycle.start(filter: descriptor, setup: setup)
+
       q.async { [weak self] in
         guard let self else { return }
         guard self.state == .starting else {
           dbg("setupCapture completed but state changed to \(self.state.description), ignoring")
           return
         }
-        self.startCaptureTimer()
-        self.transition(to: .capturing, context: "capture started")
-
-        // Take first screenshot immediately
-        Task { await self.captureScreenshot() }
+        self.retryState.markRecovered()
+        self.recoveryUsesBackoff = false
+        self.transition(to: .capturing, context: "stream started")
+        if self.displayRefreshPending
+          || descriptor.excludedApplicationIDs
+            != RecordingPrivacyPreferences.blockedApplicationIdentifiers().sorted()
+        {
+          self.requestDisplayRefresh()
+        }
       }
 
       Task { @MainActor in
         AnalyticsService.shared.withSampling(probability: 0.01) {
-          AnalyticsService.shared.capture("recording_started", ["mode": "screenshot"])
+          AnalyticsService.shared.capture("recording_started", ["mode": "stream"])
         }
       }
 
+    } catch is CancellationError {
+      dbg("setupCapture cancelled because recording stopped")
+      return
     } catch {
       dbg("setupCapture failed [attempt \(attempt)] – \(error.localizedDescription)")
 
-      if !ScreenRecordingPermissionNotice.isGranted {
-        handleMissingScreenRecordingPermission(reason: "setupCapture_failed_permission")
+      let nsError = error as NSError
+      let preflightGranted = await authorization.checkBeforeCapture()
+      if !preflightGranted || nsError.domain == SCStreamErrorDomain {
+        if preflightGranted {
+          handleStreamFailure(nsError)
+        } else {
+          await handleScreenCaptureUnavailable(
+            reason: "setupCapture_failed_permission",
+            error: nsError,
+            useBackoffAfterRecovery: true
+          )
+        }
         return
       }
 
@@ -298,7 +550,6 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         self?.transition(to: .idle, context: "setupCapture failed")
       }
 
-      let nsError = error as NSError
       let isNoDisplay = (error as? ScreenRecorderError) == .noDisplay
 
       if isNoDisplay && attempt < maxAttempts {
@@ -319,115 +570,113 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     }
   }
 
-  // MARK: - Capture Timer
-
-  private func startCaptureTimer() {
-    stopCaptureTimer()
-
-    let interval = ScreenshotConfig.interval
-    let timer = DispatchSource.makeTimerSource(queue: q)
-    timer.schedule(deadline: .now() + interval, repeating: interval)
-    timer.setEventHandler { [weak self] in
-      Task { await self?.captureScreenshot() }
-    }
-    timer.resume()
-    captureTimer = timer
-
-    dbg("Capture timer started (interval: \(interval)s)")
+  private func makeFilterDescriptor(
+    display: SCDisplay,
+    content: SCShareableContent
+  ) -> ScreenCaptureFilterDescriptor {
+    let size = scaledCaptureSize(for: display)
+    let excludedApplicationIDs = RecordingPrivacyPreferences.blockedApplicationIdentifiers()
+      .sorted()
+    return ScreenCaptureFilterDescriptor(
+      displayID: display.displayID,
+      width: size.width,
+      height: size.height,
+      excludedApplicationIDs: excludedApplicationIDs
+    )
   }
 
-  private func stopCaptureTimer() {
-    captureTimer?.cancel()
-    captureTimer = nil
+  private func makeContentFilter(
+    for descriptor: ScreenCaptureFilterDescriptor
+  ) throws -> SCContentFilter {
+    guard let content = cachedContent else { throw ScreenRecorderError.noDisplay }
+    guard let display = content.displays.first(where: { $0.displayID == descriptor.displayID })
+    else {
+      throw ScreenRecorderError.noDisplay
+    }
+    let excludedIDs = Set(descriptor.excludedApplicationIDs)
+    if excludedIDs.isEmpty {
+      return SCContentFilter(display: display, excludingWindows: [])
+    }
+    // An allowlist also excludes apps launched after this content snapshot. Launch events and
+    // visible-window metadata refresh it; a foreground-app check cannot establish frame privacy.
+    let allowedApplications = content.applications.filter {
+      !excludedIDs.contains($0.bundleIdentifier.lowercased())
+        && !excludedIDs.contains($0.applicationName.lowercased())
+    }
+    guard !allowedApplications.isEmpty else { throw ScreenRecorderError.screenshotFailed }
+    return SCContentFilter(
+      display: display,
+      including: allowedApplications,
+      exceptingWindows: []
+    )
   }
 
-  // MARK: - Screenshot Capture
+  private func makeStreamSession(
+    descriptor: ScreenCaptureFilterDescriptor,
+    settings: ScreenCaptureStreamSettings,
+    onFrame: @escaping @Sendable (CGImage?, Date) -> Void,
+    onError: @escaping @Sendable (NSError) -> Void
+  ) throws -> ScreenCaptureStreamSession {
+    try DayflowScreenCaptureStreamSession(
+      descriptor: descriptor,
+      filter: makeContentFilter(for: descriptor),
+      settings: settings,
+      resolveFilter: { [weak self] descriptor in
+        guard let self else { throw ScreenRecorderError.noDisplay }
+        return try self.makeContentFilter(for: descriptor)
+      },
+      onFrame: onFrame,
+      onError: onError
+    )
+  }
 
-  private func captureScreenshot() async {
-    guard state == .capturing else {
-      dbg("captureScreenshot skipped - state: \(state.description)")
-      return
-    }
-    guard let display = cachedDisplay else {
-      dbg("captureScreenshot skipped - no display")
-      return
-    }
-    guard ScreenRecordingPermissionNotice.isGranted else {
-      handleMissingScreenRecordingPermission(reason: "captureScreenshot")
-      return
-    }
-
-    let captureTime = Date()
-    let idleSecondsAtCapture = InputIdleSnapshot.currentIdleSeconds()
-
-    do {
-      let captureSize = scaledCaptureSize(for: display)
-      if let blockedApplication = await MainActor.run(body: {
-        RecordingPrivacyPreferences.frontmostBlockedApplication()
-      }) {
-        guard
-          let placeholder = await MainActor.run(body: {
-            RecordingPrivacyPlaceholder.image(
-              width: captureSize.width,
-              height: captureSize.height,
-              applicationName: blockedApplication.name
-            )
-          })
-        else {
-          throw ScreenRecorderError.imageConversionFailed
-        }
-        try appendFrame(
-          placeholder, capturedAt: captureTime, idleSecondsAtCapture: idleSecondsAtCapture)
-        dbg("🔒 Screenshot redacted for blocked foreground application")
-        return
-      }
-
-      // 1. Create content filter for the display
-      let excludedApplications =
-        cachedContent.map {
-          RecordingPrivacyPreferences.blockedScreenCaptureApplications(in: $0)
-        } ?? []
-      let filter =
-        excludedApplications.isEmpty
-        ? SCContentFilter(display: display, excludingWindows: [])
-        : SCContentFilter(
-          display: display,
-          excludingApplications: excludedApplications,
-          exceptingWindows: []
+  private func saveCapturedFrame(_ image: CGImage, capturedAt: Date, token: ScreenCaptureFrameToken)
+  {
+    q.async { [weak self] in
+      guard let self, self.state == .capturing, self.streamLifecycle.isCurrentFrame(token),
+        token.blockedApplicationIdentifiers
+          == RecordingPrivacyPreferences.blockedApplicationIdentifiers().sorted()
+      else { return }
+      let idleSeconds = InputIdleSnapshot.currentIdleSeconds()
+      do {
+        try self.appendFrame(image, capturedAt: capturedAt, idleSecondsAtCapture: idleSeconds)
+        Task { await self.authorization.recordCaptureSuccess() }
+      } catch {
+        let nsError = error as NSError
+        recorderLogger.error(
+          "Frame save failed domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public)"
         )
-
-      // 2. Configure screenshot
-      let config = SCStreamConfiguration()
-
-      config.width = captureSize.width
-      config.height = captureSize.height
-      config.scalesToFit = true
-      config.showsCursor = true
-
-      // 3. Capture screenshot
-      let image = try await SCScreenshotManager.captureImage(
-        contentFilter: filter,
-        configuration: config
-      )
-
-      // 4. Encode into the current HEVC segment and register in the database
-      try appendFrame(image, capturedAt: captureTime, idleSecondsAtCapture: idleSecondsAtCapture)
-      dbg("📸 Frame appended (\(image.width)x\(image.height))")
-
-    } catch {
-      dbg("❌ Screenshot capture failed: \(error.localizedDescription)")
-
-      if !ScreenRecordingPermissionNotice.isGranted {
-        handleMissingScreenRecordingPermission(reason: "captureScreenshot_failed_permission")
-        return
       }
-
-      // If display became unavailable, try to refresh
-      if (error as NSError).domain == SCStreamErrorDomain {
-        dbg("SCStream error - will refresh display on next capture")
-        Task { await refreshDisplay() }
-      }
+      self.refreshApplicationCatalogIfNeeded()
     }
+  }
+
+  private func refreshApplicationCatalogIfNeeded() {
+    let blockedIDs = Set(RecordingPrivacyPreferences.blockedApplicationIdentifiers())
+    guard !blockedIDs.isEmpty, let content = cachedContent,
+      let windows = CGWindowListCopyWindowInfo(
+        [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+      ) as? [[String: Any]]
+    else { return }
+    // App launch can precede its first window. Read only owner PIDs at the existing frame cadence;
+    // do not open another capture session or require Accessibility to observe window creation.
+    let windowOwners = Set(
+      windows.compactMap { ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value })
+    let visibleApplications = Set(
+      NSWorkspace.shared.runningApplications.compactMap { app -> Int32? in
+        guard app.activationPolicy == .regular, windowOwners.contains(app.processIdentifier),
+          !blockedIDs.contains(app.bundleIdentifier?.lowercased() ?? ""),
+          !blockedIDs.contains(app.localizedName?.lowercased() ?? "")
+        else { return nil }
+        return app.processIdentifier
+      })
+    guard
+      ScreenCaptureApplicationCatalog.needsRefresh(
+        visibleApplicationPIDs: visibleApplications,
+        snapshotApplicationPIDs: Set(content.applications.map(\.processID))
+      )
+    else { return }
+    requestDisplayRefresh()
   }
 
   /// Re-checks state right before writing so a capture that was in flight during
@@ -454,83 +703,240 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     return (width, height)
   }
 
-  private func refreshDisplay() async {
-    guard ScreenRecordingPermissionNotice.isGranted else {
-      handleMissingScreenRecordingPermission(reason: "refreshDisplay")
+  private func requestDisplayRefresh() {
+    displayRefreshPending = true
+    streamLifecycle.invalidateFilter()
+    guard state == .capturing, displayRefreshTask == nil else { return }
+    displayRefreshPending = false
+    let id = UUID()
+    let setup = streamLifecycle.currentSetup
+    displayRefreshID = id
+    displayRefreshTask = Task { [weak self] in
+      guard let self else { return }
+      await self.refreshDisplay(setup: setup)
+      self.q.async { [weak self] in
+        guard let self, self.displayRefreshID == id else { return }
+        self.displayRefreshTask = nil
+        self.displayRefreshID = nil
+        if self.displayRefreshPending { self.requestDisplayRefresh() }
+      }
+    }
+  }
+
+  private func refreshDisplay(setup: ScreenCaptureSetupToken) async {
+    guard streamLifecycle.isCurrentSetup(setup) else { return }
+    guard await authorization.checkBeforeCapture() else {
+      await handleScreenCaptureUnavailable(reason: "refreshDisplay")
       return
     }
 
     do {
       let content = try await SCShareableContent.excludingDesktopWindows(
         false, onScreenWindowsOnly: true)
-      cachedContent = content
+      let descriptor: ScreenCaptureFilterDescriptor? = await withCheckedContinuation {
+        continuation in
+        q.async { [self] in
+          guard streamLifecycle.isCurrentSetup(setup), state == .capturing else {
+            continuation.resume(returning: nil)
+            return
+          }
+          cachedContent = content
 
-      // Prefer requested display over current; hold if missing from snapshot.
-      let targetID = requestedDisplayID ?? currentDisplayID
+          // Prefer requested display over current; hold if missing from snapshot.
+          let targetID = requestedDisplayID ?? currentDisplayID
 
-      if let id = targetID {
-        if let display = content.displays.first(where: { $0.displayID == id }) {
-          cachedDisplay = display
-          currentDisplayID = id
-          if requestedDisplayID == id { requestedDisplayID = nil }
-          dbg("Switched to display \(id)")
-        } else {
-          dbg(
-            "refreshDisplay: target \(id) not in snapshot (count=\(content.displays.count)); keeping current"
-          )
+          if let id = targetID {
+            if let display = content.displays.first(where: { $0.displayID == id }) {
+              cachedDisplay = display
+              currentDisplayID = id
+              if requestedDisplayID == id { requestedDisplayID = nil }
+              dbg("Switched to display \(id)")
+            } else {
+              dbg(
+                "refreshDisplay: target \(id) not in snapshot (count=\(content.displays.count)); keeping current"
+              )
+            }
+          } else if let first = content.displays.first, cachedDisplay == nil {
+            cachedDisplay = first
+            currentDisplayID = first.displayID
+          }
+
+          continuation.resume(
+            returning: cachedDisplay.map { makeFilterDescriptor(display: $0, content: content) })
         }
-      } else if let first = content.displays.first, cachedDisplay == nil {
-        cachedDisplay = first
-        currentDisplayID = first.displayID
       }
+      guard let descriptor, streamLifecycle.isCurrentSetup(setup) else { return }
+      try await streamLifecycle.updateFilter(descriptor)
     } catch {
-      if !ScreenRecordingPermissionNotice.isGranted {
-        handleMissingScreenRecordingPermission(reason: "refreshDisplay_failed_permission")
-        return
+      guard streamLifecycle.isCurrentSetup(setup) else { return }
+      let nsError = error as NSError
+      let preflightGranted = await authorization.checkBeforeCapture()
+      if preflightGranted {
+        handleStreamFailure(nsError)
+      } else {
+        await handleScreenCaptureUnavailable(
+          reason: "refreshDisplay_failed_permission",
+          error: nsError,
+          useBackoffAfterRecovery: true
+        )
       }
-
-      dbg("Failed to refresh display: \(error)")
+      return
     }
   }
 
-  private func handleMissingScreenRecordingPermission(reason: String) {
+  private func handleScreenCaptureUnavailable(
+    reason: String,
+    error: NSError? = nil,
+    useBackoffAfterRecovery: Bool = false
+  ) async {
+    if let error {
+      recorderLogger.error(
+        "ScreenCaptureKit failure domain=\(error.domain, privacy: .public) code=\(error.code, privacy: .public)"
+      )
+      await authorization.recordCaptureFailure(error)
+    }
+    let authorizationState = await authorization.state
+
     q.async { [weak self] in
       guard let self else { return }
-      self.stopCaptureTimer()
+      self.recoveryUsesBackoff = self.recoveryUsesBackoff || useBackoffAfterRecovery
+      let stopTask = self.streamLifecycle.requestStop()
+      Task { await stopTask.value }
       self.cachedContent = nil
       self.cachedDisplay = nil
       self.currentDisplayID = nil
-      if self.state != .idle {
-        self.transition(to: .idle, context: "missing screen recording permission")
+      if self.state != .paused {
+        self.transition(to: .paused, context: "screen capture temporarily unavailable")
       }
-      self.wantsRecording = false
+      self.scheduleAuthorizationConfirmation()
     }
 
-    Task { @MainActor in
-      if AppState.shared.isRecording {
-        AppState.shared.setRecording(
-          false,
-          analyticsReason: "permission_missing",
-          persistPreference: false
-        )
+    ScreenRecordingPermissionNotice.postAuthorizationState(
+      authorizationState,
+      reason: reason
+    )
+  }
+
+  private func scheduleAuthorizationConfirmation() {
+    guard authorizationRecoveryTask == nil else { return }
+    authorizationRecoveryTask = Task { [weak self] in
+      guard let self else { return }
+      await authorization.confirmWithoutPrompting()
+      let authorizationState = await authorization.state
+      ScreenRecordingPermissionNotice.postAuthorizationState(
+        authorizationState,
+        reason: "confirmation_complete"
+      )
+
+      q.async { [weak self] in
+        guard let self else { return }
+        self.authorizationRecoveryTask = nil
+        guard self.wantsRecording else { return }
+        guard authorizationState == .granted else { return }
+        if self.recoveryUsesBackoff {
+          self.scheduleCaptureRestart()
+        } else {
+          self.transition(to: .idle, context: "screen capture permission recovered")
+          self.start()
+        }
       }
-      ScreenRecordingPermissionNotice.post(reason: reason)
+    }
+  }
+
+  private func handleStreamFailure(_ error: NSError, setup: ScreenCaptureSetupToken? = nil) {
+    let setup = setup ?? streamLifecycle.currentSetup
+    recorderLogger.error(
+      "ScreenCaptureKit failure domain=\(error.domain, privacy: .public) code=\(error.code, privacy: .public)"
+    )
+    q.async { [weak self] in
+      guard let self else { return }
+      guard self.streamLifecycle.isCurrentSetup(setup), self.wantsRecording,
+        self.captureRestartTask == nil, self.streamFailureTask == nil
+      else { return }
+      self.recoveryUsesBackoff = true
+      if self.state != .paused {
+        self.transition(to: .paused, context: "screen stream failed")
+      }
+      let stopTask = self.streamLifecycle.requestStop()
+      self.streamFailureTask = Task { [weak self] in
+        guard let self else { return }
+        await self.authorization.recordCaptureFailure(error)
+        await stopTask.value
+        if await self.authorization.preflightIsGranted() {
+          self.q.async { [weak self] in
+            guard let self else { return }
+            self.streamFailureTask = nil
+            self.scheduleCaptureRestart()
+          }
+        } else {
+          self.q.async { [weak self] in self?.streamFailureTask = nil }
+          await self.handleScreenCaptureUnavailable(
+            reason: "stream_failed_permission",
+            useBackoffAfterRecovery: true
+          )
+        }
+      }
+    }
+  }
+
+  private func scheduleCaptureRestart(manual: Bool = false) {
+    guard captureRestartTask == nil else { return }
+    let delay = manual ? retryState.beginManualRetry() : retryState.beginRetry()
+    guard let delay else { return }
+
+    captureRestartTask = Task { [weak self] in
+      guard let self else { return }
+      if delay > 0 {
+        try? await Task.sleep(for: .seconds(delay))
+      }
+      guard !Task.isCancelled else { return }
+
+      guard await authorization.checkBeforeCapture() else {
+        q.async { [weak self] in
+          guard let self else { return }
+          self.captureRestartTask = nil
+          self.retryState.finishRetry(recovered: false)
+        }
+        await handleScreenCaptureUnavailable(
+          reason: "stream_retry_preflight",
+          useBackoffAfterRecovery: true
+        )
+        return
+      }
+
+      q.async { [weak self] in
+        guard let self else { return }
+        self.captureRestartTask = nil
+        self.retryState.finishRetry(recovered: false)
+        guard self.wantsRecording else { return }
+        self.transition(to: .idle, context: manual ? "manual stream retry" : "stream retry")
+        self.start()
+      }
     }
   }
 
   // MARK: - Capture Setting Changes
 
   private func registerForCaptureSettingChanges() {
-    // Interval changes restart the timer; resolution changes take effect on the
-    // next capture because FrameStore rotates segments when frame size changes.
+    // Recreate the stream so interval and resolution changes both take effect.
     NotificationCenter.default.addObserver(
       forName: ScreenshotConfig.didChange,
       object: nil, queue: nil
     ) { [weak self] _ in
       self?.q.async { [weak self] in
         guard let self, self.state == .capturing else { return }
-        dbg("capture settings changed – restarting timer")
-        self.startCaptureTimer()
+        let oldLifecycle = self.streamLifecycle
+        let stopTask = oldLifecycle?.requestStop()
+        Task {
+          await stopTask?.value
+          self.q.async { [weak self] in
+            guard let self, self.wantsRecording else { return }
+            FrameStore.shared.finishCurrentSegment()
+            self.streamLifecycle = self.makeStreamLifecycle(interval: ScreenshotConfig.interval)
+            self.transition(to: .idle, context: "capture settings changed")
+            self.start()
+          }
+        }
       }
     }
 
@@ -562,7 +968,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     dbg("Active display changed → switching: \(String(describing: currentDisplayID)) → \(newID)")
 
     // Refresh display for next screenshot
-    Task { await refreshDisplay() }
+    requestDisplayRefresh()
   }
 
   // MARK: - System Events (Sleep/Lock)
@@ -579,7 +985,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       self?.q.async { [weak self] in
         guard let self, self.state == .capturing else { return }
         dbg("didChangeScreenParameters – refreshing display selection")
-        Task { await self.refreshDisplay() }
+        self.requestDisplayRefresh()
       }
     }
 

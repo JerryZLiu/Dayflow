@@ -486,11 +486,23 @@ final class FlowDistractionAgent: ObservableObject {
 
   // MARK: - Screenshot capture
 
+  private nonisolated static let captureAuthorization: ScreenCaptureAuthorizationCoordinator = {
+    let history = ScreenCapturePermissionHistory(
+      didCompleteOnboarding: UserDefaults.standard.bool(forKey: "didOnboard"))
+    return ScreenCaptureAuthorizationCoordinator(
+      wasGranted: history.wasGranted,
+      history: history,
+      stateChanged: { state in
+        ScreenRecordingPermissionNotice.postAuthorizationState(state, reason: "flow_capture")
+      })
+  }()
+
   /// One-shot capture of the main display, scaled to ~720p JPEG. Independent
   /// of the timeline recorder so Flow works even when recording is paused.
   private nonisolated static func captureScreenshotJPEG(to url: URL) async throws {
-    let content = try await SCShareableContent.excludingDesktopWindows(
-      false, onScreenWindowsOnly: true)
+    let content = try await captureAuthorization.performCaptureRequest {
+      try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+    }
     guard let display = content.displays.first else {
       throw NSError(
         domain: "FlowAgent", code: -1,
@@ -504,10 +516,12 @@ final class FlowDistractionAgent: ObservableObject {
     configuration.scalesToFit = true
     configuration.showsCursor = true
 
-    let image = try await SCScreenshotManager.captureImage(
-      contentFilter: SCContentFilter(display: display, excludingWindows: []),
-      configuration: configuration
-    )
+    let image = try await captureAuthorization.performCaptureRequest {
+      try await SCScreenshotManager.captureImage(
+        contentFilter: SCContentFilter(display: display, excludingWindows: []),
+        configuration: configuration)
+    }
+    await captureAuthorization.recordCaptureSuccess()
 
     let bitmap = NSBitmapImageRep(cgImage: image)
     guard let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.6])

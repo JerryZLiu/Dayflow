@@ -337,6 +337,9 @@ extension Notification.Name {
   static let showTimelineFailureToast = Notification.Name("showTimelineFailureToast")
   static let showScreenRecordingPermissionNotice = Notification.Name(
     "showScreenRecordingPermissionNotice")
+  static let screenCaptureAuthorizationStateChanged = Notification.Name(
+    "screenCaptureAuthorizationStateChanged")
+  static let resumeScreenCaptureRequested = Notification.Name("resumeScreenCaptureRequested")
   static let openProvidersSettings = Notification.Name("openProvidersSettings")
   static let openAccountSettings = Notification.Name("openAccountSettings")
   static let navigateToFlow = Notification.Name("navigateToFlow")
