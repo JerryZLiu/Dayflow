@@ -904,8 +904,9 @@ extension GeminiDirectProvider {
         durationMinutes = Double(endSeconds - startSeconds) / 60.0
       }
 
-      // Check if card is too short (except for last card)
-      if durationMinutes < 10 && index < cards.count - 1 {
+      // Reject only invalid or near-zero middle fragments. Short context
+      // transitions should not fail an otherwise usable activity-card batch.
+      if durationMinutes < 1 && index < cards.count - 1 {
         return (
           false,
           "Card \(index + 1) '\(card.title)' is only \(String(format: "%.1f", durationMinutes)) minutes long"
