@@ -208,8 +208,8 @@ struct TimelineRateSummaryView: View {
     .accessibilityLabel(
       Text(
         deleteButtonState == .confirming
-          ? "Confirm delete activity card"
-          : "Delete activity card"
+          ? L10n.tr("Confirm delete activity card")
+          : L10n.tr("Delete activity card")
       )
     )
   }

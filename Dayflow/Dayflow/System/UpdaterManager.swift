@@ -64,7 +64,7 @@ final class UpdaterManager: NSObject, ObservableObject {
 
   func checkForUpdates(showUI: Bool = false) {
     isChecking = true
-    statusText = "Checking…"
+    statusText = L10n.tr("Checking…")
     track(
       "sparkle_check_triggered",
       [
@@ -214,7 +214,7 @@ extension UpdaterManager: SPUUpdaterDelegate {
     Task { @MainActor in
       self.updateAvailable = true
       self.latestVersionString = item.displayVersionString
-      self.statusText = "Update available: v\(self.latestVersionString ?? "?")"
+      self.statusText = L10n.tr("Update available: v%@", self.latestVersionString ?? "?")
       self.isChecking = false
       AppDelegate.allowTermination = false
       print("[Sparkle] Valid update found: \(item.versionString)")
@@ -225,7 +225,7 @@ extension UpdaterManager: SPUUpdaterDelegate {
   nonisolated func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
     Task { @MainActor in
       self.updateAvailable = false
-      self.statusText = "Latest version"
+      self.statusText = L10n.tr("Latest version")
       self.isChecking = false
       AppDelegate.allowTermination = false
       print("[Sparkle] No update available")
@@ -263,12 +263,14 @@ extension UpdaterManager: SPUUpdaterDelegate {
 
       if isNoUpdateError {
         self.updateAvailable = false
-        self.statusText = "Latest version"
+        self.statusText = L10n.tr("Latest version")
         AppDelegate.allowTermination = false
         return
       }
 
-      self.statusText = needsInteraction ? "Update needs authorization" : "Update check failed"
+      self.statusText =
+        needsInteraction
+        ? L10n.tr("Update needs authorization") : L10n.tr("Update check failed")
       AppDelegate.allowTermination = needsInteraction
       self.track(
         "sparkle_update_error",

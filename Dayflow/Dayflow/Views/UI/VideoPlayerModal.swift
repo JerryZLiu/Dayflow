@@ -194,7 +194,7 @@ struct VideoExpansionOverlay: View {
         }
         if let startTime = expansionState.startTime, let endTime = expansionState.endTime {
           Text(
-            "\(videoPlayerTimeFormatter.string(from: startTime)) to \(videoPlayerTimeFormatter.string(from: endTime))"
+            videoPlayerTimeFormatter.string(from: startTime) + " – " + videoPlayerTimeFormatter.string(from: endTime)
           )
           .font(.caption)
           .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
@@ -259,7 +259,7 @@ struct VideoExpansionOverlay: View {
         }
         .buttonStyle(ScaleButtonStyle())
         .padding(12)
-        .accessibilityLabel("Playback speed")
+        .accessibilityLabel(L10n.tr("Playback speed"))
         .transition(
           .asymmetric(
             insertion: .opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)),
@@ -424,7 +424,7 @@ struct VideoSegment: Identifiable {
   var durationString: String {
     let minutes = Int(duration / 60)
     let seconds = Int(duration) % 60
-    return minutes > 0 ? "\(minutes) min" : "\(seconds) sec"
+    return minutes > 0 ? L10n.tr("%d min", minutes) : L10n.tr("%d sec", seconds)
   }
 }
 
@@ -619,7 +619,7 @@ struct VideoPlayerModal: View {
             }
             if let startTime = startTime, let endTime = endTime {
               Text(
-                "\(videoPlayerTimeFormatter.string(from: startTime)) to \(videoPlayerTimeFormatter.string(from: endTime))"
+                videoPlayerTimeFormatter.string(from: startTime) + " – " + videoPlayerTimeFormatter.string(from: endTime)
               )
               .font(.caption)
               .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
@@ -701,7 +701,7 @@ struct VideoPlayerModal: View {
                 }
                 .buttonStyle(ScaleButtonStyle())
                 .padding(12)
-                .accessibilityLabel("Playback speed")
+                .accessibilityLabel(L10n.tr("Playback speed"))
                 .transition(
                   .asymmetric(
                     insertion: .opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)),

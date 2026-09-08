@@ -43,7 +43,7 @@ struct AgentWorkstream: Codable, Identifiable, Sendable {
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    name = (try? container.decodeIfPresent(String.self, forKey: .name)) ?? "Untitled"
+    name = (try? container.decodeIfPresent(String.self, forKey: .name)) ?? L10n.tr("Untitled")
     id = (try? container.decodeIfPresent(String.self, forKey: .id)) ?? name
     summary = (try? container.decodeIfPresent(String.self, forKey: .summary)) ?? ""
     bullets = (try? container.decodeIfPresent([String].self, forKey: .bullets)) ?? []
@@ -69,7 +69,9 @@ struct AgentThread: Codable, Identifiable, Sendable {
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    title = (try? container.decodeIfPresent(String.self, forKey: .title)) ?? "Untitled thread"
+    title =
+      (try? container.decodeIfPresent(String.self, forKey: .title))
+      ?? L10n.tr("Untitled thread")
     id = (try? container.decodeIfPresent(String.self, forKey: .id)) ?? title
     let sourceRaw = (try? container.decodeIfPresent(String.self, forKey: .source)) ?? ""
     source = AgentThreadSource(rawValue: sourceRaw) ?? .claude
@@ -156,10 +158,10 @@ enum AgentThreadStatus: String, Codable, CaseIterable, Sendable {
 
   var displayName: String {
     switch self {
-    case .blocked: return "Blocked"
-    case .reviewReady: return "Review ready"
-    case .inProgress: return "In progress"
-    case .completed: return "Completed"
+    case .blocked: return L10n.tr("Blocked")
+    case .reviewReady: return L10n.tr("Review ready")
+    case .inProgress: return L10n.tr("In progress")
+    case .completed: return L10n.tr("Completed")
     }
   }
 }
@@ -214,10 +216,10 @@ enum AgentCardStyle: String, CaseIterable, Identifiable {
 
   var displayName: String {
     switch self {
-    case .messenger: return "Messenger"
-    case .transcript: return "Transcript"
-    case .brief: return "Brief"
-    case .milestones: return "Milestones"
+    case .messenger: return L10n.tr("Messenger")
+    case .transcript: return L10n.tr("Transcript")
+    case .brief: return L10n.tr("Brief")
+    case .milestones: return L10n.tr("Milestones")
     }
   }
 }

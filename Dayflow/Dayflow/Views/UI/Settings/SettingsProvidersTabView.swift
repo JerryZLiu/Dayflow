@@ -50,22 +50,22 @@ struct SettingsProvidersTabView: View {
 
   private var currentConfigurationSection: some View {
     SettingsSection(
-      title: "Current configuration",
-      subtitle: "Active provider and runtime details."
+      title: L10n.tr("Current configuration"),
+      subtitle: L10n.tr("Active provider and runtime details.")
     ) {
       VStack(alignment: .leading, spacing: 0) {
         summaryRows
 
         HStack(spacing: 8) {
           SettingsSecondaryButton(
-            title: "Edit configuration",
+            title: L10n.tr("Edit configuration"),
             action: { viewModel.editProviderConfiguration(viewModel.primaryRoutingProviderId) }
           )
 
           if viewModel.currentProvider == .local {
             SettingsSecondaryButton(
               title: viewModel.usingRecommendedLocalModel
-                ? "Manage local model" : "Upgrade local model",
+                ? L10n.tr("Manage local model") : L10n.tr("Upgrade local model"),
               action: { viewModel.isShowingLocalModelUpgradeSheet = true }
             )
           }
@@ -77,74 +77,74 @@ struct SettingsProvidersTabView: View {
 
   @ViewBuilder
   private var summaryRows: some View {
-    SettingsRow(label: "Primary provider") {
+    SettingsRow(label: L10n.tr("Primary provider")) {
       HStack(spacing: 8) {
         SettingsMetadata(
           text: viewModel.providerDisplayName(viewModel.primaryRoutingProviderId))
-        SettingsBadge(text: "PRIMARY", isAccent: true)
+        SettingsBadge(text: L10n.tr("PRIMARY"), isAccent: true)
       }
     }
 
     if let backupProvider = viewModel.secondaryRoutingProviderId {
-      SettingsRow(label: "Secondary provider") {
+      SettingsRow(label: L10n.tr("Secondary provider")) {
         HStack(spacing: 8) {
           SettingsMetadata(text: viewModel.providerDisplayName(backupProvider))
-          SettingsBadge(text: "SECONDARY")
+          SettingsBadge(text: L10n.tr("SECONDARY"))
         }
       }
     } else {
-      SettingsRow(label: "Secondary provider") {
-        SettingsMetadata(text: "Not configured")
+      SettingsRow(label: L10n.tr("Secondary provider")) {
+        SettingsMetadata(text: L10n.tr("Not configured"))
       }
     }
 
     switch viewModel.currentProvider {
     case .local:
-      SettingsRow(label: "Engine") { SettingsMetadata(text: viewModel.localEngine.displayName) }
-      SettingsRow(label: "Model") {
+      SettingsRow(label: L10n.tr("Engine")) { SettingsMetadata(text: viewModel.localEngine.displayName) }
+      SettingsRow(label: L10n.tr("Model")) {
         SettingsMetadata(
-          text: viewModel.localModelId.isEmpty ? "Not configured" : viewModel.localModelId)
+          text: viewModel.localModelId.isEmpty ? L10n.tr("Not configured") : viewModel.localModelId)
       }
-      SettingsRow(label: "Endpoint") { SettingsMetadata(text: viewModel.localBaseURL) }
+      SettingsRow(label: L10n.tr("Endpoint")) { SettingsMetadata(text: viewModel.localBaseURL) }
       let hasKey = !viewModel.localAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      SettingsRow(label: "API key", showsDivider: false) {
-        SettingsMetadata(text: hasKey ? "Stored in UserDefaults" : "Not set")
+      SettingsRow(label: L10n.tr("API key"), showsDivider: false) {
+        SettingsMetadata(text: hasKey ? L10n.tr("Stored in UserDefaults") : L10n.tr("Not set"))
       }
     case .gemini:
-      SettingsRow(label: "Model preference") {
+      SettingsRow(label: L10n.tr("Model preference")) {
         SettingsMetadata(text: viewModel.selectedGeminiModel.displayName)
       }
-      SettingsRow(label: "API key", showsDivider: false) {
+      SettingsRow(label: L10n.tr("API key"), showsDivider: false) {
         SettingsMetadata(
           text: KeychainManager.shared.retrieve(for: "gemini") != nil
-            ? "Stored safely in Keychain" : "Not set")
+            ? L10n.tr("Stored safely in Keychain") : L10n.tr("Not set"))
       }
     case .chatGPT, .claude:
-      SettingsRow(label: "CLI") {
+      SettingsRow(label: L10n.tr("CLI")) {
         SettingsMetadata(text: viewModel.cliStatusLabel(for: viewModel.currentProvider))
       }
     case .openAICompatible:
-      SettingsRow(label: "Preset") {
+      SettingsRow(label: L10n.tr("Preset")) {
         SettingsMetadata(
-          text: viewModel.openAICompatiblePreset == .openRouter ? "OpenRouter" : "Custom")
+          text: viewModel.openAICompatiblePreset == .openRouter ? "OpenRouter" : L10n.tr("Custom"))
       }
-      SettingsRow(label: "Model") {
+      SettingsRow(label: L10n.tr("Model")) {
         SettingsMetadata(
           text: viewModel.openAICompatibleModelID.isEmpty
-            ? "Not configured" : viewModel.openAICompatibleModelID)
+            ? L10n.tr("Not configured") : viewModel.openAICompatibleModelID)
       }
-      SettingsRow(label: "Endpoint") {
+      SettingsRow(label: L10n.tr("Endpoint")) {
         SettingsMetadata(text: viewModel.openAICompatibleBaseURL)
       }
       let hasKey = !viewModel.openAICompatibleAPIKey.trimmingCharacters(
         in: .whitespacesAndNewlines
       ).isEmpty
-      SettingsRow(label: "API key", showsDivider: false) {
-        SettingsMetadata(text: hasKey ? "Stored safely in Keychain" : "Not set")
+      SettingsRow(label: L10n.tr("API key"), showsDivider: false) {
+        SettingsMetadata(text: hasKey ? L10n.tr("Stored safely in Keychain") : L10n.tr("Not set"))
       }
     case .dayflow:
-      SettingsRow(label: "Status", showsDivider: false) {
-        SettingsMetadata(text: viewModel.statusText(for: .dayflow) ?? "Requires Dayflow Pro")
+      SettingsRow(label: L10n.tr("Status"), showsDivider: false) {
+        SettingsMetadata(text: viewModel.statusText(for: .dayflow) ?? L10n.tr("Requires Dayflow Pro"))
       }
     }
   }
@@ -153,8 +153,8 @@ struct SettingsProvidersTabView: View {
 
   private var connectionHealthSection: some View {
     SettingsSection(
-      title: "Connection health",
-      subtitle: "Run a quick test for the primary provider."
+      title: L10n.tr("Connection health"),
+      subtitle: L10n.tr("Run a quick test for the primary provider.")
     ) {
       VStack(alignment: .leading, spacing: 14) {
         Text(viewModel.connectionHealthLabel)
@@ -197,7 +197,7 @@ struct SettingsProvidersTabView: View {
             .font(.custom("Figtree", size: 12))
             .foregroundColor(SettingsStyle.secondary)
             .fixedSize(horizontal: false, vertical: true)
-            SettingsSecondaryButton(title: "Test connection") {
+            SettingsSecondaryButton(title: L10n.tr("Test connection")) {
               viewModel.editProviderConfiguration(.openAICompatible)
             }
           }
@@ -214,8 +214,8 @@ struct SettingsProvidersTabView: View {
 
   private var failoverRoutingSection: some View {
     SettingsSection(
-      title: "Failover routing",
-      subtitle: "Choose primary and secondary providers."
+      title: L10n.tr("Failover routing"),
+      subtitle: L10n.tr("Choose primary and secondary providers.")
     ) {
       VStack(alignment: .leading, spacing: 0) {
         let providers = viewModel.routingProviders
@@ -251,21 +251,21 @@ struct SettingsProvidersTabView: View {
         Spacer()
 
         if isPrimary {
-          SettingsBadge(text: "PRIMARY", isAccent: true)
+          SettingsBadge(text: L10n.tr("PRIMARY"), isAccent: true)
         }
         if isSecondary {
-          SettingsBadge(text: "SECONDARY")
+          SettingsBadge(text: L10n.tr("SECONDARY"))
         }
         if isChecking && !isPrimary && !isSecondary {
-          SettingsBadge(text: "CHECKING")
+          SettingsBadge(text: L10n.tr("CHECKING"))
         } else if !isChecking && !isConfigured && (isPrimary || isSecondary) {
-          SettingsBadge(text: "NEEDS ATTENTION")
+          SettingsBadge(text: L10n.tr("NEEDS ATTENTION"))
         } else if !isChecking && !isPrimary && !isSecondary && isConfigured {
           SettingsBadge(
             text: provider.id == .chatGPT || provider.id == .claude
-              ? "DETECTED" : "CONFIGURED")
+              ? L10n.tr("DETECTED") : L10n.tr("CONFIGURED"))
         } else if !isChecking && !isPrimary && !isSecondary {
-          SettingsBadge(text: "NOT SET")
+          SettingsBadge(text: L10n.tr("NOT SET"))
         }
       }
 
@@ -276,13 +276,13 @@ struct SettingsProvidersTabView: View {
 
       HStack(spacing: 8) {
         if viewModel.shouldShowDayflowUpgradeAction(for: provider.id) {
-          SettingsPrimaryButton(title: "Upgrade account", systemImage: "sparkles") {
+          SettingsPrimaryButton(title: L10n.tr("Upgrade account"), systemImage: "sparkles") {
             viewModel.openDayflowUpgradeAccount(from: provider.id)
           }
         } else if provider.id == .dayflow {
           if !isPrimary {
             SettingsSecondaryButton(
-              title: "Set primary",
+              title: L10n.tr("Set primary"),
               isDisabled: !viewModel.canModifyRouting
             ) {
               viewModel.setPrimaryOrSetup(provider.id)
@@ -290,28 +290,28 @@ struct SettingsProvidersTabView: View {
           }
 
           if !isSecondary {
-            SettingsSecondaryButton(title: "Set secondary", isDisabled: !canSetSecondary) {
+            SettingsSecondaryButton(title: L10n.tr("Set secondary"), isDisabled: !canSetSecondary) {
               viewModel.setSecondaryOrSetup(provider.id)
             }
           } else {
-            SettingsSecondaryButton(title: "Unset secondary") {
+            SettingsSecondaryButton(title: L10n.tr("Unset secondary")) {
               viewModel.clearBackupProvider()
             }
           }
         } else {
           if !isConfigured {
-            SettingsSecondaryButton(title: "Setup") {
+            SettingsSecondaryButton(title: L10n.tr("Setup")) {
               viewModel.beginProviderSetup(provider.id, role: .setupOnly)
             }
           }
 
-          SettingsSecondaryButton(title: "Edit configuration") {
+          SettingsSecondaryButton(title: L10n.tr("Edit configuration")) {
             viewModel.editProviderConfiguration(provider.id)
           }
 
           if !isPrimary {
             SettingsSecondaryButton(
-              title: "Set primary",
+              title: L10n.tr("Set primary"),
               isDisabled: !viewModel.canModifyRouting
             ) {
               viewModel.setPrimaryOrSetup(provider.id)
@@ -319,11 +319,11 @@ struct SettingsProvidersTabView: View {
           }
 
           if !isSecondary {
-            SettingsSecondaryButton(title: "Set secondary", isDisabled: !canSetSecondary) {
+            SettingsSecondaryButton(title: L10n.tr("Set secondary"), isDisabled: !canSetSecondary) {
               viewModel.setSecondaryOrSetup(provider.id)
             }
           } else {
-            SettingsSecondaryButton(title: "Unset secondary") {
+            SettingsSecondaryButton(title: L10n.tr("Unset secondary")) {
               viewModel.clearBackupProvider()
             }
           }
@@ -342,8 +342,8 @@ struct SettingsProvidersTabView: View {
 
   private var geminiModelSection: some View {
     SettingsSection(
-      title: "Gemini model preference",
-      subtitle: "Choose which Gemini model Dayflow should prioritize."
+      title: L10n.tr("Gemini model preference"),
+      subtitle: L10n.tr("Choose which Gemini model Dayflow should prioritize.")
     ) {
       VStack(alignment: .leading, spacing: 14) {
         Picker("Gemini model", selection: $viewModel.selectedGeminiModel) {
@@ -377,28 +377,27 @@ struct SettingsProvidersTabView: View {
     switch viewModel.currentProvider {
     case .gemini:
       promptSection(
-        title: "Gemini prompt customization",
-        subtitle: "Override Dayflow's defaults to tailor card generation.",
-        intro:
-          "Overrides apply only when their toggle is on. Unchecked sections fall back to Dayflow's defaults.",
+        title: L10n.tr("Gemini prompt customization"),
+        subtitle: L10n.tr("Override Dayflow's defaults to tailor card generation."),
+        intro: L10n.tr("Overrides apply only when their toggle is on. Unchecked sections fall back to Dayflow's defaults."),
         sections: [
           promptEditorConfig(
-            heading: "Card titles",
-            description: "Shape how card titles read and tweak the example list.",
+            heading: L10n.tr("Card titles"),
+            description: L10n.tr("Shape how card titles read and tweak the example list."),
             isEnabled: $viewModel.useCustomGeminiTitlePrompt,
             text: $viewModel.geminiTitlePromptText,
             defaultText: GeminiPromptDefaults.titleBlock
           ),
           promptEditorConfig(
-            heading: "Card summaries",
-            description: "Control tone and style for the summary field.",
+            heading: L10n.tr("Card summaries"),
+            description: L10n.tr("Control tone and style for the summary field."),
             isEnabled: $viewModel.useCustomGeminiSummaryPrompt,
             text: $viewModel.geminiSummaryPromptText,
             defaultText: GeminiPromptDefaults.summaryBlock
           ),
           promptEditorConfig(
-            heading: "Detailed summaries",
-            description: "Define the minute-by-minute breakdown format and examples.",
+            heading: L10n.tr("Detailed summaries"),
+            description: L10n.tr("Define the minute-by-minute breakdown format and examples."),
             isEnabled: $viewModel.useCustomGeminiDetailedPrompt,
             text: $viewModel.geminiDetailedPromptText,
             defaultText: GeminiPromptDefaults.detailedSummaryBlock
@@ -408,20 +407,20 @@ struct SettingsProvidersTabView: View {
       )
     case .local:
       promptSection(
-        title: "Local prompt customization",
-        subtitle: "Adjust the prompts used for local timeline summaries.",
-        intro: "Customize the local model prompts for summary and title generation.",
+        title: L10n.tr("Local prompt customization"),
+        subtitle: L10n.tr("Adjust the prompts used for local timeline summaries."),
+        intro: L10n.tr("Customize the local model prompts for summary and title generation."),
         sections: [
           promptEditorConfig(
-            heading: "Timeline summaries",
-            description: "Control how the local model writes its 2-3 sentence card summaries.",
+            heading: L10n.tr("Timeline summaries"),
+            description: L10n.tr("Control how the local model writes its 2-3 sentence card summaries."),
             isEnabled: $viewModel.useCustomOllamaSummaryPrompt,
             text: $viewModel.ollamaSummaryPromptText,
             defaultText: OllamaPromptDefaults.summaryBlock
           ),
           promptEditorConfig(
-            heading: "Card titles",
-            description: "Adjust the tone and examples for local title generation.",
+            heading: L10n.tr("Card titles"),
+            description: L10n.tr("Adjust the tone and examples for local title generation."),
             isEnabled: $viewModel.useCustomOllamaTitlePrompt,
             text: $viewModel.ollamaTitlePromptText,
             defaultText: OllamaPromptDefaults.titleBlock
@@ -450,28 +449,27 @@ struct SettingsProvidersTabView: View {
       )
     }
     return promptSection(
-      title: "ChatGPT and Claude prompt customization",
-      subtitle: "Keep independent card-generation prompts for each CLI provider.",
-      intro:
-        "Overrides apply only when their toggle is on. Unchecked sections fall back to Dayflow's defaults.",
+      title: L10n.tr("ChatGPT and Claude prompt customization"),
+      subtitle: L10n.tr("Keep independent card-generation prompts for each CLI provider."),
+      intro: L10n.tr("Overrides apply only when their toggle is on. Unchecked sections fall back to Dayflow's defaults."),
       sections: [
         promptEditorConfig(
-          heading: "Card titles",
-          description: "Shape how card titles read and tweak the example list.",
+          heading: L10n.tr("Card titles"),
+          description: L10n.tr("Shape how card titles read and tweak the example list."),
           isEnabled: $viewModel.useCustomAgentTitlePrompt,
           text: $viewModel.agentTitlePromptText,
           defaultText: defaults.titleBlock
         ),
         promptEditorConfig(
-          heading: "Card summaries",
-          description: "Control tone and style for the summary field.",
+          heading: L10n.tr("Card summaries"),
+          description: L10n.tr("Control tone and style for the summary field."),
           isEnabled: $viewModel.useCustomAgentSummaryPrompt,
           text: $viewModel.agentSummaryPromptText,
           defaultText: defaults.summaryBlock
         ),
         promptEditorConfig(
-          heading: "Detailed summaries",
-          description: "Define the minute-by-minute breakdown format and examples.",
+          heading: L10n.tr("Detailed summaries"),
+          description: L10n.tr("Define the minute-by-minute breakdown format and examples."),
           isEnabled: $viewModel.useCustomAgentDetailedPrompt,
           text: $viewModel.agentDetailedPromptText,
           defaultText: defaults.detailedSummaryBlock
@@ -534,7 +532,7 @@ struct SettingsProvidersTabView: View {
         HStack {
           Spacer()
           SettingsSecondaryButton(
-            title: "Reset to Dayflow defaults",
+            title: L10n.tr("Reset to Dayflow defaults"),
             systemImage: "arrow.counterclockwise",
             action: onReset
           )
@@ -616,7 +614,7 @@ private struct LocalModelUpgradeBanner: View {
           .background(Color(red: 0.12, green: 0.09, blue: 0.02))
           .clipShape(RoundedRectangle(cornerRadius: 8))
         VStack(alignment: .leading, spacing: 4) {
-          Text("Upgrade to \(preset.displayName)")
+          Text(L10n.tr("Upgrade to %@", preset.displayName))
             .font(.custom("Figtree", size: 16))
             .fontWeight(.semibold)
             .foregroundColor(.white)
@@ -733,7 +731,7 @@ struct LocalModelUpgradeSheet: View {
       VStack(alignment: .leading, spacing: 24) {
         HStack {
           VStack(alignment: .leading, spacing: 6) {
-            Text("Upgrade to \(preset.displayName)")
+            Text(L10n.tr("Upgrade to %@", preset.displayName))
               .font(.custom("Figtree", size: 22))
               .fontWeight(.semibold)
             Text(
@@ -786,7 +784,7 @@ struct LocalModelUpgradeSheet: View {
           apiKey: $candidateAPIKey,
           engine: selectedEngine,
           showInputs: true,
-          buttonLabel: "Test upgrade",
+          buttonLabel: L10n.tr("Test upgrade"),
           basePlaceholder: selectedEngine.defaultBaseURL,
           modelPlaceholder: preset.modelId(
             for: selectedEngine == .custom ? .ollama : selectedEngine),
@@ -799,14 +797,16 @@ struct LocalModelUpgradeSheet: View {
         )
 
         Text(
-          "Once the test succeeds, Dayflow updates your settings to \(preset.displayName) automatically."
+          L10n.tr(
+            "Once the test succeeds, Dayflow updates your settings to %@ automatically.",
+            preset.displayName)
         )
         .font(.custom("Figtree", size: 12))
         .foregroundColor(SettingsStyle.secondary)
 
         HStack {
           Spacer()
-          SettingsSecondaryButton(title: "Close", action: onCancel)
+          SettingsSecondaryButton(title: L10n.tr("Close"), action: onCancel)
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)

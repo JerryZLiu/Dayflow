@@ -119,10 +119,10 @@ struct ChatHistoryPanel: View {
     }
 
     return [
-      ConversationGroup(title: "TODAY", conversations: today),
-      ConversationGroup(title: "YESTERDAY", conversations: yesterday),
-      ConversationGroup(title: "THIS WEEK", conversations: thisWeek),
-      ConversationGroup(title: "EARLIER", conversations: earlier),
+      ConversationGroup(title: L10n.tr("TODAY"), conversations: today),
+      ConversationGroup(title: L10n.tr("YESTERDAY"), conversations: yesterday),
+      ConversationGroup(title: L10n.tr("THIS WEEK"), conversations: thisWeek),
+      ConversationGroup(title: L10n.tr("EARLIER"), conversations: earlier),
     ].filter { !$0.conversations.isEmpty }
   }
 }

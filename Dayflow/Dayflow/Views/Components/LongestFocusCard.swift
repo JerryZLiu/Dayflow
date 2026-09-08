@@ -91,17 +91,17 @@ struct LongestFocusCard: View {
   }
 
   private var formattedDuration: String {
-    guard let longest = longestBlock else { return "0 minutes" }
+    guard let longest = longestBlock else { return L10n.tr("0 minutes") }
     let totalMinutes = Int(longest.duration / 60)
     let hours = totalMinutes / 60
     let minutes = totalMinutes % 60
 
     if hours > 0 && minutes > 0 {
-      return "\(hours) hours \(minutes) minutes"
+      return L10n.tr("%d hours %d minutes", hours, minutes)
     } else if hours > 0 {
-      return "\(hours) hours"
+      return L10n.tr("%d hours", hours)
     } else {
-      return "\(minutes) minutes"
+      return L10n.tr("%d minutes", minutes)
     }
   }
 

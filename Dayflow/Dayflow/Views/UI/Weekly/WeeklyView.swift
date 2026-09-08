@@ -168,7 +168,7 @@ struct WeeklyView: View {
 
               WeeklyExportableGraphic(
                 layout: layout,
-                title: "Weekly workflow",
+                title: L10n.tr("Weekly workflow"),
                 headerTitle: dashboardSnapshot.workflow.title,
                 downloadButtonOrigin: CGPoint(x: 79, y: 16),
                 fileName: exportFileName("weekly-workflow"),
@@ -188,7 +188,7 @@ struct WeeklyView: View {
 
               WeeklyExportableGraphic(
                 layout: layout,
-                title: "Focus heatmap",
+                title: L10n.tr("Focus heatmap"),
                 headerTitle: dashboardSnapshot.heatmap.title,
                 downloadButtonOrigin: CGPoint(x: 44, y: 34),
                 fileName: exportFileName("focus-heatmap"),
@@ -208,7 +208,7 @@ struct WeeklyView: View {
 
               WeeklyExportableGraphic(
                 layout: layout,
-                title: "Focus breakdown",
+                title: L10n.tr("Focus breakdown"),
                 headerTitle: dashboardSnapshot.treemap.title,
                 downloadButtonOrigin: CGPoint(x: 40, y: 34),
                 fileName: exportFileName("focus-breakdown"),
@@ -221,7 +221,7 @@ struct WeeklyView: View {
 
               WeeklyExportableGraphic(
                 layout: layout,
-                title: "Weekly breakdown",
+                title: L10n.tr("Weekly breakdown"),
                 downloadButtonOrigin: CGPoint(
                   x: layout.contentWidth * 72 / 1748,
                   y: layout.contentWidth * 64 / 1748
@@ -273,7 +273,7 @@ struct WeeklyView: View {
   ) -> some View {
     WeeklyExportableFixedGraphic(
       availableWidth: width,
-      title: "Weekly distribution",
+      title: L10n.tr("Weekly distribution"),
       downloadButtonOrigin: CGPoint(x: 18, y: 16),
       fileName: exportFileName("weekly-distribution"),
       designWidth: WeeklyAdaptiveLayout.donutCardWidth,
@@ -294,8 +294,8 @@ struct WeeklyView: View {
   ) -> some View {
     WeeklyExportableFixedGraphic(
       availableWidth: width,
-      title: "Context charts",
-      headerTitle: "Context shift and distractions comparison",
+      title: L10n.tr("Context charts"),
+      headerTitle: L10n.tr("Context shift and distractions comparison"),
       downloadButtonOrigin: CGPoint(x: 24, y: 16),
       fileName: exportFileName("context-charts"),
       designWidth: WeeklyAdaptiveLayout.designContentWidth,
@@ -511,7 +511,7 @@ private struct WeeklyDataRequirementView: View {
 
   private var remainingText: String {
     let remainingMinutes = max(targetMinutes - recordedMinutes, 0)
-    return "\(durationText(remainingMinutes)) more to unlock this week"
+    return L10n.tr("%@ more to unlock this week", durationText(remainingMinutes))
   }
 
   var body: some View {
@@ -555,18 +555,18 @@ private struct WeeklyDataRequirementView: View {
     let remainingMinutes = minutes % 60
 
     if minutes <= 0 {
-      return "0h"
+      return L10n.tr("0h")
     }
 
     if hours == 0 {
-      return "\(remainingMinutes)m"
+      return L10n.tr("%dm", remainingMinutes)
     }
 
     if remainingMinutes == 0 {
-      return "\(hours)h"
+      return L10n.tr("%dh", hours)
     }
 
-    return "\(hours)h \(remainingMinutes)m"
+    return L10n.tr("%dh %dm", hours, remainingMinutes)
   }
 }
 
@@ -917,7 +917,7 @@ private struct WeeklyGraphicDownloadButton: View {
         .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
     .buttonStyle(.plain)
-    .help("Download \(title) as a full-resolution PNG")
+    .help(L10n.tr("Download %@ as a full-resolution PNG", title))
     .hoverScaleEffect(scale: 1.04)
     .pointingHandCursorOnHover(reassertOnPressEnd: true)
   }
@@ -957,8 +957,8 @@ private enum WeeklyGraphicExporter {
     }
 
     let savePanel = NSSavePanel()
-    savePanel.title = "Download graphic"
-    savePanel.prompt = "Download"
+    savePanel.title = L10n.tr("Download graphic")
+    savePanel.prompt = L10n.tr("Download")
     savePanel.nameFieldStringValue = fileName
     savePanel.allowedContentTypes = [.png]
     savePanel.canCreateDirectories = true

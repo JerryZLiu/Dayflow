@@ -170,7 +170,9 @@ struct AgentsCardsView: View {
 
   private var positionCaption: some View {
     Text(
-      "Thread \(currentPositionIndex + 1) of \(positions.count) · \(recap.workstreams[workstreamIndex].name)"
+      L10n.tr(
+        "Thread %lld of %lld · %@", currentPositionIndex + 1, positions.count,
+        recap.workstreams[workstreamIndex].name)
     )
     .font(.custom("Figtree", size: 11))
     .foregroundColor(.black.opacity(0.35))

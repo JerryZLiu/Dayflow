@@ -100,11 +100,15 @@ struct AgentsOverviewView: View {
   }
 
   private var dayHeading: String {
-    guard let date = DateFormatter.yyyyMMdd.date(from: recap.day) else { return "Today" }
+    guard let date = DateFormatter.yyyyMMdd.date(from: recap.day) else {
+      return L10n.tr("Today")
+    }
     let formatter = DateFormatter()
-    formatter.dateFormat = "MMMM d"
-    let prefix = Calendar.current.isDateInToday(date) ? "Today, " : ""
-    return prefix + formatter.string(from: date)
+    formatter.setLocalizedDateFormatFromTemplate("MMMMd")
+    let formattedDate = formatter.string(from: date)
+    return Calendar.current.isDateInToday(date)
+      ? L10n.tr("Today, %@", formattedDate)
+      : formattedDate
   }
 
   private var isViewingToday: Bool {
@@ -118,7 +122,7 @@ struct AgentsOverviewView: View {
     let formatter = DateFormatter()
     formatter.timeStyle = .short
     formatter.dateStyle = .none
-    return "Generated \(formatter.string(from: date))"
+    return L10n.tr("Generated %@", formatter.string(from: date))
   }
 
   private var refreshButton: some View {
@@ -152,8 +156,8 @@ struct AgentsOverviewView: View {
   /// A refresh always regenerates *today's* recap, so make that explicit
   /// whenever a past day is on screen.
   private var refreshButtonTitle: String {
-    if isRefreshing { return "Refreshing…" }
-    return isViewingToday ? "Refresh recap" : "Generate today's recap"
+    if isRefreshing { return L10n.tr("Refreshing…") }
+    return isViewingToday ? L10n.tr("Refresh recap") : L10n.tr("Generate today's recap")
   }
 
   private func blobPosition(index: Int, in size: CGSize) -> CGPoint {
@@ -191,7 +195,7 @@ struct AgentsOverviewView: View {
         .fill(AgentsPalette.legendDot(for: status))
         .overlay(Circle().stroke(Color.black.opacity(0.08), lineWidth: 0.5))
         .frame(width: 8, height: 8)
-      Text("\(count) \(status.displayName)")
+      Text(L10n.tr("%lld %@", count, status.displayName))
         .font(.custom("Figtree", size: 11))
         .foregroundColor(.black.opacity(0.6))
     }

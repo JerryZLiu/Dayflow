@@ -55,7 +55,7 @@ struct WeekTimelineActivityCard: View {
 
   private var displayTitle: String {
     guard isFailedCard, failureCount > 1 else { return title }
-    return "\(title) · \(failureCount) intervals"
+    return L10n.tr("%@ · %d intervals", title, failureCount)
   }
 
   // Title font size is a single constant across every card in the grid — no

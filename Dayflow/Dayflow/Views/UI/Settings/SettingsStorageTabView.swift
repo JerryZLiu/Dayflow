@@ -13,17 +13,22 @@ struct SettingsStorageTabView: View {
       guard let pending = viewModel.pendingLimit,
         StorageSettingsViewModel.storageOptions.indices.contains(pending.index)
       else {
-        return Alert(title: Text("Adjust storage limit"), dismissButton: .default(Text("OK")))
+        return Alert(
+          title: Text(L10n.tr("Adjust storage limit")),
+          dismissButton: .default(Text(L10n.tr("OK")))
+        )
       }
 
       let option = StorageSettingsViewModel.storageOptions[pending.index]
       let categoryName = pending.category.displayName
       return Alert(
-        title: Text("Lower \(categoryName) limit?"),
+        title: Text(L10n.tr("Lower %@ limit?", categoryName)),
         message: Text(
-          "Reducing the \(categoryName) limit to \(option.label) will immediately delete the oldest \(categoryName) data to stay under the new cap."
+          L10n.tr(
+            "Reducing the %@ limit to %@ will immediately delete the oldest %@ data to stay under the new cap.",
+            categoryName, option.label, categoryName)
         ),
-        primaryButton: .destructive(Text("Confirm")) {
+        primaryButton: .destructive(Text(L10n.tr("Confirm"))) {
           viewModel.applyLimit(for: pending.category, index: pending.index)
         },
         secondaryButton: .cancel {
@@ -42,21 +47,21 @@ struct SettingsStorageTabView: View {
     let isRecording = permissionGranted && recordingEnabled
     let recorderStatus: SettingsStatusDot.State =
       isRecording ? .good : (permissionGranted ? .idle : .bad)
-    let recorderLabel = isRecording ? "Active" : (permissionGranted ? "Idle" : "Blocked")
+    let recorderLabel = isRecording ? L10n.tr("Active") : (permissionGranted ? L10n.tr("Idle") : L10n.tr("Blocked"))
 
     return SettingsSection(
-      title: "Recording status",
-      subtitle: "Ensure Dayflow can capture your screen."
+      title: L10n.tr("Recording status"),
+      subtitle: L10n.tr("Ensure Dayflow can capture your screen.")
     ) {
       VStack(alignment: .leading, spacing: 0) {
-        SettingsRow(label: "Screen recording permission") {
+        SettingsRow(label: L10n.tr("Screen recording permission")) {
           SettingsStatusDot(
             state: permissionGranted ? .good : .bad,
-            label: permissionGranted ? "Granted" : "Missing"
+            label: permissionGranted ? L10n.tr("Granted") : L10n.tr("Missing")
           )
         }
 
-        SettingsRow(label: "Recorder", showsDivider: false) {
+        SettingsRow(label: L10n.tr("Recorder"), showsDivider: false) {
           SettingsStatusDot(
             state: recorderStatus,
             label: recorderLabel
@@ -65,13 +70,13 @@ struct SettingsStorageTabView: View {
 
         HStack(spacing: 14) {
           SettingsPrimaryButton(
-            title: viewModel.isRefreshingStorage ? "Checking…" : "Run status check",
+            title: viewModel.isRefreshingStorage ? L10n.tr("Checking…") : L10n.tr("Run status check"),
             isLoading: viewModel.isRefreshingStorage,
             action: viewModel.runStorageStatusCheck
           )
 
           if let last = viewModel.lastStorageCheck {
-            SettingsMetadata(text: "Last checked \(relativeDate(last))")
+            SettingsMetadata(text: L10n.tr("Last checked %@", relativeDate(last)))
           }
         }
         .padding(.top, 18)
@@ -83,11 +88,11 @@ struct SettingsStorageTabView: View {
 
   private var recordingQualitySection: some View {
     SettingsSection(
-      title: "Recording quality",
-      subtitle: "Higher resolution and more frequent captures use more disk."
+      title: L10n.tr("Recording quality"),
+      subtitle: L10n.tr("Higher resolution and more frequent captures use more disk.")
     ) {
       VStack(alignment: .leading, spacing: 0) {
-        SettingsRow(label: "Resolution", subtitle: "Height each frame is scaled to") {
+        SettingsRow(label: L10n.tr("Resolution"), subtitle: L10n.tr("Height each frame is scaled to")) {
           settingsMenu(
             selected: ScreenshotConfig.label(forHeight: viewModel.captureHeight),
             options: ScreenshotConfig.heightOptions.map {
@@ -98,7 +103,7 @@ struct SettingsStorageTabView: View {
         }
 
         SettingsRow(
-          label: "Capture frequency", subtitle: "How often a frame is taken", showsDivider: false
+          label: L10n.tr("Capture frequency"), subtitle: L10n.tr("How often a frame is taken"), showsDivider: false
         ) {
           settingsMenu(
             selected: ScreenshotConfig.label(forInterval: viewModel.captureInterval),
@@ -156,13 +161,13 @@ struct SettingsStorageTabView: View {
 
   private var diskUsageSection: some View {
     SettingsSection(
-      title: "Disk usage",
-      subtitle: "Open folders or adjust per-type storage caps."
+      title: L10n.tr("Disk usage"),
+      subtitle: L10n.tr("Open folders or adjust per-type storage caps.")
     ) {
       VStack(alignment: .leading, spacing: 0) {
         usageRow(
           category: .recordings,
-          label: "Recordings",
+          label: L10n.tr("Recordings"),
           size: viewModel.recordingsUsageBytes,
           limitIndex: viewModel.recordingsLimitIndex,
           limitBytes: viewModel.recordingsLimitBytes,
@@ -170,7 +175,7 @@ struct SettingsStorageTabView: View {
         )
         usageRow(
           category: .timelapses,
-          label: "Timelapses",
+          label: L10n.tr("Timelapses"),
           size: viewModel.timelapseUsageBytes,
           limitIndex: viewModel.timelapsesLimitIndex,
           limitBytes: viewModel.timelapsesLimitBytes,
@@ -221,7 +226,7 @@ struct SettingsStorageTabView: View {
         Spacer(minLength: 12)
 
         HStack(spacing: 8) {
-          SettingsSecondaryButton(title: "Open", action: action)
+          SettingsSecondaryButton(title: L10n.tr("Open"), action: action)
 
           Menu {
             ForEach(StorageSettingsViewModel.storageOptions) { candidate in

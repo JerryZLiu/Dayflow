@@ -125,11 +125,11 @@ struct DailyWorkflowStatChip: Identifiable, Sendable {
   let value: String
 
   static let placeholder: [DailyWorkflowStatChip] = [
-    DailyWorkflowStatChip(id: "context-switched", title: "Context switched", value: "0 times"),
-    DailyWorkflowStatChip(id: "interrupted", title: "Interrupted", value: "0 times"),
-    DailyWorkflowStatChip(id: "focused-for", title: "Focused for", value: "0m"),
-    DailyWorkflowStatChip(id: "distracted-for", title: "Distracted for", value: "0m"),
-    DailyWorkflowStatChip(id: "transitioning-time", title: "Transitioning time", value: "0m"),
+    DailyWorkflowStatChip(id: "context-switched", title: L10n.tr("Context switched"), value: L10n.tr("%d times", 0)),
+    DailyWorkflowStatChip(id: "interrupted", title: L10n.tr("Interrupted"), value: L10n.tr("%d times", 0)),
+    DailyWorkflowStatChip(id: "focused-for", title: L10n.tr("Focused for"), value: L10n.tr("%d min", 0)),
+    DailyWorkflowStatChip(id: "distracted-for", title: L10n.tr("Distracted for"), value: L10n.tr("%d min", 0)),
+    DailyWorkflowStatChip(id: "transitioning-time", title: L10n.tr("Transitioning time"), value: L10n.tr("%d min", 0)),
   ]
 }
 struct DailyWorkflowTimelineWindow: Sendable {

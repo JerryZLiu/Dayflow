@@ -18,7 +18,7 @@ struct ReferralSurveyView: View {
 
   init(
     prompt: String,
-    submitLabel: String = "Submit",
+    submitLabel: String = L10n.tr("Submit"),
     showsThankYou: Bool = false,
     showSubmitButton: Bool = true,
     selectedReferral: Binding<ReferralOption?>? = nil,
@@ -184,7 +184,7 @@ struct ReferralSurveyView: View {
   }
 
   private var currentDetailPlaceholder: String {
-    selectedReferral?.detailPlaceholder ?? "Tell me more"
+    selectedReferral?.detailPlaceholder ?? L10n.tr("Tell me more")
   }
 
   private func handleSubmit() {
@@ -214,13 +214,13 @@ enum ReferralOption: CaseIterable, Identifiable, Hashable {
 
   var displayName: String {
     switch self {
-    case .hackerNews: return "Hacker News"
-    case .x: return "X / Twitter"
-    case .friend: return "Friend or colleague"
-    case .youtube: return "YouTube"
-    case .newsletterBlog: return "Newsletter or blog (which one?)"
-    case .chatGPTClaudeAI: return "ChatGPT / Claude / AI"
-    case .other: return "Other (please specify)"
+    case .hackerNews: return L10n.tr("Hacker News")
+    case .x: return L10n.tr("X / Twitter")
+    case .friend: return L10n.tr("Friend or colleague")
+    case .youtube: return L10n.tr("YouTube")
+    case .newsletterBlog: return L10n.tr("Newsletter or blog (which one?)")
+    case .chatGPTClaudeAI: return L10n.tr("ChatGPT / Claude / AI")
+    case .other: return L10n.tr("Other (please specify)")
     }
   }
 
@@ -248,13 +248,13 @@ enum ReferralOption: CaseIterable, Identifiable, Hashable {
   var detailPlaceholder: String {
     switch self {
     case .newsletterBlog:
-      return "Which newsletter or blog?"
+      return L10n.tr("Which newsletter or blog?")
     case .youtube:
-      return "Which channel?"
+      return L10n.tr("Which channel?")
     case .chatGPTClaudeAI:
-      return "What did you ask ChatGPT or Claude that led you to Dayflow?"
+      return L10n.tr("What did you ask ChatGPT or Claude that led you to Dayflow?")
     case .other:
-      return "Where did you hear about Dayflow?"
+      return L10n.tr("Where did you hear about Dayflow?")
     default:
       return ""
     }

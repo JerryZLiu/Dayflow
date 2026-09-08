@@ -6,8 +6,9 @@ enum LocalLLMTestConstants {
   static let blankImageDataURL = LocalLLMTestImageFactory.blankImageDataURL(
     width: 1280, height: 720)
   static let prompt = "What color is this image? Answer with a single word."
-  static let slowMachineMessage =
-    "It took longer than 30 seconds, so your machine doesn't appear powerful enough to run this model locally."
+  static var slowMachineMessage: String {
+    L10n.tr("It took longer than 30 seconds, so your machine doesn't appear powerful enough to run this model locally.")
+  }
   static let maxLatency: TimeInterval = 30
 }
 
@@ -72,11 +73,12 @@ struct LocalLLMTestView: View {
     apiKey: Binding<String> = .constant(""),
     engine: LocalEngine,
     showInputs: Bool = true,
-    buttonLabel: String = "Test Local API",
+    buttonLabel: String = L10n.tr("Test Local API"),
     basePlaceholder: String? = nil,
     modelPlaceholder: String? = nil,
-    credentialStorageDescription: String =
-      "Stored locally in UserDefaults and sent as a Bearer token for custom endpoints.",
+    credentialStorageDescription: String = L10n.tr(
+      "Stored locally in UserDefaults and sent as a Bearer token for custom endpoints."
+    ),
     requiresMeaningfulResponse: Bool = false,
     enforcesLocalLatencyLimit: Bool = true,
     onTestComplete: @escaping (Bool) -> Void
@@ -145,14 +147,14 @@ struct LocalLLMTestView: View {
       }
 
       SettingsPrimaryButton(
-        title: isTesting ? "Testing…" : buttonLabel,
+        title: isTesting ? L10n.tr("Testing…") : buttonLabel,
         systemImage: "bolt.fill",
         isLoading: isTesting,
         action: runTest
       )
 
       if success {
-        SettingsStatusDot(state: .good, label: "Test successful.")
+        SettingsStatusDot(state: .good, label: L10n.tr("Test successful."))
       } else if let msg = resultMessage {
         VStack(alignment: .leading, spacing: 6) {
           SettingsStatusDot(state: .bad, label: msg)
@@ -173,7 +175,7 @@ struct LocalLLMTestView: View {
     resultMessage = nil
 
     guard let url = LocalEndpointUtilities.chatCompletionsURL(baseURL: baseURL) else {
-      resultMessage = "Invalid base URL"
+      resultMessage = L10n.tr("Invalid base URL")
       isTesting = false
       onTestComplete(false)
       return
@@ -226,7 +228,7 @@ struct LocalLLMTestView: View {
           return
         }
         guard let http = response as? HTTPURLResponse, let data = data else {
-          self.resultMessage = "No response"
+          self.resultMessage = L10n.tr("No response")
           self.isTesting = false
           self.onTestComplete(false)
           return
@@ -237,7 +239,7 @@ struct LocalLLMTestView: View {
             let content = decoded?.choices.first?.message.content.trimmingCharacters(
               in: .whitespacesAndNewlines)
             guard let content, !content.isEmpty else {
-              self.resultMessage = "The endpoint returned an empty or unsupported response."
+              self.resultMessage = L10n.tr("The endpoint returned an empty or unsupported response.")
               self.success = false
               self.isTesting = false
               self.onTestComplete(false)
@@ -250,7 +252,7 @@ struct LocalLLMTestView: View {
           self.onTestComplete(true)
         } else {
           let body = String(data: data, encoding: .utf8) ?? ""
-          self.resultMessage = "HTTP \(http.statusCode): \(body)"
+          self.resultMessage = L10n.tr("HTTP %lld: %@", http.statusCode, body)
           self.isTesting = false
           self.onTestComplete(false)
         }

@@ -25,7 +25,7 @@ struct DayflowEntitlement: Codable, Equatable {
   )
 
   var displayName: String {
-    plan == "pro" && status == "active" ? "Dayflow Pro" : "Free"
+    plan == "pro" && status == "active" ? "Dayflow Pro" : L10n.tr("Free")
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -266,7 +266,7 @@ final class DayflowAuthManager: ObservableObject {
   @Published private(set) var flowEnabled = false
   @Published private(set) var pendingEmail: String?
   @Published private(set) var codeExpiresAt: Date?
-  @Published private(set) var statusText = "Signed out"
+  @Published private(set) var statusText = L10n.tr("Signed out")
   @Published private(set) var errorText: String?
   @Published private(set) var isBusy = false
   @Published private(set) var hasLoadedStoredSession = false
@@ -287,7 +287,7 @@ final class DayflowAuthManager: ObservableObject {
   var displayIdentity: String {
     user?.email
       ?? UserDefaults.standard.string(forKey: Self.rememberedEmailKey)
-      ?? "Not signed in"
+      ?? L10n.tr("Not signed in")
   }
 
   var signedInEmail: String? {
@@ -303,7 +303,7 @@ final class DayflowAuthManager: ObservableObject {
     hasLoadedStoredSession = true
 
     guard retrieveSessionToken() != nil else {
-      resetSignedOutState(status: "Signed out")
+      resetSignedOutState(status: L10n.tr("Signed out"))
       return
     }
 
@@ -315,7 +315,7 @@ final class DayflowAuthManager: ObservableObject {
     let endpoint = "/v1/auth/code/start"
     let email = normalizedEmail(emailAddress)
     guard isLikelyEmail(email) else {
-      errorText = "Enter a valid email address."
+      errorText = L10n.tr("Enter a valid email address.")
       return .localFailure(errorType: "invalid_email", endpoint: endpoint)
     }
 
@@ -327,7 +327,7 @@ final class DayflowAuthManager: ObservableObject {
       let response: AuthStartResponse = try await send(urlRequest)
       pendingEmail = email
       codeExpiresAt = Date().addingTimeInterval(TimeInterval(response.expiresInSeconds))
-      statusText = "Code sent to \(email)."
+      statusText = L10n.tr("Code sent to %@.", email)
       errorText = nil
     }
     if let failure {
@@ -342,16 +342,16 @@ final class DayflowAuthManager: ObservableObject {
     let endpoint = "/v1/auth/code/verify"
     let digits = code.filter(\.isNumber)
     guard digits.count == 6 else {
-      errorText = "Enter the 6 digit code."
+      errorText = L10n.tr("Enter the 6 digit code.")
       return .localFailure(errorType: "invalid_code", endpoint: endpoint)
     }
     let explicitEmail = emailAddress.map(normalizedEmail)
     guard let email = explicitEmail ?? pendingEmail else {
-      errorText = "Start with your email first."
+      errorText = L10n.tr("Start with your email first.")
       return .localFailure(errorType: "missing_email", endpoint: endpoint)
     }
     guard isLikelyEmail(email) else {
-      errorText = "Enter a valid email address."
+      errorText = L10n.tr("Enter a valid email address.")
       return .localFailure(errorType: "invalid_email", endpoint: endpoint)
     }
 
@@ -366,7 +366,7 @@ final class DayflowAuthManager: ObservableObject {
 
       let response: AuthVerifyResponse = try await send(urlRequest)
       guard storeSessionToken(response.sessionToken) else {
-        throw DayflowAuthError.message("Could not save your session to Keychain.")
+        throw DayflowAuthError.message(L10n.tr("Could not save your session to Keychain."))
       }
 
       user = response.user
@@ -375,7 +375,7 @@ final class DayflowAuthManager: ObservableObject {
       flowEnabled = response.flowEnabled ?? false
       pendingEmail = nil
       codeExpiresAt = nil
-      statusText = "Signed in."
+      statusText = L10n.tr("Signed in.")
       errorText = nil
       UserDefaults.standard.set(response.user.email, forKey: Self.rememberedEmailKey)
 
@@ -390,7 +390,7 @@ final class DayflowAuthManager: ObservableObject {
         } catch {
           referralSummary = try? await fetchReferralSummary(token: response.sessionToken)
           errorText = error.localizedDescription
-          statusText = "Signed in. Referral code was not applied."
+          statusText = L10n.tr("Signed in. Referral code was not applied.")
         }
       } else {
         referralSummary = try? await fetchReferralSummary(token: response.sessionToken)
@@ -411,12 +411,12 @@ final class DayflowAuthManager: ObservableObject {
     pendingEmail = nil
     codeExpiresAt = nil
     errorText = nil
-    statusText = "Signed out"
+    statusText = L10n.tr("Signed out")
   }
 
   func refreshAccount() async {
     guard let token = retrieveSessionToken() else {
-      resetSignedOutState(status: "Signed out")
+      resetSignedOutState(status: L10n.tr("Signed out"))
       return
     }
 
@@ -430,18 +430,18 @@ final class DayflowAuthManager: ObservableObject {
       entitlements = response.entitlements
       flowEnabled = response.flowEnabled ?? false
       referralSummary = try? await fetchReferralSummary(token: token)
-      statusText = "Signed in."
+      statusText = L10n.tr("Signed in.")
       errorText = nil
       UserDefaults.standard.set(response.user.email, forKey: Self.rememberedEmailKey)
     } onAuthFailure: {
       self.deleteSessionToken()
-      self.resetSignedOutState(status: "Session expired. Sign in again.")
+      self.resetSignedOutState(status: L10n.tr("Session expired. Sign in again."))
     }
   }
 
   func openBillingCheckout(interval: DayflowBillingInterval = .monthly) async {
     guard let token = retrieveSessionToken() else {
-      errorText = "Sign in first."
+      errorText = L10n.tr("Sign in first.")
       return
     }
 
@@ -452,11 +452,11 @@ final class DayflowAuthManager: ObservableObject {
 
       let response: BillingCheckoutResponse = try await send(request)
       guard let url = URL(string: response.url) else {
-        throw DayflowAuthError.message("Stripe returned an invalid checkout link.")
+        throw DayflowAuthError.message(L10n.tr("Stripe returned an invalid checkout link."))
       }
 
       NSWorkspace.shared.open(url)
-      statusText = "Opened Stripe checkout in your browser."
+      statusText = L10n.tr("Opened Stripe checkout in your browser.")
       errorText = nil
     }
   }
@@ -465,7 +465,7 @@ final class DayflowAuthManager: ObservableObject {
   func startNoCardTrial() async -> DayflowAuthActionResult {
     let endpoint = "/v1/billing/no-card-trial"
     guard let token = retrieveSessionToken() else {
-      errorText = "Sign in first."
+      errorText = L10n.tr("Sign in first.")
       return .localFailure(errorType: "not_signed_in", endpoint: endpoint)
     }
 
@@ -481,7 +481,7 @@ final class DayflowAuthManager: ObservableObject {
     } onAuthFailure: {
       self.deleteSessionToken()
       self.referralSummary = nil
-      self.resetSignedOutState(status: "Session expired. Sign in again.")
+      self.resetSignedOutState(status: L10n.tr("Session expired. Sign in again."))
     }
     if let failure {
       return .failure(failure, endpoint: endpoint)
@@ -491,7 +491,7 @@ final class DayflowAuthManager: ObservableObject {
 
   func openBillingPortal() async {
     guard let token = retrieveSessionToken() else {
-      errorText = "Sign in first."
+      errorText = L10n.tr("Sign in first.")
       return
     }
 
@@ -501,11 +501,11 @@ final class DayflowAuthManager: ObservableObject {
 
       let response: BillingPortalResponse = try await send(request)
       guard let url = URL(string: response.url) else {
-        throw DayflowAuthError.message("Stripe returned an invalid billing link.")
+        throw DayflowAuthError.message(L10n.tr("Stripe returned an invalid billing link."))
       }
 
       NSWorkspace.shared.open(url)
-      statusText = "Opened Stripe billing in your browser."
+      statusText = L10n.tr("Opened Stripe billing in your browser.")
       errorText = nil
     }
   }
@@ -522,23 +522,25 @@ final class DayflowAuthManager: ObservableObject {
 
       deleteSessionToken()
       referralSummary = nil
-      resetSignedOutState(status: "Signed out.")
+      resetSignedOutState(status: L10n.tr("Signed out."))
     } onAuthFailure: {
       self.deleteSessionToken()
       self.referralSummary = nil
-      self.resetSignedOutState(status: "Signed out.")
+      self.resetSignedOutState(status: L10n.tr("Signed out."))
     }
   }
 
   func setPendingReferralCode(_ code: String) {
     guard let normalized = normalizedReferralCode(code) else {
-      errorText = "Enter a valid 6-character referral code."
+      errorText = L10n.tr("Enter a valid 6-character referral code.")
       return
     }
     pendingReferralCode = normalized
     UserDefaults.standard.set(normalized, forKey: Self.pendingReferralCodeKey)
     statusText =
-      isSignedIn ? "Referral code ready to claim." : "Referral code saved. Sign in to claim it."
+      isSignedIn
+        ? L10n.tr("Referral code ready to claim.")
+        : L10n.tr("Referral code saved. Sign in to claim it.")
   }
 
   func clearPendingReferralCode() {
@@ -557,7 +559,7 @@ final class DayflowAuthManager: ObservableObject {
     } onAuthFailure: {
       self.deleteSessionToken()
       self.referralSummary = nil
-      self.resetSignedOutState(status: "Session expired. Sign in again.")
+      self.resetSignedOutState(status: L10n.tr("Session expired. Sign in again."))
     }
   }
 
@@ -566,11 +568,11 @@ final class DayflowAuthManager: ObservableObject {
     let endpoint = "/v1/referrals/claim"
     guard let token = retrieveSessionToken() else {
       setPendingReferralCode(code)
-      errorText = "Sign in to claim this referral code."
+      errorText = L10n.tr("Sign in to claim this referral code.")
       return .localFailure(errorType: "not_signed_in", endpoint: endpoint)
     }
     guard let normalized = normalizedReferralCode(code) else {
-      errorText = "Enter a valid 6-character referral code."
+      errorText = L10n.tr("Enter a valid 6-character referral code.")
       return .localFailure(errorType: "invalid_referral_code", endpoint: endpoint)
     }
 
@@ -584,7 +586,7 @@ final class DayflowAuthManager: ObservableObject {
     } onAuthFailure: {
       self.deleteSessionToken()
       self.referralSummary = nil
-      self.resetSignedOutState(status: "Session expired. Sign in again.")
+      self.resetSignedOutState(status: L10n.tr("Session expired. Sign in again."))
     }
     if let failure {
       return .failure(failure, endpoint: endpoint)
@@ -594,12 +596,12 @@ final class DayflowAuthManager: ObservableObject {
 
   func sendReferralInvite(to emailAddress: String) async {
     guard let token = retrieveSessionToken() else {
-      errorText = "Sign in first."
+      errorText = L10n.tr("Sign in first.")
       return
     }
     let email = normalizedEmail(emailAddress)
     guard isLikelyEmail(email) else {
-      errorText = "Enter a valid email address."
+      errorText = L10n.tr("Enter a valid email address.")
       return
     }
 
@@ -611,12 +613,12 @@ final class DayflowAuthManager: ObservableObject {
 
       let _: ReferralInviteResponse = try await send(urlRequest)
       referralSummary = try await fetchReferralSummary(token: token)
-      statusText = "Invite sent."
+      statusText = L10n.tr("Invite sent.")
       errorText = nil
     } onAuthFailure: {
       self.deleteSessionToken()
       self.referralSummary = nil
-      self.resetSignedOutState(status: "Session expired. Sign in again.")
+      self.resetSignedOutState(status: L10n.tr("Session expired. Sign in again."))
     }
   }
 
@@ -720,13 +722,13 @@ final class DayflowAuthManager: ObservableObject {
     } catch DayflowAuthError.unauthorized {
       onAuthFailure?()
       if onAuthFailure == nil {
-        errorText = "Your session could not be verified."
+        errorText = L10n.tr("Your session could not be verified.")
       }
       return DayflowAuthError.unauthorized
     } catch {
       errorText = error.localizedDescription
       if statusText.isEmpty {
-        statusText = "Something went wrong."
+        statusText = L10n.tr("Something went wrong.")
       }
       return error
     }
@@ -780,11 +782,11 @@ final class DayflowAuthManager: ObservableObject {
 
   private func makeRequest(path: String, method: String) throws -> URLRequest {
     guard let endpoint else {
-      throw DayflowAuthError.message("Invalid Dayflow backend URL.")
+      throw DayflowAuthError.message(L10n.tr("Invalid Dayflow backend URL."))
     }
 
     guard let url = URL(string: "\(endpoint)\(path)") else {
-      throw DayflowAuthError.message("Invalid Dayflow backend URL.")
+      throw DayflowAuthError.message(L10n.tr("Invalid Dayflow backend URL."))
     }
 
     var request = URLRequest(url: url)
@@ -991,15 +993,15 @@ private enum DayflowAuthError: LocalizedError {
       if let detail, !detail.isEmpty {
         return detail
       }
-      return "Dayflow sign-in failed (\(statusCode))."
+      return L10n.tr("Dayflow sign-in failed (%lld).", statusCode)
     case .busy:
-      return "Another Dayflow account request is already running."
+      return L10n.tr("Another Dayflow account request is already running.")
     case .message(let message):
       return message
     case .nonHTTP:
-      return "Dayflow returned a non-HTTP response."
+      return L10n.tr("Dayflow returned a non-HTTP response.")
     case .unauthorized:
-      return "Your session could not be verified."
+      return L10n.tr("Your session could not be verified.")
     }
   }
 }

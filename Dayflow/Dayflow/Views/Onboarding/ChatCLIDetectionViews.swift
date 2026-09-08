@@ -27,7 +27,7 @@ struct CLIDetector {
     if result.exitCode == 0 {
       let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
       let firstLine = trimmed.components(separatedBy: .newlines).first ?? trimmed
-      let summary = firstLine.isEmpty ? "\(tool.shortName) detected" : firstLine
+      let summary = firstLine.isEmpty ? L10n.tr("%@ detected", tool.shortName) : firstLine
       return CLIDetectionReport(
         state: .installed(version: summary), resolvedPath: tool.executableName,
         stdout: result.stdout, stderr: result.stderr)
@@ -42,7 +42,7 @@ struct CLIDetector {
     let resolvedPath = tool == .codex ? nil : tool.executableName
     if message.isEmpty {
       return CLIDetectionReport(
-        state: .failed(message: "Exit code \(result.exitCode)"), resolvedPath: resolvedPath,
+        state: .failed(message: L10n.tr("Exit code %lld", result.exitCode)), resolvedPath: resolvedPath,
         stdout: result.stdout, stderr: result.stderr)
     }
     return CLIDetectionReport(
@@ -144,7 +144,7 @@ struct ChatCLIDetectionStepView: View {
                   .font(.system(size: 13, weight: .semibold))
                   .frame(width: 16, height: 16)
               }
-              Text(isChecking ? "Checking…" : "Check")
+              Text(isChecking ? L10n.tr("Checking…") : L10n.tr("Check"))
                 .font(.custom("Figtree", size: 14))
                 .fontWeight(.medium)
             }
@@ -191,7 +191,7 @@ struct ChatCLIDetectionStepView: View {
             .font(.custom("Figtree", size: 16))
             .fontWeight(.semibold)
             .foregroundColor(.black)
-          Text(enabled ? "Ready to use" : "Install to enable")
+          Text(enabled ? L10n.tr("Ready to use") : L10n.tr("Install to enable"))
             .font(.custom("Figtree", size: 12))
             .foregroundColor(Color(hex: "727272"))
         }
@@ -327,9 +327,9 @@ struct ChatCLIToolStatusRow: View {
   var installLabel: String {
     switch status {
     case .failed:
-      return "Setup guide"
+      return L10n.tr("Setup guide")
     default:
-      return "Install"
+      return L10n.tr("Install")
     }
   }
 }

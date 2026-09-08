@@ -63,14 +63,16 @@ struct DayflowSignInSheet: View {
 
   private var header: some View {
     VStack(alignment: .leading, spacing: 5) {
-      Text(step == .email ? "Sign in to Dayflow" : "Check your email")
+      Text(step == .email ? L10n.tr("Sign in to Dayflow") : L10n.tr("Check your email"))
         .font(.custom("InstrumentSerif-Regular", size: 30))
         .foregroundColor(SettingsStyle.text)
 
       Text(
         step == .email
-          ? "Enter your email and Dayflow will send a 6 digit code."
-          : "Enter the code sent to \(verificationEmail ?? authManager.pendingEmail ?? emailAddressTrimmed)."
+          ? L10n.tr("Enter your email and Dayflow will send a 6 digit code.")
+          : L10n.tr(
+            "Enter the code sent to %@.",
+            verificationEmail ?? authManager.pendingEmail ?? emailAddressTrimmed)
       )
       .font(.custom("Figtree", size: 13))
       .foregroundColor(SettingsStyle.secondary)
@@ -89,7 +91,7 @@ struct DayflowSignInSheet: View {
 
       HStack(spacing: 10) {
         SettingsPrimaryButton(
-          title: "Continue",
+          title: L10n.tr("Continue"),
           systemImage: "arrow.right",
           isLoading: authManager.isBusy,
           isDisabled: emailAddressTrimmed.isEmpty,
@@ -97,7 +99,7 @@ struct DayflowSignInSheet: View {
         )
 
         SettingsSecondaryButton(
-          title: "Cancel",
+          title: L10n.tr("Cancel"),
           isDisabled: authManager.isBusy,
           action: onDismiss
         )
@@ -137,7 +139,7 @@ struct DayflowSignInSheet: View {
 
       HStack(spacing: 10) {
         SettingsPrimaryButton(
-          title: "Verify",
+          title: L10n.tr("Verify"),
           systemImage: "checkmark",
           isLoading: authManager.isBusy,
           isDisabled: verificationCodeTrimmed.count != 6,
@@ -145,7 +147,7 @@ struct DayflowSignInSheet: View {
         )
 
         SettingsSecondaryButton(
-          title: "Resend",
+          title: L10n.tr("Resend"),
           isDisabled: authManager.isBusy,
           action: {
             Task {
@@ -159,7 +161,7 @@ struct DayflowSignInSheet: View {
         )
 
         SettingsSecondaryButton(
-          title: "Change email",
+          title: L10n.tr("Change email"),
           isDisabled: authManager.isBusy,
           action: {
             authManager.useDifferentEmail()

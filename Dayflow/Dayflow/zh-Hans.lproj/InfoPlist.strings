@@ -1,0 +1,2 @@
+"NSAppleEventsUsageDescription" = "Dayflow 使用自动化权限在终端中定位或重新打开你的 Agent 会话。";
+"NSScreenCaptureUsageDescription" = "Dayflow 使用屏幕访问权限创建时间线。录制内容保留在你的 Mac 上，你可以随时暂停或删除。";

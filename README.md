@@ -1,6 +1,8 @@
 <div align="center">
   <img src="docs/images/dayflow_header.png" alt="Dayflow" width="380">
 
+  <p><a href="README.md">English</a> · <a href="docs/README.zh-CN.md">简体中文</a></p>
+
   <p><strong>A private, automatic work journal for Mac.</strong></p>
 
   <p>

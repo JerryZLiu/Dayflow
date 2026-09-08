@@ -419,14 +419,14 @@ extension DailyView {
   }
   func workflowTotalsTitle(for date: Date) -> String {
     if isTodaySelection(date) {
-      return "Today's total so far"
+      return L10n.tr("Today's total so far")
     }
     if isYesterdaySelection(date) {
-      return "Yesterday's total"
+      return L10n.tr("Yesterday's total")
     }
 
     let displayDate = timelineDisplayDate(from: date)
-    return "Total for \(dailyStandupSectionDayFormatter.string(from: displayDate))"
+    return L10n.tr("Total for %@", dailyStandupSectionDayFormatter.string(from: displayDate))
   }
   func formatDuration(minutes: Double) -> String {
     formatDurationValue(minutes)

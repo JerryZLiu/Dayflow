@@ -58,8 +58,8 @@ struct AgentPlaybackView: View {
           .foregroundStyle(Color.accentColor)
         Text(
           setupStarted
-            ? (host.isReady ? "Your dashboard is ready" : "Set up Agents")
-            : "See how your agents spend their time"
+            ? (host.isReady ? L10n.tr("Your dashboard is ready") : L10n.tr("Set up Agents"))
+            : L10n.tr("See how your agents spend their time")
         )
         .font(.system(size: 28, weight: .semibold))
         Text("A timeline of your Codex and Claude Code sessions, right here in Dayflow.")
@@ -68,12 +68,16 @@ struct AgentPlaybackView: View {
 
         if !setupStarted {
           onboardingDetail(
-            "Working or waiting", "See when your agents are running and when they need your input.")
+            L10n.tr("Working or waiting"),
+            L10n.tr("See when your agents are running and when they need your input."))
           onboardingDetail(
-            "Your day, across projects", "Review sessions, token usage, and estimated API cost.")
+            L10n.tr("Your day, across projects"),
+            L10n.tr("Review sessions, token usage, and estimated API cost."))
           onboardingDetail(
-            "From logs on this Mac",
-            "Agents reads existing Codex and Claude Code session logs and processes them locally. No API key is needed."
+            L10n.tr("From logs on this Mac"),
+            L10n.tr(
+              "Agents reads existing Codex and Claude Code session logs and processes them locally. No API key is needed."
+            )
           )
           Button("Set up Agents") {
             setupStarted = true
@@ -96,12 +100,16 @@ struct AgentPlaybackView: View {
             .foregroundStyle(.secondary)
         } else if host.isReady {
           onboardingDetail(
-            "Start with today",
-            "Open the dashboard to explore your activity. Choose an earlier date to review past sessions."
+            L10n.tr("Start with today"),
+            L10n.tr(
+              "Open the dashboard to explore your activity. Choose an earlier date to review past sessions."
+            )
           )
           onboardingDetail(
-            "Don’t see any activity?",
-            "Run a task in Codex or Claude Code on this Mac, then return to Agents. Initial processing can take a little time."
+            L10n.tr("Don’t see any activity?"),
+            L10n.tr(
+              "Run a task in Codex or Claude Code on this Mac, then return to Agents. Initial processing can take a little time."
+            )
           )
           Button("Open Agents") { onboardingCompleted = true }
             .buttonStyle(.borderedProminent)
@@ -269,7 +277,9 @@ final class AgentPlaybackHost: NSObject, ObservableObject, WKNavigationDelegate,
     do {
       try Data().write(to: lease)
     } catch {
-      fail("Couldn’t prepare AgentPlayback: \(error.localizedDescription)", category: .preparation)
+      fail(
+        L10n.tr("Couldn’t prepare AgentPlayback: %@", error.localizedDescription),
+        category: .preparation)
       return
     }
     leaseURL = lease
@@ -284,7 +294,9 @@ final class AgentPlaybackHost: NSObject, ObservableObject, WKNavigationDelegate,
     do {
       try process.run()
     } catch {
-      fail("Couldn’t start AgentPlayback: \(error.localizedDescription)", category: .processLaunch)
+      fail(
+        L10n.tr("Couldn’t start AgentPlayback: %@", error.localizedDescription),
+        category: .processLaunch)
       return
     }
     Task.detached { [weak self] in

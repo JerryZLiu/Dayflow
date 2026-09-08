@@ -186,9 +186,9 @@ extension MainView {
     let totalHours = Int(weeklyTrackedMinutes / 60)
     switch timelineMode {
     case .day:
-      return ("\(totalHours) hours", " tracked this week")
+      return (L10n.tr("%d hours", totalHours), L10n.tr(" tracked this week"))
     case .week:
-      return ("\(totalHours) hours", " of activities tracked this week")
+      return (L10n.tr("%d hours", totalHours), L10n.tr(" of activities tracked this week"))
     }
   }
 

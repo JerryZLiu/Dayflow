@@ -97,7 +97,7 @@ extension ChatView {
   }
 
   var memoryUpdatedLabel: String {
-    guard let memoryUpdatedAt else { return "Not saved yet" }
+    guard let memoryUpdatedAt else { return L10n.tr("Not saved yet") }
     return chatViewMemoryUpdatedFormatter.string(from: memoryUpdatedAt)
   }
 }

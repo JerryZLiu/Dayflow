@@ -685,9 +685,9 @@ enum WeeklySankeyModelFactory {
     let hours = roundedMinutes / 60
     let remainingMinutes = roundedMinutes % 60
     if hours <= 0 {
-      return "\(remainingMinutes)min"
+      return L10n.tr("%dmin", remainingMinutes)
     }
-    return "\(hours)hr \(remainingMinutes)min"
+    return L10n.tr("%dhr %dmin", hours, remainingMinutes)
   }
 
   private static func formatPercent(minutes: Int, totalMinutes: Int) -> String {

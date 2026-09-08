@@ -39,7 +39,7 @@ struct JournalRemindersView: View {
 
       VStack(spacing: 20) {
         timeRow(
-          label: "Set intentions at",
+          label: L10n.tr("Set intentions at"),
           hour: $intentionHour,
           minute: $intentionMinute,
           period: $intentionPeriod,
@@ -49,7 +49,7 @@ struct JournalRemindersView: View {
         )
 
         timeRow(
-          label: "Write reflections at",
+          label: L10n.tr("Write reflections at"),
           hour: $reflectionHour,
           minute: $reflectionMinute,
           period: $reflectionPeriod,
@@ -209,8 +209,8 @@ struct JournalRemindersView: View {
 
       // Schedule a test notification in 3 seconds
       let content = UNMutableNotificationContent()
-      content.title = "Test: Set your intentions"
-      content.body = "This is a test notification from Dayflow."
+      content.title = L10n.tr("Test: Set your intentions")
+      content.body = L10n.tr("This is a test notification from Dayflow.")
       content.sound = .default
       content.categoryIdentifier = "journal_reminder"
 

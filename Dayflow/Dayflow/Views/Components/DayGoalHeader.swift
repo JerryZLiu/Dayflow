@@ -112,11 +112,11 @@ struct DayGoalHeader: View {
   private var statusText: String {
     switch recordingControlMode {
     case .active:
-      return "Tracking progress from your focus and distraction categories."
+      return L10n.tr("Tracking progress from your focus and distraction categories.")
     case .pausedTimed, .pausedIndefinite:
-      return "Dayflow is paused. Resume to continue tracking your progress."
+      return L10n.tr("Dayflow is paused. Resume to continue tracking your progress.")
     case .stopped:
-      return "Start Dayflow to continue tracking your progress."
+      return L10n.tr("Start Dayflow to continue tracking your progress.")
     }
   }
 
@@ -192,7 +192,7 @@ struct DayGoalHeader: View {
     CategoryEditCircleButton(
       action: onSetGoals,
       diameter: 20,
-      accessibilityLabel: "Edit goals"
+      accessibilityLabel: L10n.tr("Edit goals")
     )
     .offset(x: 323, y: 22.25)
 
@@ -433,7 +433,7 @@ struct DayGoalHeader: View {
   }
 
   private var focusSummarySuffix: String {
-    "/ \(formatCompactHours(focusTargetDuration)) hr fulfilled"
+    L10n.tr("/ %@ hr fulfilled", formatCompactHours(focusTargetDuration))
   }
 
   private var distractionSummaryValue: String {
@@ -446,7 +446,7 @@ struct DayGoalHeader: View {
 
   private var distractionSummarySuffix: String {
     if isDistractionPastBudget {
-      return "/ \(formatLimitDuration(distractionLimitDuration)) used"
+      return L10n.tr("/ %@ used", formatLimitDuration(distractionLimitDuration))
     }
     return "/ \(formatLimitDuration(distractionLimitDuration))"
   }
@@ -462,15 +462,15 @@ struct DayGoalHeader: View {
   private func formatUsedDuration(_ duration: TimeInterval) -> String {
     let totalMinutes = Int(duration / 60)
     if totalMinutes < 60 {
-      return "\(totalMinutes) mins"
+      return L10n.tr("%d min", totalMinutes)
     }
 
     let hours = totalMinutes / 60
     let minutes = totalMinutes % 60
     if minutes == 0 {
-      return hours == 1 ? "1 hour" : "\(hours) hours"
+      return hours == 1 ? L10n.tr("1 hour") : L10n.tr("%d hours", hours)
     }
-    return "\(hours)h \(minutes)m"
+    return L10n.tr("%d hr %d min", hours, minutes)
   }
 
   private func formatLimitDuration(_ duration: TimeInterval) -> String {
@@ -479,12 +479,12 @@ struct DayGoalHeader: View {
     let minutes = totalMinutes % 60
 
     if hours > 0 && minutes == 0 {
-      return hours == 1 ? "1 hour" : "\(hours) hours"
+      return hours == 1 ? L10n.tr("1 hour") : L10n.tr("%d hours", hours)
     }
     if hours > 0 {
-      return "\(hours)h \(minutes)m"
+      return L10n.tr("%d hr %d min", hours, minutes)
     }
-    return "\(totalMinutes) mins"
+    return L10n.tr("%d min", totalMinutes)
   }
 
   private func initializeDisplayedProgressIfNeeded() {

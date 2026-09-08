@@ -7,7 +7,7 @@ struct CategoryEditCircleButton: View {
   let action: () -> Void
   var diameter: CGFloat = 20
   var iconSize: CGFloat? = nil
-  var accessibilityLabel: String = "Edit categories"
+  var accessibilityLabel: String = L10n.tr("Edit categories")
 
   var body: some View {
     let resolvedIconSize = iconSize ?? diameter * 0.6

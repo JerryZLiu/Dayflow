@@ -685,17 +685,17 @@ extension DailyView {
   var regenerateButtonLabel: String {
     switch standupRegenerateState {
     case .regenerating:
-      return "Regenerating" + String(repeating: ".", count: standupRegeneratingDotsPhase)
+      return L10n.tr("Regenerating%@", String(repeating: ".", count: standupRegeneratingDotsPhase))
     case .idle, .regenerated, .noData:
-      return "Regenerate"
+      return L10n.tr("Regenerate")
     }
   }
   var transientRegenerateButtonLabel: String? {
     switch standupRegenerateState {
     case .regenerated:
-      return "Regenerated"
+      return L10n.tr("Regenerated")
     case .noData:
-      return "No data"
+      return L10n.tr("No data")
     case .idle, .regenerating:
       return nil
     }
@@ -719,27 +719,34 @@ extension DailyView {
     return DailyStandupSectionTitles(
       highlights: standupHighlightsTitle(for: sourceDay),
       tasks: standupTasksTitle(for: targetDay),
-      blockers: "Blockers"
+      blockers: L10n.tr("Blockers")
     )
   }
   func standupSectionHeading(for date: Date) -> String {
-    "Standup for \(dailyDateTitle(for: date))"
+    L10n.tr("Standup for %@", dailyDateTitle(for: date))
   }
   func standupHighlightsTitle(for sourceDay: DailyStandupDayInfo?) -> String {
-    guard let sourceDay else { return "Recent highlights" }
+    guard let sourceDay else { return L10n.tr("Recent highlights") }
 
     let label = standupDayLabelText(for: sourceDay.startOfDay)
-    if label == "Today" || label == "Yesterday" || label.hasPrefix("Last ") {
-      return "\(label)'s highlights"
+    let daysAgo = standupDaysAgo(sourceDay.startOfDay)
+    if (0...6).contains(daysAgo) {
+      return L10n.tr("%@'s highlights", label)
     }
-    return "Highlights from \(label)"
+    return L10n.tr("Highlights from %@", label)
   }
   func standupTasksTitle(for targetDay: DailyStandupDayInfo) -> String {
     let label = standupDayLabelText(for: targetDay.startOfDay)
-    if label == "Today" || label == "Yesterday" {
-      return "\(label)'s tasks"
+    if (0...1).contains(standupDaysAgo(targetDay.startOfDay)) {
+      return L10n.tr("%@'s tasks", label)
     }
-    return "Tasks for \(label)"
+    return L10n.tr("Tasks for %@", label)
+  }
+  private func standupDaysAgo(_ date: Date) -> Int {
+    let calendar = Calendar.current
+    let displayDate = normalizedTimelineDate(date)
+    let timelineToday = timelineDisplayDate(from: Date())
+    return calendar.dateComponents([.day], from: displayDate, to: timelineToday).day ?? 99
   }
   func standupDayLabelText(for date: Date) -> String {
     let calendar = Calendar.current
@@ -747,7 +754,7 @@ extension DailyView {
     let timelineToday = timelineDisplayDate(from: Date())
 
     if calendar.isDate(displayDate, inSameDayAs: timelineToday) {
-      return "Today"
+      return L10n.tr("Today")
     }
 
     guard let timelineYesterday = calendar.date(byAdding: .day, value: -1, to: timelineToday)
@@ -756,12 +763,12 @@ extension DailyView {
     }
 
     if calendar.isDate(displayDate, inSameDayAs: timelineYesterday) {
-      return "Yesterday"
+      return L10n.tr("Yesterday")
     }
 
     let daysAgo = calendar.dateComponents([.day], from: displayDate, to: timelineToday).day ?? 99
     if (2...6).contains(daysAgo) {
-      return "Last \(dailyStandupWeekdayFormatter.string(from: displayDate))"
+      return L10n.tr("Last %@", dailyStandupWeekdayFormatter.string(from: displayDate))
     }
 
     return dailyOtherDayDisplayFormatter.string(from: displayDate)

@@ -114,8 +114,8 @@ struct TimelineReviewSummaryCard: View {
   private var subtitle: Text {
     let baseText =
       summary.hasData
-      ? "Last reviewed at \(formattedLastReviewedAt)."
-      : "No reviews yet."
+      ? L10n.tr("Last reviewed at %@.", formattedLastReviewedAt)
+      : L10n.tr("No reviews yet.")
     var composed = Text(baseText)
       .foregroundColor(theme.textSecondary)
 
@@ -195,7 +195,7 @@ struct TimelineReviewSummaryCard: View {
     let placeholder = summary.hasData == false
     let distracted = ReviewMetric(
       id: "distracted",
-      label: "Distracted",
+      label: L10n.tr("Distracted"),
       ratio: max(CGFloat(summary.distractedRatio), 0),
       durationText: durationText(summary.distractedDuration),
       style: metricStyle(
@@ -209,7 +209,7 @@ struct TimelineReviewSummaryCard: View {
 
     let neutral = ReviewMetric(
       id: "neutral",
-      label: "Neutral",
+      label: L10n.tr("Neutral"),
       ratio: max(CGFloat(summary.neutralRatio), 0),
       durationText: durationText(summary.neutralDuration),
       style: metricStyle(
@@ -223,7 +223,7 @@ struct TimelineReviewSummaryCard: View {
 
     let productive = ReviewMetric(
       id: "productive",
-      label: "Focused",
+      label: L10n.tr("Focused"),
       ratio: max(CGFloat(summary.productiveRatio), 0),
       durationText: durationText(summary.productiveDuration),
       style: metricStyle(
@@ -275,11 +275,11 @@ struct TimelineReviewSummaryCard: View {
     let minutes = totalMinutes % 60
 
     if hours > 0 && minutes > 0 {
-      return "\(hours)h \(minutes)m"
+      return L10n.tr("%d hr %d min", hours, minutes)
     } else if hours > 0 {
-      return "\(hours)h"
+      return L10n.tr("%d hr", hours)
     } else {
-      return "\(minutes)m"
+      return L10n.tr("%d min", minutes)
     }
   }
 
@@ -289,7 +289,7 @@ struct TimelineReviewSummaryCard: View {
   }
 
   private var reviewCountText: String {
-    cardsToReviewCount == 1 ? "1 card" : "\(cardsToReviewCount) cards"
+    cardsToReviewCount == 1 ? L10n.tr("1 card") : L10n.tr("%d cards", cardsToReviewCount)
   }
 
   private static let timeFormatter: DateFormatter = {

@@ -108,7 +108,7 @@ struct BugReportView: View {
 
   private var contactLinks: some View {
     HStack(spacing: 12) {
-      linkButton(title: "Email", systemImage: "envelope.fill", action: composeEmail)
+      linkButton(title: L10n.tr("Email"), systemImage: "envelope.fill", action: composeEmail)
 
       DayflowSurfaceButton(
         action: openDiscord,
@@ -132,13 +132,15 @@ struct BugReportView: View {
         showShadow: true
       )
 
-      linkButton(title: "Book a call", systemImage: "calendar.badge.clock", action: bookCall)
+      linkButton(title: L10n.tr("Book a call"), systemImage: "calendar.badge.clock", action: bookCall)
 
       Spacer(minLength: 0)
 
-      textButton(didCopyEmail ? "Copied!" : "Copy email", action: copyEmail)
+      textButton(didCopyEmail ? L10n.tr("Copied!") : L10n.tr("Copy email"), action: copyEmail)
       textButton(
-        didCopyDebugLogs ? "Copied!" : (isCopyingDebugLogs ? "Preparing…" : "Copy debug logs"),
+        didCopyDebugLogs
+          ? L10n.tr("Copied!")
+          : (isCopyingDebugLogs ? L10n.tr("Preparing…") : L10n.tr("Copy debug logs")),
         action: copyDebugLogs
       )
     }
@@ -188,7 +190,7 @@ struct BugReportView: View {
     components.scheme = "mailto"
     components.path = emailAddress
     components.queryItems = [
-      URLQueryItem(name: "subject", value: "Dayflow feedback")
+      URLQueryItem(name: "subject", value: L10n.tr("Dayflow feedback"))
     ]
 
     guard let url = components.url else { return }

@@ -37,13 +37,13 @@ enum TimelineCardTextWeight: String, CaseIterable, Identifiable {
   var label: String {
     switch self {
     case .regular:
-      return "Reg"
+      return L10n.tr("Reg")
     case .medium:
-      return "Med"
+      return L10n.tr("Med")
     case .semibold:
-      return "Semi"
+      return L10n.tr("Semi")
     case .bold:
-      return "Bold"
+      return L10n.tr("Bold")
     }
   }
 

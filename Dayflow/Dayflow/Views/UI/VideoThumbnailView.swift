@@ -119,7 +119,7 @@ struct VideoThumbnailView: View {
             .font(.system(size: 24, weight: .bold))
         }
         .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 2)
-        .accessibilityLabel("Play video summary")
+        .accessibilityLabel(L10n.tr("Play video summary"))
       }
       .buttonStyle(PlainButtonStyle())
       .pointingHandCursor()

@@ -21,9 +21,9 @@ struct OnboardingPrototypePreferencesStep: View {
           .multilineTextAlignment(.center)
 
         HStack(spacing: 8) {
-          ForEach(["Yes", "No"], id: \.self) { option in
+          ForEach([L10n.tr("Yes"), L10n.tr("No")], id: \.self) { option in
             Button {
-              onContinue(option == "Yes")
+              onContinue(option == L10n.tr("Yes"))
             } label: {
               Text(option)
                 .font(.custom("Figtree", size: 16))

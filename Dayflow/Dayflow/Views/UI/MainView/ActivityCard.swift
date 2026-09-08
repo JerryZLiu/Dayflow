@@ -244,7 +244,7 @@ struct ActivityCard: View {
                     }
                   },
                   diameter: 24,
-                  accessibilityLabel: "Change category"
+                  accessibilityLabel: L10n.tr("Change category")
                 )
               }
             }
@@ -342,7 +342,7 @@ struct ActivityCard: View {
           CategoryEditCircleButton(
             action: { startTitleEdit(for: activity) },
             diameter: 24,
-            accessibilityLabel: "Edit title"
+            accessibilityLabel: L10n.tr("Edit title")
           )
         }
       }
@@ -596,7 +596,7 @@ struct ActivityCard: View {
         .contentShape(Rectangle())
         .onTapGesture {
           guard let cardId = activity.recordId else {
-            slideshowError = "This activity cannot load a slideshow."
+            slideshowError = L10n.tr("This activity cannot load a slideshow.")
             return
           }
           openSlideshow(for: activity, cardId: cardId)
@@ -710,9 +710,9 @@ private enum ActivityCardTimelapseError: LocalizedError {
   var errorDescription: String? {
     switch self {
     case .timelineCardMissing:
-      return "Could not find this activity in storage."
+      return L10n.tr("Could not find this activity in storage.")
     case .noScreenshots:
-      return "No screenshots are available for this activity range."
+      return L10n.tr("No screenshots are available for this activity range.")
     }
   }
 }

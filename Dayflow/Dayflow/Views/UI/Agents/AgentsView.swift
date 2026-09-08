@@ -177,7 +177,7 @@ struct AgentsView: View {
       .multilineTextAlignment(.center)
       .frame(maxWidth: 420)
 
-      generateButton(title: "Generate today's recap")
+      generateButton(title: L10n.tr("Generate today's recap"))
         .padding(.top, 10)
 
       Text("Runs only when you ask — nothing happens automatically.")
@@ -198,7 +198,11 @@ struct AgentsView: View {
 
       TimelineView(.periodic(from: startedAt, by: 1)) { context in
         let elapsed = Int(context.date.timeIntervalSince(startedAt))
-        Text("Running for \(elapsed / 60)m \(elapsed % 60)s — a full day can take several minutes.")
+        Text(
+          L10n.tr(
+            "Running for %lldm %llds — a full day can take several minutes.", elapsed / 60,
+            elapsed % 60)
+        )
           .font(.custom("Figtree", size: 12))
           .foregroundColor(.black.opacity(0.45))
       }
@@ -225,7 +229,7 @@ struct AgentsView: View {
       }
       .frame(maxWidth: 460, maxHeight: 120)
 
-      generateButton(title: "Try again")
+      generateButton(title: L10n.tr("Try again"))
         .padding(.top, 4)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)

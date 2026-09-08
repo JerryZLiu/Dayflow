@@ -260,7 +260,7 @@ private struct JournalWeeklySegmentedControl: View {
     HStack(spacing: 4) {
       ForEach(options) { option in
         Button(action: { selection = option }) {
-          Text(option.rawValue)
+          Text(option.title)
             .font(.custom("Figtree-SemiBold", size: 13))
             .foregroundStyle(selection == option ? Color.white : JournalWeeklyTokens.secondaryText)
             .padding(.horizontal, 18)
@@ -330,7 +330,7 @@ struct JournalWeeklySummary {
   var days: [JournalWeeklyDay]
 
   static let placeholder = JournalWeeklySummary(
-    title: "Week in review",
+    title: L10n.tr("Week in review"),
     dateRange: "October 19 – 25",
     description:
       "Made progress on the redesign project, shared updates with the leads by the end of the week. Looked at design references and shopped for groceries and necessities.",
@@ -438,6 +438,8 @@ struct JournalWeeklyIcon: Identifiable {
 enum JournalWeeklyViewPeriod: String, CaseIterable, Identifiable {
   case day = "Day"
   case week = "Week"
+
+  var title: String { L10n.tr(rawValue) }
 
   var id: String { rawValue }
 }

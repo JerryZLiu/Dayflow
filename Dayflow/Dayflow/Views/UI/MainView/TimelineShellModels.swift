@@ -9,9 +9,9 @@ enum TimelineMode: String, CaseIterable, Identifiable {
   var title: String {
     switch self {
     case .day:
-      return "Day"
+      return L10n.tr("Day")
     case .week:
-      return "Week"
+      return L10n.tr("Week")
     }
   }
 }
@@ -100,7 +100,7 @@ struct TimelineWeekRange: Equatable, Sendable {
   var title: String {
     let displayedWeekEnd = Self.calendar.date(byAdding: .day, value: -1, to: weekEnd) ?? weekEnd
     return
-      "\(Self.titleFormatter.string(from: weekStart)) - \(Self.titleFormatter.string(from: displayedWeekEnd))"
+      L10n.tr("%@ - %@", Self.titleFormatter.string(from: weekStart), Self.titleFormatter.string(from: displayedWeekEnd))
   }
 
   var canNavigateForward: Bool {

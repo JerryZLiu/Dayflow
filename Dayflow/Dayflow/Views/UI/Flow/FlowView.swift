@@ -94,7 +94,9 @@ struct FlowView: View {
         if isOpen {
           logList
         }
-        Button(isOpen ? "Hide agent log" : "Agent log (\(agent.transcript.count))") {
+        Button(
+          isOpen ? L10n.tr("Hide agent log") : L10n.tr("Agent log (%lld)", agent.transcript.count)
+        ) {
           isOpen.toggle()
         }
         .buttonStyle(.plain)

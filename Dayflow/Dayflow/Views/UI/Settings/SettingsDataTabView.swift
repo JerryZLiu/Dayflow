@@ -25,16 +25,16 @@ struct SettingsDataTabView: View {
       > timelineDisplayDate(from: viewModel.exportEndDate)
 
     return SettingsSection(
-      title: "Export your data",
-      subtitle: "Move your timeline into tools you already use."
+      title: L10n.tr("Export your data"),
+      subtitle: L10n.tr("Move your timeline into tools you already use.")
     ) {
       VStack(alignment: .leading, spacing: 14) {
         HStack(alignment: .center, spacing: 10) {
           datePill(
-            label: "From",
+            label: L10n.tr("From"),
             date: viewModel.exportStartDate,
             isExpanded: activeExportDatePicker == .start,
-            accessibilityLabel: "Export start date",
+            accessibilityLabel: L10n.tr("Export start date"),
             onTap: {
               withAnimation(.easeOut(duration: 0.2)) {
                 activeExportDatePicker = activeExportDatePicker == .start ? nil : .start
@@ -48,10 +48,10 @@ struct SettingsDataTabView: View {
             .foregroundColor(SettingsStyle.meta)
 
           datePill(
-            label: "To",
+            label: L10n.tr("To"),
             date: viewModel.exportEndDate,
             isExpanded: activeExportDatePicker == .end,
-            accessibilityLabel: "Export end date",
+            accessibilityLabel: L10n.tr("Export end date"),
             onTap: {
               withAnimation(.easeOut(duration: 0.2)) {
                 activeExportDatePicker = activeExportDatePicker == .end ? nil : .end
@@ -82,7 +82,7 @@ struct SettingsDataTabView: View {
 
         HStack(spacing: 12) {
           SettingsPrimaryButton(
-            title: viewModel.isExportingTimelineRange ? "Exporting…" : "Export as Markdown",
+            title: viewModel.isExportingTimelineRange ? L10n.tr("Exporting…") : L10n.tr("Export as Markdown"),
             systemImage: viewModel.isExportingTimelineRange ? nil : "square.and.arrow.down",
             isLoading: viewModel.isExportingTimelineRange,
             isDisabled: rangeInvalid,
@@ -118,15 +118,15 @@ struct SettingsDataTabView: View {
     let dayString = DateFormatter.yyyyMMdd.string(from: normalizedDate)
 
     return SettingsSection(
-      title: "Reprocess day",
-      subtitle: "Re-run analysis for every batch on one timeline day."
+      title: L10n.tr("Reprocess day"),
+      subtitle: L10n.tr("Re-run analysis for every batch on one timeline day.")
     ) {
       VStack(alignment: .leading, spacing: 14) {
         datePill(
-          label: "Day",
+          label: L10n.tr("Day"),
           date: viewModel.reprocessDayDate,
           isExpanded: isReprocessDatePickerExpanded,
-          accessibilityLabel: "Reprocess day",
+          accessibilityLabel: L10n.tr("Reprocess day"),
           disabled: viewModel.isReprocessingDay,
           onTap: {
             withAnimation(.easeOut(duration: 0.2)) {
@@ -169,7 +169,7 @@ struct SettingsDataTabView: View {
 
         HStack(spacing: 12) {
           SettingsPrimaryButton(
-            title: viewModel.isReprocessingDay ? "Reprocessing…" : "Reprocess day",
+            title: viewModel.isReprocessingDay ? L10n.tr("Reprocessing…") : L10n.tr("Reprocess day"),
             systemImage: viewModel.isReprocessingDay ? nil : "arrow.clockwise",
             isLoading: viewModel.isReprocessingDay,
             action: { viewModel.showReprocessDayConfirm = true }
@@ -193,7 +193,9 @@ struct SettingsDataTabView: View {
         Button("Reprocess", role: .destructive) { viewModel.reprocessSelectedDay() }
       } message: {
         Text(
-          "This will delete existing timeline cards for \(dayString) and re-run analysis. It can consume many API calls."
+          L10n.tr(
+            "This will delete existing timeline cards for %@ and re-run analysis. It can consume many API calls.",
+            dayString)
         )
       }
     }

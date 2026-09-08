@@ -116,7 +116,7 @@ struct EditableCategoryCard: View {
 
         Text(
           category.details.isEmpty
-            ? "Add a description to help Dayflow understand your workflow." : category.details
+            ? L10n.tr("Add a description to help Dayflow understand your workflow.") : category.details
         )
         .font(Font.custom("Figtree", size: 12).weight(.medium))
         .foregroundColor(

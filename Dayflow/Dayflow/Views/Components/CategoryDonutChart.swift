@@ -49,11 +49,11 @@ struct CategoryTimeData: Identifiable {
     let minutes = totalMinutes % 60
 
     if hours > 0 && minutes > 0 {
-      return "\(hours)h \(minutes)m"
+      return L10n.tr("%d hr %d min", hours, minutes)
     } else if hours > 0 {
-      return "\(hours)h"
+      return L10n.tr("%d hr", hours)
     } else {
-      return "\(minutes)m"
+      return L10n.tr("%d min", minutes)
     }
   }
 }
@@ -192,10 +192,10 @@ struct CategoryDonutChart: View {
 
       VStack(spacing: 0) {
         let total = formattedTotal
-        Text("\(total.hours) hours")
+        Text(L10n.tr("%d hours", total.hours))
           .font(.custom("InstrumentSerif-Regular", size: 16))
           .foregroundColor(theme.textPrimary)
-        Text("\(total.minutes) minutes")
+        Text(L10n.tr("%d minutes", total.minutes))
           .font(.custom("InstrumentSerif-Regular", size: 16))
           .foregroundColor(theme.textPrimary)
       }

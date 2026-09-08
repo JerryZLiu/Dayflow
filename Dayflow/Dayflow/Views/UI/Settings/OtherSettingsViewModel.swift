@@ -93,7 +93,7 @@ final class OtherSettingsViewModel: ObservableObject {
     let end = timelineDisplayDate(from: exportEndDate)
 
     guard start <= end else {
-      exportErrorMessage = "Start date must be on or before end date."
+      exportErrorMessage = L10n.tr("Start date must be on or before end date.")
       exportStatusMessage = nil
       return
     }
@@ -149,7 +149,7 @@ final class OtherSettingsViewModel: ObservableObject {
 
     isReprocessingDay = true
     reprocessErrorMessage = nil
-    reprocessStatusMessage = "Starting reprocess for \(dayString)…"
+    reprocessStatusMessage = L10n.tr("Starting reprocess for %@…", dayString)
 
     AnalysisManager.shared.reprocessDay(
       dayString,
@@ -164,7 +164,7 @@ final class OtherSettingsViewModel: ObservableObject {
           switch result {
           case .success:
             if self.reprocessStatusMessage == nil {
-              self.reprocessStatusMessage = "Reprocess completed."
+              self.reprocessStatusMessage = L10n.tr("Reprocess completed.")
             }
           case .failure(let error):
             self.reprocessErrorMessage = error.localizedDescription
@@ -186,10 +186,12 @@ final class OtherSettingsViewModel: ObservableObject {
     dayFormatter.dateFormat = "yyyy-MM-dd"
 
     let savePanel = NSSavePanel()
-    savePanel.title = "Export timeline"
-    savePanel.prompt = "Export"
+    savePanel.title = L10n.tr("Export timeline")
+    savePanel.prompt = L10n.tr("Export")
     savePanel.nameFieldStringValue =
-      "Dayflow timeline \(dayFormatter.string(from: startDate)) to \(dayFormatter.string(from: endDate)).md"
+      L10n.tr(
+        "Dayflow timeline %@ to %@.md", dayFormatter.string(from: startDate),
+        dayFormatter.string(from: endDate))
     savePanel.allowedContentTypes = [.text, .plainText]
     savePanel.canCreateDirectories = true
 
@@ -199,7 +201,7 @@ final class OtherSettingsViewModel: ObservableObject {
 
     guard response == .OK, let url = savePanel.url else {
       exportStatusMessage = nil
-      exportErrorMessage = "Export canceled"
+      exportErrorMessage = L10n.tr("Export canceled")
       return
     }
 
@@ -207,7 +209,9 @@ final class OtherSettingsViewModel: ObservableObject {
       try exportText.write(to: url, atomically: true, encoding: .utf8)
       exportErrorMessage = nil
       exportStatusMessage =
-        "Saved \(activityCount) activit\(activityCount == 1 ? "y" : "ies") across \(dayCount) day\(dayCount == 1 ? "" : "s") to \(url.lastPathComponent)"
+        L10n.tr(
+          "Saved %lld activities across %lld days to %@", activityCount, dayCount,
+          url.lastPathComponent)
 
       AnalyticsService.shared.capture(
         "timeline_exported",
@@ -221,7 +225,7 @@ final class OtherSettingsViewModel: ObservableObject {
         ])
     } catch {
       exportStatusMessage = nil
-      exportErrorMessage = "Couldn't save file: \(error.localizedDescription)"
+      exportErrorMessage = L10n.tr("Couldn't save file: %@", error.localizedDescription)
     }
   }
 }

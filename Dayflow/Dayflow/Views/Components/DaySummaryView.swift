@@ -894,13 +894,13 @@ struct DaySummaryView: View {
     let minutes = totalMinutes % 60
 
     if hours > 0 && minutes > 0 {
-      return "\(hours) Hours \(minutes) minutes"
+      return L10n.tr("%d Hours %d minutes", hours, minutes)
     } else if hours > 0 {
-      return "\(hours) Hours"
+      return L10n.tr("%d Hours", hours)
     } else if minutes > 0 {
-      return "\(minutes) minutes"
+      return L10n.tr("%d minutes", minutes)
     } else {
-      return "0 minutes"
+      return L10n.tr("0 minutes")
     }
   }
 
@@ -910,13 +910,13 @@ struct DaySummaryView: View {
     let minutes = totalMinutes % 60
 
     if hours > 0 && minutes > 0 {
-      return "\(hours) hours \(minutes) minutes"
+      return L10n.tr("%d hours %d minutes", hours, minutes)
     } else if hours > 0 {
-      return "\(hours) hours"
+      return L10n.tr("%d hours", hours)
     } else if minutes > 0 {
-      return "\(minutes) minutes"
+      return L10n.tr("%d minutes", minutes)
     } else {
-      return "0 minutes"
+      return L10n.tr("0 minutes")
     }
   }
 

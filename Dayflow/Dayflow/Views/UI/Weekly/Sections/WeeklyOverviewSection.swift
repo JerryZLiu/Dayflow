@@ -95,20 +95,23 @@ struct WeeklyOverviewSection: View {
   private var footerPanel: some View {
     HStack(spacing: 0) {
       WeeklyOverviewSummaryGroup(
-        title: "Context switch",
+        title: L10n.tr("Context switch"),
         metrics: [
-          .init(label: "Total", value: "\(snapshot.contextSwitchTotal) times"),
-          .init(label: "Average", value: "\(snapshot.contextSwitchAverage) times / day"),
+          .init(label: L10n.tr("Total"), value: L10n.tr("%d times", snapshot.contextSwitchTotal)),
+          .init(
+            label: L10n.tr("Average"),
+            value: L10n.tr("%d times / day", snapshot.contextSwitchAverage)
+          ),
         ]
       )
       .frame(width: Design.summaryDividerX, alignment: .leading)
 
       WeeklyOverviewSummaryGroup(
-        title: "Focus",
+        title: L10n.tr("Focus"),
         metrics: [
-          .init(label: "Total length", value: compactDurationText(snapshot.totalFocusMinutes)),
-          .init(label: "Longest duration", value: longestFocusText),
-          .init(label: "Primary focus", value: primaryFocusText),
+          .init(label: L10n.tr("Total length"), value: compactDurationText(snapshot.totalFocusMinutes)),
+          .init(label: L10n.tr("Longest duration"), value: longestFocusText),
+          .init(label: L10n.tr("Primary focus"), value: primaryFocusText),
         ]
       )
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -156,14 +159,14 @@ struct WeeklyOverviewSection: View {
 
   private var longestFocusText: String {
     guard let longestFocus = snapshot.longestFocus else {
-      return "No focus yet"
+      return L10n.tr("No focus yet")
     }
     return "\(compactDurationText(longestFocus.minutes)), \(longestFocus.weekdayName)"
   }
 
   private var primaryFocusText: String {
     guard let primaryFocus = snapshot.primaryFocus else {
-      return "No focus yet"
+      return L10n.tr("No focus yet")
     }
     return "\(primaryFocus.name), \(compactDurationText(primaryFocus.minutes))"
   }
@@ -173,12 +176,12 @@ struct WeeklyOverviewSection: View {
     let remainingMinutes = minutes % 60
 
     if hours > 0 && remainingMinutes > 0 {
-      return "\(hours)hr \(remainingMinutes)m"
+      return L10n.tr("%dhr %dm", hours, remainingMinutes)
     }
     if hours > 0 {
-      return "\(hours)hr"
+      return L10n.tr("%dhr", hours)
     }
-    return "\(remainingMinutes)m"
+    return L10n.tr("%dm", remainingMinutes)
   }
 }
 

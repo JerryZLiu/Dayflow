@@ -465,12 +465,12 @@ struct DailyModeToggle: View {
   var body: some View {
     HStack(spacing: 0) {
       segment(
-        text: "Highlights",
+        text: L10n.tr("Highlights"),
         isActive: activeMode == .highlights,
         isLeading: true
       )
       segment(
-        text: "Details",
+        text: L10n.tr("Details"),
         isActive: activeMode == .details,
         isLeading: false
       )

@@ -140,6 +140,7 @@ struct DayflowApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
   @AppStorage("didOnboard") private var didOnboard = false
   @AppStorage(DayflowAppearance.storageKey) private var appearance: DayflowAppearance = .system
+  @AppStorage(AppLanguage.storageKey) private var appLanguage: AppLanguage = .system
   @AppStorage("useBlankUI") private var useBlankUI = false
   @AppStorage("hasCompletedJournalOnboarding") private var hasCompletedJournalOnboarding = false
   @State private var showVideoLaunch = true
@@ -259,6 +260,8 @@ struct DayflowApp: App {
       }
       // Onboarding stays light; the main app follows the user's appearance setting.
       .preferredColorScheme(didOnboard ? appearance.preferredColorScheme : .light)
+      .environment(\.locale, appLanguage.locale)
+      .id(appLanguage)
       .resolveDayflowTheme()
       .resolveStylePreview()
       .onAppear {

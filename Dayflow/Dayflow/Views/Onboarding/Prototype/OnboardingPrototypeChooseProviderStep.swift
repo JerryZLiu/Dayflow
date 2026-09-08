@@ -66,50 +66,50 @@ struct OnboardingPrototypeChooseProviderStep: View {
     ComparisonProvider(
       providerID: .dayflow,
       title: "Dayflow Pro",
-      accuracy: RatedValue(text: "Best", rating: .best),
-      subscription: "7 day free trial",
-      ease: RatedValue(text: "Sign in and go", rating: .best),
-      notes: "Sync across devices"
+      accuracy: RatedValue(text: L10n.tr("Best"), rating: .best),
+      subscription: L10n.tr("7 day free trial"),
+      ease: RatedValue(text: L10n.tr("Sign in and go"), rating: .best),
+      notes: L10n.tr("Sync across devices")
     ),
     ComparisonProvider(
       providerID: .chatGPT,
       title: "ChatGPT",
-      accuracy: RatedValue(text: "Best", rating: .best),
-      subscription: "ChatGPT paid subscription",
-      ease: RatedValue(text: "Install Codex CLI", rating: .medium),
-      notes: "Uses your ChatGPT subscription and less than 1% of your daily limit."
+      accuracy: RatedValue(text: L10n.tr("Best"), rating: .best),
+      subscription: L10n.tr("ChatGPT paid subscription"),
+      ease: RatedValue(text: L10n.tr("Install Codex CLI"), rating: .medium),
+      notes: L10n.tr("Uses your ChatGPT subscription and less than 1% of your daily limit.")
     ),
     ComparisonProvider(
       providerID: .claude,
       title: "Claude",
-      accuracy: RatedValue(text: "Best", rating: .best),
-      subscription: "Claude paid subscription",
-      ease: RatedValue(text: "Install Claude CLI", rating: .medium),
-      notes: "Uses your Claude subscription and less than 1% of your daily limit."
+      accuracy: RatedValue(text: L10n.tr("Best"), rating: .best),
+      subscription: L10n.tr("Claude paid subscription"),
+      ease: RatedValue(text: L10n.tr("Install Claude CLI"), rating: .medium),
+      notes: L10n.tr("Uses your Claude subscription and less than 1% of your daily limit.")
     ),
     ComparisonProvider(
       providerID: .gemini,
       title: "Gemini",
-      accuracy: RatedValue(text: "Medium", rating: .medium),
-      subscription: "Free",
-      ease: RatedValue(text: "API key", rating: .medium),
-      notes: "Uses Gemini free tier."
+      accuracy: RatedValue(text: L10n.tr("Medium"), rating: .medium),
+      subscription: L10n.tr("Free"),
+      ease: RatedValue(text: L10n.tr("API key"), rating: .medium),
+      notes: L10n.tr("Uses Gemini free tier.")
     ),
     ComparisonProvider(
       providerID: .openAICompatible,
       title: "OpenRouter / Custom",
-      accuracy: RatedValue(text: "Varies", rating: .medium),
-      subscription: "API credits",
-      ease: RatedValue(text: "API key and model", rating: .medium),
-      notes: "Uses OpenRouter or any OpenAI-compatible endpoint."
+      accuracy: RatedValue(text: L10n.tr("Varies"), rating: .medium),
+      subscription: L10n.tr("API credits"),
+      ease: RatedValue(text: L10n.tr("API key and model"), rating: .medium),
+      notes: L10n.tr("Uses OpenRouter or any OpenAI-compatible endpoint.")
     ),
     ComparisonProvider(
       providerID: .local,
       title: "Local AI",
-      accuracy: RatedValue(text: "Decent", rating: .basic),
-      subscription: "Free",
-      ease: RatedValue(text: "Extensive setup", rating: .basic),
-      notes: "Requires 16GB+ RAM, 4GB free disk space, M1 or later chip preferred"
+      accuracy: RatedValue(text: L10n.tr("Decent"), rating: .basic),
+      subscription: L10n.tr("Free"),
+      ease: RatedValue(text: L10n.tr("Extensive setup"), rating: .basic),
+      notes: L10n.tr("Requires 16GB+ RAM, 4GB free disk space, M1 or later chip preferred")
     ),
   ]
 
@@ -326,10 +326,10 @@ struct OnboardingPrototypeChooseProviderStep: View {
 
   private func easeValue(for provider: ComparisonProvider) -> RatedValue {
     if provider.providerID == .chatGPT, isCodexCLIInstalled {
-      return RatedValue(text: "CLI installed", rating: .best)
+      return RatedValue(text: L10n.tr("CLI installed"), rating: .best)
     }
     if provider.providerID == .claude, isClaudeCLIInstalled {
-      return RatedValue(text: "CLI installed", rating: .best)
+      return RatedValue(text: L10n.tr("CLI installed"), rating: .best)
     }
     return provider.ease
   }

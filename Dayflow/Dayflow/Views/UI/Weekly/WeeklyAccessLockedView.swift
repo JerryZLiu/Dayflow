@@ -10,15 +10,15 @@ enum WeeklyAccessNotificationState: Equatable {
   var buttonTitle: String {
     switch self {
     case .idle:
-      return "Notify me when ready"
+      return L10n.tr("Notify me when ready")
     case .requesting:
-      return "Setting reminder..."
+      return L10n.tr("Setting reminder...")
     case .scheduled:
-      return "We'll notify you"
+      return L10n.tr("We'll notify you")
     case .denied:
-      return "Open notification settings"
+      return L10n.tr("Open notification settings")
     case .failed:
-      return "Try again"
+      return L10n.tr("Try again")
     }
   }
 
@@ -58,18 +58,18 @@ struct WeeklyAccessProgressSnapshot: Equatable {
     let remainingMinutes = minutes % 60
 
     if minutes == 0 {
-      return "0h / 30h"
+      return L10n.tr("0h / 30h")
     }
 
     if hours == 0 {
-      return "\(remainingMinutes)m / 30h"
+      return L10n.tr("%dm / 30h", remainingMinutes)
     }
 
     if remainingMinutes == 0 {
-      return "\(hours)h / 30h"
+      return L10n.tr("%dh / 30h", hours)
     }
 
-    return "\(hours)h \(remainingMinutes)m / 30h"
+    return L10n.tr("%dh %dm / 30h", hours, remainingMinutes)
   }
 
   func estimatedUnlockDate(from date: Date) -> Date {
@@ -133,7 +133,7 @@ private struct WeeklyAccessLockCard: View {
   let onNotify: () -> Void
 
   private var buttonTitle: String {
-    isReady ? "View Weekly" : notificationState.buttonTitle
+    isReady ? L10n.tr("View Weekly") : notificationState.buttonTitle
   }
 
   private var isButtonDisabled: Bool {

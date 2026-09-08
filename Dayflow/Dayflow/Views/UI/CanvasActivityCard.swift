@@ -47,7 +47,7 @@ struct CanvasActivityCard: View {
 
   private var displayTitle: String {
     guard isFailedCard, failureCount > 1 else { return title }
-    return "\(title) · \(failureCount) intervals"
+    return L10n.tr("%@ · %d intervals", title, failureCount)
   }
 
   private var isCompactCard: Bool {

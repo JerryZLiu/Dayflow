@@ -29,7 +29,7 @@ struct GoalDurationPicker: View {
       GoalNumberColumn(
         value: hoursBinding,
         range: 0...12,
-        label: "Hours",
+        label: L10n.tr("Hours"),
         step: 1,
         numberStackLeft: 5.25,
         numberStackTop: 12.89,
@@ -39,7 +39,7 @@ struct GoalDurationPicker: View {
       GoalNumberColumn(
         value: minuteBinding,
         range: 0...55,
-        label: "Mins",
+        label: L10n.tr("Mins"),
         step: 5,
         numberStackLeft: 5.25,
         numberStackTop: 11.89,
@@ -123,7 +123,7 @@ private struct GoalNumberColumn: View {
         applyScroll(deltaY, isPrecise: isPrecise)
       }
     )
-    .help("Drag or scroll to adjust \(label.lowercased())")
+    .help(L10n.tr("Drag or scroll to adjust %@", label))
   }
 
   @ViewBuilder

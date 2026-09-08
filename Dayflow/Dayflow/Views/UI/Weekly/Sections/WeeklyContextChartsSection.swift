@@ -50,13 +50,13 @@ struct WeeklyContextChartsSection: View {
     [
       WeeklyContextLineSeries(
         id: "distractions",
-        label: "Number of times distracted",
+        label: L10n.tr("Number of times distracted"),
         colorHex: "FF8A8A",
         values: snapshot.comparison.days.map(\.distracted)
       ),
       WeeklyContextLineSeries(
         id: "context-shifts",
-        label: "Number of context shifts",
+        label: L10n.tr("Number of context shifts"),
         colorHex: "A78CFF",
         values: snapshot.comparison.days.map(\.shifts)
       ),
@@ -251,8 +251,8 @@ private struct WeeklyContextDistributionCard: View {
         .padding(.top, 18)
 
       HStack(spacing: 24) {
-        legendItem("Context shift", color: Design.contextColor)
-        legendItem("Distraction", color: Design.distractionColor)
+        legendItem(L10n.tr("Context shift"), color: Design.contextColor)
+        legendItem(L10n.tr("Distraction"), color: Design.distractionColor)
       }
       .frame(maxWidth: .infinity)
       .padding(.top, 23)
@@ -467,8 +467,8 @@ private struct WeeklyContextComparisonBarCard: View {
 
   private var legend: some View {
     HStack(spacing: 24) {
-      legendItem("Number of times distracted", color: Color(hex: "FF653B"))
-      legendItem("Number of context shifts", color: Color(hex: "A88CFF"))
+      legendItem(L10n.tr("Number of times distracted"), color: Color(hex: "FF653B"))
+      legendItem(L10n.tr("Number of context shifts"), color: Color(hex: "A88CFF"))
     }
   }
 

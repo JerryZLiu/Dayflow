@@ -160,15 +160,15 @@ struct WeeklyTreemapChange {
   }
 
   static func positive(_ minutes: Int) -> WeeklyTreemapChange {
-    WeeklyTreemapChange(text: "+ \(minutes)m", kind: .positive)
+    WeeklyTreemapChange(text: L10n.tr("+ %dm", minutes), kind: .positive)
   }
 
   static func negative(_ minutes: Int) -> WeeklyTreemapChange {
-    WeeklyTreemapChange(text: "- \(minutes)m", kind: .negative)
+    WeeklyTreemapChange(text: L10n.tr("- %dm", minutes), kind: .negative)
   }
 
   static func neutral(_ minutes: Int) -> WeeklyTreemapChange {
-    WeeklyTreemapChange(text: "\(minutes)m", kind: .neutral)
+    WeeklyTreemapChange(text: L10n.tr("%dm", minutes), kind: .neutral)
   }
 }
 
@@ -208,14 +208,14 @@ extension TimeInterval {
     let minutes = totalMinutes % 60
 
     if hours > 0, minutes > 0 {
-      return "\(hours)hr \(minutes)m"
+      return L10n.tr("%dhr %dm", hours, minutes)
     }
 
     if hours > 0 {
-      return "\(hours)hr"
+      return L10n.tr("%dhr", hours)
     }
 
-    return "\(minutes)m"
+    return L10n.tr("%dm", minutes)
   }
 }
 

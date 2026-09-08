@@ -348,7 +348,7 @@ struct ColorOrganizerRoot: View {
       VStack(alignment: .leading, spacing: 12) {
         Text(
           isDraggingColor
-            ? "Drop on a category →"
+            ? L10n.tr("Drop on a category →")
             : "Click and drag on the canvas above to change the color palette. Then drag a color onto a category."
         )
         .font(Font.custom("Figtree", size: 13).weight(.medium))
@@ -484,13 +484,13 @@ struct ColorOrganizerRoot: View {
 
       if stage == .details {
         if supportsDetailsStage == false, let onBack {
-          SetupSecondaryButton(title: "Back") {
+          SetupSecondaryButton(title: L10n.tr("Back")) {
             commitPendingEditsIfNeeded()
             onBack()
           }
         }
 
-        SetupContinueButton(title: "Next", isEnabled: !categories.isEmpty) {
+        SetupContinueButton(title: L10n.tr("Next"), isEnabled: !categories.isEmpty) {
           commitPendingEditsIfNeeded()
           trackDetailsCompletion()
           categoryStore.persist()
@@ -499,7 +499,7 @@ struct ColorOrganizerRoot: View {
           }
         }
       } else {
-        SetupSecondaryButton(title: "Back") {
+        SetupSecondaryButton(title: L10n.tr("Back")) {
           if supportsDetailsStage {
             withAnimation(.easeInOut(duration: 0.25)) {
               isDraggingColor = false
@@ -510,7 +510,7 @@ struct ColorOrganizerRoot: View {
           }
         }
 
-        SetupContinueButton(title: completionButtonTitle ?? "Next", isEnabled: !categories.isEmpty)
+        SetupContinueButton(title: completionButtonTitle ?? L10n.tr("Next"), isEnabled: !categories.isEmpty)
         {
           trackColorsCompletion()
           categoryStore.persist()

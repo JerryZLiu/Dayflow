@@ -216,12 +216,13 @@ final class AgentsRecapStore: ObservableObject {
       let context = detail.isEmpty ? stdoutTail : detail
       return .failure(
         RecapRunError(
-          message: "The run finished but no recap file was written."
+          message: L10n.tr("The run finished but no recap file was written.")
             + (context.isEmpty ? "" : "\n\n\(context)")))
     }
 
     guard let decoded = decodeRecap(from: data) else {
-      return .failure(RecapRunError(message: "The recap file could not be parsed as valid JSON."))
+      return .failure(
+        RecapRunError(message: L10n.tr("The recap file could not be parsed as valid JSON.")))
     }
     return .success(decoded)
   }

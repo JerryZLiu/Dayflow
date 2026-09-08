@@ -61,9 +61,9 @@ private struct WeeklyApplicationNetworkPane: View {
       }
 
       HStack(spacing: 30) {
-        legendItem("Work", border: Color(hex: "4779E9"), fill: Color(hex: "EEF3FF"))
-        legendItem("Personal", border: Color(hex: "B8B8B8"), fill: Color(hex: "E6E6E6"))
-        legendItem("Distraction", border: Color(hex: "FF7C5A"), fill: Color(hex: "FFDCCF"))
+        legendItem(L10n.tr("Work"), border: Color(hex: "4779E9"), fill: Color(hex: "EEF3FF"))
+        legendItem(L10n.tr("Personal"), border: Color(hex: "B8B8B8"), fill: Color(hex: "E6E6E6"))
+        legendItem(L10n.tr("Distraction"), border: Color(hex: "FF7C5A"), fill: Color(hex: "FFDCCF"))
       }
       .offset(x: 158, y: 507)
     }
