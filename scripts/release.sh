@@ -23,7 +23,7 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 
-PLIST=${PLIST:-"$REPO_ROOT/Dayflow/Dayflow/Info.plist"}
+PLIST=${PLIST:-"$REPO_ROOT/legacy/dayflow/Dayflow/Info.plist"}
 APP_NAME=${APP_NAME:-Dayflow}
 SCHEME=${SCHEME:-Dayflow}
 CONFIG=${CONFIG:-Release}
@@ -62,7 +62,7 @@ fi
 
 if [[ ! -f "$PLIST" ]]; then err "Info.plist not found at $PLIST"; fi
 
-PBP="$REPO_ROOT/Dayflow/Dayflow.xcodeproj/project.pbxproj"
+PBP="$REPO_ROOT/legacy/dayflow/Dayflow.xcodeproj/project.pbxproj"
 
 get_plist() { /usr/libexec/PlistBuddy -c "Print :$1" "$PLIST" 2>/dev/null || true; }
 set_plist() {

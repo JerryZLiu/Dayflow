@@ -11,7 +11,7 @@ set -euo pipefail
 #   CONFIG           - Xcode configuration (default: Release)
 #   DERIVED_DATA     - Derived data path (default: build)
 #   APP_NAME         - App name (default: Dayflow)
-#   ENTITLEMENTS     - Entitlements plist path (default: Dayflow/Dayflow/Dayflow.entitlements)
+#   ENTITLEMENTS     - Entitlements plist path (default: legacy/dayflow/Dayflow/Dayflow.entitlements)
 #   SIGN_ID          - Codesign identity (e.g. "Developer ID Application: Your Name (TEAMID)")
 #   VOL_NAME         - DMG volume name (defaults to APP_NAME)
 #   DMG_NAME         - Output DMG name (defaults to "${APP_NAME}.dmg")
@@ -34,7 +34,7 @@ SCHEME=${SCHEME:-Dayflow}
 CONFIG=${CONFIG:-Release}
 DERIVED_DATA=${DERIVED_DATA:-build}
 APP_NAME=${APP_NAME:-Dayflow}
-ENTITLEMENTS=${ENTITLEMENTS:-Dayflow/Dayflow/Dayflow.entitlements}
+ENTITLEMENTS=${ENTITLEMENTS:-legacy/dayflow/Dayflow/Dayflow.entitlements}
 VOL_NAME=${VOL_NAME:-$APP_NAME}
 DMG_NAME=${DMG_NAME:-"${APP_NAME}.dmg"}
 
@@ -45,7 +45,7 @@ trap 'rm -rf "${SANITIZED_DIR}"' EXIT
 SANITIZED_APP="${SANITIZED_DIR}/${APP_NAME}.app"
 
 # Fixed project location inside repo
-PROJECT_PATH=${PROJECT_PATH:-Dayflow/Dayflow.xcodeproj}
+PROJECT_PATH=${PROJECT_PATH:-legacy/dayflow/Dayflow.xcodeproj}
 if [[ ! -d "$PROJECT_PATH" ]]; then
   echo "ERROR: Xcode project not found at $PROJECT_PATH" >&2
   exit 1
@@ -245,23 +245,21 @@ if ! command -v create-dmg >/dev/null 2>&1; then
   exit 1
 fi
 
-# Default to project's background image
-SCRIPT_PARENT=$(cd "$SCRIPT_DIR/.." && pwd)
-DEFAULT_BG="${SCRIPT_PARENT}/docs/assets/dmg-background.png"
-DMG_BG=${DMG_BG:-$DEFAULT_BG}
-
-if [[ ! -f "${DMG_BG}" ]]; then
-  echo "ERROR: Background image not found at ${DMG_BG}" >&2
-  exit 1
+# A custom background remains optional through DMG_BG; the cleaned Daygo tree
+# no longer carries the historical image.
+DMG_BG=${DMG_BG:-}
+DMG_BACKGROUND_ARGS=()
+if [[ -f "${DMG_BG}" ]]; then
+  DMG_BACKGROUND_ARGS=(--background "${DMG_BG}")
 fi
 
 rm -f "${DMG_NAME}"
 
-# Window size and positions tuned for docs/assets/dmg-background.png (1550×960 @2x, displays as 775×480)
-# Dayflow app on left, Applications folder on right (swapped from typical layout)
+# Keep the historical window and icon positions even when no custom background
+# is available.
 create-dmg \
   --volname "${VOL_NAME}" \
-  --background "${DMG_BG}" \
+  "${DMG_BACKGROUND_ARGS[@]}" \
   --window-size 775 480 \
   --icon-size "${DMG_ICON_SIZE:-128}" \
   --icon "${APP_NAME}.app" 200 270 \

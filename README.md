@@ -1,146 +1,120 @@
-<div align="center">
-  <img src="docs/images/dayflow_header.png" alt="Dayflow" width="380">
+# Daygo
 
-  <p><strong>A private, automatic work journal for Mac.</strong></p>
+**简体中文** · [English](README.en.md)
 
-  <p>
-    Dayflow understands the work you do on your Mac and turns it into a clear timeline of your day.
-    Built from the ground up for privacy, it’s open source, local-first, and can run entirely with local AI.
-  </p>
+Daygo 是一款面向 macOS 的隐私优先、本地优先工作日志。它定时采集屏幕活动，使用用户选择的 AI 服务理解工作内容，并将结果整理为可检索的每日时间线、站会摘要和复盘记录。
 
-  <p>
-    <a href="https://trendshift.io/repositories/17458" target="_blank" rel="noreferrer">
-      <img src="https://trendshift.io/api/badge/repositories/17458" alt="JerryZLiu/Dayflow | Trendshift" width="250" height="55">
-    </a>
-  </p>
+> **项目状态：**Daygo 正在重构为 Go Core + Wails + Vue。仓库目前仍包含继承自 Dayflow 的 Swift 生产版本，它是迁移期间的参考实现和回退路径。新的 Go 版本尚未达到公开安装条件。
 
-  <p>
-    <a href="https://www.dayflow.so/api/download?source=github_readme_top">
-      <img src="docs/images/download_dayflow_button.png" alt="Download Dayflow for Mac" width="352">
-    </a>
-  </p>
-</div>
+## 为什么做 Daygo
 
-## Automatic Timeline
+普通时间追踪工具通常只能判断哪个应用处于前台。Daygo 希望保留工作的真实上下文：你在构建什么、调查什么、讨论什么，以及审查什么。
 
-Dayflow turns raw screen activity into a chronological timeline of what you actually did, so you can reconstruct the day without timers or manual notes.
+- 无需手动启停计时器的自动活动时间线
+- 每日总结与站会内容整理
+- 每周回顾与分心活动分析
+- 基于工作历史的自然语言问答
+- 本地优先存储与可配置的数据保留策略
+- 由用户选择本地或云端 AI provider
 
-<p align="center">
-  <img src="docs/images/hero_animation_1080p.gif" alt="Dayflow automatic timeline view" width="900">
-</p>
+## 隐私模型
 
-## Daily Standup
+隐私是架构约束，而不是可选模式：
 
-See a GitHub-style activity grid of your day, plus yesterday's highlights, today's priorities, and blockers, so you can walk into standup with the update already written.
+- 录制、时间线和数据库默认保存在本机。
+- 只有发送给用户明确配置的 AI provider 时，屏幕数据才可以离开设备。
+- 可以使用本地模型，让分析过程完全留在设备上。
+- 被屏蔽的应用会从采集中过滤；必要时使用脱敏占位帧。
+- 分析和崩溃报告必须由用户主动选择加入，且不得包含屏幕内容、窗口标题、文件路径、凭据或 LLM payload。
 
-<p align="center">
-  <img src="docs/images/daily.png" alt="Dayflow daily workflow and standup view" width="900">
-</p>
-
-## Weekly Review
-
-See your week at a glance: when you were focused, where time went, which apps dominated, and what pulled you off track.
-
-<p align="center">
-  <img src="docs/images/weekly.png" alt="Dayflow weekly analytics view" width="900">
-</p>
-
-## Chat With Your Work Journal
-
-Ask questions about your day/week/year and get answers grounded in your timeline instead of digging through notes, screenshots, or memory.
-
-<p align="center">
-  <img src="docs/images/chat.gif" alt="Dayflow chat feature answering questions about your workday" width="900">
-</p>
-
-## What Dayflow Does
-
-Dayflow runs quietly on your Mac and builds a useful record of your day from your screen activity.
-
-| Feature | How it works | Why it's useful |
-| --- | --- | --- |
-| Automatic timeline | Dayflow captures lightweight screen chunks, analyzes them with your chosen AI provider, and turns the day into activity cards. | You get an accurate work journal without starting timers or writing notes. |
-| Context-aware summaries | It looks at what you were actually doing on screen, not just which app was active. | Cursor, Chrome, YouTube, or Slack become meaningful work context instead of vague app usage. |
-| Daily standup | Dayflow pulls yesterday's highlights, today's tasks, and blockers from your timeline. | You can write updates in minutes and stop relying on memory. |
-| Chat with your work journal | Ask natural-language questions about your timeline and recent activity. | You can recover details, explain where time went, and turn raw activity into useful answers. |
-| Weekly review | It aggregates your timeline into focus patterns, categories, app usage, and interaction graphs. | You can see where the week actually went and spot the habits that helped or hurt. |
-| Distraction tracking | Dayflow identifies distracting sessions and shows them alongside focused work. | You can catch drift early without manually labeling every break. |
-| Timeline export | Export your timeline as Markdown for any date range. | Useful for status updates, client notes, personal reviews, or saving a searchable record. |
-| Local-first storage | Recordings, timeline data, and the app database stay on your Mac by default. | You stay in control of sensitive screen history and can delete it whenever you want. |
-| AI provider choice | Use local models, Gemini, ChatGPT, or Claude depending on your privacy and quality needs. | You can trade off privacy, cost, speed, and summary quality instead of being locked into one backend. |
-| Automatic cleanup | Configure storage limits and let Dayflow purge old recordings automatically. | You get the value of a work journal without filling your disk forever. |
-
-## Why People Use It
-
-Most time trackers tell you which app was open. Dayflow tries to understand what you were doing.
-
-Cursor for two hours could mean shipping a feature, debugging auth, reviewing a PR, or getting lost in setup. Dayflow gives you the context, not just the window title.
-
-## Privacy
-
-Dayflow is local-first and open source.
-
-Your recordings, timeline, and database live on your Mac at:
+旧版应用的数据目录为：
 
 ```text
 ~/Library/Application Support/Dayflow/
 ```
 
-You choose how AI analysis runs:
+迁移期间会刻意保留该路径，以兼容已有用户数据。项目更名不等于立即迁移 bundle identifier、Keychain service 或数据目录。
 
-- Local models through Ollama or LM Studio
-- Gemini with your own API key
-- ChatGPT or Claude through their local CLI tools
+## 重构架构
 
-If you choose a cloud provider, activity data needed for analysis is sent to that provider. If you choose local models, analysis stays on your machine.
-
-## Install
-
-### Download
-
-Download the latest `Dayflow.dmg` from GitHub Releases:
-
-<p>
-  <a href="https://www.dayflow.so/api/download?source=github_readme_install">
-    <img src="docs/images/download_dayflow_button.png" alt="Download Dayflow for Mac" width="352">
-  </a>
-</p>
-
-Open the DMG, drag Dayflow into Applications, then grant macOS Screen & System Audio Recording permission when prompted.
-
-### Homebrew
-
-```bash
-brew install --cask dayflow
+```text
+Vue 3 + TypeScript
+        ↓ Wails bindings
+Go Core
+  ├── 存储与设置
+  ├── 分析与 AI providers
+  ├── 时间线、每日与每周洞察
+  └── 生命周期编排
+        ↓ 带版本的 NDJSON / Unix socket
+Swift helper
+  └── ScreenCaptureKit、AVFoundation、TCC、Keychain、状态栏、Sparkle
 ```
 
-## Requirements
+Go 负责可移植的业务逻辑，并在切换完成后成为 SQLite 的唯一写入方。Swift 只保留 Apple framework 和 macOS 身份约束所需的原生适配。
 
-- macOS 14+
-- Screen & System Audio Recording permission
-- Optional: Gemini API key, Ollama, LM Studio, Codex CLI, or Claude Code depending on your preferred AI provider
+迁移采用渐进方式：先建立兼容 fixtures，再交付只读 Go 查看器，对派生结果进行差分验证，最后才转移分析与捕获所有权。完整设计、风险、测试策略和阶段门禁见[迁移计划](docs/plan/README.md)。
 
-## Build From Source
+## 当前仓库结构
+
+```text
+cmd/                        Go 命令入口（后续阶段落盘）
+internal/                   Go Core（后续阶段落盘）
+frontend/                   Vue/Wails 前端（后续阶段落盘）
+native/darwin/              macOS Swift helper（后续阶段落盘）
+testdata/                   匿名兼容性 fixtures（阶段 0 落盘）
+docs/plan/                  Go/Wails/Vue 重构设计
+legacy/dayflow/             当前 Swift 参考应用
+legacy/dayflow-cli/         当前只读 Swift CLI
+legacy/unlinked-tests/      未加入 Xcode target 的历史测试
+scripts/                    当前应用的构建和发布脚本
+```
+
+`docs/plan/` 中描述的 Go 目录和接口属于目标状态，不保证当前已经存在。`legacy/` 只用于迁移期对照与回退，新业务代码不得写入其中。
+
+## 构建当前参考版本
+
+环境要求：
+
+- macOS 14 或更高版本
+- Xcode 16 或更高版本
+- 运行时授予“屏幕与系统音频录制”权限
 
 ```bash
-git clone https://github.com/JerryZLiu/Dayflow.git
+git clone https://github.com/Jwz-git/Dayflow.git
 cd Dayflow
-open Dayflow/Dayflow.xcodeproj
+open legacy/dayflow/Dayflow.xcodeproj
 ```
 
-Select the Dayflow scheme in Xcode and run it.
+也可以使用命令行构建：
 
-## Contributing
+```bash
+xcodebuild -project legacy/dayflow/Dayflow.xcodeproj \
+  -scheme Dayflow \
+  -configuration Debug build
+```
 
-Issues and pull requests are welcome. If you are planning a larger change, open an issue first so the scope is clear.
+本地构建会读取被 Git 忽略的 `legacy/dayflow/Config/LocalSecrets.xcconfig`。需要时请从示例文件复制并填写本地配置，绝不要提交 API Key 或其他凭据。
 
-## License
+## 测试
 
-Dayflow is licensed under the MIT License.
+```bash
+xcodebuild -project legacy/dayflow/Dayflow.xcodeproj \
+  -scheme Dayflow \
+  -destination 'platform=macOS' test
 
-<p align="center">
-  <a href="https://www.dayflow.so/">dayflow.so</a> ·
-  <a href="https://www.dayflow.so/pricing/">Pricing</a> ·
-  <a href="https://www.dayflow.so/privacy/">Privacy</a> ·
-  <a href="https://www.dayflow.so/blog/">Guides</a>
-</p>
+cd legacy/dayflow-cli
+swift build
+swift run dayflow status
+```
+
+Go module 落盘后会在此补充 Go 构建命令。在此之前，迁移计划中的命令是阶段完成标准，不代表仓库当前已经具备对应构建入口。
+
+## 参与贡献
+
+实现工作应遵循分阶段迁移方案，并保持现有数据库、CLI、隐私、捕获、更新和 macOS 身份契约。开始修改前请阅读 [AGENTS.md](AGENTS.md)。
+
+计划进行较大改动时，请先创建 Issue，并说明改动所属的迁移阶段及其验证门禁。
+
+## 许可证
+
+Daygo 使用 [MIT License](LICENSE)。

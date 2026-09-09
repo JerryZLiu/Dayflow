@@ -1,36 +1,90 @@
-*.dmg
-*.DS_Store
+# macOS
 .DS_Store
-Dayflow/build*
-*.xcuserstate
-xcuserdata/
-LLMEvalScript.swift
-Dayflow/eval/
-evals/
-build/
-build_tmp/
-build_universal/
-.claude/
-scripts/release.env
-Dayflow/Config/LocalSecrets.xcconfig
-signed/
+.AppleDouble
+.LSOverride
 
-# Ignore Claude prompt notes
+# Editors and local agent settings
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.claude/
 CLAUDE.md
 claude.md
 
-# Tauri migration (WIP)
-dayflow-tauri/
-agents.md
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.local
+scripts/release.env
+legacy/dayflow/Config/LocalSecrets.xcconfig
 
-# Internal tools
-tools/*
-!tools/dayflow-cli/
-!tools/dayflow-cli/**
+# Go
+/bin/
+/coverage/
+coverage.out
+*.coverprofile
+*.test
+*.prof
 
-# Eval frameworks
-claudeeval/
-codexeval/
+# Node, Vue, Vite, and Wails
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+wailsjs/
 
-# Dayflow CLI SwiftPM artifacts
-tools/dayflow-cli/.build/
+# Xcode and SwiftPM
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.swiftpm/
+**/.build/
+legacy/dayflow/build*/
+legacy/dayflow/eval/
+
+# Build, packaging, signing, and release output
+/build/
+/build_tmp/
+/build_universal/
+/dist/
+/signed/
+*.app
+*.dmg
+*.pkg
+*.xcarchive
+*.dSYM
+*.dSYM.zip
+
+# Local evaluation and scratch files
+/evals/
+/claudeeval/
+/codexeval/
+/dayflow-tauri/
+LLMEvalScript.swift
+
+# Local databases, recordings, and credentials must never be committed.
+# Curated anonymous fixtures under testdata/ remain trackable.
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
+!testdata/**/*.sqlite
+!testdata/**/*.db
+*.plist.local
+*.pem
+*.p12
+*.key
+recordings/
+
+# Temporary files
+.cache/
+.tmp/
+tmp/
+*.log
+*.tmp
