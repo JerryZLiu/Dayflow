@@ -37,7 +37,7 @@ struct ChatCLITestView: View {
                 }
               }
               .frame(width: 16, height: 16)
-              Text(isTesting ? "Testing…" : "Test CLI")
+              Text(isTesting ? L10n.tr("Testing…") : L10n.tr("Test CLI"))
                 .font(.custom("Figtree", size: 14))
                 .fontWeight(.medium)
             }
@@ -56,7 +56,7 @@ struct ChatCLITestView: View {
         .opacity(selectedTool == nil ? 0.5 : 1)
       } else {
         SettingsPrimaryButton(
-          title: isTesting ? "Testing…" : "Test CLI",
+          title: isTesting ? L10n.tr("Testing…") : L10n.tr("Test CLI"),
           systemImage: "bolt.fill",
           isLoading: isTesting,
           isDisabled: selectedTool == nil,
@@ -71,14 +71,14 @@ struct ChatCLITestView: View {
       }
 
       if success {
-        SettingsStatusDot(state: .good, label: "Test successful.")
+        SettingsStatusDot(state: .good, label: L10n.tr("Test successful."))
       } else if let msg = resultMessage {
         VStack(alignment: .leading, spacing: 8) {
           HStack(alignment: .center, spacing: 10) {
             SettingsStatusDot(state: .bad, label: msg)
             if debugOutput != nil {
               SettingsLinkButton(
-                title: "Copy logs",
+                title: L10n.tr("Copy logs"),
                 systemImage: nil,
                 action: copyDebugLogs
               )
@@ -108,7 +108,7 @@ struct ChatCLITestView: View {
   func runTest() {
     guard !isTesting else { return }
     guard let tool = selectedTool else {
-      resultMessage = "Pick ChatGPT or Claude first."
+      resultMessage = L10n.tr("Pick ChatGPT or Claude first.")
       return
     }
 
@@ -183,14 +183,12 @@ struct ChatCLITestView: View {
             } else {
               if stderrTrimmed.isEmpty {
                 if tool == .claude {
-                  resultMessage =
-                    "Claude CLI returned an error. You may need to sign in — run 'claude login' in Terminal."
+                  resultMessage = L10n.tr("Claude CLI returned an error. You may need to sign in — run 'claude login' in Terminal.")
                 } else {
-                  resultMessage =
-                    "Codex CLI returned an error. You may need to sign in — run 'codex auth' in Terminal."
+                  resultMessage = L10n.tr("Codex CLI returned an error. You may need to sign in — run 'codex auth' in Terminal.")
                 }
               } else {
-                resultMessage = "CLI error: \(stderrTrimmed.prefix(150))"
+                resultMessage = L10n.tr("CLI error: %@", String(stderrTrimmed.prefix(150)))
               }
               captureChatCLITestFailed(
                 for: tool,
@@ -208,14 +206,14 @@ struct ChatCLITestView: View {
           let passed = parseForSuccess(cliResult, for: tool)
           success = passed
           if passed {
-            resultMessage = "CLI is working!"
+            resultMessage = L10n.tr("CLI is working!")
             captureChatCLITestSucceeded(
               for: tool,
               durationMs: durationMs,
               exitCode: Int(cliResult.exitCode)
             )
           } else if cliResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            resultMessage = "CLI returned empty response. Make sure you're signed in."
+            resultMessage = L10n.tr("CLI returned empty response. Make sure you're signed in.")
             captureChatCLITestFailed(
               for: tool,
               durationMs: durationMs,
@@ -224,7 +222,7 @@ struct ChatCLITestView: View {
             )
           } else {
             let preview = cliResult.stdout.prefix(100)
-            resultMessage = "Got: \"\(preview)\" — expected '4'"
+            resultMessage = L10n.tr("Got: \"%@\" — expected '4'", String(preview))
             captureChatCLITestFailed(
               for: tool,
               durationMs: durationMs,
@@ -338,8 +336,10 @@ struct ChatCLITestView: View {
       throw NSError(
         domain: "ChatCLITest", code: 1,
         userInfo: [
-          NSLocalizedDescriptionKey:
-            "\(tool.shortName) CLI not found. Install it and run '\(tool == .codex ? "codex auth" : "claude login")' in Terminal."
+          NSLocalizedDescriptionKey: L10n.tr(
+            "%@ CLI not found. Install it and run '%@' in Terminal.",
+            tool.shortName, tool == .codex ? "codex auth" : "claude login"
+          )
         ])
     }
 
@@ -409,9 +409,9 @@ struct ChatCLITestView: View {
     // Return the correct message based on which tool we're actually testing
     switch tool {
     case .claude:
-      return "Claude CLI is not signed in. Run 'claude login' in Terminal to authenticate."
+      return L10n.tr("Claude CLI is not signed in. Run 'claude login' in Terminal to authenticate.")
     case .codex:
-      return "Codex CLI is not signed in. Run 'codex auth' in Terminal to authenticate."
+      return L10n.tr("Codex CLI is not signed in. Run 'codex auth' in Terminal to authenticate.")
     }
   }
 }
@@ -422,8 +422,8 @@ enum CLITool: String, CaseIterable {
 
   var displayName: String {
     switch self {
-    case .codex: return "ChatGPT (Codex CLI)"
-    case .claude: return "Claude Code"
+    case .codex: return L10n.tr("ChatGPT (Codex CLI)")
+    case .claude: return L10n.tr("Claude Code")
     }
   }
 
@@ -437,9 +437,9 @@ enum CLITool: String, CaseIterable {
   var subtitle: String {
     switch self {
     case .codex:
-      return "OpenAI's ChatGPT desktop tooling with codex CLI"
+      return L10n.tr("OpenAI's ChatGPT desktop tooling with codex CLI")
     case .claude:
-      return "Anthropic's Claude Code command-line helper"
+      return L10n.tr("Anthropic's Claude Code command-line helper")
     }
   }
 
@@ -493,15 +493,15 @@ enum CLIDetectionState: Equatable {
   var statusLabel: String {
     switch self {
     case .unknown:
-      return "Not checked"
+      return L10n.tr("Not checked")
     case .checking:
-      return "Checking…"
+      return L10n.tr("Checking…")
     case .installed:
-      return "Installed"
+      return L10n.tr("Installed")
     case .notFound:
-      return "Not installed"
+      return L10n.tr("Not installed")
     case .failed:
-      return "Error"
+      return L10n.tr("Error")
     }
   }
 

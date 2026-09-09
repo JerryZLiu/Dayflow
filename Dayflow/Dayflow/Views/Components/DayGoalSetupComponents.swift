@@ -267,12 +267,12 @@ struct GoalSetupPanel: View {
     let hours = minutes / 60
     let mins = minutes % 60
     if hours > 0 && mins == 0 {
-      return "\(hours) hours"
+      return L10n.tr("%d hours", hours)
     }
     if hours > 0 {
-      return "\(hours)h \(mins)m"
+      return L10n.tr("%d hr %d min", hours, mins)
     }
-    return "\(mins)m"
+    return L10n.tr("%d min", mins)
   }
 
   private func statBarWidth(minutes: Int) -> CGFloat {

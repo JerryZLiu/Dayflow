@@ -171,7 +171,7 @@ struct ScreenRecordingPermissionView: View {
                     .scaleEffect(0.7)
                     .progressViewStyle(CircularProgressViewStyle())
                 }
-                Text(isCheckingPermission ? "Checking..." : "Open System Settings")
+                Text(isCheckingPermission ? L10n.tr("Checking...") : L10n.tr("Open System Settings"))
                   .font(.custom("Figtree-SemiBold", size: 12))
                   .tracking(-0.48)
                   .foregroundColor(brownAccent)

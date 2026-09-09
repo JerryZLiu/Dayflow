@@ -205,8 +205,8 @@ struct DayGoalFlowView: View {
 
       GoalReviewCard(
         kind: .focus,
-        title: "Focus target: \(formatDuration(review.plan.focusTargetDuration))",
-        subtitle: "Time spent: \(formatDuration(review.focusDuration))",
+        title: L10n.tr("Focus target: %@", formatDuration(review.plan.focusTargetDuration)),
+        subtitle: L10n.tr("Time spent: %@", formatDuration(review.focusDuration)),
         targetDuration: review.plan.focusTargetDuration,
         actualDuration: review.focusDuration,
         categories: review.focusCategories
@@ -216,8 +216,8 @@ struct DayGoalFlowView: View {
 
       GoalReviewCard(
         kind: .distraction,
-        title: "Distraction limit: \(formatDuration(review.plan.distractionLimitDuration))",
-        subtitle: "Time spent distracted: \(formatDuration(review.distractedDuration))",
+        title: L10n.tr("Distraction limit: %@", formatDuration(review.plan.distractionLimitDuration)),
+        subtitle: L10n.tr("Time spent distracted: %@", formatDuration(review.distractedDuration)),
         targetDuration: review.plan.distractionLimitDuration,
         actualDuration: review.distractedDuration,
         categories: []
@@ -225,7 +225,7 @@ struct DayGoalFlowView: View {
       .frame(width: 388, height: 123)
       .position(x: 600, y: 491.5)
 
-      primaryButton("Set today’s goals") {
+      primaryButton(L10n.tr("Set today’s goals")) {
         onSetupStarted()
         withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
           screen = .setup
@@ -258,11 +258,11 @@ struct DayGoalFlowView: View {
 
       GoalSetupPanel(
         kind: .focus,
-        title: "Focus goal",
+        title: L10n.tr("Focus goal"),
         durationMinutes: $draft.focusTargetMinutes,
-        leadingStatTitle: "Yesterday’s focus",
+        leadingStatTitle: L10n.tr("Yesterday’s focus"),
         leadingStatMinutes: focusStats.yesterdayMinutes,
-        trailingStatTitle: "Last week’s Focus average",
+        trailingStatTitle: L10n.tr("Last week’s Focus average"),
         trailingStatMinutes: focusStats.lastWeekAverageMinutes,
         statScaleMaxMinutes: focusStats.scaleMaxMinutes,
         selectedCategories: resolvedSnapshots(for: .focus),
@@ -274,11 +274,11 @@ struct DayGoalFlowView: View {
 
       GoalSetupPanel(
         kind: .distraction,
-        title: "Distraction limit",
+        title: L10n.tr("Distraction limit"),
         durationMinutes: $draft.distractionLimitMinutes,
-        leadingStatTitle: "Yesterday’s Distractions",
+        leadingStatTitle: L10n.tr("Yesterday’s Distractions"),
         leadingStatMinutes: distractionStats.yesterdayMinutes,
-        trailingStatTitle: "Last week’s Distraction average",
+        trailingStatTitle: L10n.tr("Last week’s Distraction average"),
         trailingStatMinutes: distractionStats.lastWeekAverageMinutes,
         statScaleMaxMinutes: distractionStats.scaleMaxMinutes,
         selectedCategories: resolvedSnapshots(for: .distraction),
@@ -289,9 +289,9 @@ struct DayGoalFlowView: View {
       .position(x: 804, y: 385.5)
 
       HStack(spacing: 10) {
-        secondaryButton("Skip today", action: onSkip)
+        secondaryButton(L10n.tr("Skip today"), action: onSkip)
 
-        primaryButton("Confirm") {
+        primaryButton(L10n.tr("Confirm")) {
           var plan = draft
           plan.isSkipped = false
           let now = Int(Date().timeIntervalSince1970)
@@ -551,12 +551,12 @@ struct DayGoalFlowView: View {
     let minutes = totalMinutes % 60
 
     if hours > 0 && minutes > 0 {
-      return "\(hours) hours \(minutes) minutes"
+      return L10n.tr("%d hours %d minutes", hours, minutes)
     }
     if hours > 0 {
-      return hours == 1 ? "1 hour" : "\(hours) hours"
+      return hours == 1 ? L10n.tr("1 hour") : L10n.tr("%d hours", hours)
     }
-    return "\(minutes) minutes"
+    return L10n.tr("%d minutes", minutes)
   }
 
 }

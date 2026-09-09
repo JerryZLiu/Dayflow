@@ -107,13 +107,13 @@ struct DistractionSummaryCard: View {
   private var statsBlock: some View {
     VStack(alignment: .leading, spacing: Design.statsSpacing) {
       statText(
-        title: "Total time captured",
+        title: L10n.tr("Total time captured"),
         value: totalCaptured,
         color: theme.textMuted
       )
 
       statText(
-        title: "Total time distracted",
+        title: L10n.tr("Total time distracted"),
         value: totalDistracted,
         color: Design.distractedTextColor
       )

@@ -383,9 +383,9 @@ struct WeeklyInteractionBarsGlyph: View {
 struct WeeklyInteractionGraphLegend: View {
   var body: some View {
     HStack(spacing: 24) {
-      legendItem(for: .work, title: "Work")
-      legendItem(for: .personal, title: "Personal")
-      legendItem(for: .distraction, title: "Distraction")
+      legendItem(for: .work, title: L10n.tr("Work"))
+      legendItem(for: .personal, title: L10n.tr("Personal"))
+      legendItem(for: .distraction, title: L10n.tr("Distraction"))
     }
   }
 

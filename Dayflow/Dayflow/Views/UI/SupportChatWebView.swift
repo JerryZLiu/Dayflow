@@ -123,6 +123,21 @@ struct SupportChatWebView: NSViewRepresentable {
       "apiHost": info?["PHPostHogHost"] as? String ?? "https://us.i.posthog.com",
       "appVersion": info?["CFBundleShortVersionString"] as? String ?? "",
       "palette": palette.values,
+      "strings": [
+        "yourEmail": L10n.tr("Your email"),
+        "emailPlaceholder": L10n.tr("so we can reply if you close the app"),
+        "messagePlaceholder": L10n.tr("What's going on? Bugs, ideas, confusion — all welcome."),
+        "attachDebugLogs": L10n.tr("Attach debug logs"),
+        "send": L10n.tr("Send"),
+        "greeting": L10n.tr("Hey there! Found a bug, have an idea, or just confused about something? Drop it here and a real person on the Dayflow team will get back to you in this chat."),
+        "you": L10n.tr("You"),
+        "truncated": L10n.tr("… (truncated, %d more characters)"),
+        "addEmail": L10n.tr("Add your email so we can reply."),
+        "unavailable": L10n.tr("Support is not available right now."),
+        "sent": L10n.tr("Sent. Replies show up here and in your inbox."),
+        "couldNotSend": L10n.tr("Couldn't send. Try again."),
+        "slowDown": L10n.tr("Slow down a little — try again in a minute."),
+      ],
     ]
     if let distinctId = AnalyticsService.shared.currentDistinctId() {
       config["distinctId"] = distinctId
@@ -418,8 +433,15 @@ private enum SupportChatPage {
         send: document.getElementById("send"),
         error: document.getElementById("error")
       };
+      document.querySelector('label[for="email"]').textContent = tr("yourEmail", "Your email");
+      el.email.placeholder = tr("emailPlaceholder", "so we can reply if you close the app");
+      el.text.placeholder = tr("messagePlaceholder", "What's going on? Bugs, ideas, confusion — all welcome.");
+      document.querySelector('#debug-toggle span').textContent = tr("attachDebugLogs", "Attach debug logs");
+      el.send.textContent = tr("send", "Send");
 
-      var GREETING = "Hey there! Found a bug, have an idea, or just confused about something? Drop it here and a real person on the Dayflow team will get back to you in this chat.";
+      var strings = config.strings || {};
+      function tr(key, fallback) { return strings[key] || fallback; }
+      var GREETING = tr("greeting", "Hey there! Found a bug, have an idea, or just confused about something? Drop it here and a real person on the Dayflow team will get back to you in this chat.");
       // Logs travel as a PostHog event on the same person, not inside the message,
       // so the ticket thread stays readable. Event properties allow ~1MB; stay well under.
       var DEBUG_LOG_LIMIT = 200000;
@@ -491,7 +513,7 @@ private enum SupportChatPage {
 
         var meta = document.createElement("div");
         meta.className = "meta " + (isUser ? "user" : "team");
-        var who = isUser ? "You" : (message.author_name || "Dayflow");
+        var who = isUser ? tr("you", "You") : (message.author_name || "Dayflow");
         var when = message.created_at ? formatTime(message.created_at) : "";
         meta.textContent = when ? who + " · " + when : who;
         el.messages.appendChild(meta);
@@ -555,7 +577,7 @@ private enum SupportChatPage {
 
       function truncate(text, limit) {
         if (text.length <= limit) return text;
-        return text.slice(0, limit) + "\n… (truncated, " + (text.length - limit) + " more characters)";
+        return text.slice(0, limit) + "\n" + tr("truncated", "… (truncated, %d more characters)").replace("%d", text.length - limit);
       }
 
       // Attaches the log to the same PostHog person the ticket belongs to. Open the
@@ -579,7 +601,7 @@ private enum SupportChatPage {
 
         var email = el.email.value.trim();
         if (!isLikelyEmail(email)) {
-          showError("Add your email so we can reply.");
+          showError(tr("addEmail", "Add your email so we can reply."));
           el.email.focus();
           return;
         }
@@ -597,7 +619,7 @@ private enum SupportChatPage {
         var hadTicket = !!posthog.conversations.getCurrentTicketId();
         try {
           var response = await posthog.conversations.sendMessage(text, traits);
-          if (!response) throw new Error("Support is not available right now.");
+          if (!response) throw new Error(tr("unavailable", "Support is not available right now."));
           if (attachDebug) sendDebugLogEvent(log, response);
           el.text.value = "";
           appendMessage({
@@ -607,11 +629,11 @@ private enum SupportChatPage {
             created_at: response.created_at
           });
           native({ event: "sent", hasDebugLog: attachDebug, newTicket: !hadTicket });
-          if (!hadTicket) showStatus("Sent. Replies show up here and in your inbox.");
+          if (!hadTicket) showStatus(tr("sent", "Sent. Replies show up here and in your inbox."));
           startPolling();
         } catch (error) {
-          var message = (error && error.message) || "Couldn't send. Try again.";
-          if (message.indexOf("Too many") >= 0) message = "Slow down a little — try again in a minute.";
+          var message = (error && error.message) || tr("couldNotSend", "Couldn't send. Try again.");
+          if (message.indexOf("Too many") >= 0) message = tr("slowDown", "Slow down a little — try again in a minute.");
           showError(message);
         } finally {
           state.sending = false;

@@ -313,7 +313,7 @@ private struct IntentionsEditForm: View {
 
       JournalTextEditor(
         text: $notes,
-        placeholder: "What mindset do you want to carry today?",
+        placeholder: L10n.tr("What mindset do you want to carry today?"),
         minLines: 3
       )
     }
@@ -330,7 +330,7 @@ private struct IntentionsEditForm: View {
 
       JournalTextEditor(
         text: $goals,
-        placeholder: "What are you working towards?",
+        placeholder: L10n.tr("What are you working towards?"),
         minLines: 3
       )
     }
@@ -383,7 +383,7 @@ private struct ReflectionEditorCard: View {
 
       JournalTextEditor(
         text: $text,
-        placeholder: "How was your day? What did you do? How do you feel?",
+        placeholder: L10n.tr("How was your day? What did you do? How do you feel?"),
         minLines: 6
       )
       .padding(.leading, -4)

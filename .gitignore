@@ -34,3 +34,4 @@ codexeval/
 
 # Dayflow CLI SwiftPM artifacts
 tools/dayflow-cli/.build/
+AGENTS.md

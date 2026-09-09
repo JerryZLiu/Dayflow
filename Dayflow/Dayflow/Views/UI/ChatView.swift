@@ -137,7 +137,7 @@ struct ChatView: View {
         pendingProviderSelection = nil
       }
     } message: {
-      Text("Switching to \(pendingProviderLabel) will clear this chat's context.")
+      Text(L10n.tr("Switching to %@ will clear this chat's context.", pendingProviderLabel))
     }
   }
 }

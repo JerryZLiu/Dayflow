@@ -72,7 +72,7 @@ class ProviderSetupState: ObservableObject {
   var currentStep: SetupStep {
     guard currentStepIndex < steps.count else {
       return SetupStep(
-        id: "fallback", title: "Setup", contentType: .information("Complete", "Setup is complete"))
+        id: "fallback", title: L10n.tr("Setup"), contentType: .information(L10n.tr("Complete"), L10n.tr("Setup is complete")))
     }
     return steps[currentStepIndex]
   }
@@ -106,24 +106,24 @@ class ProviderSetupState: ObservableObject {
       steps = [
         SetupStep(
           id: "intro",
-          title: "Before you begin",
+          title: L10n.tr("Before you begin"),
           contentType: .information(
-            "For experienced users",
-            "This path is recommended only if you're comfortable running LLMs locally and debugging technical issues. If terms like vLLM or API endpoint don't ring a bell, we recommend going back and picking ChatGPT, Claude, or Gemini. It's non-technical and takes about 30 seconds.\n\nFor local mode, Dayflow recommends Qwen3-VL 4B as the core vision-language model (Qwen2.5-VL 3B remains available if you need a smaller download)."
+            L10n.tr("For experienced users"),
+            L10n.tr("This path is recommended only if you're comfortable running LLMs locally and debugging technical issues. If terms like vLLM or API endpoint don't ring a bell, we recommend going back and picking ChatGPT, Claude, or Gemini. It's non-technical and takes about 30 seconds.\n\nFor local mode, Dayflow recommends Qwen3-VL 4B as the core vision-language model (Qwen2.5-VL 3B remains available if you need a smaller download).")
           )
         ),
-        SetupStep(id: "choose", title: "Choose engine", contentType: .localChoice),
-        SetupStep(id: "model", title: "Install model", contentType: .localModelInstall),
+        SetupStep(id: "choose", title: L10n.tr("Choose engine"), contentType: .localChoice),
+        SetupStep(id: "model", title: L10n.tr("Install model"), contentType: .localModelInstall),
         SetupStep(
-          id: "test", title: "Test connection",
+          id: "test", title: L10n.tr("Test connection"),
           contentType: .information(
-            "Test Connection",
-            "Click the button below to verify your local server responds to a simple chat completion."
+            L10n.tr("Test Connection"),
+            L10n.tr("Click the button below to verify your local server responds to a simple chat completion.")
           )),
         SetupStep(
-          id: "complete", title: "Complete",
+          id: "complete", title: L10n.tr("Complete"),
           contentType: .information(
-            "All set!", "Local AI is configured and ready to use with Dayflow.")),
+            L10n.tr("All set!"), L10n.tr("Local AI is configured and ready to use with Dayflow."))),
       ]
     case .chatGPT, .claude:
       preferredCLITool = provider == .claude ? .claude : .codex
@@ -138,25 +138,25 @@ class ProviderSetupState: ObservableObject {
       steps = [
         SetupStep(
           id: "intro",
-          title: "Configure endpoint",
+          title: L10n.tr("Configure endpoint"),
           contentType: .information(
-            "Connect an OpenAI-compatible endpoint",
-            "Use OpenRouter or another endpoint that supports OpenAI Chat Completions with image input. The connection test sends one image and may incur a small provider charge."
+            L10n.tr("Connect an OpenAI-compatible endpoint"),
+            L10n.tr("Use OpenRouter or another endpoint that supports OpenAI Chat Completions with image input. The connection test sends one image and may incur a small provider charge.")
           )
         ),
         SetupStep(
           id: "test",
-          title: "Test connection",
+          title: L10n.tr("Test connection"),
           contentType: .information(
-            "Test Connection",
-            "Enter the endpoint, model, and API key, then verify a multimodal response."
+            L10n.tr("Test Connection"),
+            L10n.tr("Enter the endpoint, model, and API key, then verify a multimodal response.")
           )
         ),
         SetupStep(
           id: "complete",
-          title: "Complete",
+          title: L10n.tr("Complete"),
           contentType: .information(
-            "All set!", "Your OpenAI-compatible provider is ready to use with Dayflow."
+            L10n.tr("All set!"), L10n.tr("Your OpenAI-compatible provider is ready to use with Dayflow.")
           )
         ),
       ]
@@ -167,19 +167,19 @@ class ProviderSetupState: ObservableObject {
       hasStoredGeminiAPIKey = !storedGeminiKey.isEmpty
       steps = [
         SetupStep(
-          id: "getkey", title: "Get API key",
+          id: "getkey", title: L10n.tr("Get API key"),
           contentType: .apiKeyInstructions),
         SetupStep(
-          id: "enterkey", title: "Enter API key",
+          id: "enterkey", title: L10n.tr("Enter API key"),
           contentType: .apiKeyInput),
         SetupStep(
-          id: "verify", title: "Test connection",
+          id: "verify", title: L10n.tr("Test connection"),
           contentType: .information(
-            "Test Connection", "Click the button below to verify your API key works with Gemini")),
+            L10n.tr("Test Connection"), L10n.tr("Click the button below to verify your API key works with Gemini"))),
         SetupStep(
-          id: "complete", title: "Complete",
+          id: "complete", title: L10n.tr("Complete"),
           contentType: .information(
-            "All set!", "Gemini is now configured and ready to use with Dayflow.")),
+            L10n.tr("All set!"), L10n.tr("Gemini is now configured and ready to use with Dayflow."))),
       ]
     }
   }
@@ -191,31 +191,31 @@ class ProviderSetupState: ObservableObject {
     return [
       SetupStep(
         id: "intro",
-        title: "Before you begin",
+        title: L10n.tr("Before you begin"),
         contentType: .information(
           "",
-          "Dayflow uses \(cliName) through your existing \(providerName) subscription. Install it and sign in on this Mac, then we'll verify the connection."
+          L10n.tr("Dayflow uses %@ through your existing %@ subscription. Install it and sign in on this Mac, then we'll verify the connection.", cliName, providerName)
         )
       ),
       SetupStep(
         id: "detect",
-        title: "Check installations",
+        title: L10n.tr("Check installations"),
         contentType: .cliDetection
       ),
       SetupStep(
         id: "test",
-        title: "Test connection",
+        title: L10n.tr("Test connection"),
         contentType: .information(
-          "Test Connection",
-          "Run a quick test to verify your CLI is working and signed in."
+          L10n.tr("Test Connection"),
+          L10n.tr("Run a quick test to verify your CLI is working and signed in.")
         )
       ),
       SetupStep(
         id: "complete",
-        title: "Complete",
+        title: L10n.tr("Complete"),
         contentType: .information(
-          "All set!",
-          "\(providerName) is configured and ready to use with Dayflow."
+          L10n.tr("All set!"),
+          L10n.tr("%@ is configured and ready to use with Dayflow.", providerName)
         )
       ),
     ]
@@ -335,12 +335,12 @@ class ProviderSetupState: ObservableObject {
   @MainActor
   func runDebugCommand() {
     guard !debugCommandInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-      debugCommandOutput = "Enter a command to run."
+      debugCommandOutput = L10n.tr("Enter a command to run.")
       return
     }
     if isRunningDebugCommand { return }
     isRunningDebugCommand = true
-    debugCommandOutput = "Running..."
+    debugCommandOutput = L10n.tr("Running...")
 
     let command = debugCommandInput
     Task.detached { [weak self] in

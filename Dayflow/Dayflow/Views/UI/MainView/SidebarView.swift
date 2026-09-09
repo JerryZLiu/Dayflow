@@ -53,15 +53,15 @@ enum SidebarIcon: CaseIterable {
 
   var displayName: String {
     switch self {
-    case .timeline: return "Timeline"
-    case .daily: return "Daily"
-    case .weekly: return "Weekly"
-    case .chat: return "Chat"
-    case .flow: return "Flow"
-    case .agents: return "Agents"
-    case .journal: return "Journal"
-    case .bug: return "Report"
-    case .settings: return "Settings"
+    case .timeline: return L10n.tr("Timeline")
+    case .daily: return L10n.tr("Daily")
+    case .weekly: return L10n.tr("Weekly")
+    case .chat: return L10n.tr("Chat")
+    case .flow: return L10n.tr("Flow")
+    case .agents: return L10n.tr("Agents")
+    case .journal: return L10n.tr("Journal")
+    case .bug: return L10n.tr("Report")
+    case .settings: return L10n.tr("Settings")
     }
   }
 

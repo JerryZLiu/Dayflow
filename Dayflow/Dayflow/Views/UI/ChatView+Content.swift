@@ -345,7 +345,7 @@ extension ChatView {
           }
 
         HStack {
-          Text("Last updated: \(memoryUpdatedLabel)")
+          Text(L10n.tr("Last updated: %@", memoryUpdatedLabel))
             .font(.custom("Figtree", size: 10))
             .foregroundColor(theme.textMuted)
           Spacer()
@@ -531,7 +531,10 @@ extension ChatView {
               .foregroundColor(theme.textPrimary)
 
             Text(
-              "Chat unlocks after Dayflow has analyzed enough activity. \(chatAccessProgressText)"
+              L10n.tr(
+                "Chat unlocks after Dayflow has analyzed enough activity. %@",
+                chatAccessProgressText
+              )
             )
             .font(.custom("Figtree-Regular", size: 13))
             .foregroundColor(theme.textSecondary)
@@ -634,14 +637,14 @@ extension ChatView {
 
   var chatUnlockButtonTitle: String {
     if !hasChatMinimumAccess {
-      return "Keep recording to unlock"
+      return L10n.tr("Keep recording to unlock")
     }
 
     if !anyRuntimeAvailable {
-      return "Configure a runtime to continue"
+      return L10n.tr("Configure a runtime to continue")
     }
 
-    return "Unlock Beta"
+    return L10n.tr("Unlock Beta")
   }
 
   // MARK: - Input Area
@@ -653,7 +656,7 @@ extension ChatView {
         text: $inputText,
         isFocused: $isInputFocused,
         focusToken: composerFocusToken,
-        placeholder: "Ask about your Dayflow data...",
+        placeholder: L10n.tr("Ask about your Dayflow data..."),
         onSubmit: submitCurrentInputIfAllowed
       )
       .frame(maxWidth: .infinity, alignment: .leading)

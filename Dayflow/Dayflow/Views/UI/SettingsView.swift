@@ -22,13 +22,13 @@ struct SettingsView: View {
 
     var title: String {
       switch self {
-      case .account: return "Account"
-      case .storage: return "Storage"
-      case .privacy: return "Privacy"
-      case .providers: return "Providers"
-      case .aiTools: return "MCP / CLI"
-      case .data: return "Export"
-      case .other: return "Other"
+      case .account: return L10n.tr("Account")
+      case .storage: return L10n.tr("Storage")
+      case .privacy: return L10n.tr("Privacy")
+      case .providers: return L10n.tr("Providers")
+      case .aiTools: return L10n.tr("MCP / CLI")
+      case .data: return L10n.tr("Export")
+      case .other: return L10n.tr("Other")
       }
     }
   }
@@ -199,7 +199,7 @@ struct SettingsView: View {
   private var sidebarFooter: some View {
     let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     return VStack(alignment: .leading, spacing: 8) {
-      Text("Dayflow v\(version)")
+      Text(L10n.tr("Dayflow v%@", version))
         .font(.custom("Figtree", size: 11))
         .foregroundColor(SettingsStyle.meta)
 

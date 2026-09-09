@@ -188,7 +188,7 @@ struct AssistantMessageFeedbackRow: View {
     HStack(spacing: 8) {
       AssistantMessageIconButton(
         systemName: "doc.on.doc",
-        accessibilityLabel: "Copy answer",
+        accessibilityLabel: L10n.tr("Copy answer"),
         action: onCopy
       )
 

@@ -246,27 +246,27 @@ func computeDailyWorkflow(cards: [TimelineCard], categories: [TimelineCategory])
   let stats = [
     DailyWorkflowStatChip(
       id: "context-switched",
-      title: "Context switched",
+      title: L10n.tr("Context switched"),
       value: formatCount(contextSwitches)
     ),
     DailyWorkflowStatChip(
       id: "interrupted",
-      title: "Interrupted",
+      title: L10n.tr("Interrupted"),
       value: formatCount(interruptions)
     ),
     DailyWorkflowStatChip(
       id: "focused-for",
-      title: "Focused for",
+      title: L10n.tr("Focused for"),
       value: formatDurationValue(focusedMinutes)
     ),
     DailyWorkflowStatChip(
       id: "distracted-for",
-      title: "Distracted for",
+      title: L10n.tr("Distracted for"),
       value: formatDurationValue(distractedMinutes)
     ),
     DailyWorkflowStatChip(
       id: "transitioning-time",
-      title: "Transitioning time",
+      title: L10n.tr("Transitioning time"),
       value: formatDurationValue(transitionMinutes)
     ),
   ]
@@ -488,7 +488,7 @@ func formatAxisHourLabel(fromAbsoluteHour hour: Int) -> String {
 }
 
 func formatCount(_ count: Int) -> String {
-  "\(count) \(count == 1 ? "time" : "times")"
+  count == 1 ? L10n.tr("%d time", count) : L10n.tr("%d times", count)
 }
 
 func formatDurationValue(_ minutes: Double) -> String {
@@ -496,7 +496,7 @@ func formatDurationValue(_ minutes: Double) -> String {
   let hours = rounded / 60
   let mins = rounded % 60
 
-  if hours > 0 && mins > 0 { return "\(hours)h \(mins)m" }
-  if hours > 0 { return "\(hours)h" }
-  return "\(mins)m"
+  if hours > 0 && mins > 0 { return L10n.tr("%d hr %d min", hours, mins) }
+  if hours > 0 { return L10n.tr("%d hr", hours) }
+  return L10n.tr("%d min", mins)
 }

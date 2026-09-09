@@ -72,7 +72,7 @@ struct OnboardingCategoryStepView: View {
         pendingDeleteCategory = nil
       }
     } message: { category in
-      Text("“\(category.name)” will be removed from your onboarding categories.")
+      Text(L10n.tr("“%@” will be removed from your onboarding categories.", category.name))
     }
   }
 
@@ -263,7 +263,7 @@ struct OnboardingCategoryStepView: View {
     Button {
       commitPendingEdits()
       categoryStore.markOnboardingCategoriesCustomized()
-      categoryStore.addCategory(name: "New Category")
+      categoryStore.addCategory(name: L10n.tr("New Category"))
       addCount += 1
       AnalyticsService.shared.capture(
         "onboarding_category_added",

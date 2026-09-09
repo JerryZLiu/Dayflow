@@ -198,7 +198,11 @@ struct WeeklyWorkflowSection: View {
     HStack(spacing: 8) {
       if snapshot.totals.isEmpty {
         Text(
-          "Week total  No captured activity during \(clockText(snapshot.startMinute))-\(clockText(snapshot.endMinute))"
+          L10n.tr(
+            "Week total  No captured activity during %@-%@",
+            clockText(snapshot.startMinute),
+            clockText(snapshot.endMinute)
+          )
         )
         .font(.custom("Figtree-Regular", size: 12))
         .foregroundStyle(Design.mutedTextColor)
@@ -271,7 +275,7 @@ struct WeeklyWorkflowSection: View {
     slotIndex: Int
   ) -> String {
     guard let categoryName = cell.categoryName, cell.minutes > 0 else {
-      return "\(row.label) \(slotRangeText(slotIndex)): No activity"
+      return L10n.tr("%@ %@: No activity", row.label, slotRangeText(slotIndex))
     }
     return
       "\(row.label) \(slotRangeText(slotIndex)): \(categoryName), \(durationText(cell.minutes))"
@@ -288,7 +292,7 @@ struct WeeklyWorkflowSection: View {
     let hour24 = (totalMinutes / 60) % 24
     let minutePart = totalMinutes % 60
     let hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12
-    let suffix = hour24 < 12 ? "am" : "pm"
+    let suffix = L10n.tr(hour24 < 12 ? "am" : "pm")
 
     if minutePart == 0 {
       return "\(hour12)\(suffix)"
@@ -301,12 +305,12 @@ struct WeeklyWorkflowSection: View {
     let remainingMinutes = minutes % 60
 
     if hours > 0, remainingMinutes > 0 {
-      return "\(hours)h \(remainingMinutes)m"
+      return L10n.tr("%dh %dm", hours, remainingMinutes)
     }
     if hours > 0 {
-      return "\(hours)h"
+      return L10n.tr("%dh", hours)
     }
-    return "\(remainingMinutes)m"
+    return L10n.tr("%dm", remainingMinutes)
   }
 }
 

@@ -297,7 +297,7 @@ struct TimelineReviewOverlay: View {
   }
 
   private func progressText(index: Int) -> String {
-    "\(index)/\(max(activities.count, 1))"
+    L10n.tr("%d/%d", index, max(activities.count, 1))
   }
 
   private func categoryColor(for name: String) -> Color {

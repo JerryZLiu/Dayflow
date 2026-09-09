@@ -231,7 +231,7 @@ struct JournalDaySegmentedControl: View {
     HStack(alignment: .center, spacing: 2) {
       ForEach(JournalDayViewPeriod.allCases) { option in
         Button(action: { selection = option }) {
-          Text(option.rawValue)
+          Text(option.title)
             .font(.custom("Figtree-Regular", size: 12))
             .tracking(-0.12)
             .foregroundStyle(
@@ -269,6 +269,8 @@ enum JournalFlowState: CaseIterable {
 enum JournalDayViewPeriod: String, CaseIterable, Identifiable {
   case day = "Day"
   case week = "Week"
+
+  var title: String { L10n.tr(rawValue) }
   var id: String { rawValue }
 }
 

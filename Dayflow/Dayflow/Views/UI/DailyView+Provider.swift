@@ -32,7 +32,7 @@ extension DailyView {
       return selectedProviderAvailability.detail
     }
 
-    return "Regenerate standup highlights"
+    return L10n.tr("Regenerate standup highlights")
   }
   func dailyProviderButton(scale: CGFloat) -> some View {
     Button {
@@ -64,7 +64,7 @@ extension DailyView {
       reassertOnPressEnd: true
     )
     .accessibilityLabel(Text("Choose daily recap provider"))
-    .help("Daily recap provider: \(dailyRecapProvider.selectionLabel)")
+    .help(L10n.tr("Daily recap provider: %@", dailyRecapProvider.selectionLabel))
     .popover(isPresented: $isShowingProviderPicker, arrowEdge: .bottom) {
       dailyProviderPicker(scale: scale)
         .padding(16)

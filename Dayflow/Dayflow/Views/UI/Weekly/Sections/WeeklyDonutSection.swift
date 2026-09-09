@@ -220,11 +220,11 @@ private struct WeeklyDonutCenterContent: View {
         .foregroundStyle(WeeklyPalette.mutedText)
 
       VStack(spacing: 0) {
-        Text("\(totalHours) \(hourLabel)")
+        Text(L10n.tr("%d %@", totalHours, hourLabel))
           .font(.custom("InstrumentSerif-Regular", size: 16))
           .foregroundStyle(WeeklyPalette.text)
 
-        Text("\(remainingMinutes) \(minuteLabel)")
+        Text(L10n.tr("%d %@", remainingMinutes, minuteLabel))
           .font(.custom("InstrumentSerif-Regular", size: 16))
           .foregroundStyle(WeeklyPalette.text)
       }
@@ -232,11 +232,11 @@ private struct WeeklyDonutCenterContent: View {
   }
 
   private var hourLabel: String {
-    totalHours == 1 ? "hour" : "hours"
+    totalHours == 1 ? L10n.tr("hour") : L10n.tr("hours")
   }
 
   private var minuteLabel: String {
-    remainingMinutes == 1 ? "minute" : "minutes"
+    remainingMinutes == 1 ? L10n.tr("minute") : L10n.tr("minutes")
   }
 }
 

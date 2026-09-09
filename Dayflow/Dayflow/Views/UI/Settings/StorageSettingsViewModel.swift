@@ -120,24 +120,31 @@ final class StorageSettingsViewModel: ObservableObject {
       height: captureHeight, interval: captureInterval)
     let perMonth = perHour * 8 * 30
     return
-      "≈ \(usageFormatter.string(fromByteCount: perHour)) per hour · ≈ \(usageFormatter.string(fromByteCount: perMonth)) per month at 8 h/day"
+      L10n.tr(
+        "≈ %@ per hour · ≈ %@ per month at 8 h/day",
+        usageFormatter.string(fromByteCount: perHour),
+        usageFormatter.string(fromByteCount: perMonth))
   }
 
   func observedRateText() -> String? {
     guard let observedBytesPerHour else { return nil }
     return
-      "Measured over the last hour: \(usageFormatter.string(fromByteCount: observedBytesPerHour)) per hour"
+      L10n.tr(
+        "Measured over the last hour: %@ per hour",
+        usageFormatter.string(fromByteCount: observedBytesPerHour))
   }
 
   func storageFooterText() -> String {
     let recordingsText =
       recordingsLimitBytes == Int64.max
-      ? "Unlimited" : usageFormatter.string(fromByteCount: recordingsLimitBytes)
+      ? L10n.tr("Unlimited") : usageFormatter.string(fromByteCount: recordingsLimitBytes)
     let timelapsesText =
       timelapsesLimitBytes == Int64.max
-      ? "Unlimited" : usageFormatter.string(fromByteCount: timelapsesLimitBytes)
+      ? L10n.tr("Unlimited") : usageFormatter.string(fromByteCount: timelapsesLimitBytes)
     return
-      "Recording cap: \(recordingsText) • Timelapse cap: \(timelapsesText). Lowering a cap immediately deletes the oldest files for that type. Timeline card text stays preserved. Please avoid deleting files manually so you do not remove Dayflow's database."
+      L10n.tr(
+        "Recording cap: %@ • Timelapse cap: %@. Lowering a cap immediately deletes the oldest files for that type. Timeline card text stays preserved. Please avoid deleting files manually so you do not remove Dayflow's database.",
+        recordingsText, timelapsesText)
   }
 
   func handleLimitSelection(for category: StorageCategory, index: Int) {
@@ -251,13 +258,13 @@ final class StorageSettingsViewModel: ObservableObject {
   }
 
   static let storageOptions: [StorageLimitOption] = [
-    StorageLimitOption(id: 0, label: "1 GB", bytes: 1_000_000_000),
-    StorageLimitOption(id: 1, label: "2 GB", bytes: 2_000_000_000),
-    StorageLimitOption(id: 2, label: "3 GB", bytes: 3_000_000_000),
-    StorageLimitOption(id: 3, label: "5 GB", bytes: 5_000_000_000),
-    StorageLimitOption(id: 4, label: "10 GB", bytes: 10_000_000_000),
-    StorageLimitOption(id: 5, label: "20 GB", bytes: 20_000_000_000),
-    StorageLimitOption(id: 6, label: "Unlimited", bytes: nil),
+    StorageLimitOption(id: 0, label: L10n.tr("1 GB"), bytes: 1_000_000_000),
+    StorageLimitOption(id: 1, label: L10n.tr("2 GB"), bytes: 2_000_000_000),
+    StorageLimitOption(id: 2, label: L10n.tr("3 GB"), bytes: 3_000_000_000),
+    StorageLimitOption(id: 3, label: L10n.tr("5 GB"), bytes: 5_000_000_000),
+    StorageLimitOption(id: 4, label: L10n.tr("10 GB"), bytes: 10_000_000_000),
+    StorageLimitOption(id: 5, label: L10n.tr("20 GB"), bytes: 20_000_000_000),
+    StorageLimitOption(id: 6, label: L10n.tr("Unlimited"), bytes: nil),
   ]
 }
 
@@ -286,8 +293,8 @@ enum StorageCategory {
 
   var displayName: String {
     switch self {
-    case .recordings: return "Recordings"
-    case .timelapses: return "Timelapses"
+    case .recordings: return L10n.tr("Recordings")
+    case .timelapses: return L10n.tr("Timelapses")
     }
   }
 }

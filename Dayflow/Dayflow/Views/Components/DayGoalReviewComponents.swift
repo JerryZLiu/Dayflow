@@ -87,7 +87,7 @@ struct GoalReviewCard: View {
   }
 
   private var resultBadge: some View {
-    Text(succeeded ? "NAILED IT" : "MISSED")
+    Text(succeeded ? L10n.tr("NAILED IT") : L10n.tr("MISSED"))
       .font(.custom("Figtree", size: 10).weight(.heavy))
       .foregroundColor(succeeded ? Color(hex: "4AB43F") : Color(hex: "FA8282"))
       .padding(.horizontal, 15)
@@ -162,12 +162,12 @@ private struct GoalCategoryBreakdown: View {
     let hours = totalMinutes / 60
     let minutes = totalMinutes % 60
     if hours > 0 && minutes > 0 {
-      return "\(hours)h \(minutes)m"
+      return L10n.tr("%d hr %d min", hours, minutes)
     }
     if hours > 0 {
-      return "\(hours)h"
+      return L10n.tr("%d hr", hours)
     }
-    return "\(minutes)m"
+    return L10n.tr("%d min", minutes)
   }
 }
 

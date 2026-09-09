@@ -292,7 +292,7 @@ struct OnboardingFlow: View {
         routingSaveErrorMessage = nil
       }
     } message: {
-      Text(routingSaveErrorMessage ?? "Please try again.")
+      Text(routingSaveErrorMessage ?? L10n.tr("Please try again."))
     }
   }
 
@@ -870,17 +870,17 @@ enum DownloadReasonOption: CaseIterable, Identifiable, Hashable {
   var displayName: String {
     switch self {
     case .automaticLog:
-      return "To keep an automatic log of what I worked on"
+      return L10n.tr("To keep an automatic log of what I worked on")
     case .proofOfWork:
-      return "To make my work more visible for standups, reviews, or promotions"
+      return L10n.tr("To make my work more visible for standups, reviews, or promotions")
     case .cutDistractions:
-      return "To find and cut distractions"
+      return L10n.tr("To find and cut distractions")
     case .productiveFocused:
-      return "To be more productive or focused"
+      return L10n.tr("To be more productive or focused")
     case .openSourcePrivate:
-      return "I wanted a tracker that's open source and keeps my data private"
+      return L10n.tr("I wanted a tracker that's open source and keeps my data private")
     case .other:
-      return "Other"
+      return L10n.tr("Other")
     }
   }
 
@@ -939,7 +939,7 @@ struct OnboardingPrototypeReferralStep: View {
 
       VStack(spacing: 20) {
         ReferralSurveyView(
-          prompt: "Where did you first hear about Dayflow?",
+          prompt: L10n.tr("Where did you first hear about Dayflow?"),
           showSubmitButton: false,
           selectedReferral: $selectedReferral,
           customReferral: $referralDetail

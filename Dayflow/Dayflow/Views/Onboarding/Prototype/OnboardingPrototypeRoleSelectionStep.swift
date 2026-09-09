@@ -9,15 +9,16 @@ struct OnboardingPrototypeRoleSelectionStep: View {
   let onContinue: (String) -> Void
 
   private let roles = [
-    "Software Engineer", "Founder / Executive", "Designer", "Student", "Product Manager",
-    "Data Scientist", "Other",
+    L10n.tr("Software Engineer"), L10n.tr("Founder / Executive"), L10n.tr("Designer"),
+    L10n.tr("Student"), L10n.tr("Product Manager"), L10n.tr("Data Scientist"),
+    L10n.tr("Other"),
   ]
   @State private var selectedRole: String?
   @State private var otherText = ""
 
   private var resolvedRole: String? {
     guard let selectedRole else { return nil }
-    if selectedRole == "Other" {
+    if selectedRole == L10n.tr("Other") {
       return otherText.trimmingCharacters(in: .whitespaces).isEmpty
         ? nil : otherText.trimmingCharacters(in: .whitespaces)
     }
@@ -67,7 +68,7 @@ struct OnboardingPrototypeRoleSelectionStep: View {
         }
       }
 
-      if selectedRole == "Other" {
+      if selectedRole == L10n.tr("Other") {
         VStack(spacing: 16) {
           Text("Please specify")
             .font(.custom("Figtree", size: 20))
@@ -124,7 +125,7 @@ struct OnboardingPrototypeRoleSelectionStep: View {
       Spacer()
         .frame(height: 60)
     }
-    .animation(.easeInOut(duration: 0.25), value: selectedRole == "Other")
+    .animation(.easeInOut(duration: 0.25), value: selectedRole == L10n.tr("Other"))
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 

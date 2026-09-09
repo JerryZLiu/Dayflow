@@ -22,13 +22,13 @@ final class RetryCoordinator: ObservableObject {
 
     switch status {
     case .queued(let position, let total):
-      return "Status: Queued (\(position) of \(total))"
+      return L10n.tr("Status: Queued (%d of %d)", position, total)
     case .running(let step):
-      return "Status: Reprocessing - Step: \(stepLabel(step))\(dots)"
+      return L10n.tr("Status: Reprocessing - Step: %@%@", stepLabel(step), dots)
     case .failed:
-      return "Status: Failed - retry stopped"
+      return L10n.tr("Status: Failed - retry stopped")
     case .stopped:
-      return "Status: Stopped - earlier batch failed"
+      return L10n.tr("Status: Stopped - earlier batch failed")
     case .done:
       return nil
     }
@@ -49,7 +49,7 @@ final class RetryCoordinator: ObservableObject {
     guard !groupStatuses.isEmpty else { return nil }
 
     if groupStatuses.contains(.failed) {
-      return "Status: Failed - retry stopped"
+      return L10n.tr("Status: Failed - retry stopped")
     }
 
     let queued = groupStatuses.compactMap { status -> (position: Int, total: Int)? in
@@ -61,13 +61,13 @@ final class RetryCoordinator: ObservableObject {
       let last = queued.max(by: { $0.position < $1.position })
     {
       if first.position == last.position {
-        return "Status: Queued (\(first.position) of \(first.total))"
+        return L10n.tr("Status: Queued (%d of %d)", first.position, first.total)
       }
-      return "Status: Queued (\(first.position)-\(last.position) of \(first.total))"
+      return L10n.tr("Status: Queued (%d-%d of %d)", first.position, last.position, first.total)
     }
 
     if groupStatuses.contains(.stopped) {
-      return "Status: Stopped - earlier batch failed"
+      return L10n.tr("Status: Stopped - earlier batch failed")
     }
 
     return nil
@@ -208,9 +208,9 @@ final class RetryCoordinator: ObservableObject {
   private func stepLabel(_ step: LLMProcessingStep) -> String {
     switch step {
     case .transcribing:
-      return "1/2 Transcribing"
+      return L10n.tr("1/2 Transcribing")
     case .generatingCards:
-      return "2/2 Generating cards"
+      return L10n.tr("2/2 Generating cards")
     }
   }
 }

@@ -23,13 +23,13 @@ struct StatusMenuView: View {
 
       MenuDivider()
 
-      MenuRow(title: "Open Dayflow", assetImage: "DayflowLogo", action: openDayflow)
-      MenuRow(title: "Open Recordings", action: openRecordingsFolder)
-      MenuRow(title: "Check for Updates", action: checkForUpdates)
+      MenuRow(title: L10n.tr("Open Dayflow"), assetImage: "DayflowLogo", action: openDayflow)
+      MenuRow(title: L10n.tr("Open Recordings"), action: openRecordingsFolder)
+      MenuRow(title: L10n.tr("Check for Updates"), action: checkForUpdates)
 
       MenuDivider()
 
-      MenuRow(title: "Quit Completely", systemImage: "power", accent: .red, action: quitDayflow)
+      MenuRow(title: L10n.tr("Quit Completely"), systemImage: "power", accent: .red, action: quitDayflow)
     }
     .padding(.vertical, 9)
     .padding(.horizontal, 9)
@@ -120,9 +120,9 @@ private struct DurationPicker: View {
   let onSelect: (PauseDuration) -> Void
 
   private let options: [(label: String, duration: PauseDuration)] = [
-    ("15 Min", .minutes15),
-    ("30 Min", .minutes30),
-    ("1 Hour", .hour1),
+    (L10n.tr("15 Min"), .minutes15),
+    (L10n.tr("30 Min"), .minutes30),
+    (L10n.tr("1 Hour"), .hour1),
     ("∞", .indefinite),
   ]
 
@@ -201,7 +201,7 @@ private struct PausedSection: View {
 
       // Resume button
       MenuRow(
-        title: "Resume Dayflow",
+        title: L10n.tr("Resume Dayflow"),
         systemImage: "play.circle",
         accent: .accentColor,
         action: onResume
@@ -216,12 +216,8 @@ private struct CountdownBadge: View {
   let remainingTime: String
 
   var body: some View {
-    HStack(spacing: 0) {
-      Text("Dayflow paused for ")
-        .font(.system(size: 11, weight: .medium))
-      Text(remainingTime)
-        .font(.system(size: 11, weight: .bold).monospacedDigit())
-    }
+    Text(L10n.tr("Dayflow paused for %@", remainingTime))
+      .font(.system(size: 11, weight: .medium).monospacedDigit())
     .foregroundStyle(.white)
     .padding(.horizontal, 12)
     .padding(.vertical, 6)

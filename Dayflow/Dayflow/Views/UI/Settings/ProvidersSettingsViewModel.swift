@@ -282,7 +282,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
     LocalModelPreferences.syncPreset(for: engine, modelId: modelId)
     LocalModelPreferences.markUpgradeDismissed(true)
     refreshUpgradeBannerState()
-    upgradeStatusMessage = "Upgraded to \(LocalModelPreset.recommended.displayName)"
+    upgradeStatusMessage = L10n.tr("Upgraded to %@", LocalModelPreset.recommended.displayName)
     AnalyticsService.shared.capture(
       "local_model_upgraded",
       [
@@ -325,7 +325,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
     } catch {
       hasLoadedRouting = false
       providerRoutingErrorMessage =
-        "Dayflow couldn't load your provider routing. Your saved providers were left unchanged."
+        L10n.tr("Dayflow couldn't load your provider routing. Your saved providers were left unchanged.")
     }
   }
 
@@ -623,7 +623,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
   }
 
   var backupProviderDisplayName: String {
-    guard let backupProvider = routing.secondary else { return "Not configured" }
+    guard let backupProvider = routing.secondary else { return L10n.tr("Not configured") }
     return providerDisplayName(backupProvider)
   }
 
@@ -646,14 +646,14 @@ final class ProvidersSettingsViewModel: ObservableObject {
 
   private func openAccountForDayflowPro(_ providerId: LLMProviderID) {
     guard providerId == .dayflow else { return }
-    upgradeStatusMessage = "Dayflow Pro is required for hosted cards and transcription."
+    upgradeStatusMessage = L10n.tr("Dayflow Pro is required for hosted cards and transcription.")
     openAccountForDayflowProvider(providerId)
   }
 
   private func openAccountForDayflowProvider(_ providerId: LLMProviderID) {
     guard providerId == .dayflow else { return }
     if isDayflowProActive {
-      upgradeStatusMessage = "Manage Dayflow Pro from Account."
+      upgradeStatusMessage = L10n.tr("Manage Dayflow Pro from Account.")
     }
     NotificationCenter.default.post(name: .openAccountSettings, object: nil)
     AnalyticsService.shared.capture(
@@ -680,7 +680,7 @@ final class ProvidersSettingsViewModel: ObservableObject {
       return true
     } catch {
       providerRoutingErrorMessage =
-        "Dayflow couldn't save your provider routing. Your previous selection is still active."
+        L10n.tr("Dayflow couldn't save your provider routing. Your previous selection is still active.")
       return false
     }
   }
@@ -729,27 +729,27 @@ final class ProvidersSettingsViewModel: ObservableObject {
     [
       CompactProviderInfo(
         id: .dayflow,
-        summary: "Hosted cards & transcription • no API keys • requires Pro"
+        summary: L10n.tr("Hosted cards & transcription • no API keys • requires Pro")
       ),
       CompactProviderInfo(
         id: .claude,
-        summary: "Uses Claude Code through your existing Claude plan"
+        summary: L10n.tr("Uses Claude Code through your existing Claude plan")
       ),
       CompactProviderInfo(
         id: .chatGPT,
-        summary: "Uses Codex CLI through your existing ChatGPT plan"
+        summary: L10n.tr("Uses Codex CLI through your existing ChatGPT plan")
       ),
       CompactProviderInfo(
         id: .gemini,
-        summary: "Gemini free tier • fast & accurate"
+        summary: L10n.tr("Gemini free tier • fast & accurate")
       ),
       CompactProviderInfo(
         id: .openAICompatible,
-        summary: "OpenRouter or another OpenAI Chat Completions endpoint"
+        summary: L10n.tr("OpenRouter or another OpenAI Chat Completions endpoint")
       ),
       CompactProviderInfo(
         id: .local,
-        summary: "Private & offline • 16GB+ RAM • less intelligent"
+        summary: L10n.tr("Private & offline • 16GB+ RAM • less intelligent")
       ),
     ]
   }
@@ -763,12 +763,12 @@ final class ProvidersSettingsViewModel: ObservableObject {
       switch localEngine {
       case .ollama: engineName = "Ollama"
       case .lmstudio: engineName = "LM Studio"
-      case .custom: engineName = "Custom"
+      case .custom: engineName = L10n.tr("Custom")
       }
       let displayModel = localModelId.isEmpty ? "qwen2.5vl:3b" : localModelId
       let truncatedModel =
         displayModel.count > 30 ? String(displayModel.prefix(27)) + "..." : displayModel
-      return "\(engineName) - \(truncatedModel)"
+      return L10n.tr("%@ - %@", engineName, truncatedModel)
     case .gemini:
       return selectedGeminiModel.displayName
     case .chatGPT:
@@ -777,23 +777,23 @@ final class ProvidersSettingsViewModel: ObservableObject {
       return cliStatusLabel(for: .claude)
     case .openAICompatible:
       return openAICompatibleModelID.isEmpty
-        ? "OpenAI-compatible endpoint" : openAICompatibleModelID
+        ? L10n.tr("OpenAI-compatible endpoint") : openAICompatibleModelID
     case .dayflow:
-      return isDayflowProActive ? "Dayflow Pro active" : "Requires Dayflow Pro"
+      return isDayflowProActive ? L10n.tr("Dayflow Pro active") : L10n.tr("Requires Dayflow Pro")
     }
   }
 
   func cliStatusLabel(for providerId: LLMProviderID) -> String {
     if isProviderReadinessChecking(providerId) {
-      return "Checking installation…"
+      return L10n.tr("Checking installation…")
     }
     switch providerId {
     case .chatGPT:
-      return codexCLIInstalled ? "Codex CLI detected" : "Codex CLI not detected"
+      return codexCLIInstalled ? L10n.tr("Codex CLI detected") : L10n.tr("Codex CLI not detected")
     case .claude:
-      return claudeCLIInstalled ? "Claude Code detected" : "Claude Code not detected"
+      return claudeCLIInstalled ? L10n.tr("Claude Code detected") : L10n.tr("Claude Code not detected")
     default:
-      return "Not applicable"
+      return L10n.tr("Not applicable")
     }
   }
 
@@ -802,25 +802,25 @@ final class ProvidersSettingsViewModel: ObservableObject {
     case .gemini:
       return "Gemini API"
     case .local:
-      return "Local API"
+      return L10n.tr("Local API")
     case .chatGPT:
       return "Codex CLI"
     case .claude:
       return "Claude Code"
     case .openAICompatible:
-      return "OpenAI-compatible API"
+      return L10n.tr("OpenAI-compatible API")
     case .dayflow:
-      return "Dayflow Backend"
+      return L10n.tr("Dayflow Backend")
     }
   }
 
   func providerDisplayName(_ id: LLMProviderID) -> String {
     switch id {
-    case .local: return "Local"
+    case .local: return L10n.tr("Local")
     case .gemini: return "Gemini"
     case .chatGPT: return "ChatGPT"
     case .claude: return "Claude"
-    case .openAICompatible: return "OpenAI-compatible"
+    case .openAICompatible: return L10n.tr("OpenAI-compatible")
     case .dayflow: return "Dayflow Pro"
     }
   }
@@ -835,11 +835,11 @@ struct CompactProviderInfo: Identifiable {
 
   var providerTableName: String {
     switch id {
-    case .local: return "Local"
+    case .local: return L10n.tr("Local")
     case .gemini: return "Gemini"
     case .chatGPT: return "ChatGPT"
     case .claude: return "Claude"
-    case .openAICompatible: return "OpenAI-compatible"
+    case .openAICompatible: return L10n.tr("OpenAI-compatible")
     case .dayflow: return "Dayflow Pro"
     }
   }

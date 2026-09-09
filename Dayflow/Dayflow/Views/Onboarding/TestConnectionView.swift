@@ -33,7 +33,7 @@ struct TestConnectionView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       SettingsPrimaryButton(
-        title: isTesting ? "Testing…" : "Test connection",
+        title: isTesting ? L10n.tr("Testing…") : L10n.tr("Test connection"),
         systemImage: "bolt.fill",
         isLoading: isTesting,
         action: testConnection
@@ -59,7 +59,7 @@ struct TestConnectionView: View {
       .components(separatedBy: .whitespacesAndNewlines).joined() ?? ""
     let apiKey = override.isEmpty ? storedKey : override
     guard !apiKey.isEmpty else {
-      testResult = .failure("No API key found. Enter your API key first.")
+      testResult = .failure(L10n.tr("No API key found. Enter your API key first."))
       onTestComplete?(false)
       AnalyticsService.shared.capture(
         "connection_test_failed", ["provider": "gemini", "error_code": "no_api_key"])
@@ -80,7 +80,7 @@ struct TestConnectionView: View {
           preference: GeminiModelPreference(primary: model)
         )
         await MainActor.run {
-          testResult = .success("Connection successful.")
+          testResult = .success(L10n.tr("Connection successful."))
           isTesting = false
           onTestComplete?(true)
         }
@@ -90,7 +90,7 @@ struct TestConnectionView: View {
         )
       } catch GeminiAPIHelper.APIError.rateLimited(_, let attemptedModel) {
         await MainActor.run {
-          testResult = .success("API key works, but Gemini is rate limited right now.")
+          testResult = .success(L10n.tr("API key works, but Gemini is rate limited right now."))
           isTesting = false
           onTestComplete?(true)
         }

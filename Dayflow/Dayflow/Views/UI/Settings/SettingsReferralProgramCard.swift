@@ -11,8 +11,8 @@ struct ReferralPassCard: View {
 
   private let cardSize = CGSize(width: 283, height: 161)
 
-  init(message: String = "Enjoy a free month of Dayflow Pro on us.") {
-    self.message = message
+  init(message: String? = nil) {
+    self.message = message ?? L10n.tr("Enjoy a free month of Dayflow Pro on us.")
   }
 
   var body: some View {

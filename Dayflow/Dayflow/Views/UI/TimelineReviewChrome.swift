@@ -344,9 +344,9 @@ struct SummaryLabelRow: View {
     let totalMinutes = max(Int(duration / 60), 0)
     let hours = totalMinutes / 60
     let minutes = totalMinutes % 60
-    if hours > 0 && minutes > 0 { return "\(hours)h \(minutes)m" }
-    if hours > 0 { return "\(hours)h" }
-    return "\(minutes)m"
+    if hours > 0 && minutes > 0 { return L10n.tr("%d hr %d min", hours, minutes) }
+    if hours > 0 { return L10n.tr("%d hr", hours) }
+    return L10n.tr("%d min", minutes)
   }
 }
 

@@ -42,7 +42,7 @@ struct FlowOverlayView: View {
       case .onBreak:
         breakBubble
       case .sessionEnded:
-        speechBubble("Time's up! Great work.", layout: .edge)
+        speechBubble(L10n.tr("Time's up! Great work."), layout: .edge)
         sessionEndedPills
       }
     }
@@ -147,7 +147,7 @@ struct FlowOverlayView: View {
         mirror.respondBackToWork()
       } label: {
         HStack(spacing: 4) {
-          pillText("Whoops! I'll get back to work.")
+          pillText(L10n.tr("Whoops! I'll get back to work."))
           Image(systemName: "chevron.down")
             .font(.system(size: 9, weight: .semibold))
             .foregroundColor(.black.opacity(0.7))
@@ -157,7 +157,7 @@ struct FlowOverlayView: View {
       pill(background: .white.opacity(showSnoozeOptions ? 0.8 : 0.5)) {
         showSnoozeOptions.toggle()
       } label: {
-        pillText("Just a few more minutes!")
+        pillText(L10n.tr("Just a few more minutes!"))
       }
 
       if showSnoozeOptions {
@@ -167,7 +167,7 @@ struct FlowOverlayView: View {
               showSnoozeOptions = false
               mirror.snooze(minutes: minutes)
             } label: {
-              pillText("\(minutes) min")
+              pillText(L10n.tr("%lld min", minutes))
             }
           }
         }
@@ -177,7 +177,7 @@ struct FlowOverlayView: View {
         showSnoozeOptions = false
         mirror.correctMistake()
       } label: {
-        pillText("Correct Flow's mistake")
+        pillText(L10n.tr("Correct Flow's mistake"))
       }
     }
     .offset(x: 388, y: 262)
@@ -188,12 +188,12 @@ struct FlowOverlayView: View {
       pill(background: .white.opacity(0.5)) {
         mirror.openFlowTab()
       } label: {
-        pillText("Start a new session")
+        pillText(L10n.tr("Start a new session"))
       }
       pill(background: .white.opacity(0.5)) {
         mirror.dismissOverlay()
       } label: {
-        pillText("Done")
+        pillText(L10n.tr("Done"))
       }
     }
     .offset(x: 388, y: 262)
@@ -250,6 +250,6 @@ private struct CountdownText: View {
 
   private func formatted(remaining: TimeInterval) -> String {
     let total = max(0, Int(remaining))
-    return String(format: "%d:%02d left", total / 60, total % 60)
+    return L10n.tr("%lld:%02lld left", total / 60, total % 60)
   }
 }

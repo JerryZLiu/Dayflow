@@ -56,7 +56,7 @@ struct DayDistractionSummarySection: View {
         DayCategorySelectionEditor(
           categories: categories,
           selectedCategoryIDs: selectedCategoryIDs,
-          helperText: "Pick the categories that count towards Distractions",
+          helperText: L10n.tr("Pick the categories that count towards Distractions"),
           onToggle: onToggleCategory,
           onDone: onDoneEditing
         )

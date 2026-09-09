@@ -32,7 +32,7 @@ struct WorkStatusCard: View {
         if status.hasDetails {
           Button(action: { showDetails.toggle() }) {
             HStack(spacing: 4) {
-              Text(showDetails ? "Hide details" : "Show details")
+              Text(showDetails ? L10n.tr("Hide details") : L10n.tr("Show details"))
               Image(systemName: showDetails ? "chevron.up" : "chevron.down")
                 .font(.system(size: 9, weight: .semibold))
             }
@@ -91,13 +91,13 @@ struct WorkStatusCard: View {
   var headerTitle: String {
     switch status.stage {
     case .thinking:
-      return "Thinking"
+      return L10n.tr("Thinking")
     case .runningTools:
-      return "Running tools"
+      return L10n.tr("Running tools")
     case .answering:
-      return "Answering"
+      return L10n.tr("Answering")
     case .error:
-      return "Something went wrong"
+      return L10n.tr("Something went wrong")
     }
   }
 

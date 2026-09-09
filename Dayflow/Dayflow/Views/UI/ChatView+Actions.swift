@@ -380,14 +380,14 @@ extension ChatView {
     case .codex:
       return "Codex"
     case .none:
-      return "selected provider"
+      return L10n.tr("selected provider")
     }
   }
 
   var providerToggleHelpText: String {
     if selectedProviderAvailable {
-      return "Choose chat provider"
+      return L10n.tr("Choose chat provider")
     }
-    return "Configure Gemini key or install Codex/Claude CLI"
+    return L10n.tr("Configure Gemini key or install Codex/Claude CLI")
   }
 }

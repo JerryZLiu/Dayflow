@@ -44,7 +44,7 @@ struct TerminalCommandView: View {
             HStack(spacing: 6) {
               Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
                 .font(.system(size: 12, weight: .medium))
-              Text(isCopied ? "Copied" : "Copy")
+              Text(isCopied ? L10n.tr("Copied") : L10n.tr("Copy"))
                 .font(.custom("Figtree", size: 13))
                 .fontWeight(.medium)
             }

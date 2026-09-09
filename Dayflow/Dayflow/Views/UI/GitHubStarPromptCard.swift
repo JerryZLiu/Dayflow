@@ -65,7 +65,7 @@ struct GitHubStarPromptCard: View {
               Image(systemName: "star")
                 .font(.system(size: 14, weight: .medium))
             }
-            Text(isStarring ? "Starring…" : "Give a star on GitHub")
+            Text(isStarring ? L10n.tr("Starring…") : L10n.tr("Give a star on GitHub"))
               .font(.custom("Figtree", size: 14).weight(.medium))
           }
           .foregroundStyle(theme.primaryButtonText)
@@ -115,6 +115,6 @@ struct GitHubStarPromptCard: View {
       radius: theme.isDark ? 16 : 12, x: 0, y: 4
     )
     .accessibilityElement(children: .contain)
-    .accessibilityLabel("Star Dayflow on GitHub")
+    .accessibilityLabel(L10n.tr("Star Dayflow on GitHub"))
   }
 }
