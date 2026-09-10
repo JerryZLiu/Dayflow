@@ -475,14 +475,9 @@ struct ChatCLIProcessRunner {
       for override in codexConfigOverrides {
         cmdParts.append(contentsOf: ["-c", LoginShellRunner.shellEscape(override)])
       }
-      let helpCommand = "\(executableCommand) exec\(sessionId == nil ? "" : " resume") --help"
-      let supportsIgnoringUserConfig = LoginShellRunner.run(helpCommand, timeout: 10)
-        .stdout.contains("--ignore-user-config")
-      if supportsIgnoringUserConfig {
-        // Keep auth and resumable sessions in the normal home without loading
-        // unrelated MCP configuration or moving sessions into a temporary home.
-        cmdParts.append("--ignore-user-config")
-      } else if shouldDisableConfiguredCodexMCPServers(processEnvironment: processEnvironment) {
+      // Keep provider and endpoint settings paired with the user's auth. Ignoring
+      // config.toml would retain credentials but send them to the default provider.
+      if shouldDisableConfiguredCodexMCPServers(processEnvironment: processEnvironment) {
         let mcpServers = LoginShellRunner.getCodexMCPServerNames(
           executableURL: codexExecutable!.executableURL
         )
