@@ -199,7 +199,7 @@ extension MainView {
         let timelineDate = timelineDisplayDate(from: selectedDate, now: Date())
         let day = dayString(timelineDate)
         let cards = StorageManager.shared.fetchTimelineCards(forDay: day)
-        clipboardText = TimelineClipboardFormatter.makeClipboardText(
+        clipboardText = TimelineClipboardFormatter.makeMarkdown(
           for: timelineDate,
           cards: cards
         )
@@ -215,7 +215,7 @@ extension MainView {
           from: weekRange.weekStart,
           to: weekRange.weekEnd
         )
-        clipboardText = TimelineClipboardFormatter.makeClipboardText(
+        clipboardText = TimelineClipboardFormatter.makeMarkdown(
           for: weekRange,
           cards: cards
         )
