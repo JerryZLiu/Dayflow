@@ -149,7 +149,10 @@ struct DayflowApp: App {
   @State private var contentOpacity = 0.0
   @State private var contentScale = 0.98
   @State private var isShowingGitHubStarPrompt = false
-  @StateObject private var categoryStore = CategoryStore()
+  // Must be the shared instance: the agent bridge (AgentWriteHandlers) writes to
+  // CategoryStore.shared, and a second in-memory copy here would overwrite those
+  // edits on the next UI-triggered save (GitHub issue #375).
+  @StateObject private var categoryStore = CategoryStore.shared
 
   init() {
     // Writing to stdout after its reader has gone away (app launched from a
