@@ -38,7 +38,7 @@ struct SettingsAccountSection: View {
       .preferredColorScheme(.light)
     }
     .task {
-      authManager.loadStoredSessionIfNeeded()
+      await authManager.refreshAccount()
     }
     .onChange(of: authManager.pendingReferralCode) { _, pendingCode in
       guard let pendingCode, applyReferralCode.isEmpty else { return }
