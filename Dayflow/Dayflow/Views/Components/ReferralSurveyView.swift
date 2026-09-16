@@ -13,8 +13,26 @@ struct ReferralSurveyView: View {
   @State private var randomizedOptions = ReferralOption.randomizedConcreteOptions()
   @State private var hasSubmitted = false
 
-  @Binding private var selectedReferral: ReferralOption?
-  @Binding private var customReferral: String
+  private let externalSelectedReferral: Binding<ReferralOption?>?
+  private let externalCustomReferral: Binding<String>?
+
+  private var selectedReferralBinding: Binding<ReferralOption?> {
+    externalSelectedReferral ?? $internalSelectedReferral
+  }
+
+  private var customReferralBinding: Binding<String> {
+    externalCustomReferral ?? $internalCustomReferral
+  }
+
+  private var selectedReferral: ReferralOption? {
+    get { selectedReferralBinding.wrappedValue }
+    nonmutating set { selectedReferralBinding.wrappedValue = newValue }
+  }
+
+  private var customReferral: String {
+    get { customReferralBinding.wrappedValue }
+    nonmutating set { customReferralBinding.wrappedValue = newValue }
+  }
 
   init(
     prompt: String,
@@ -32,11 +50,11 @@ struct ReferralSurveyView: View {
     self.onSubmit = onSubmit
 
     if let selectedReferral = selectedReferral, let customReferral = customReferral {
-      _selectedReferral = selectedReferral
-      _customReferral = customReferral
+      externalSelectedReferral = selectedReferral
+      externalCustomReferral = customReferral
     } else {
-      _selectedReferral = _internalSelectedReferral.projectedValue
-      _customReferral = _internalCustomReferral.projectedValue
+      externalSelectedReferral = nil
+      externalCustomReferral = nil
     }
   }
 
@@ -160,7 +178,7 @@ struct ReferralSurveyView: View {
   }
 
   private var detailField: some View {
-    TextField(currentDetailPlaceholder, text: $customReferral)
+    TextField(currentDetailPlaceholder, text: customReferralBinding)
       .textFieldStyle(.plain)
       .font(.custom("Figtree", size: 13))
       .foregroundColor(Color(hex: "634D42"))
