@@ -97,36 +97,31 @@ enum WhatsNewConfiguration {
   private static let seenKey = "lastSeenWhatsNewVersion"
 
   /// Override with the specific release number you want to show.
-  private static let versionOverride: String? = "2.3.0"
+  private static let versionOverride: String? = "2.5.1"
 
   /// Update this content before shipping each release. Return nil to disable the modal entirely.
   static var configuredRelease: ReleaseNote? {
     ReleaseNote(
       version: targetVersion,
-      title: String(localized: "A fresh look, light and dark + a new view for your agents"),
+      title: String(localized: "We're publicly launching Dayflow Agents!"),
       highlights: [
         String(
           localized:
-            "We’re giving Dayflow’s UI a light refresh, including a much-requested feature: dark mode! It follows your system preference, but you can also choose light or dark manually in Settings → Other."
-        ),
-        String(
-          localized:
-            "The Agents tab now brings your Codex and Claude Code sessions into Dayflow, with a timeline, token usage, and estimated API costs."
-        ),
+            "If you've enjoyed using Dayflow Agents, please consider leaving a comment, like, or retweet on our launch post. It would mean a lot to us!"
+        )
       ],
-      socialPreview: nil,
+      socialPreview: ReleaseNoteSocialPreview(
+        authorName: "Jerry Liu",
+        authorHandle: "@jerryliu",
+        dateText: String(localized: "Launch post"),
+        body: String(localized: "View our Dayflow Agents launch post on X."),
+        url: "https://x.com/jerryliu/status/2101013202582839671"
+      ),
       previewIntro: nil,
       previewImageNames: [],
       betaSignup: nil,
       cta: nil,
-      githubStar: ReleaseNoteGitHubStar(
-        title: String(localized: "Enjoying Dayflow?"),
-        description:
-          String(
-            localized:
-              "If Dayflow has been useful and you'd like to help more people find it, a star on GitHub goes a long way."
-          )
-      ),
+      githubStar: nil,
       showsWeeklyFeedbackSurvey: false
     )
   }
