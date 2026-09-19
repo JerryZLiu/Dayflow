@@ -254,7 +254,7 @@ final class AgentPlaybackHost: NSObject, ObservableObject, WKNavigationDelegate,
         catch { return false; }
       };
       if (!lease || !hostIsAlive()) process.exit(0);
-      const cli = fs.realpathSync(process.argv[1]);
+      const cli = fs.realpathSync(process.argv[process.argv.length - 1]);
       const pkg = JSON.parse(fs.readFileSync(path.join(path.dirname(cli), '..', 'package.json'), 'utf8'));
       console.log('DAYFLOW_AGENT_VERSION=' + pkg.version);
       const child = spawn(process.execPath, [cli, '--no-open'], { detached: true, stdio: 'inherit' });
@@ -269,7 +269,22 @@ final class AgentPlaybackHost: NSObject, ObservableObject, WKNavigationDelegate,
       child.on('error', err => { console.error(err.stack ?? err.message); process.exit(1); });
       child.on('exit', (code, signal) => { console.error('DAYFLOW_CHILD_EXIT code=' + code + ' signal=' + signal); stop(); process.exit(code ?? 1); });
       """
-    let command = "node -e \(LoginShellRunner.shellEscape(wrapper)) \"$(command -v agentplayback)\""
+    let dataDirectory = FileManager.default.urls(
+      for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("Dayflow/agents", isDirectory: true)
+    // Run the wrapper from a file instead of `node -e`: some endpoint security tools
+    // (e.g. SentinelOne) kill processes whose arguments look like overly long paths.
+    // If the file can't be written, fall back to the inline script.
+    let wrapperArgument: String
+    do {
+      let launcher = dataDirectory.appendingPathComponent("launcher.cjs")
+      try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true)
+      try wrapper.write(to: launcher, atomically: true, encoding: .utf8)
+      wrapperArgument = LoginShellRunner.shellEscape(launcher.path)
+    } catch {
+      wrapperArgument = "-e \(LoginShellRunner.shellEscape(wrapper))"
+    }
+    let command = "node \(wrapperArgument) \"$(command -v agentplayback)\""
     let package = LoginShellRunner.shellEscape("agentplayback@\(requestedVersion)")
     process.arguments = [
       "-l", "-i", "-c",
@@ -279,9 +294,6 @@ final class AgentPlaybackHost: NSObject, ObservableObject, WKNavigationDelegate,
       """,
     ]
     var environment = ProcessInfo.processInfo.environment
-    let dataDirectory = FileManager.default.urls(
-      for: .applicationSupportDirectory, in: .userDomainMask)[0]
-      .appendingPathComponent("Dayflow/agents", isDirectory: true)
     environment["AGENTPLAYBACK_HOME"] = dataDirectory.path
     let lease = FileManager.default.temporaryDirectory.appendingPathComponent(
       "dayflow-agents-\(id)")
