@@ -416,7 +416,7 @@ struct FaviconImageView: View {
   private func favicon(_ image: NSImage) -> some View {
     let isTemplate = ["ChatGPTLogo", "GithubIcon"].contains(image.name() ?? "")
     let backing: Color? =
-      isTemplate
+      !theme.isDark || isTemplate
       ? nil
       : FaviconContrast.backing(
         for: image, background: backgroundColor ?? theme.panelSolid,
@@ -495,13 +495,12 @@ private enum FaviconContrast {
     )
     let values = pixelLuminances(image)
     guard !values.isEmpty else { return nil }
-    // A substantial majority must disappear before we change the presentation.
-    guard readableFraction(values, against: backgroundLuminance) < 0.4 else { return nil }
-    let light: CGFloat = 0.88
-    let dark: CGFloat = 0.08
-    let lightScore = readableFraction(values, against: luminance(light, light, light))
-    let darkScore = readableFraction(values, against: luminance(dark, dark, dark))
-    return Color(white: lightScore >= darkScore ? light : dark)
+    // Rescue only almost entirely near-black icons that disappear on the dark surface.
+    let darkPixelFraction = Double(values.filter { $0 <= 0.05 }.count) / Double(values.count)
+    guard darkPixelFraction >= 0.9,
+      readableFraction(values, against: backgroundLuminance) < 0.1
+    else { return nil }
+    return Color(white: 0.88)
   }
 
   private static func readableFraction(_ values: [CGFloat], against background: CGFloat) -> Double {
