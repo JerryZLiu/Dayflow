@@ -124,6 +124,15 @@ enum GitHubStarPrompt {
       allStarred ? .starred : .notStarred, installed: true, authenticated: true, starred: starred)
   }
 
+  /// Current stargazer count for Dayflow, for social proof. Blocks on a shell call.
+  static func stargazerCount() -> Int? {
+    guard !shouldUseBrowser else { return nil }
+    let result = LoginShellRunner.run(
+      "gh api repos/\(primaryRepo) --jq .stargazers_count", timeout: 10)
+    guard result.exitCode == 0 else { return nil }
+    return Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
+  }
+
   /// Stars every repo and reports which ones took.
   static func starAll() -> GitHubStarResult {
     guard !shouldUseBrowser else {
