@@ -117,9 +117,10 @@ extension MainView {
         onOpenSettings: { handleTimelineFailureToastOpenSettings(payload) },
         onDismiss: { handleTimelineFailureToastDismiss(payload) }
       )
+      .environment(\.layoutDirection, .leftToRight)
       .padding(.trailing, 24)
       .padding(.bottom, 24)
-      .transition(.move(edge: .trailing).combined(with: .opacity))
+      .transition(toastOverlayTransition)
     }
   }
 
@@ -130,10 +131,21 @@ extension MainView {
         onOpenSettings: handleScreenRecordingPermissionNoticeOpenSettings,
         onDismiss: handleScreenRecordingPermissionNoticeDismiss
       )
+      .environment(\.layoutDirection, .leftToRight)
       .padding(.trailing, 24)
       .padding(.bottom, 24)
-      .transition(.move(edge: .trailing).combined(with: .opacity))
+      .transition(toastOverlayTransition)
     }
+  }
+
+  private var toastOverlayTransition: AnyTransition {
+    // Avoid `.move(edge:)` here. On macOS, edge transitions on bottom-trailing
+    // overlays can briefly reuse a flipped layer snapshot while other overlays
+    // are animating, which presents the toast text mirrored/upside down.
+    .asymmetric(
+      insertion: .opacity.combined(with: .offset(x: 18)),
+      removal: .opacity.combined(with: .offset(x: 12))
+    )
   }
 
   private func performMainLayoutOnAppear() {
@@ -479,6 +491,7 @@ private struct TimelineFailureToastView: View {
       RoundedRectangle(cornerRadius: 12)
         .stroke(theme.popoverBorder, lineWidth: 1)
     )
+    .compositingGroup()
     .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 6)
   }
 }
@@ -547,6 +560,7 @@ private struct ScreenRecordingPermissionNoticeView: View {
       RoundedRectangle(cornerRadius: 12)
         .stroke(theme.popoverBorder, lineWidth: 1)
     )
+    .compositingGroup()
     .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 6)
   }
 }
