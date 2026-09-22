@@ -15,9 +15,7 @@ struct OnboardingFlow: View {
   @AppStorage("didOnboard") private var didOnboard = false
   @AppStorage("onboardingSelectedProviderID") private var selectedProviderIDRawValue =
     LLMProviderID.gemini.rawValue
-  @AppStorage("onboardingHasPaidAI") private var savedHasPaidAISelection = ""
   @EnvironmentObject private var categoryStore: CategoryStore
-  @State private var userHasPaidAI: Bool? = OnboardingFlow.loadSavedHasPaidAISelection()
   @State private var flowID = UUID().uuidString.lowercased()
   @State private var routingSaveErrorMessage: String?
 
@@ -29,20 +27,17 @@ struct OnboardingFlow: View {
     switch step {
     case .introVideo: return 0
     case .roleSelection: return 0
-    case .downloadReason: return 1
-    case .referral: return 2
-    case .preferences: return 3
-    case .llmSelection: return 4
-    case .llmSetup: return 5
-    case .categories: return 6
-    case .categoryColors: return 7
-    case .screen: return 8
-    case .completion: return 9
+    case .referral: return 1
+    case .llmSelection: return 2
+    case .llmSetup: return 3
+    case .screen: return 4
+    case .personalGoal: return 5
+    case .completion: return 6
     }
   }
 
   private var showsProgressRing: Bool {
-    step != .introVideo && step != .llmSelection && step != .categoryColors
+    step != .introVideo && step != .llmSelection
   }
 
   @ViewBuilder
@@ -77,6 +72,8 @@ struct OnboardingFlow: View {
         OnboardingPrototypeRoleSelectionStep(
           onContinue: { selectedRole in
             categoryStore.setOnboardingRole(selectedRole)
+            // Onboarding no longer has a category step, so apply the role's preset here.
+            categoryStore.applyOnboardingPresetIfNeeded()
             AnalyticsService.shared.capture("onboarding_role_selected", ["role": selectedRole])
             advance(selectedRole: selectedRole)
           }
@@ -85,27 +82,6 @@ struct OnboardingFlow: View {
         .transition(.opacity)
         .onAppear {
           AnalyticsService.shared.screen("onboarding_role_selection")
-        }
-
-      case .downloadReason:
-        OnboardingPrototypeDownloadReasonStep(
-          onContinue: { reasons, otherDetail in
-            var payload: [String: Any] = [
-              "reasons": reasons.map(\.analyticsValue),
-              "surface": "onboarding_download_reason",
-            ]
-
-            if let otherDetail, !otherDetail.isEmpty {
-              payload["other_detail"] = otherDetail
-            }
-
-            AnalyticsService.shared.capture("onboarding_download_reason", payload)
-            advance(extraProps: payload)
-          }
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-          AnalyticsService.shared.screen("onboarding_download_reason")
         }
 
       case .referral:
@@ -129,23 +105,8 @@ struct OnboardingFlow: View {
           AnalyticsService.shared.screen("onboarding_referral")
         }
 
-      case .preferences:
-        OnboardingPrototypePreferencesStep(
-          onContinue: { hasPaidAI in
-            userHasPaidAI = hasPaidAI
-            savedHasPaidAISelection = hasPaidAI ? "yes" : "no"
-            AnalyticsService.shared.capture("onboarding_preferences", ["has_paid_ai": hasPaidAI])
-            advance(extraProps: ["has_paid_ai": hasPaidAI])
-          }
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-          AnalyticsService.shared.screen("onboarding_preferences")
-        }
-
       case .llmSelection:
         OnboardingPrototypeChooseProviderStep(
-          hasPaidAI: userHasPaidAI ?? false,
           flowID: flowID,
           flowVariant: "production_onboarding",
           onSelect: { providerID in
@@ -197,46 +158,38 @@ struct OnboardingFlow: View {
           AnalyticsService.shared.screen("onboarding_llm_setup")
         }
 
-      case .categories:
-        OnboardingCategoryStepView(
+      case .screen:
+        ScreenRecordingPermissionView(
           onBack: {
             // Go back to llmSetup, or llmSelection if they picked dayflow
             let backStep: OnboardingStep =
               (selectedProviderID == .dayflow) ? .llmSelection : .llmSetup
             setStep(backStep)
           },
-          onNext: {
-            advance()
-          }
-        )
-        .environmentObject(categoryStore)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-          AnalyticsService.shared.screen("onboarding_categories")
-        }
-
-      case .categoryColors:
-        OnboardingCategoryColorStepView(
-          onBack: {
-            setStep(.categories)
-          },
-          onNext: {
-            advance()
-          }
-        )
-        .environmentObject(categoryStore)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-      case .screen:
-        ScreenRecordingPermissionView(
-          onBack: {
-            setStep(.categoryColors)
-          },
           onNext: { advance() }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
           AnalyticsService.shared.screen("onboarding_screen_recording")
+        }
+
+      case .personalGoal:
+        OnboardingPersonalGoalStep(
+          onContinue: { goal in
+            let trimmedGoal = String(goal.prefix(OnboardingPersonalGoalStep.maxCharacters))
+            let payload: [String: Any] = [
+              "goal": trimmedGoal,
+              "character_count": trimmedGoal.count,
+              "skipped": trimmedGoal.isEmpty,
+              "surface": "onboarding_personal_goal",
+            ]
+            AnalyticsService.shared.capture("onboarding_personal_goal", payload)
+            advance(extraProps: ["skipped": trimmedGoal.isEmpty])
+          }
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+          AnalyticsService.shared.screen("onboarding_personal_goal")
         }
 
       case .completion:
@@ -248,7 +201,6 @@ struct OnboardingFlow: View {
             markStepCompleted(.completion)
             didOnboard = true
             savedStepRawValue = 0
-            savedHasPaidAISelection = ""
             AnalyticsService.shared.capture("onboarding_completed")
             AnalyticsService.shared.setPersonProperties(["onboarding_status": "completed"])
             AnalyticsService.shared.flush()
@@ -261,7 +213,7 @@ struct OnboardingFlow: View {
       }
 
       // Progress ring — bottom-left, always in tree (opacity toggle preserves @State)
-      ProgressRingView(totalSegments: 9, filledSegments: onboardingFilledSegments)
+      ProgressRingView(totalSegments: 6, filledSegments: onboardingFilledSegments)
         .opacity(showsProgressRing ? 1 : 0)
         .animation(.easeInOut(duration: 0.3), value: showsProgressRing)
         .padding(.leading, 0)
@@ -331,29 +283,14 @@ struct OnboardingFlow: View {
     if migratedValue != savedStepRawValue {
       savedStepRawValue = migratedValue
     }
-    userHasPaidAI = persistedHasPaidAISelection
     if let savedStep = OnboardingStep(rawValue: migratedValue) {
-      if savedStep == .categories {
-        prepareCategoriesForOnboardingIfNeeded()
-      }
       step = savedStep
     }
   }
 
-  private var persistedHasPaidAISelection: Bool? {
-    Self.decodeHasPaidAISelection(savedHasPaidAISelection)
-  }
-
   private func setStep(_ newStep: OnboardingStep) {
-    if newStep == .categories {
-      prepareCategoriesForOnboardingIfNeeded()
-    }
     step = newStep
     savedStepRawValue = newStep.rawValue
-  }
-
-  private func prepareCategoriesForOnboardingIfNeeded() {
-    categoryStore.applyOnboardingPresetIfNeeded()
   }
 
   private func markStepCompleted(
@@ -378,32 +315,22 @@ struct OnboardingFlow: View {
       markStepCompleted(step, extraProps: extraProps)
       step.next()
       savedStepRawValue = step.rawValue
-    case .downloadReason:
-      markStepCompleted(step, extraProps: extraProps)
-      step.next()
-      savedStepRawValue = step.rawValue
     case .referral:
-      markStepCompleted(step, extraProps: extraProps)
-      step.next()
-      savedStepRawValue = step.rawValue
-    case .preferences:
       markStepCompleted(step, extraProps: extraProps)
       step.next()
       savedStepRawValue = step.rawValue
     case .llmSelection:
       markStepCompleted(step, extraProps: extraProps)
       let nextStep: OnboardingStep =
-        (selectedProviderID == .dayflow) ? .categories : .llmSetup
+        (selectedProviderID == .dayflow) ? .screen : .llmSetup
       setStep(nextStep)
     case .llmSetup:
       markStepCompleted(step)
-      setStep(.categories)
-    case .categories:
-      markStepCompleted(step)
-      setStep(.categoryColors)
-    case .categoryColors:
-      markStepCompleted(step)
       setStep(.screen)
+    case .personalGoal:
+      markStepCompleted(step, extraProps: extraProps)
+      step.next()
+      savedStepRawValue = step.rawValue
     case .screen:
       // Permission request is handled by ScreenRecordingPermissionView itself
       markStepCompleted(step)
@@ -433,28 +360,11 @@ struct OnboardingFlow: View {
       savedStepRawValue = 0  // Reset for next time
     }
   }
-
-  private static func loadSavedHasPaidAISelection(defaults: UserDefaults = .standard) -> Bool? {
-    decodeHasPaidAISelection(defaults.string(forKey: "onboardingHasPaidAI") ?? "")
-  }
-
-  private static func decodeHasPaidAISelection(_ value: String) -> Bool? {
-    switch value {
-    case "yes":
-      return true
-    case "no":
-      return false
-    default:
-      return nil
-    }
-  }
-
 }
 
 /// Wizard step order
 enum OnboardingStep: Int, CaseIterable {
-  case introVideo, roleSelection, downloadReason, referral, preferences, llmSelection, llmSetup,
-    categories, categoryColors, screen, completion
+  case introVideo, roleSelection, referral, llmSelection, llmSetup, screen, personalGoal, completion
 
   var analyticsName: String {
     switch self {
@@ -462,22 +372,16 @@ enum OnboardingStep: Int, CaseIterable {
       return "intro_video"
     case .roleSelection:
       return "role_selection"
-    case .downloadReason:
-      return "download_reason"
     case .referral:
       return "referral"
-    case .preferences:
-      return "preferences"
     case .llmSelection:
       return "llm_selection"
     case .llmSetup:
       return "llm_setup"
-    case .categories:
-      return "categories"
-    case .categoryColors:
-      return "category_colors"
     case .screen:
       return "screen_recording"
+    case .personalGoal:
+      return "personal_goal"
     case .completion:
       return "completion"
     }
@@ -494,7 +398,7 @@ enum OnboardingStep: Int, CaseIterable {
 enum OnboardingStepMigration {
   static let schemaVersionKey = "onboardingStepSchemaVersion"
   private static let onboardingStepKey = "onboardingStep"
-  static let currentVersion = 5
+  static let currentVersion = 6
 
   @discardableResult
   static func migrateIfNeeded(defaults: UserDefaults = .standard) -> Int {
@@ -537,6 +441,13 @@ enum OnboardingStepMigration {
     // New v5: introVideo=0, roleSelection=1, downloadReason=2, referral=3, preferences=4, llmSelection=5, llmSetup=6, categories=7, categoryColors=8, screen=9, completion=10
     if storedVersion < 5 {
       migratedValue = migrateV4toV5(migratedValue)
+    }
+
+    // v5 → v6: remove downloadReason, preferences, categories and categoryColors; insert personalGoal after screen
+    // Old v5: introVideo=0, roleSelection=1, downloadReason=2, referral=3, preferences=4, llmSelection=5, llmSetup=6, categories=7, categoryColors=8, screen=9, completion=10
+    // New v6: introVideo=0, roleSelection=1, referral=2, llmSelection=3, llmSetup=4, screen=5, personalGoal=6, completion=7
+    if storedVersion < 6 {
+      migratedValue = migrateV5toV6(migratedValue)
     }
 
     defaults.set(migratedValue, forKey: onboardingStepKey)
@@ -605,9 +516,22 @@ enum OnboardingStepMigration {
     }
   }
 
+  static func migrateV5toV6(_ rawValue: Int) -> Int {
+    switch rawValue {
+    case 0...1: return rawValue  // introVideo, roleSelection unchanged
+    case 2...3: return 2  // downloadReason, referral → referral
+    case 4...5: return 3  // preferences, llmSelection → llmSelection
+    case 6: return 4  // llmSetup → llmSetup
+    case 7...9: return 5  // categories, categoryColors, screen → screen
+    case 10: return 6  // completion → personalGoal (the new step right after screen)
+    default: return 0
+    }
+  }
+
   // Keep for testing compatibility
   static func migrateRawValue(_ rawValue: Int) -> Int {
-    migrateV4toV5(migrateV3toV4(migrateV2toV3(migrateV1toV2(migrateV0toV1(rawValue)))))
+    migrateV5toV6(
+      migrateV4toV5(migrateV3toV4(migrateV2toV3(migrateV1toV2(migrateV0toV1(rawValue))))))
   }
 }
 
@@ -668,237 +592,6 @@ struct WelcomeView: View {
       withAnimation(.easeOut(duration: 0.6)) {
         textOpacity = 1
       }
-    }
-  }
-}
-
-struct OnboardingCategoryColorStepView: View {
-  let onBack: () -> Void
-  let onNext: () -> Void
-  @EnvironmentObject private var categoryStore: CategoryStore
-
-  var body: some View {
-    ColorOrganizerRoot(
-      presentationStyle: .embedded,
-      flowMode: .colorsOnly,
-      onBack: onBack,
-      onDismiss: {
-        onNext()
-      },
-      analyticsSurface: "onboarding"
-    )
-    .environmentObject(categoryStore)
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-  }
-}
-
-struct OnboardingPrototypeDownloadReasonStep: View {
-  let onContinue: ([DownloadReasonOption], String?) -> Void
-
-  @State private var shuffledReasons = DownloadReasonOption.randomizedConcreteOptions()
-  @State private var selectedReasons: Set<DownloadReasonOption> = []
-  @State private var otherText = ""
-
-  private var options: [DownloadReasonOption] {
-    shuffledReasons + [.other]
-  }
-
-  private var trimmedOtherText: String {
-    otherText.trimmingCharacters(in: .whitespacesAndNewlines)
-  }
-
-  private var canContinue: Bool {
-    guard !selectedReasons.isEmpty else { return false }
-    if selectedReasons.contains(.other) {
-      return !trimmedOtherText.isEmpty
-    }
-    return true
-  }
-
-  var body: some View {
-    VStack(spacing: 0) {
-      Spacer()
-        .frame(height: 48)
-
-      VStack(spacing: 22) {
-        VStack(spacing: 4) {
-          Text("What are you hoping to get out of Dayflow?")
-            .font(.custom("Figtree", size: 20))
-            .foregroundColor(Color(hex: "89380E"))
-
-          Text("This helps personalize the experience for you.")
-            .font(.custom("Figtree", size: 16))
-            .foregroundColor(Color(hex: "89380E").opacity(0.78))
-        }
-        .multilineTextAlignment(.center)
-
-        VStack(spacing: 8) {
-          ForEach(options) { option in
-            downloadReasonRow(option)
-          }
-        }
-
-        otherField
-      }
-      .frame(maxWidth: 760)
-      .padding(.horizontal, 24)
-
-      Spacer()
-
-      DayflowSurfaceButton(
-        action: {
-          let selectedInDisplayOrder = options.filter { selectedReasons.contains($0) }
-          let detail = selectedReasons.contains(.other) ? trimmedOtherText : nil
-          onContinue(selectedInDisplayOrder, detail)
-        },
-        content: {
-          Text("Continue")
-            .font(.custom("Figtree", size: 16))
-            .fontWeight(.medium)
-        },
-        background: Color(hex: "FF9F6F"),
-        foreground: .white,
-        borderColor: Color(hex: "F4C8B1"),
-        cornerRadius: 200,
-        horizontalPadding: 59,
-        verticalPadding: 18,
-        minWidth: 234,
-        showOverlayStroke: false,
-        innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)
-      )
-      .opacity(canContinue ? 1.0 : 0.4)
-      .allowsHitTesting(canContinue)
-      .animation(.easeInOut(duration: 0.2), value: canContinue)
-
-      Spacer()
-        .frame(height: 24)
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .animation(.easeInOut(duration: 0.2), value: selectedReasons)
-  }
-
-  private func downloadReasonRow(_ option: DownloadReasonOption) -> some View {
-    let isSelected = selectedReasons.contains(option)
-
-    return Button {
-      toggle(option)
-    } label: {
-      HStack(spacing: 10) {
-        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-          .font(.system(size: 17, weight: .semibold))
-          .foregroundColor(Color(hex: "402C00"))
-
-        Text(option.displayName)
-          .font(.custom("Figtree", size: 15))
-          .foregroundColor(Color(hex: "492304"))
-          .fixedSize(horizontal: false, vertical: true)
-
-        Spacer(minLength: 0)
-      }
-      .padding(.horizontal, 14)
-      .padding(.vertical, 10)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .fill(isSelected ? Color(hex: "FFE5CF").opacity(0.48) : Color.white.opacity(0.42))
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .stroke(isSelected ? Color(hex: "FFCCA7") : Color(hex: "E4D3C2"), lineWidth: 1)
-      )
-      .shadow(
-        color: isSelected
-          ? Color(red: 1, green: 0.416, blue: 0).opacity(0.22)
-          : Color(hex: "AF7246").opacity(0.12),
-        radius: isSelected ? 3 : 2,
-        x: 0,
-        y: 0
-      )
-    }
-    .buttonStyle(.plain)
-    .pointingHandCursor()
-  }
-
-  private var otherField: some View {
-    TextField("Tell me more", text: $otherText)
-      .font(.custom("Figtree", size: 16))
-      .foregroundColor(Color(hex: "492304"))
-      .textFieldStyle(.plain)
-      .padding(.horizontal, 12)
-      .frame(height: 36)
-      .background(Color.white.opacity(0.42))
-      .cornerRadius(5)
-      .overlay(
-        RoundedRectangle(cornerRadius: 5)
-          .stroke(Color(hex: "E4D3C2"), lineWidth: 1)
-      )
-      .shadow(
-        color: Color(hex: "AF7246").opacity(0.15),
-        radius: 2, x: 0, y: 0
-      )
-      .opacity(selectedReasons.contains(.other) ? 1 : 0)
-      .disabled(!selectedReasons.contains(.other))
-      .allowsHitTesting(selectedReasons.contains(.other))
-      .frame(maxWidth: .infinity)
-  }
-
-  private func toggle(_ option: DownloadReasonOption) {
-    if selectedReasons.contains(option) {
-      selectedReasons.remove(option)
-      if option == .other {
-        otherText = ""
-      }
-    } else {
-      selectedReasons.insert(option)
-    }
-  }
-}
-
-enum DownloadReasonOption: CaseIterable, Identifiable, Hashable {
-  case automaticLog
-  case proofOfWork
-  case cutDistractions
-  case productiveFocused
-  case openSourcePrivate
-  case other
-
-  var id: String { analyticsValue }
-
-  static func randomizedConcreteOptions() -> [DownloadReasonOption] {
-    allCases.filter { $0 != .other }.shuffled()
-  }
-
-  var displayName: String {
-    switch self {
-    case .automaticLog:
-      return String(localized: "To keep an automatic log of what I worked on")
-    case .proofOfWork:
-      return String(localized: "To make my work more visible for standups, reviews, or promotions")
-    case .cutDistractions:
-      return String(localized: "To find and cut distractions")
-    case .productiveFocused:
-      return String(localized: "To be more productive or focused")
-    case .openSourcePrivate:
-      return String(localized: "I wanted a tracker that's open source and keeps my data private")
-    case .other:
-      return String(localized: "Other")
-    }
-  }
-
-  var analyticsValue: String {
-    switch self {
-    case .automaticLog:
-      return "automatic_log"
-    case .proofOfWork:
-      return "proof_of_work"
-    case .cutDistractions:
-      return "cut_distractions"
-    case .productiveFocused:
-      return "productive_focused"
-    case .openSourcePrivate:
-      return "open_source_private"
-    case .other:
-      return "other"
     }
   }
 }
@@ -980,6 +673,130 @@ struct OnboardingPrototypeReferralStep: View {
         .frame(height: 60)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+}
+
+struct OnboardingPersonalGoalStep: View {
+  static let maxCharacters = 2_000
+
+  let onContinue: (String) -> Void
+
+  @State private var goalText = ""
+
+  private var trimmedGoal: String {
+    goalText.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  var body: some View {
+    VStack(spacing: 0) {
+      Spacer()
+        .frame(height: 39)
+
+      Text("Dayflow adapts to what you need")
+        .font(.custom("InstrumentSerif-Regular", size: 40))
+        .tracking(-1.2)
+        .multilineTextAlignment(.center)
+        .foregroundColor(Color(hex: "492304"))
+        .frame(maxWidth: 708)
+        .fixedSize(horizontal: false, vertical: true)
+
+      Spacer()
+        .frame(height: 12)
+
+      Text("Tell Dayflow what you're hoping to get out of it.")
+        .font(.custom("Figtree", size: 18))
+        .foregroundColor(Color(hex: "89380E").opacity(0.78))
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 560)
+        .fixedSize(horizontal: false, vertical: true)
+
+      Spacer()
+        .frame(height: 36)
+
+      goalEditor
+        .frame(maxWidth: 620)
+        .padding(.horizontal, 24)
+
+      Spacer()
+
+      DayflowSurfaceButton(
+        action: {
+          onContinue(trimmedGoal)
+        },
+        content: {
+          Text("Continue")
+            .font(.custom("Figtree", size: 16))
+            .fontWeight(.medium)
+        },
+        background: Color(hex: "FF9F6F"),
+        foreground: .white,
+        borderColor: Color(hex: "F4C8B1"),
+        cornerRadius: 200,
+        horizontalPadding: 59,
+        verticalPadding: 18,
+        minWidth: 234,
+        showOverlayStroke: false,
+        innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)
+      )
+      .opacity(trimmedGoal.isEmpty ? 0.4 : 1.0)
+      .allowsHitTesting(!trimmedGoal.isEmpty)
+      .animation(.easeInOut(duration: 0.2), value: trimmedGoal.isEmpty)
+
+      Button {
+        onContinue("")
+      } label: {
+        Text("Skip")
+          .font(.custom("Figtree", size: 14))
+          .foregroundColor(Color(hex: "89380E").opacity(0.7))
+          .padding(.vertical, 8)
+          .padding(.horizontal, 16)
+      }
+      .buttonStyle(.plain)
+      .pointingHandCursor()
+      .padding(.top, 8)
+
+      Spacer()
+        .frame(height: 40)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  private var goalEditor: some View {
+    ZStack(alignment: .topLeading) {
+      TextEditor(text: $goalText)
+        .font(.custom("Figtree", size: 16))
+        .foregroundColor(Color(hex: "492304"))
+        .scrollContentBackground(.hidden)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
+        .onChange(of: goalText) { _, newValue in
+          if newValue.count > Self.maxCharacters {
+            goalText = String(newValue.prefix(Self.maxCharacters))
+          }
+        }
+
+      if goalText.isEmpty {
+        Text(
+          "e.g. See where my time actually goes, cut down on distractions, or have an automatic log of my work for standups and reviews."
+        )
+        .font(.custom("Figtree", size: 16))
+        .foregroundColor(Color(hex: "492304").opacity(0.4))
+        .padding(.horizontal, 13)
+        .padding(.vertical, 10)
+        .allowsHitTesting(false)
+      }
+    }
+    .frame(height: 160)
+    .background(Color.white.opacity(0.42))
+    .cornerRadius(8)
+    .overlay(
+      RoundedRectangle(cornerRadius: 8)
+        .stroke(Color(hex: "E4D3C2"), lineWidth: 1)
+    )
+    .shadow(
+      color: Color(hex: "AF7246").opacity(0.15),
+      radius: 2, x: 0, y: 0
+    )
   }
 }
 

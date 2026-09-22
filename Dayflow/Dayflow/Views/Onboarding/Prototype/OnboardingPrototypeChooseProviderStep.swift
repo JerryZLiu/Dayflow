@@ -51,7 +51,6 @@ private struct ComparisonProvider: Identifiable {
 
 struct OnboardingPrototypeChooseProviderStep: View {
   @Environment(\.stylePreviewAfter) private var stylePreviewAfter
-  let hasPaidAI: Bool
   let flowID: String
   let flowVariant: String
   let onSelect: (LLMProviderID) -> Void
@@ -132,7 +131,6 @@ struct OnboardingPrototypeChooseProviderStep: View {
 
       if isShowingDayflowProSignIn {
         DayflowProOnboardingSignInPanel(
-          hasPaidAI: hasPaidAI,
           flowID: flowID,
           flowVariant: flowVariant,
           layoutScale: 0.8,
@@ -175,7 +173,6 @@ struct OnboardingPrototypeChooseProviderStep: View {
     OnboardingPrototypeAnalytics.trackDayflowProSelected(
       flowID: flowID,
       flowVariant: flowVariant,
-      hasPaidAI: hasPaidAI,
       selectionStage: "started_sign_in"
     )
     dayflowProInitialReferralCode = authManager.pendingReferralCode ?? ""

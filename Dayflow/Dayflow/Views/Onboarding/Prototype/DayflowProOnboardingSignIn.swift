@@ -46,7 +46,6 @@ private struct DayflowProReferralFieldShake: GeometryEffect {
 }
 
 struct DayflowProOnboardingSignInPanel: View {
-  let hasPaidAI: Bool
   let flowID: String
   let flowVariant: String
   let layoutScale: CGFloat
@@ -430,8 +429,7 @@ struct DayflowProOnboardingSignInPanel: View {
     OnboardingPrototypeAnalytics.trackDayflowProStepViewed(
       step: step,
       flowID: flowID,
-      flowVariant: flowVariant,
-      hasPaidAI: hasPaidAI
+      flowVariant: flowVariant
     )
   }
 
@@ -447,8 +445,7 @@ struct DayflowProOnboardingSignInPanel: View {
       result: result,
       step: step ?? dayflowProStep,
       flowID: flowID,
-      flowVariant: flowVariant,
-      hasPaidAI: hasPaidAI
+      flowVariant: flowVariant
     )
   }
 
@@ -717,7 +714,6 @@ struct DayflowProOnboardingSignInPanel: View {
     OnboardingPrototypeAnalytics.trackDayflowProSelected(
       flowID: flowID,
       flowVariant: flowVariant,
-      hasPaidAI: hasPaidAI,
       selectionStage: "continued"
     )
     onComplete()

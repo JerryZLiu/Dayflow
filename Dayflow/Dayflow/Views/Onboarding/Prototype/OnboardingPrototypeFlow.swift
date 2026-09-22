@@ -47,7 +47,6 @@ struct OnboardingPrototypeFlow: View {
   @State private var flowID = UUID().uuidString.lowercased()
   @State private var hasTrackedStart = false
   @State private var hasTrackedCompletion = false
-  @State private var userHasPaidAI: Bool?
 
   init(
     initialStep: OnboardingPrototypeStep = .introVideo,
@@ -107,7 +106,6 @@ struct OnboardingPrototypeFlow: View {
       case .preferences:
         OnboardingPrototypePreferencesStep(
           onContinue: { hasPaidAI in
-            userHasPaidAI = hasPaidAI
             OnboardingPrototypeAnalytics.trackStepCompleted(
               step: .preferences,
               flowID: flowID,
@@ -123,7 +121,6 @@ struct OnboardingPrototypeFlow: View {
 
       case .chooseProvider:
         OnboardingPrototypeChooseProviderStep(
-          hasPaidAI: userHasPaidAI ?? false,
           flowID: flowID,
           flowVariant: flowVariant,
           onSelect: { provider in
@@ -357,7 +354,6 @@ enum OnboardingPrototypeAnalytics {
   static func trackDayflowProSelected(
     flowID: String,
     flowVariant: String,
-    hasPaidAI: Bool,
     selectionStage: String
   ) {
     capture(
@@ -366,7 +362,6 @@ enum OnboardingPrototypeAnalytics {
         step: nil,
         flowID: flowID,
         flowVariant: flowVariant,
-        hasPaidAI: hasPaidAI,
         extraProps: ["selection_stage": selectionStage]
       )
     )
@@ -375,16 +370,14 @@ enum OnboardingPrototypeAnalytics {
   static func trackDayflowProStepViewed(
     step: DayflowProOnboardingStep,
     flowID: String,
-    flowVariant: String,
-    hasPaidAI: Bool
+    flowVariant: String
   ) {
     screen(
       "dayflow_pro_\(step.analyticsName)",
       dayflowProProps(
         step: step,
         flowID: flowID,
-        flowVariant: flowVariant,
-        hasPaidAI: hasPaidAI
+        flowVariant: flowVariant
       )
     )
     capture(
@@ -392,8 +385,7 @@ enum OnboardingPrototypeAnalytics {
       dayflowProProps(
         step: step,
         flowID: flowID,
-        flowVariant: flowVariant,
-        hasPaidAI: hasPaidAI
+        flowVariant: flowVariant
       )
     )
   }
@@ -404,8 +396,7 @@ enum OnboardingPrototypeAnalytics {
     result: DayflowAuthActionResult,
     step: DayflowProOnboardingStep,
     flowID: String,
-    flowVariant: String,
-    hasPaidAI: Bool
+    flowVariant: String
   ) {
     capture(
       eventName,
@@ -413,7 +404,6 @@ enum OnboardingPrototypeAnalytics {
         step: step,
         flowID: flowID,
         flowVariant: flowVariant,
-        hasPaidAI: hasPaidAI,
         extraProps: result.analyticsProps.merging(
           ["action": action],
           uniquingKeysWith: { _, new in new }
@@ -440,14 +430,12 @@ enum OnboardingPrototypeAnalytics {
     step: DayflowProOnboardingStep?,
     flowID: String,
     flowVariant: String,
-    hasPaidAI: Bool,
     extraProps: [String: Any] = [:]
   ) -> [String: Any] {
     var props: [String: Any] = [
       "flow_id": flowID,
       "flow_variant": flowVariant,
       "surface": "onboarding_dayflow_pro",
-      "has_paid_ai": hasPaidAI,
     ]
     if let step {
       props["dayflow_pro_step"] = step.analyticsName
