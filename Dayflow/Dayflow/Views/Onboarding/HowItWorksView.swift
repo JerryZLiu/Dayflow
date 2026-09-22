@@ -98,7 +98,7 @@ struct HowItWorksView: View {
 
         DayflowSurfaceButton(
           action: {
-            GitHubStarPromptState.markShown()
+            GitHubStarPromptState.markDone()
             Task {
               let starred = await GitHubStarService.starDayflow()
               if !starred {
