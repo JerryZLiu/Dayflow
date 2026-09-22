@@ -61,60 +61,152 @@ struct SupportChatPalette: Equatable {
   }
 }
 
-/// Retains the widget session so replies are checked even when Support is closed.
+enum SupportChatContext: Equatable {
+  case support
+  case flowWaitlist(email: String, accountID: String? = nil)
+
+  var isFlowWaitlist: Bool {
+    if case .flowWaitlist = self { return true }
+    return false
+  }
+
+  var email: String? {
+    guard case .flowWaitlist(let email, _) = self else { return nil }
+    return email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+  }
+
+  var accountID: String? {
+    guard case .flowWaitlist(_, let accountID) = self,
+      let normalizedID = accountID?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !normalizedID.isEmpty
+    else { return nil }
+    return normalizedID
+  }
+
+  var sessionKey: String {
+    guard let email else { return "support" }
+    guard let accountID else { return "signed-out:\(email)" }
+    return "account:\(accountID.utf8.count):\(accountID):\(email)"
+  }
+}
+
+/// Retains each conversation independently so Flow never shares a support ticket.
 @MainActor
 final class SupportChatSession {
-  static let shared = SupportChatSession()
-  let coordinator = SupportChatWebView.Coordinator(onEvent: { _ in })
-  lazy var webView = SupportChatWebView.makeWebView(coordinator: coordinator)
+  static let shared = SupportChatSession(context: .support)
+  private static var flowWaitlistSessions: [String: SupportChatSession] = [:]
+
+  static func flowWaitlist(email: String, accountID: String? = nil) -> SupportChatSession {
+    let context = SupportChatContext.flowWaitlist(email: email, accountID: accountID)
+    if let session = flowWaitlistSessions[context.sessionKey] { return session }
+    let session = SupportChatSession(context: context)
+    flowWaitlistSessions[context.sessionKey] = session
+    return session
+  }
+
+  let context: SupportChatContext
+  let websiteDataStore: WKWebsiteDataStore
+  lazy var coordinator = SupportChatWebView.Coordinator(session: self, onEvent: { _ in })
+  lazy var webView = SupportChatWebView.makeWebView(session: self)
   private var timer: Timer?
-  private var supportVisible = false
-  private var ready = false
+  private var observers: [NSObjectProtocol] = []
+  private var chatVisible = false
+  private(set) var ready = false
+  private var failed = false
   private let defaults = UserDefaults.standard
+
+  private init(context: SupportChatContext) {
+    self.context = context
+    if let email = context.email {
+      // PostHog keys conversations by project token, so a separate data store
+      // keeps Support and other accounts out of this conversation.
+      let key = "flowWaitlistChatDataStores"
+      var identifiers = UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
+      let storedID =
+        identifiers[context.sessionKey]
+        ?? (context.accountID == nil ? identifiers[email] : nil)
+      let identifier = storedID.flatMap(UUID.init(uuidString:)) ?? UUID()
+      identifiers[context.sessionKey] = identifier.uuidString
+      // Only the signed-out scope may inherit the original anonymous conversation.
+      if context.accountID == nil { identifiers.removeValue(forKey: email) }
+      UserDefaults.standard.set(identifiers, forKey: key)
+      websiteDataStore = WKWebsiteDataStore(forIdentifier: identifier)
+    } else {
+      websiteDataStore = .default()
+    }
+  }
+
+  var pageURL: URL {
+    URL(
+      string: context.isFlowWaitlist
+        ? "https://www.dayflow.so/flow-waitlist-chat" : "https://www.dayflow.so/support-chat"
+    )!
+  }
 
   func start() {
     guard timer == nil else { return }
     _ = webView
-    timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
-      Task { @MainActor in
-        let session = SupportChatSession.shared
-        if session.ready {
-          session.updateReading()
-        } else {
-          session.webView.loadHTMLString(
-            SupportChatPage.html, baseURL: URL(string: "https://www.dayflow.so/support-chat"))
+    if failed { reload() }
+    let interval: TimeInterval = context.isFlowWaitlist ? 10 : 60
+    timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+      Task { @MainActor [weak self] in
+        guard let self else { return }
+        if self.ready {
+          self.updateReading()
+        } else if self.failed {
+          self.reload()
         }
       }
     }
+    guard observers.isEmpty else { return }
     for name in [
       NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
     ] {
-      NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
-        Task { @MainActor in SupportChatSession.shared.updateReading() }
+      let observer = NotificationCenter.default.addObserver(
+        forName: name, object: nil, queue: .main
+      ) { [weak self] _ in
+        Task { @MainActor [weak self] in self?.updateReading() }
       }
+      observers.append(observer)
     }
   }
 
   func setVisible(_ visible: Bool) {
-    supportVisible = visible
+    chatVisible = visible
+    if visible { start() }
     updateReading()
+    if context.isFlowWaitlist && !visible {
+      timer?.invalidate()
+      timer = nil
+    }
   }
 
   func didBecomeReady() {
     ready = true
+    failed = false
     updateReading()
   }
 
   func didBecomeUnavailable() {
     ready = false
+    failed = true
+  }
+
+  private func reload() {
+    failed = false
+    webView.loadHTMLString(SupportChatPage.html, baseURL: pageURL)
   }
 
   private func updateReading() {
+    guard ready else { return }
     let windowVisible = webView.window.map { $0.isVisible && !$0.isMiniaturized } ?? false
-    coordinator.send("setReading", supportVisible && NSApp.isActive && windowVisible)
+    coordinator.send("setReading", chatVisible && NSApp.isActive && windowVisible)
   }
 
   func receiveReplies(_ body: [String: Any]) {
+    // Flow has its own chat surface; its replies must not clear Support's badge
+    // or produce notifications that navigate to the Support tab.
+    guard !context.isFlowWaitlist else { return }
     let unread = max(0, body["unread"] as? Int ?? 0)
     NotificationBadgeManager.shared.setSupportUnreadCount(unread)
     guard unread > 0, let latestID = body["latestID"] as? String, !latestID.isEmpty else {
@@ -137,23 +229,48 @@ struct SupportChatWebView: NSViewRepresentable {
   }
 
   let palette: SupportChatPalette
+  let context: SupportChatContext
   let onEvent: (Event) -> Void
 
+  init(
+    palette: SupportChatPalette,
+    context: SupportChatContext = .support,
+    onEvent: @escaping (Event) -> Void
+  ) {
+    self.palette = palette
+    self.context = context
+    self.onEvent = onEvent
+  }
+
+  private var session: SupportChatSession {
+    switch context {
+    case .support: return .shared
+    case .flowWaitlist(let email, let accountID):
+      return .flowWaitlist(email: email, accountID: accountID)
+    }
+  }
+
   func makeCoordinator() -> Coordinator {
-    SupportChatSession.shared.coordinator.onEvent = onEvent
-    return SupportChatSession.shared.coordinator
+    session.coordinator.onEvent = onEvent
+    return session.coordinator
   }
 
   func makeNSView(context: Context) -> WKWebView {
-    SupportChatSession.shared.webView
+    let session = session
+    if session.ready {
+      DispatchQueue.main.async { session.coordinator.onEvent(.ready) }
+    }
+    return session.webView
   }
 
-  static func makeWebView(coordinator: Coordinator) -> WKWebView {
+  static func makeWebView(session: SupportChatSession) -> WKWebView {
+    let coordinator = session.coordinator
     let configuration = WKWebViewConfiguration()
+    configuration.websiteDataStore = session.websiteDataStore
     configuration.userContentController.add(coordinator, name: "support")
     configuration.userContentController.addUserScript(
       WKUserScript(
-        source: Self.configScript(palette: .light),
+        source: Self.configScript(palette: .light, context: session.context),
         injectionTime: .atDocumentStart,
         forMainFrameOnly: true
       )
@@ -170,8 +287,7 @@ struct SupportChatWebView: NSViewRepresentable {
     coordinator.webView = webView
     coordinator.lastPalette = .light
     // A real https origin so posthog-js gets working localStorage for ticket persistence.
-    webView.loadHTMLString(
-      SupportChatPage.html, baseURL: URL(string: "https://www.dayflow.so/support-chat"))
+    webView.loadHTMLString(SupportChatPage.html, baseURL: session.pageURL)
     return webView
   }
 
@@ -186,7 +302,9 @@ struct SupportChatWebView: NSViewRepresentable {
   }
 
   /// Everything the page needs before posthog-js loads: keys, distinct ID, and theme.
-  private static func configScript(palette: SupportChatPalette) -> String {
+  private static func configScript(palette: SupportChatPalette, context: SupportChatContext)
+    -> String
+  {
     let info = Bundle.main.infoDictionary
     var config: [String: Any] = [
       "token": info?["PHPostHogApiKey"] as? String ?? "",
@@ -194,21 +312,31 @@ struct SupportChatWebView: NSViewRepresentable {
       "appVersion": info?["CFBundleShortVersionString"] as? String ?? "",
       "palette": palette.values,
       "language": Bundle.main.preferredLocalizations.first ?? "en",
+      "flowWaitlist": context.isFlowWaitlist,
+      "email": context.email ?? "",
       "strings": [
         "email": String(localized: "Your email"),
         "emailPlaceholder": String(localized: "so we can reply if you close the app"),
-        "messagePlaceholder": String(
-          localized: "What's going on? Bugs, ideas, confusion — all welcome."),
+        "messagePlaceholder": context.isFlowWaitlist
+          ? String(localized: "Who are you, and how would you use Flow?")
+          : String(localized: "What's going on? Bugs, ideas, confusion — all welcome."),
         "debug": String(localized: "Attach debug logs"),
         "send": String(localized: "Send"),
         "you": String(localized: "You"),
-        "greeting": String(
-          localized:
-            "Hey there! Found a bug, have an idea, or just confused about something? Drop it here and a real person on the Dayflow team will get back to you in this chat."
-        ),
+        "greeting": context.isFlowWaitlist
+          ? String(
+            localized:
+              "You're on the Flow waitlist! Tell us a little about yourself and what you'd like to use Flow for. The more detail you share, the sooner we can review your request and get you off the waitlist. Our team will reply here."
+          )
+          : String(
+            localized:
+              "Hey there! Found a bug, have an idea, or just confused about something? Drop it here and a real person on the Dayflow team will get back to you in this chat."
+          ),
         "emailRequired": String(localized: "Add your email so we can reply."),
         "unavailable": String(localized: "Support is not available right now."),
-        "sent": String(localized: "Sent. Replies show up here and in your inbox."),
+        "sent": context.isFlowWaitlist
+          ? String(localized: "Sent. Our team will reply here.")
+          : String(localized: "Sent. Replies show up here and in your inbox."),
         "sendFailed": String(localized: "Couldn't send. Try again."),
         "rateLimited": String(localized: "Slow down a little — try again in a minute."),
       ],
@@ -228,9 +356,11 @@ struct SupportChatWebView: NSViewRepresentable {
   final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
     var onEvent: (Event) -> Void
     weak var webView: WKWebView?
+    weak var session: SupportChatSession?
     var lastPalette: SupportChatPalette?
 
-    init(onEvent: @escaping (Event) -> Void) {
+    init(session: SupportChatSession, onEvent: @escaping (Event) -> Void) {
+      self.session = session
       self.onEvent = onEvent
     }
 
@@ -253,22 +383,29 @@ struct SupportChatWebView: NSViewRepresentable {
     private func handle(event: String, body: [String: Any]) {
       switch event {
       case "ready":
-        SupportChatSession.shared.didBecomeReady()
+        session?.didBecomeReady()
         onEvent(.ready)
 
       case "unavailable":
-        SupportChatSession.shared.didBecomeUnavailable()
+        session?.didBecomeUnavailable()
         let reason = body["reason"] as? String ?? "unknown"
-        AnalyticsService.shared.capture("support_chat_unavailable", ["reason": reason])
+        AnalyticsService.shared.capture(
+          session?.context.isFlowWaitlist == true
+            ? "flow_waitlist_chat_unavailable" : "support_chat_unavailable",
+          ["reason": reason]
+        )
         onEvent(.unavailable(reason: reason))
 
       case "replies":
-        SupportChatSession.shared.receiveReplies(body)
+        session?.receiveReplies(body)
 
       case "sent":
-        Task { await NotificationService.shared.requestPermission() }
+        if session?.context.isFlowWaitlist != true {
+          Task { await NotificationService.shared.requestPermission() }
+        }
         AnalyticsService.shared.capture(
-          "support_message_sent",
+          session?.context.isFlowWaitlist == true
+            ? "flow_waitlist_message_sent" : "support_message_sent",
           [
             "has_debug_log": body["hasDebugLog"] as? Bool ?? false,
             "new_ticket": body["newTicket"] as? Bool ?? false,
@@ -276,6 +413,7 @@ struct SupportChatWebView: NSViewRepresentable {
         )
 
       case "requestDebugLog":
+        guard session?.context.isFlowWaitlist != true else { return }
         Task.detached(priority: .userInitiated) {
           let snapshot = DebugLogSnapshot.makeCurrent()
           await MainActor.run {
@@ -313,7 +451,7 @@ struct SupportChatWebView: NSViewRepresentable {
 
     nonisolated func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
       Task { @MainActor in
-        SupportChatSession.shared.didBecomeUnavailable()
+        self.session?.didBecomeUnavailable()
       }
     }
 
@@ -356,7 +494,7 @@ struct SupportChatWebView: NSViewRepresentable {
       withError error: Error
     ) {
       Task { @MainActor in
-        SupportChatSession.shared.didBecomeUnavailable()
+        self.session?.didBecomeUnavailable()
         self.onEvent(.unavailable(reason: "load_failed"))
       }
     }
@@ -365,7 +503,7 @@ struct SupportChatWebView: NSViewRepresentable {
       _ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error
     ) {
       Task { @MainActor in
-        SupportChatSession.shared.didBecomeUnavailable()
+        self.session?.didBecomeUnavailable()
         self.onEvent(.unavailable(reason: "load_failed"))
       }
     }
@@ -523,6 +661,14 @@ private enum SupportChatPage {
       };
 
       var strings = config.strings;
+      var isFlowWaitlist = config.flowWaitlist === true;
+      var FLOW_WAITLIST_PREFIX = "[Flow waitlist]\n\n";
+      if (isFlowWaitlist) {
+        document.getElementById("email-row").style.display = "none";
+        document.getElementById("debug-toggle").style.display = "none";
+        el.debug.checked = false;
+        el.debug.disabled = true;
+      }
       document.documentElement.lang = config.language || "en";
       document.querySelector('label[for="email"]').textContent = strings.email;
       el.email.placeholder = strings.emailPlaceholder;
@@ -593,6 +739,9 @@ private enum SupportChatPage {
 
         var isUser = message.author_type === "customer";
         var content = message.content || "";
+        if (isFlowWaitlist && isUser && content.indexOf(FLOW_WAITLIST_PREFIX) === 0) {
+          content = content.slice(FLOW_WAITLIST_PREFIX.length);
+        }
 
         var bubble = document.createElement("div");
         bubble.className = "msg " + (isUser ? "user" : "team");
@@ -633,7 +782,11 @@ private enum SupportChatPage {
       // ---- Email ---------------------------------------------------------------
 
       var EMAIL_KEY = "dayflow.support.email";
-      try { el.email.value = localStorage.getItem(EMAIL_KEY) || ""; } catch (e) {}
+      if (isFlowWaitlist) {
+        el.email.value = config.email || "";
+      } else {
+        try { el.email.value = localStorage.getItem(EMAIL_KEY) || ""; } catch (e) {}
+      }
       el.email.addEventListener("change", function () {
         try { localStorage.setItem(EMAIL_KEY, el.email.value.trim()); } catch (e) {}
       });
@@ -698,7 +851,7 @@ private enum SupportChatPage {
         updateSendEnabled();
         showError("");
 
-        var attachDebug = el.debug.checked;
+        var attachDebug = !isFlowWaitlist && el.debug.checked;
         var traits = { email: email };
 
         var log = attachDebug ? await requestDebugLog() : null;
@@ -706,7 +859,8 @@ private enum SupportChatPage {
 
         var hadTicket = !!posthog.conversations.getCurrentTicketId();
         try {
-          var response = await posthog.conversations.sendMessage(text, traits);
+          var outboundText = isFlowWaitlist && !hadTicket ? FLOW_WAITLIST_PREFIX + text : text;
+          var response = await posthog.conversations.sendMessage(outboundText, traits);
           if (!response) throw new Error(strings.unavailable);
           if (attachDebug) sendDebugLogEvent(log, response);
           el.text.value = "";
