@@ -18,7 +18,6 @@ struct MainView: View {
   @Environment(\.accessibilityReduceMotion) var reduceMotion
   @Environment(\.dayflowTheme) var theme
   @Environment(\.stylePreviewAfter) var stylePreviewAfter
-  @ObservedObject private var authManager = DayflowAuthManager.shared
   @State var selectedIcon: SidebarIcon = .timeline
   @State var selectedDate = timelineDisplayDate(from: Date())
   @State var cachedTimelineWeekRange: TimelineWeekRange = TimelineWeekRange.containing(
@@ -62,6 +61,9 @@ struct MainView: View {
   @State var lastObservedTimelineDay: String = cachedDayStringFormatter.string(
     from: timelineDisplayDate(from: Date()))
   @State var showCategoryEditor = false
+  // Categories the user turned off in the chip row (keys from categoryFilterKey).
+  // Session-only on purpose: their cards are dimmed, not hidden.
+  @State var mutedCategoryKeys: Set<String> = []
   @State var feedbackModalVisible = false
   @State var feedbackMessage: String = ""
   @State var feedbackShareLogs = true
@@ -126,14 +128,6 @@ struct MainView: View {
       .onReceive(NotificationCenter.default.publisher(for: .navigateToFlow)) { _ in
         withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
           selectedIcon = .flow
-        }
-      }
-      .onChange(of: authManager.flowEnabled) {
-        // Signed out (or access revoked) while on the now-hidden Flow tab.
-        if selectedIcon == .flow,
-          !SidebarView.showsFlowTab(flowEnabled: authManager.flowEnabled)
-        {
-          selectedIcon = .timeline
         }
       }
   }
