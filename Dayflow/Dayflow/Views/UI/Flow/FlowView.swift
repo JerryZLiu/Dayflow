@@ -2,8 +2,9 @@
 //  FlowView.swift
 //  Dayflow
 //
-//  Flow tab: hosts the remote Flow web app. Requires being signed in (the web
-//  app talks to the backend with the user's session token) and online.
+//  Flow tab: hosts the remote Flow web app for accounts with Flow access
+//  (the web app talks to the backend with the user's session token). Everyone
+//  else, signed in or not, sees the waitlist.
 //
 
 import SwiftUI
@@ -24,12 +25,11 @@ struct FlowView: View {
 
   var body: some View {
     ZStack {
-      if authManager.user == nil {
-        signedOutView
-      } else {
+      if authManager.flowEnabled {
         webContent
+      } else {
+        FlowWaitlistView()
       }
-      FlowDebugPanel()
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
@@ -61,25 +61,6 @@ struct FlowView: View {
   private var isLoaded: Bool {
     if case .loaded = loadState { return true }
     return false
-  }
-
-  private var signedOutView: some View {
-    VStack(spacing: 16) {
-      Image(systemName: "water.waves")
-        .font(.system(size: 40))
-        .foregroundColor(theme.accent)
-      Text("Sign in to use Flow")
-        .font(.custom("Figtree", size: 20).weight(.semibold))
-        .foregroundColor(theme.textPrimary)
-      Text("Flow sessions sync with your Dayflow account.")
-        .font(.custom("Figtree", size: 14))
-        .foregroundColor(theme.textSecondary)
-      Button("Sign in") {
-        NotificationCenter.default.post(name: .openAccountSettings, object: nil)
-      }
-      .buttonStyle(.borderedProminent)
-      .tint(theme.accent)
-    }
   }
 
   private func errorView(message: String) -> some View {
