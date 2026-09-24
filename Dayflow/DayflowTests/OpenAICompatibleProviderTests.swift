@@ -13,7 +13,9 @@ final class OpenAICompatibleProviderTests: XCTestCase {
   }
 
   func testReasoningOnlySentToOpenRouter() throws {
-    for endpoint in ["https://openrouter.ai/api/v1", "https://example.com/v1"] {
+    for endpoint in [
+      "https://openrouter.ai/api/v1", "https://router.requesty.ai/v1", "https://example.com/v1",
+    ] {
       let provider = OpenAICompatibleProvider(configuration: configuration(endpoint))
       let request = provider.makeRequest(content: [])
       let body = try XCTUnwrap(
