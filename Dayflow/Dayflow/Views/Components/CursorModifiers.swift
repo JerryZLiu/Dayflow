@@ -52,14 +52,18 @@ import SwiftUI
   extension View {
     // Uses native SwiftUI pointer style on macOS 15+.
     // For macOS 14, this is intentionally a no-op.
+    //
+    // `enabled` must not pick between `if`/`else` branches: that makes the
+    // wrapped view's identity depend on it, so every toggle tears down and
+    // rebuilds the whole subtree. When that happens while the pointer is
+    // moving (e.g. the timeline's hour column toggling on card selection),
+    // AppKit's mouseMoved hit-test walks into the half-deleted subtree and
+    // AttributeGraph aborts ("deleting updating attribute"). Passing a nil
+    // style keeps a single stable view.
     @ViewBuilder
     func pointingHandCursor(enabled: Bool = true) -> some View {
-      if enabled {
-        if #available(macOS 15.0, *) {
-          self.pointerStyle(.link)
-        } else {
-          self
-        }
+      if #available(macOS 15.0, *) {
+        self.pointerStyle(enabled ? .link : nil)
       } else {
         self
       }
