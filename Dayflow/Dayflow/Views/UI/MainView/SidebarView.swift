@@ -85,24 +85,10 @@ enum SidebarIcon: CaseIterable {
 struct SidebarView: View {
   @Binding var selectedIcon: SidebarIcon
   @ObservedObject private var badgeManager = NotificationBadgeManager.shared
-  @ObservedObject private var authManager = DayflowAuthManager.shared
-
-  private var visibleIcons: [SidebarIcon] {
-    SidebarIcon.allCases.filter { icon in
-      if icon == .flow { return SidebarView.showsFlowTab(flowEnabled: authManager.flowEnabled) }
-      return true
-    }
-  }
-
-  /// Flow is a whitelisted beta: the signed-in account must be flagged by the
-  /// backend (flow_enabled). Signed out or unflagged → no tab, in all builds.
-  static func showsFlowTab(flowEnabled: Bool) -> Bool {
-    flowEnabled
-  }
 
   var body: some View {
     VStack(alignment: .center, spacing: SidebarMetrics.itemSpacing) {
-      ForEach(visibleIcons, id: \.self) { icon in
+      ForEach(SidebarIcon.allCases, id: \.self) { icon in
         SidebarIconButton(
           icon: icon,
           isSelected: selectedIcon == icon,
