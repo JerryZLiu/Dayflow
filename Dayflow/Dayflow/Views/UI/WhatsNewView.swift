@@ -97,26 +97,24 @@ enum WhatsNewConfiguration {
   private static let seenKey = "lastSeenWhatsNewVersion"
 
   /// Override with the specific release number you want to show.
-  private static let versionOverride: String? = "2.5.1"
+  private static let versionOverride: String? = "2.6.0"
 
   /// Update this content before shipping each release. Return nil to disable the modal entirely.
   static var configuredRelease: ReleaseNote? {
     ReleaseNote(
       version: targetVersion,
-      title: String(localized: "We're publicly launching Dayflow Agents!"),
+      title: String(localized: "Flow is in beta!"),
       highlights: [
         String(
           localized:
-            "If you've enjoyed using Dayflow Agents, please consider leaving a comment, like, or retweet on our launch post. It would mean a lot to us!"
-        )
+            "Meet Flow, our new tool to help you plan your day and stay focused. Interested in trying it? Open Flow in the sidebar and join the waitlist for early access."
+        ),
+        String(
+          localized:
+            "Bring your preferred categories into focus. Click the categories above your timeline to dim the ones you don't need, in both Day and Week views."
+        ),
       ],
-      socialPreview: ReleaseNoteSocialPreview(
-        authorName: "Jerry Liu",
-        authorHandle: "@jerryliu",
-        dateText: String(localized: "Launch post"),
-        body: String(localized: "View our Dayflow Agents launch post on X."),
-        url: "https://x.com/jerryliu/status/2101013202582839671"
-      ),
+      socialPreview: nil,
       previewIntro: nil,
       previewImageNames: [],
       betaSignup: nil,
@@ -791,6 +789,7 @@ struct WhatsNewView: View {
     case .starred:
       githubStarState = .starred
       githubStarOutcome = "already_starred"
+      GitHubStarPromptState.markDone()
     case .notStarred:
       githubStarState = .readyToStar
       githubStarOutcome = "shown_not_clicked"
@@ -820,6 +819,8 @@ struct WhatsNewView: View {
   }
 
   private func captureGitHubStarClick(method: String) {
+    // Any click ends the recurring star reminder.
+    GitHubStarPromptState.markDone()
     AnalyticsService.shared.capture(
       "whats_new_github_star_clicked",
       [
