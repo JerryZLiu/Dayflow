@@ -85,6 +85,9 @@ struct CanvasTimelineDataView: View {
   @State private var loadTask: Task<Void, Never>?
   // Staggered entrance animation state (Emil Kowalski principle: sequential reveal)
   @State private var cardEntranceProgress: [String: Bool] = [:]
+  // Plain reference box: mutating it never invalidates body, so hover
+  // tracking cannot itself trigger a re-render during mouse handling.
+  @State private var cardsHover = CardsHoverTracker()
   @ObservedObject private var pauseManager = PauseManager.shared
   @EnvironmentObject private var categoryStore: CategoryStore
   @EnvironmentObject private var appState: AppState
@@ -394,6 +397,15 @@ struct CanvasTimelineDataView: View {
     // behavior or the weekly-hours-footer overlap logic — those are the
     // paths most likely to have depended on the old clipping.
     .frame(minWidth: 0, maxWidth: .infinity)
+    .onHover { hovering in
+      cardsHover.isHovering = hovering
+      guard !hovering, cardsHover.pendingRefresh else { return }
+      cardsHover.pendingRefresh = false
+      // Leave the mouse event before mutating the card list.
+      DispatchQueue.main.async {
+        loadActivities(animate: false, deferWhileHovering: true)
+      }
+    }
     .background(
       GeometryReader { proxy in
         Color.clear.preference(
@@ -611,7 +623,11 @@ struct CanvasTimelineDataView: View {
     return config
   }
 
-  private func loadActivities(animate: Bool = true) {
+  /// `deferWhileHovering`: background refreshes must not swap the card
+  /// ForEach's items out from under the pointer. AppKit's mouseMoved hit-test
+  /// can land mid-update and abort in AttributeGraph ("deleting updating
+  /// attribute"), so hold the result until the pointer leaves the cards.
+  private func loadActivities(animate: Bool = true, deferWhileHovering: Bool = false) {
     // Cancel any in-flight database read to prevent query pileup
     loadTask?.cancel()
 
@@ -691,6 +707,11 @@ struct CanvasTimelineDataView: View {
       }
 
       await MainActor.run {
+        if deferWhileHovering && self.cardsHover.isHovering {
+          self.cardsHover.pendingRefresh = true
+          return
+        }
+        self.cardsHover.pendingRefresh = false
         if animate {
           // Clear entrance progress for new activities (triggers stagger animation)
           self.cardEntranceProgress = [:]
@@ -780,7 +801,7 @@ struct CanvasTimelineDataView: View {
   private func startRefreshTimer() {
     stopRefreshTimer()
     refreshTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { _ in
-      loadActivities(animate: false)
+      loadActivities(animate: false, deferWhileHovering: true)
     }
   }
 
@@ -919,4 +940,10 @@ extension CanvasTimelineDataView {
     }
   }
   return PreviewWrapper()
+}
+
+// Only touched on the main thread (onHover and MainActor.run in loadActivities).
+private final class CardsHoverTracker {
+  var isHovering = false
+  var pendingRefresh = false
 }

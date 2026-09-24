@@ -130,7 +130,8 @@ extension OllamaProvider {
     }
 
     if let start = response.firstIndex(of: "{"),
-      let end = response.lastIndex(of: "}")
+      let end = response.lastIndex(of: "}"),
+      start <= end
     {
       let substring = response[start...end]
       if let data = substring.data(using: .utf8),
@@ -141,7 +142,8 @@ extension OllamaProvider {
     }
 
     if let start = response.firstIndex(of: "["),
-      let end = response.lastIndex(of: "]")
+      let end = response.lastIndex(of: "]"),
+      start <= end
     {
       let substring = response[start...end]
       if let data = substring.data(using: .utf8),

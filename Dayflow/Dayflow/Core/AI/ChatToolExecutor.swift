@@ -83,7 +83,8 @@ final class ChatToolExecutor {
   static func parseToolCall(from text: String) -> ChatToolRequest? {
     // Look for JSON in the response
     guard let jsonStart = text.firstIndex(of: "{"),
-      let jsonEnd = text.lastIndex(of: "}")
+      let jsonEnd = text.lastIndex(of: "}"),
+      jsonStart <= jsonEnd
     else {
       return nil
     }

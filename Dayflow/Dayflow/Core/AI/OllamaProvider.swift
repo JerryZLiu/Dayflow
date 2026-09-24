@@ -240,8 +240,11 @@ final class OllamaProvider {
       }
 
       // Look for JSON object
+      // A garbled reply can put its last "}" before its first "{"; slicing that
+      // range traps at runtime, so only slice when the bounds are ordered.
       if let startIndex = responseString.firstIndex(of: "{"),
-        let endIndex = responseString.lastIndex(of: "}")
+        let endIndex = responseString.lastIndex(of: "}"),
+        startIndex <= endIndex
       {
         let jsonSubstring = responseString[startIndex...endIndex]
         if let jsonData = jsonSubstring.data(using: .utf8) {
