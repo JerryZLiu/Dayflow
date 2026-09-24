@@ -32,13 +32,15 @@ This document lists manual events, properties, and code locations. All events re
 - onboarding_started
   - file: Views/Onboarding/OnboardingFlow.swift (intro video appear)
 - onboarding_step_completed
-  - props: `step: intro_video|role_selection|download_reason|referral|preferences|llm_selection|llm_setup|categories|category_colors|screen_recording|completion`
+  - props: `step: intro_video|role_selection|referral|llm_selection|llm_setup|screen_recording|personal_goal|completion` (download_reason, preferences, categories and category_colors were removed in onboarding schema v6)
   - file: Views/Onboarding/OnboardingFlow.swift
-- onboarding_download_reason
+- onboarding_download_reason (retired in onboarding schema v6; historical data only)
   - props: `reasons: string[] (automatic_log|proof_of_work|cut_distractions|productive_focused|automated_manual_tracking|open_source_private|other)`, `surface: onboarding_download_reason`, `other_detail?: string`
   - file: Views/Onboarding/OnboardingFlow.swift
 - onboarding_referral
   - props: `source: hacker_news|x|friend|youtube|newsletter_blog|chatgpt_claude_ai|other`, `surface: onboarding_referral`, `detail?: string`
+- onboarding_personal_goal
+  - props: `goal: string` (free text, max 2,000 chars, empty when skipped), `character_count: int`, `skipped: bool`, `surface: onboarding_personal_goal`
   - file: Views/Onboarding/OnboardingFlow.swift
 - llm_provider_selected
   - props: `provider: dayflow|gemini|chat_cli|openai_compatible|ollama`, `provider_id: dayflow|gemini|chatgpt|claude|openai_compatible|local`, `local_engine?: ollama|lmstudio|custom`
@@ -147,6 +149,22 @@ This document lists manual events, properties, and code locations. All events re
 - timeline_copied
   - props: `timeline_mode: day|week`, `timeline_day?: yyyy-MM-dd`, `week_start?: yyyy-MM-dd`, `week_end?: yyyy-MM-dd`, `activity_count: int`
   - file: Views/UI/MainView.swift
+
+## Flow
+- screen_viewed (`screen: flow_waitlist`)
+  - file: Views/UI/Flow/FlowWaitlistView.swift
+- flow_waitlist_joined
+  - props: `outcome: success|failure`, `signed_in: bool`
+  - file: Views/UI/Flow/FlowWaitlistView.swift
+- flow_waitlist_message_sent
+  - props: `has_debug_log: false`, `new_ticket: bool`
+  - file: Views/UI/SupportChatWebView.swift
+- flow_waitlist_chat_unavailable
+  - props: `reason: string`
+  - file: Views/UI/SupportChatWebView.swift
+- flow_access_code_redeemed
+  - props: `outcome: success|failure`
+  - file: Views/UI/Flow/FlowWaitlistView.swift
 
 ## Dashboard Chat
 - chat_question_asked
