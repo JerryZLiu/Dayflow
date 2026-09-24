@@ -40,6 +40,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
   override init() {
     UserDefaultsMigrator.migrateIfNeeded()
+    // Before any window exists, so no SwiftUI text layer predates it.
+    FlippedTextLayerWorkaround.install()
     super.init()
   }
 
