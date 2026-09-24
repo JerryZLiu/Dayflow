@@ -1,8 +1,15 @@
 import SwiftUI
 
+/// Normalizes a category name so chips and timeline cards match regardless of
+/// case or stray whitespace.
+func categoryFilterKey(_ name: String) -> String {
+  name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+}
+
 struct TabFilterBar: View {
   let categories: [TimelineCategory]
   let idleCategory: TimelineCategory?
+  @Binding var mutedCategoryKeys: Set<String>
   let onManageCategories: () -> Void
 
   @Environment(\.dayflowTheme) private var theme
@@ -52,8 +59,20 @@ struct TabFilterBar: View {
 
     let category: TimelineCategory
     let isIdle: Bool
+    let isMuted: Bool
+    let onTap: () -> Void
 
     var body: some View {
+      Button(action: onTap) {
+        chipLabel
+      }
+      .buttonStyle(.plain)
+      .pointingHandCursor()
+      .opacity(isMuted ? 0.4 : 1)
+      .animation(.easeOut(duration: 0.15), value: isMuted)
+    }
+
+    private var chipLabel: some View {
       HStack(spacing: 10) {
         Circle()
           .fill(Color(hex: category.colorHex))
@@ -100,14 +119,32 @@ struct TabFilterBar: View {
   private var chipRowContent: some View {
     HStack(spacing: 5) {
       ForEach(categories) { category in
-        CategoryChip(category: category, isIdle: false)
+        chip(for: category, isIdle: false)
       }
 
       if let idleCategory {
-        CategoryChip(category: idleCategory, isIdle: true)
+        chip(for: idleCategory, isIdle: true)
       }
     }
     .padding(.leading, 2)
+  }
+
+  private func chip(for category: TimelineCategory, isIdle: Bool) -> some View {
+    let key = categoryFilterKey(category.name)
+    return CategoryChip(
+      category: category,
+      isIdle: isIdle,
+      isMuted: mutedCategoryKeys.contains(key),
+      onTap: { toggleMuted(key) }
+    )
+  }
+
+  private func toggleMuted(_ key: String) {
+    if mutedCategoryKeys.contains(key) {
+      mutedCategoryKeys.remove(key)
+    } else {
+      mutedCategoryKeys.insert(key)
+    }
   }
 
   private var editButton: some View {

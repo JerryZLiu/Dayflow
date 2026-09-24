@@ -69,6 +69,8 @@ struct CanvasTimelineDataView: View {
   let cardNormalVerticalPadding: CGFloat
   let cardHoverScale: CGFloat
   let cardPressedScale: CGFloat
+  // Categories turned off in the chip row; their cards render dimmed.
+  var mutedCategoryKeys: Set<String> = []
 
   @Environment(\.dayflowTheme) private var theme
   @State private var selectedCardId: String? = nil
@@ -375,6 +377,8 @@ struct CanvasTimelineDataView: View {
           )
           .frame(width: geo.size.width, height: item.height)
           .position(x: geo.size.width / 2, y: item.yPosition + (item.height / 2))
+          .opacity(mutedCategoryKeys.contains(categoryFilterKey(item.categoryName)) ? 0.25 : 1)
+          .animation(.easeOut(duration: 0.15), value: mutedCategoryKeys)
           // Staggered entrance animation (Emil Kowalski: sequential reveal creates polish)
           .opacity(isVisible ? 1 : 0)
           .offset(x: isVisible ? 0 : 12)
