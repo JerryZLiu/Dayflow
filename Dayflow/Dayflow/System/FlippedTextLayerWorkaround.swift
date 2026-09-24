@@ -60,11 +60,13 @@ enum FlippedTextLayerWorkaround {
 }
 
 extension CALayer {
-  @objc fileprivate func dayflow_didChangeValue(forKey key: String) {
+  // Takes NSString to skip bridging on this hot path; the length check rejects
+  // nearly every key before a full comparison.
+  @objc fileprivate func dayflow_didChangeValue(forKey key: NSString) {
     // Implementations are exchanged, so this calls the original.
     dayflow_didChangeValue(forKey: key)
 
-    guard key == "contentsAreFlipped",
+    guard key.length == 18, key.isEqual(to: "contentsAreFlipped"),
       FlippedTextLayerWorkaround.isSwiftUIDrawingLayer(self)
     else { return }
     setNeedsDisplay()
