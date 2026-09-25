@@ -433,6 +433,25 @@ final class DailyRecapGenerator {
     } catch {
       if error is CancellationError { throw error }
       try Task.checkCancellation()
+      // If the error indicates the model is not supported for this account, do not
+      // fall back to another model - it will likely fail too and waste attempts.
+      // The error message contains "invalid_request_error" for "model not supported" cases.
+      let errorMessage = error.localizedDescription
+      let isModelNotSupported = errorMessage.contains("invalid_request_error")
+        || errorMessage.contains("model is not supported")
+      if isModelNotSupported {
+        AnalyticsService.shared.capture(
+          "llm_model_fallback",
+          [
+            "provider": "chat_cli",
+            "provider_id": LLMProviderID.chatGPT.rawValue,
+            "operation": "daily_recap",
+            "from_model": "gpt-6-astra",
+            "to_model": "gpt-5.6-sol",
+            "reason": "model_not_supported",
+          ])
+        throw error
+      }
       AnalyticsService.shared.capture(
         "llm_model_fallback",
         [
