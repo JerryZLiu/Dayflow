@@ -34,7 +34,7 @@ extension ChatView {
     AnalyticsService.shared.capture(
       "chat_question_asked",
       [
-        "question": messageText,
+        "question_length": messageText.count,
         "conversation_id": conversationId?.uuidString ?? "unknown",
         "is_new_conversation": isNewConversation,
         "message_index": messageIndex,
