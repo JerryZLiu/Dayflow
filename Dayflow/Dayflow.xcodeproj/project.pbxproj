@@ -439,6 +439,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = C4DF00012EFB100000000001 /* Config/Dayflow.xcconfig */;
 			buildSettings = {
+				ARCHS = x86_64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
@@ -475,6 +476,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = C4DF00012EFB100000000001 /* Config/Dayflow.xcconfig */;
 			buildSettings = {
+				ARCHS = x86_64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;

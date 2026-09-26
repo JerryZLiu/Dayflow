@@ -22,6 +22,7 @@ set -euo pipefail
 #   ASC_KEY_ID       - App Store Connect API key ID (optional)
 #   ASC_ISSUER_ID    - App Store Connect Issuer ID (optional)
 #   ASC_P8_PATH      - Path to .p8 private key (optional)
+#   ARCHS            - Architecture to build (default: x86_64 for Intel Macs)
 
 # Load optional per-developer config
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -37,6 +38,7 @@ APP_NAME=${APP_NAME:-Dayflow}
 ENTITLEMENTS=${ENTITLEMENTS:-Dayflow/Dayflow/Dayflow.entitlements}
 VOL_NAME=${VOL_NAME:-$APP_NAME}
 DMG_NAME=${DMG_NAME:-"${APP_NAME}.dmg"}
+ARCHS=${ARCHS:-x86_64}
 
 APP_PATH="${DERIVED_DATA}/Build/Products/${CONFIG}/${APP_NAME}.app"
 # Work in a non-iCloud temporary directory to avoid fileprovider xattrs
@@ -60,6 +62,8 @@ xcodebuild \
   CODE_SIGN_IDENTITY="" \
   CODE_SIGNING_REQUIRED=NO \
   CODE_SIGNING_ALLOWED=NO \
+  ARCHS="${ARCHS}" \
+  ONLY_ACTIVE_ARCH=YES \
   build
 
 if [[ ! -d "${APP_PATH}" ]]; then
@@ -237,13 +241,7 @@ echo "[6/8] Verifying signature…"
 codesign --verify --deep --strict --verbose=2 "${SANITIZED_APP}"
 spctl -a -vvv --type execute "${SANITIZED_APP}" || true
 
-echo "[7/8] Creating DMG with create-dmg…"
-# Require create-dmg for reliable DMG styling
-if ! command -v create-dmg >/dev/null 2>&1; then
-  echo "ERROR: create-dmg is required but not installed." >&2
-  echo "       Install it with: brew install create-dmg" >&2
-  exit 1
-fi
+echo "[7/8] Creating DMG…"
 
 # Default to project's background image
 SCRIPT_PARENT=$(cd "$SCRIPT_DIR/.." && pwd)
@@ -259,16 +257,25 @@ rm -f "${DMG_NAME}"
 
 # Window size and positions tuned for docs/assets/dmg-background.png (1550×960 @2x, displays as 775×480)
 # Dayflow app on left, Applications folder on right (swapped from typical layout)
-create-dmg \
-  --volname "${VOL_NAME}" \
-  --background "${DMG_BG}" \
-  --window-size 775 480 \
-  --icon-size "${DMG_ICON_SIZE:-128}" \
-  --icon "${APP_NAME}.app" 200 270 \
-  --app-drop-link 575 270 \
-  --no-internet-enable \
-  "${DMG_NAME}" \
-  "${SANITIZED_APP}"
+if command -v create-dmg >/dev/null 2>&1; then
+  create-dmg \
+    --volname "${VOL_NAME}" \
+    --background "${DMG_BG}" \
+    --window-size 775 480 \
+    --icon-size "${DMG_ICON_SIZE:-128}" \
+    --icon "${APP_NAME}.app" 200 270 \
+    --app-drop-link 575 270 \
+    --no-internet-enable \
+    "${DMG_NAME}" \
+    "${SANITIZED_APP}"
+else
+  echo "create-dmg not found; using hdiutil fallback (basic installer layout)."
+  STAGING_DIR="${SANITIZED_DIR}/dmg-staging"
+  mkdir -p "${STAGING_DIR}"
+  ditto "${SANITIZED_APP}" "${STAGING_DIR}/${APP_NAME}.app"
+  ln -s /Applications "${STAGING_DIR}/Applications"
+  hdiutil create -volname "${VOL_NAME}" -srcfolder "${STAGING_DIR}" -ov -format UDZO "${DMG_NAME}"
+fi
 
 echo "[8/8] Submitting DMG for notarization…"
 NOTARY_ARGS=("${DMG_NAME}")
