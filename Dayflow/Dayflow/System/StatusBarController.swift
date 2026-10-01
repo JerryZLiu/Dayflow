@@ -12,6 +12,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
   /// What the Flow pill last drew, so the once-a-second tick only re-renders
   /// when the label actually changes.
   private var flowPillLabel: String??
+  private var visibilityCancellable: AnyCancellable?
 
   override init() {
     super.init()
@@ -39,6 +40,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
       .receive(on: RunLoop.main)
       .sink { [weak self] _ in
         self?.flowSessionChanged()
+      }
+
+    visibilityCancellable = UserDefaults.standard.publisher(for: \.showMenuBarIcon)
+      .sink { [weak self] isVisible in
+        self?.statusItem.isVisible = isVisible
       }
   }
 
@@ -231,5 +237,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
   @objc private func quitDayflow() {
     AppDelegate.allowTermination = true
     NSApp.terminate(nil)
+  }
+}
+
+extension UserDefaults {
+  // KVO needs the property name to match the defaults key.
+  @objc dynamic var showMenuBarIcon: Bool {
+    object(forKey: "showMenuBarIcon") as? Bool ?? true
   }
 }

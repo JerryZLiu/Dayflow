@@ -18,6 +18,12 @@ final class OtherSettingsViewModel: ObservableObject {
       NSApp.setActivationPolicy(showDockIcon ? .regular : .accessory)
     }
   }
+  @Published var showMenuBarIcon: Bool {
+    didSet {
+      guard showMenuBarIcon != oldValue else { return }
+      UserDefaults.standard.set(showMenuBarIcon, forKey: "showMenuBarIcon")
+    }
+  }
   @Published var showTimelineAppIcons: Bool {
     didSet {
       guard showTimelineAppIcons != oldValue else { return }
@@ -59,6 +65,7 @@ final class OtherSettingsViewModel: ObservableObject {
   init() {
     analyticsEnabled = AnalyticsService.shared.isOptedIn
     showDockIcon = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
+    showMenuBarIcon = UserDefaults.standard.showMenuBarIcon
     showTimelineAppIcons =
       UserDefaults.standard.object(forKey: "showTimelineAppIcons") as? Bool ?? true
     showDailyGoalPopups = DayGoalPreferences.showDailyGoalPopups
