@@ -5,7 +5,6 @@
 
 import Foundation
 import GRDB
-import Sentry
 
 extension DateFormatter {
   static let yyyyMMdd: DateFormatter = {

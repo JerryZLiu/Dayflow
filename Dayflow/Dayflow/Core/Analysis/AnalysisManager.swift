@@ -9,7 +9,6 @@
 //
 import Foundation
 import GRDB
-import Sentry
 
 protocol AnalysisManaging {
   func startAnalysisJob()

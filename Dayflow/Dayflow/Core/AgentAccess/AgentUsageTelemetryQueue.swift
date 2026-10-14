@@ -83,6 +83,8 @@ enum AgentUsageTelemetryQueue {
   }
 
   static func drain() {
+    discard()
+    return
     guard AnalyticsService.shared.isOptedIn else {
       discard()
       return

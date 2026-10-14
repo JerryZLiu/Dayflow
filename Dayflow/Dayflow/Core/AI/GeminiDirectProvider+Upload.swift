@@ -133,7 +133,7 @@ extension GeminiDirectProvider {
     request.httpBody = data
 
     let requestStart = Date()
-    let (responseData, response) = try await URLSession.shared.data(for: request)
+    let (responseData, response) = try await LocalOnlyNetworking.data(for: request)
     let requestDuration = Date().timeIntervalSince(requestStart)
     let statusCode = (response as? HTTPURLResponse)?.statusCode
     logCallDuration(operation: "upload.simple", duration: requestDuration, status: statusCode)
@@ -175,7 +175,7 @@ extension GeminiDirectProvider {
     request.httpBody = try JSONEncoder().encode(metadata)
 
     let startTime = Date()
-    let (responseData, response) = try await URLSession.shared.data(for: request)
+    let (responseData, response) = try await LocalOnlyNetworking.data(for: request)
     let initDuration = Date().timeIntervalSince(startTime)
 
     guard let httpResponse = response as? HTTPURLResponse else {
@@ -207,7 +207,7 @@ extension GeminiDirectProvider {
     uploadRequest.httpBody = data
 
     let uploadStartTime = Date()
-    let (uploadResponseData, uploadResponse) = try await URLSession.shared.data(for: uploadRequest)
+    let (uploadResponseData, uploadResponse) = try await LocalOnlyNetworking.data(for: uploadRequest)
     let uploadDuration = Date().timeIntervalSince(uploadStartTime)
 
     guard let httpUploadResponse = uploadResponse as? HTTPURLResponse else {
@@ -253,7 +253,7 @@ extension GeminiDirectProvider {
     }
 
     let requestStart = Date()
-    let (data, response) = try await URLSession.shared.data(from: url)
+    let (data, response) = try await LocalOnlyNetworking.data(from: url)
     let requestDuration = Date().timeIntervalSince(requestStart)
     let statusCode = (response as? HTTPURLResponse)?.statusCode
     logCallDuration(operation: "file.status", duration: requestDuration, status: statusCode)

@@ -306,7 +306,7 @@ extension GeminiDirectProvider {
     do {
       request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
-      let (data, response) = try await URLSession.shared.data(for: request)
+      let (data, response) = try await LocalOnlyNetworking.data(for: request)
       let requestDuration = Date().timeIntervalSince(requestStart)
 
       guard let httpResponse = response as? HTTPURLResponse else {

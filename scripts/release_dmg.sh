@@ -67,36 +67,7 @@ if [[ ! -d "${APP_PATH}" ]]; then
   exit 1
 fi
 
-echo "[2/8] Uploading dSYM to Sentry for crash symbolication…"
-if [[ -n "${SENTRY_AUTH_TOKEN:-}" && -n "${SENTRY_ORG:-}" && -n "${SENTRY_PROJECT:-}" ]]; then
-  if ! command -v sentry-cli >/dev/null 2>&1; then
-    echo "WARNING: sentry-cli not found. Install with: brew install getsentry/tools/sentry-cli" >&2
-    echo "         Skipping dSYM upload. Crash reports will not be symbolicated." >&2
-  else
-    # Find the dSYM bundle in DerivedData
-    DSYM_PATH="${DERIVED_DATA}/Build/Products/${CONFIG}/${APP_NAME}.app.dSYM"
-    if [[ -d "${DSYM_PATH}" ]]; then
-      # Get version and build number from Info.plist
-      VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${APP_PATH}/Contents/Info.plist" 2>/dev/null || echo "unknown")
-      BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${APP_PATH}/Contents/Info.plist" 2>/dev/null || echo "unknown")
-      RELEASE="${VERSION}+${BUILD}"
-
-      echo "Uploading dSYM for release ${RELEASE} to ${SENTRY_ORG}/${SENTRY_PROJECT}..."
-      SENTRY_AUTH_TOKEN="${SENTRY_AUTH_TOKEN}" sentry-cli upload-dif \
-        --org "${SENTRY_ORG}" \
-        --project "${SENTRY_PROJECT}" \
-        "${DSYM_PATH}"
-
-      echo "✓ dSYM uploaded successfully"
-    else
-      echo "WARNING: dSYM not found at ${DSYM_PATH}" >&2
-      echo "         Check that DEBUG_INFORMATION_FORMAT is set to 'dwarf-with-dsym' in build settings." >&2
-    fi
-  fi
-else
-  echo "Skipping dSYM upload: SENTRY_AUTH_TOKEN, SENTRY_ORG, or SENTRY_PROJECT not set"
-  echo "Add these to scripts/release.env to enable crash symbolication"
-fi
+echo "[2/8] Skipping crash-report upload. This build does not send dSYMs or telemetry."
 
 echo "[3/8] Determining Developer ID signing identity…"
 SIGN_ID=${SIGN_ID:-}
@@ -152,33 +123,6 @@ if [[ -d "${SPARKLE_DIR}" ]]; then
     "${SPARKLE_DIR}"
 fi
 
-# Re-sign Sentry framework to ensure proper resource sealing
-SENTRY_DIR="${SANITIZED_APP}/Contents/Frameworks/Sentry.framework"
-if [[ -d "${SENTRY_DIR}" ]]; then
-  # Sign the versioned framework (handles both Current symlink and direct path)
-  codesign -vvv --force -o runtime --sign "${SIGN_ID}" \
-    "${SENTRY_DIR}/Versions/Current" 2>/dev/null || \
-  codesign -vvv --force -o runtime --sign "${SIGN_ID}" \
-    "${SENTRY_DIR}"
-fi
-
-# Inject analytics and crash reporting keys (optional) before final app signing
-if [[ -n "${POSTHOG_API_KEY:-}" ]]; then
-  /usr/libexec/PlistBuddy -c "Set :PHPostHogApiKey ${POSTHOG_API_KEY}" "${SANITIZED_APP}/Contents/Info.plist" \
-    >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :PHPostHogApiKey string ${POSTHOG_API_KEY}" "${SANITIZED_APP}/Contents/Info.plist"
-fi
-if [[ -n "${POSTHOG_HOST:-}" ]]; then
-  /usr/libexec/PlistBuddy -c "Set :PHPostHogHost ${POSTHOG_HOST}" "${SANITIZED_APP}/Contents/Info.plist" \
-    >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :PHPostHogHost string ${POSTHOG_HOST}" "${SANITIZED_APP}/Contents/Info.plist"
-fi
-if [[ -n "${SENTRY_DSN:-}" ]]; then
-  /usr/libexec/PlistBuddy -c "Set :SentryDSN ${SENTRY_DSN}" "${SANITIZED_APP}/Contents/Info.plist" \
-    >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :SentryDSN string ${SENTRY_DSN}" "${SANITIZED_APP}/Contents/Info.plist"
-fi
-if [[ -n "${SENTRY_ENV:-}" ]]; then
-  /usr/libexec/PlistBuddy -c "Set :SentryEnvironment ${SENTRY_ENV}" "${SANITIZED_APP}/Contents/Info.plist" \
-    >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :SentryEnvironment string ${SENTRY_ENV}" "${SANITIZED_APP}/Contents/Info.plist"
-fi
 if [[ -z "${DAYFLOW_BACKEND_URL:-}" ]]; then
   echo "ERROR: DAYFLOW_BACKEND_URL must be set before building a release DMG." >&2
   exit 1

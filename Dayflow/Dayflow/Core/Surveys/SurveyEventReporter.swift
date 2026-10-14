@@ -43,6 +43,8 @@ final class SurveyEventReporter {
   }
 
   func record(_ event: SurveyEvent) {
+    _ = event
+    return
     var pending = loadPendingEvents()
     pending.append(event)
     savePendingEvents(Self.trimmed(pending))
@@ -67,6 +69,7 @@ final class SurveyEventReporter {
   }
 
   func flush() async {
+    return
     guard !isFlushing, let url = SurveyBackend.url(path: "/v1/surveys/events") else { return }
     isFlushing = true
     defer { isFlushing = false }
@@ -103,7 +106,7 @@ final class SurveyEventReporter {
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try SurveyBackend.encoder.encode(Body(deviceId: deviceId, events: batch))
 
-    let (_, response) = try await URLSession.shared.data(for: request)
+    let (_, response) = try await LocalOnlyNetworking.data(for: request)
     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
       throw URLError(.badServerResponse)
     }

@@ -1,5 +1,4 @@
 import AppKit
-import Sentry
 import SwiftUI
 
 extension MainView {

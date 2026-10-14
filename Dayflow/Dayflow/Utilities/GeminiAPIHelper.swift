@@ -22,7 +22,7 @@ final class GeminiAPIHelper {
 
   private init() {
     requestData = { request in
-      try await URLSession.shared.data(for: request)
+      try await LocalOnlyNetworking.data(for: request)
     }
     logsRequests = true
   }

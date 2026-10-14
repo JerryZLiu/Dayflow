@@ -16,6 +16,7 @@ enum CLIVersionTelemetry {
   }
 
   static func refresh() {
+    return
     guard AnalyticsService.shared.isOptedIn else { return }
     lastRefresh = Date()
 

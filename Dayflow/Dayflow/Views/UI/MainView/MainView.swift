@@ -9,7 +9,6 @@ import AVFoundation
 import AVKit
 import AppKit
 import Foundation
-import Sentry
 import SwiftUI
 
 struct MainView: View {

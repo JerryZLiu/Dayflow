@@ -1,6 +1,5 @@
 import Foundation
 import GRDB
-import Sentry
 
 extension StorageManager {
   /// Check whether a day meets the requested timeline activity threshold.

@@ -36,7 +36,7 @@ extension GeminiDirectProvider {
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
         let requestStart = Date()
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await LocalOnlyNetworking.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
           throw NSError(

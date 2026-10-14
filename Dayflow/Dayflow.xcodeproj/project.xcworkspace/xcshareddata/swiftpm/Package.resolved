@@ -20,24 +20,6 @@
       }
     },
     {
-      "identity" : "posthog-ios",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/PostHog/posthog-ios.git",
-      "state" : {
-        "revision" : "f381818bc153f63fbe13d6822e65cc7233ba4647",
-        "version" : "3.31.0"
-      }
-    },
-    {
-      "identity" : "sentry-cocoa",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/getsentry/sentry-cocoa.git",
-      "state" : {
-        "revision" : "9e193ac0b71760603aa666bad7e9e303dd7031a8",
-        "version" : "8.56.2"
-      }
-    },
-    {
       "identity" : "sparkle",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sparkle-project/Sparkle",

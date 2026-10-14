@@ -12,7 +12,6 @@ import Combine
 import CoreGraphics
 import Foundation
 @preconcurrency import ScreenCaptureKit
-import Sentry
 
 // MARK: - Configuration
 // Capture interval and resolution live in `ScreenshotConfig` (RecordingPreferences.swift).

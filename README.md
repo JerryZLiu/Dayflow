@@ -67,7 +67,7 @@ Dayflow runs quietly on your Mac and builds a useful record of your day from you
 | Distraction tracking | Dayflow identifies distracting sessions and shows them alongside focused work. | You can catch drift early without manually labeling every break. |
 | Timeline export | Export your timeline as Markdown for any date range. | Useful for status updates, client notes, personal reviews, or saving a searchable record. |
 | Local-first storage | Recordings, timeline data, and the app database stay on your Mac by default. | You stay in control of sensitive screen history and can delete it whenever you want. |
-| AI provider choice | Use local models, Gemini, ChatGPT, or Claude depending on your privacy and quality needs. | You can trade off privacy, cost, speed, and summary quality instead of being locked into one backend. |
+| AI provider choice | Use a local model through Ollama, LM Studio, or another server on this Mac. | Screen images and transcripts are processed locally and are not uploaded. |
 | Automatic cleanup | Configure storage limits and let Dayflow purge old recordings automatically. | You get the value of a work journal without filling your disk forever. |
 
 ## Why People Use It
@@ -86,13 +86,10 @@ Your recordings, timeline, and database live on your Mac at:
 ~/Library/Application Support/Dayflow/
 ```
 
-You choose how AI analysis runs:
+Analysis runs on this Mac. Images, OCR text, transcripts, and traces are not uploaded.
 
-- Local models through Ollama or LM Studio
-- Gemini with your own API key
-- ChatGPT or Claude through their local CLI tools
-
-If you choose a cloud provider, activity data needed for analysis is sent to that provider. If you choose local models, analysis stays on your machine.
+- Local models through Ollama or LM Studio, or another OpenAI-compatible server on localhost
+- Cloud providers, telemetry, crash reporting, and remote support chat are disabled
 
 ## Install
 
@@ -118,7 +115,7 @@ brew install --cask dayflow
 
 - macOS 14+
 - Screen & System Audio Recording permission
-- Optional: Gemini API key, Ollama, LM Studio, Codex CLI, or Claude Code depending on your preferred AI provider
+- Optional: Ollama or LM Studio for local timeline analysis
 
 ## Build From Source
 

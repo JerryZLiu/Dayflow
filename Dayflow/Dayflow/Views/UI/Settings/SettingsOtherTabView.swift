@@ -93,8 +93,14 @@ struct SettingsOtherTabView: View {
           }
         }
 
-        SettingsRow(label: String(localized: "Share crash reports and anonymous usage data")) {
-          SettingsToggle(isOn: $viewModel.analyticsEnabled)
+        SettingsRow(
+          label: String(localized: "Crash reports and usage data"),
+          subtitle: String(
+            localized:
+              "Removed in this build. Dayflow does not send telemetry, recordings, OCR text, or traces off this Mac."
+          )
+        ) {
+          EmptyView()
         }
 
         SettingsRow(

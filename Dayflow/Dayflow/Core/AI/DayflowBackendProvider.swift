@@ -276,7 +276,7 @@ final class DayflowBackendProvider {
       )
 
       let requestByteCount = urlRequest.httpBody?.count ?? 0
-      let (data, response) = try await URLSession.shared.data(for: urlRequest)
+      let (data, response) = try await LocalOnlyNetworking.data(for: urlRequest)
       responseByteCount = data.count
 
       guard let httpResponse = response as? HTTPURLResponse else {
@@ -451,7 +451,7 @@ final class DayflowBackendProvider {
       urlRequest.httpBody = try JSONEncoder().encode(payload)
 
       let requestByteCount = urlRequest.httpBody?.count ?? 0
-      let (data, response) = try await URLSession.shared.data(for: urlRequest)
+      let (data, response) = try await LocalOnlyNetworking.data(for: urlRequest)
       responseByteCount = data.count
 
       guard let httpResponse = response as? HTTPURLResponse else {
@@ -645,7 +645,7 @@ final class DayflowBackendProvider {
       urlRequest.httpBody = try JSONEncoder().encode(payload)
 
       let requestByteCount = urlRequest.httpBody?.count ?? 0
-      let (data, response) = try await URLSession.shared.data(for: urlRequest)
+      let (data, response) = try await LocalOnlyNetworking.data(for: urlRequest)
       responseByteCount = data.count
 
       guard let httpResponse = response as? HTTPURLResponse else {
@@ -809,7 +809,7 @@ final class DayflowBackendProvider {
       urlRequest.httpBody = try JSONEncoder().encode(payload)
 
       let requestByteCount = urlRequest.httpBody?.count ?? 0
-      let (data, response) = try await URLSession.shared.data(for: urlRequest)
+      let (data, response) = try await LocalOnlyNetworking.data(for: urlRequest)
       responseByteCount = data.count
 
       guard let httpResponse = response as? HTTPURLResponse else {

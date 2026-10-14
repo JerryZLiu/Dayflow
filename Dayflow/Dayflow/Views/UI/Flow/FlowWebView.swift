@@ -93,7 +93,11 @@ struct FlowWebView: NSViewRepresentable {
       FlowSessionMirror.shared.pendingStartSession = false
       context.coordinator.sendEvent("sessionControl", payload: ["action": "start"])
     }
-    webView.load(URLRequest(url: url))
+    if LocalOnlyNetworking.allows(url) {
+      webView.load(URLRequest(url: url))
+    } else {
+      webView.loadHTMLString(LocalOnlyNetworking.blockedPageHTML, baseURL: nil)
+    }
     return webView
   }
 

@@ -1,6 +1,5 @@
 import Foundation
 import GRDB
-import Sentry
 
 extension StorageManager {
   func deleteTimelineCards(forDay day: String) -> [String] {

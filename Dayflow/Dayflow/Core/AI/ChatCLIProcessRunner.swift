@@ -543,6 +543,7 @@ struct ChatCLIProcessRunner {
     hasRetriedInvalidTransport: Bool = false,
     hasRetriedExecutableResolution: Bool = false
   ) async throws {
+    try LocalOnlyNetworking.refuseCloudProcessing()
     let toolName = tool.rawValue
     let codexExecutable = try resolvedCodexExecutable(for: tool)
     let executableCommand =
@@ -1314,6 +1315,7 @@ struct ChatCLIProcessRunner {
     hasRetriedExecutableResolution: Bool,
     timeoutSeconds: TimeInterval = Constants.timeoutSeconds
   ) throws -> ChatCLIRunResult {
+    try LocalOnlyNetworking.refuseCloudProcessing()
     let toolName = tool.rawValue
     let effectiveProcessEnvironment = mergedProcessEnvironment(
       tool: tool,

@@ -214,6 +214,15 @@ struct LocalLLMTestView: View {
 
     let startedAt = Date()
 
+    guard LocalOnlyNetworking.allows(request.url) else {
+      let host = request.url?.host ?? "that host"
+      self.resultMessage = LocalOnlyNetworkingError.remoteURLBlocked(host).localizedDescription
+      self.success = false
+      self.isTesting = false
+      self.onTestComplete(false)
+      return
+    }
+
     URLSession.shared.dataTask(with: request) { data, response, error in
       DispatchQueue.main.async {
         let duration = Date().timeIntervalSince(startedAt)

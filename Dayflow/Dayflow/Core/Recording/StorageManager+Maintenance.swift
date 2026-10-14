@@ -1,7 +1,6 @@
 import AppKit
 import Foundation
 import GRDB
-import Sentry
 
 extension StorageManager {
   private static let maxStoredLLMBodyCharacters = 64 * 1024

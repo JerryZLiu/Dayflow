@@ -5,7 +5,6 @@
 
 import Foundation
 import GRDB
-import Sentry
 
 final class StorageManager: StorageManaging, @unchecked Sendable {
   static let shared = StorageManager()

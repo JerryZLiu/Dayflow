@@ -953,7 +953,7 @@ final class DayflowAuthManager: ObservableObject {
   }
 
   private func send<Response: Decodable>(_ request: URLRequest) async throws -> Response {
-    let (data, response) = try await URLSession.shared.data(for: request)
+    let (data, response) = try await LocalOnlyNetworking.data(for: request)
     let path = request.url?.path
     guard let httpResponse = response as? HTTPURLResponse else {
       throw DayflowAuthError.nonHTTP(path: path)

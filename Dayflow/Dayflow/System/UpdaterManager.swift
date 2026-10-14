@@ -40,6 +40,8 @@ final class UpdaterManager: NSObject, ObservableObject {
 
   private override init() {
     super.init()
+    statusText = "Update checks are off. This build does not contact the network."
+    return
 
     // Print what Sparkle thinks the settings are *before* starting:
     print("[Sparkle] bundleId=\(Bundle.main.bundleIdentifier ?? "nil")")
@@ -63,6 +65,11 @@ final class UpdaterManager: NSObject, ObservableObject {
   }
 
   func checkForUpdates(showUI: Bool = false) {
+    _ = showUI
+    isChecking = false
+    updateAvailable = false
+    statusText = "Update checks are off. This build does not contact the network."
+    return
     isChecking = true
     statusText = "Checking…"
     track(
@@ -94,15 +101,6 @@ extension UpdaterManager: SPUUpdaterDelegate {
         "displayValue": AnalyticsService.shared.isOptedIn ? "Enabled" : "Disabled",
       ]
     ]
-
-    if let postHogId = AnalyticsService.shared.postHogDistinctIdForAppcast() {
-      parameters.append([
-        "key": "phid",
-        "value": postHogId,
-        "displayKey": "Anonymous analytics ID",
-        "displayValue": "Present",
-      ])
-    }
 
     let info = Bundle.main.infoDictionary
     if let version = info?["CFBundleShortVersionString"] as? String, !version.isEmpty {

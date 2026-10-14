@@ -1,6 +1,5 @@
 import Foundation
 import GRDB
-import Sentry
 
 extension StorageManager {
   func saveObservations(batchId: Int64, observations: [Observation]) {

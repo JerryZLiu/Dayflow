@@ -420,8 +420,7 @@ struct SupportChatWebView: NSViewRepresentable {
 
     coordinator.webView = webView
     coordinator.lastPalette = .light
-    // A real https origin so posthog-js gets working localStorage for ticket persistence.
-    webView.loadHTMLString(SupportChatPage.html, baseURL: session.pageURL)
+    webView.loadHTMLString(LocalOnlyNetworking.blockedPageHTML, baseURL: nil)
     return webView
   }
 

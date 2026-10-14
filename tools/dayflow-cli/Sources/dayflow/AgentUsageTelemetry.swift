@@ -162,11 +162,7 @@ enum AgentUsageTelemetry {
     append(data)
   }
 
-  private static var analyticsEnabled: Bool {
-    let defaults = UserDefaults(suiteName: "teleportlabs.com.Dayflow")
-    guard defaults?.object(forKey: "analyticsOptIn") != nil else { return true }
-    return defaults?.bool(forKey: "analyticsOptIn") == true
-  }
+  private static var analyticsEnabled: Bool { false }
 
   private static func sanitizedFailureCategory(_ value: String?) -> String? {
     let allowed: Set<String> = [

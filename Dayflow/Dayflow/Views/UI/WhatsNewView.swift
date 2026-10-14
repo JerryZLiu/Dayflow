@@ -1234,7 +1234,7 @@ private enum ReleaseSurveyClient {
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try JSONEncoder().encode(payload)
 
-    let (_, response) = try await URLSession.shared.data(for: request)
+    let (_, response) = try await LocalOnlyNetworking.data(for: request)
     guard let httpResponse = response as? HTTPURLResponse,
       (200..<300).contains(httpResponse.statusCode)
     else {

@@ -290,7 +290,7 @@ final class AgentPlaybackHost: NSObject, ObservableObject, WKNavigationDelegate,
       "-l", "-i", "-c",
       """
       command -v node >/dev/null && command -v npx >/dev/null || { echo 'Node.js and npm were not found. Install Node.js, then try again.'; exit 127; }
-      exec npx --yes \(offline ? "--offline" : "--prefer-online") --package=\(package) -c \(LoginShellRunner.shellEscape(command))
+      exec npx --yes --offline --package=\(package) -c \(LoginShellRunner.shellEscape(command))
       """,
     ]
     var environment = ProcessInfo.processInfo.environment

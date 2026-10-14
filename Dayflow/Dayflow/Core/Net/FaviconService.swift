@@ -296,7 +296,7 @@ final class FaviconService {
   }
 
   private func requestURL(_ url: URL?) async -> NSImage? {
-    guard let url = url else { return nil }
+    guard let url, LocalOnlyNetworking.allows(url) else { return nil }
     var req = URLRequest(url: url)
     req.timeoutInterval = 4
     req.setValue("image/*", forHTTPHeaderField: "Accept")

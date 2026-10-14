@@ -20,7 +20,7 @@ extension GeminiDirectProvider {
     request.timeoutInterval = 180
     request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
-    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+    let (bytes, response) = try await LocalOnlyNetworking.bytes(for: request)
     guard let httpResponse = response as? HTTPURLResponse else {
       throw NSError(
         domain: "GeminiDashboardChat",
@@ -111,7 +111,7 @@ extension GeminiDirectProvider {
     request.timeoutInterval = 180
     request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
-    let (data, response) = try await URLSession.shared.data(for: request)
+    let (data, response) = try await LocalOnlyNetworking.data(for: request)
     guard let httpResponse = response as? HTTPURLResponse else {
       throw NSError(
         domain: "GeminiDashboardChat",

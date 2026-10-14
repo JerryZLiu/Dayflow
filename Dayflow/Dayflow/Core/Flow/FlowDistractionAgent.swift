@@ -1156,7 +1156,7 @@ final class FlowDistractionAgent: ObservableObject {
     request.setValue("Bearer \(credentials.token)", forHTTPHeaderField: "Authorization")
     request.httpBody = try JSONEncoder().encode(payload)
 
-    let (data, response) = try await URLSession.shared.data(for: request)
+    let (data, response) = try await LocalOnlyNetworking.data(for: request)
     let status = (response as? HTTPURLResponse)?.statusCode ?? 0
     guard (200...299).contains(status) else {
       let body = String(data: data, encoding: .utf8) ?? ""
