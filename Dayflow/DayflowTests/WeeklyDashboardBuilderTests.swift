@@ -68,17 +68,57 @@ final class WeeklyDashboardBuilderTests: XCTestCase {
     XCTAssertEqual(Set(snapshot.sankey.apps.map(\.id)).count, snapshot.sankey.apps.count)
   }
 
+  func testWorkflowAndHeatmapPutAfterMidnightWorkOnTheNextCalendarDay() {
+    let weekRange = WeeklyDateRange.containing(Date(timeIntervalSince1970: 1_770_000_000))
+    func day(_ offset: Int) -> String {
+      DateFormatter.yyyyMMdd.string(
+        from: Calendar.current.date(byAdding: .day, value: offset, to: weekRange.weekStart)!)
+    }
+    // Last week's Sunday night after midnight is this week's Monday. The range fetches
+    // overlap, so a card near the boundary can come back in both lists.
+    let sundayNight = card(day: day(-1), appName: "Xcode", start: "1:00 AM", end: "2:00 AM")
+    let cards = [
+      sundayNight,
+      // Friday 11:30 PM - Saturday 1 AM, recorded under Friday's 4 AM logical day.
+      card(day: day(4), appName: "Xcode", start: "11:30 PM", end: "1:00 AM"),
+      // Sunday night after midnight is next week's Monday.
+      card(day: day(6), appName: "Xcode", start: "2:00 AM", end: "3:00 AM"),
+    ]
+    let previousWeekCards = [sundayNight]
+
+    let snapshot = WeeklyDashboardBuilder.build(
+      cards: cards,
+      previousWeekCards: previousWeekCards,
+      categories: [TimelineCategory(name: "Focus", colorHex: "4F8EF7", order: 0)],
+      weekRange: weekRange
+    )
+
+    let minutesByDay = Dictionary(
+      uniqueKeysWithValues: snapshot.workflow.rows.map {
+        ($0.id, $0.cells.reduce(0) { $0 + $1.minutes })
+      })
+    XCTAssertEqual(
+      minutesByDay, ["mon": 60, "tue": 0, "wed": 0, "thu": 0, "fri": 30, "sat": 60, "sun": 0])
+    XCTAssertEqual(snapshot.workflow.startMinute, 0)
+    XCTAssertEqual(snapshot.workflow.endMinute, 24 * 60)
+    XCTAssertEqual(snapshot.workflow.totals.map(\.minutes), [150])
+    let activeHeatmapDays = snapshot.heatmap.rows.filter { $0.values.contains { $0 != 0 } }.map(\.id)
+    XCTAssertEqual(Set(activeHeatmapDays), ["mon", "fri", "sat"])
+  }
+
   private func card(
     day: String,
     category: String = "Focus",
     appName: String,
-    minutes: Int
+    minutes: Int = 0,
+    start: String = "09:00 AM",
+    end: String? = nil
   ) -> TimelineCard {
     TimelineCard(
       recordId: nil,
       batchId: nil,
-      startTimestamp: "09:00 AM",
-      endTimestamp: endTime(minutesAfterNine: minutes),
+      startTimestamp: start,
+      endTimestamp: end ?? endTime(minutesAfterNine: minutes),
       category: category,
       subcategory: "Work",
       title: "\(appName) work",
