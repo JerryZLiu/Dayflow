@@ -33,6 +33,10 @@ final class FrameStore: @unchecked Sendable {
   private var readers: [String: SegmentReader] = [:]
   private var readerOrder: [String] = []
   private let readerCacheLimit = 4
+  /// Each open reader holds ~100 MB of decoded frames in VTDecoderXPCService. Reads come in
+  /// bursts (thumbnails, one analysis batch), so close every reader once they stop.
+  private let readerIdleTimeout: TimeInterval = 30
+  private var idleClose: DispatchWorkItem?
 
   private init() {}
 
@@ -145,6 +149,7 @@ final class FrameStore: @unchecked Sendable {
 
     readLock.lock()
     defer { readLock.unlock() }
+    scheduleIdleCloseLocked()
 
     guard let reader = reader(forPath: screenshot.filePath),
       let pixelBuffer = reader.frame(at: frameIndex)
@@ -154,6 +159,20 @@ final class FrameStore: @unchecked Sendable {
     VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &decoded)
     guard let image = decoded else { return nil }
     return Self.downscaled(image, maxPixelSize: maxPixelSize)
+  }
+
+  /// Must be called with `readLock` held.
+  private func scheduleIdleCloseLocked() {
+    idleClose?.cancel()
+    let work = DispatchWorkItem {
+      self.readLock.lock()
+      defer { self.readLock.unlock() }
+      self.readers.removeAll()
+      self.readerOrder.removeAll()
+    }
+    idleClose = work
+    DispatchQueue.global(qos: .utility).asyncAfter(
+      deadline: .now() + readerIdleTimeout, execute: work)
   }
 
   /// Must be called with `readLock` held.
@@ -365,6 +384,9 @@ private final class SegmentReader {
     self.asset = asset
     self.track = track
   }
+
+  // Free the decoder's frame pool now, even if an autorelease pool still holds the reader.
+  deinit { reader?.cancelReading() }
 
   func frame(at index: Int) -> CVPixelBuffer? {
     let canContinue =
