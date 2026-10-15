@@ -222,6 +222,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     return .terminateCancel
   }
 
+  // Spotlight/Raycast/Dock launch of the running app: undo soft-quit so the app
+  // is reachable without the menu bar icon.
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool
+  {
+    applySavedDockIconPreference()
+    MainWindowController.shared.showMainWindow()
+    NSApp.activate(ignoringOtherApps: true)
+    return false
+  }
+
   // MARK: - Foreground Tracking
 
   private func setupForegroundTracking() {

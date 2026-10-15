@@ -105,6 +105,13 @@ struct SettingsOtherTabView: View {
         }
 
         SettingsRow(
+          label: String(localized: "Show menu bar icon"),
+          subtitle: String(localized: "When off, open Dayflow from Spotlight or Raycast.")
+        ) {
+          SettingsToggle(isOn: $viewModel.showMenuBarIcon)
+        }
+
+        SettingsRow(
           label: String(localized: "Show app/website icons in timeline"),
           subtitle: String(localized: "When off, timeline cards won't show app or website icons.")
         ) {
