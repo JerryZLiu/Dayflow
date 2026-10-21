@@ -90,6 +90,111 @@ final class ClaudeActivityCardBoundaryTests: XCTestCase {
     )
   }
 
+  func testFreshCodexSegmentPreservesDisconnectedHistory() {
+    let batchStart = Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 16, minute: 26)))
+    let batchEnd = Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 16, minute: 41)))
+      .addingTimeInterval(38)
+    let windowStart = batchEnd.addingTimeInterval(-BatchingConfig.standard.cardLookbackDuration)
+    let replacementStart = LLMService.cardReplacementStartTime(
+      activeProviderID: .chatGPT,
+      generatedCards: [card(start: "4:26 PM", end: "4:42 PM", title: "Fresh Codex card")],
+      batchStartTime: batchStart,
+      windowStartTime: windowStart
+    )
+
+    XCTAssertEqual(replacementStart, batchStart)
+    // The previous segment ends at 16:19 and must not match the deletion range.
+    XCTAssertGreaterThan(
+      replacementStart,
+      Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 16, minute: 19)))
+    )
+  }
+
+  func testConnectedCodexSegmentReplacesFullGeneratedRange() {
+    let batchStart = Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 16, minute: 26)))
+    let batchEnd = Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 16, minute: 41)))
+      .addingTimeInterval(38)
+    let cards = [card(start: "4:05 PM", end: "4:42 PM", title: "Connected Codex rewrite")]
+
+    XCTAssertEqual(
+      LLMService.cardReplacementStartTime(
+        activeProviderID: .chatGPT,
+        generatedCards: cards,
+        batchStartTime: batchStart,
+        windowStartTime: batchStart.addingTimeInterval(-45 * 60)
+      ),
+      Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 16, minute: 5)))
+    )
+    XCTAssertEqual(
+      LLMService.cardReplacementEndTime(
+        activeProviderID: .chatGPT,
+        generatedCards: cards,
+        batchEndTime: batchEnd
+      ),
+      Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 16, minute: 42)))
+    )
+  }
+
+  func testCodexReplacementUsesFullRangeWhenCardsAreNotChronological() {
+    let batchStart = Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 16, minute: 26)))
+    let batchEnd = Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 16, minute: 41)))
+      .addingTimeInterval(38)
+    // The two-step Codex fallback accepts cards independently of their output order.
+    let cards = [
+      card(start: "4:26 PM", end: "4:42 PM", title: "Current card"),
+      card(start: "4:05 PM", end: "4:26 PM", title: "Earlier rewritten card"),
+    ]
+
+    XCTAssertEqual(
+      LLMService.cardReplacementStartTime(
+        activeProviderID: .chatGPT,
+        generatedCards: cards,
+        batchStartTime: batchStart,
+        windowStartTime: batchEnd.addingTimeInterval(-45 * 60)
+      ),
+      Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 16, minute: 5)))
+    )
+    XCTAssertEqual(
+      LLMService.cardReplacementEndTime(
+        activeProviderID: .chatGPT,
+        generatedCards: cards,
+        batchEndTime: batchEnd
+      ),
+      Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 16, minute: 42)))
+    )
+  }
+
+  func testCodexReplacementKeepsOriginalWindowIfAnyClockCannotResolve() {
+    let batchStart = Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 16, minute: 26)))
+    let batchEnd = Date(timeIntervalSince1970: TimeInterval(localTimestamp(hour: 16, minute: 41)))
+      .addingTimeInterval(38)
+    let windowStart = batchEnd.addingTimeInterval(-BatchingConfig.standard.cardLookbackDuration)
+    // The fallback/storage DateFormatter accepts a one-digit minute, whereas the
+    // strict resolver rejects it. Do not compute bounds from only the valid card.
+    let cards = [
+      card(start: "4:26 PM", end: "4:42 PM", title: "Current card"),
+      card(start: "4:5 PM", end: "4:26 PM", title: "Earlier rewritten card"),
+    ]
+
+    XCTAssertEqual(
+      LLMService.cardReplacementStartTime(
+        activeProviderID: .chatGPT,
+        generatedCards: cards,
+        batchStartTime: batchStart,
+        windowStartTime: windowStart
+      ),
+      windowStart
+    )
+    XCTAssertEqual(
+      LLMService.cardReplacementEndTime(
+        activeProviderID: .chatGPT,
+        generatedCards: cards,
+        batchEndTime: batchEnd
+      ),
+      batchEnd
+    )
+  }
+
   func testOngoingSegmentUsesOnlyHistoryConnectedToCurrentBatch() {
     let disconnectedObservation = observation(
       batchId: 1,

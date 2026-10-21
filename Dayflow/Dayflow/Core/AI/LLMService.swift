@@ -612,7 +612,21 @@ final class LLMService: LLMServicing {
     batchStartTime: Date,
     windowStartTime: Date
   ) -> Date {
-    guard activeProviderID == .claude else { return windowStartTime }
+    // Codex can also return only a fresh segment after a capture gap. Its lookback
+    // context is not a deletion range: preserve history outside the generated cards.
+    guard activeProviderID == .claude
+      || (activeProviderID == .chatGPT && !generatedCards.isEmpty)
+    else { return windowStartTime }
+    if activeProviderID == .chatGPT {
+      // The two-step fallback does not require chronological output. Resolve every
+      // card before narrowing the range; retain the old window if any clock fails.
+      guard let intervals = try? generatedCards.map({
+        try ClaudeOutputValidator.resolveActivityCardInterval(
+          $0, nearest: Int(batchStartTime.timeIntervalSince1970))
+      }), let earliest = intervals.map(\.lowerBound).min()
+      else { return windowStartTime }
+      return Date(timeIntervalSince1970: TimeInterval(earliest))
+    }
     guard let firstCard = generatedCards.first,
       let interval = try? ClaudeOutputValidator.resolveActivityCardInterval(
         firstCard,
@@ -629,7 +643,15 @@ final class LLMService: LLMServicing {
     generatedCards: [ActivityCardData],
     batchEndTime: Date
   ) -> Date {
-    guard activeProviderID == .claude else { return batchEndTime }
+    guard activeProviderID == .claude || activeProviderID == .chatGPT else { return batchEndTime }
+    if activeProviderID == .chatGPT {
+      guard let intervals = try? generatedCards.map({
+        try ClaudeOutputValidator.resolveActivityCardInterval(
+          $0, nearest: Int(batchEndTime.timeIntervalSince1970))
+      }), let latest = intervals.map(\.upperBound).max()
+      else { return batchEndTime }
+      return max(batchEndTime, Date(timeIntervalSince1970: TimeInterval(latest)))
+    }
     guard let lastCard = generatedCards.last,
       let interval = try? ClaudeOutputValidator.resolveActivityCardInterval(
         lastCard,
