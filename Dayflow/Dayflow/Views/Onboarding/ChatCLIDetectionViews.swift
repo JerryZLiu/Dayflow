@@ -13,6 +13,15 @@ struct CLIDetector {
   /// Detect if a CLI tool is installed by running `tool --version` via login shell.
   /// This replicates exactly what happens when user types in Terminal.app.
   static func detect(tool: CLITool) async -> CLIDetectionReport {
+    // Pick up a CLI installed, or a shell file edited, since the environment was last read.
+    // Both tools are checked back to back, so one read covers them.
+    let previousRead = ShellEnvironment.shared.current().readAt
+    if ShellEnvironment.shared.refreshIfOlder(than: 30, trigger: "cli_check").readAt
+      != previousRead
+    {
+      CodexExecutableResolver.shared.invalidate()
+    }
+
     if tool == .codex, let resolution = CodexExecutableResolver.shared.resolve() {
       return CLIDetectionReport(
         state: .installed(version: resolution.versionSummary),
@@ -235,7 +244,7 @@ struct ChatCLIToolStatusRow: View {
           .fontWeight(.semibold)
           .foregroundColor(.black)
 
-        Spacer(minLength: 53)
+        Spacer(minLength: 12)
 
         statusView
       }
@@ -263,6 +272,7 @@ struct ChatCLIToolStatusRow: View {
       }
     }
     .padding(14)
+    .frame(maxWidth: .infinity, alignment: .leading)
     .background(Color.white.opacity(0.9))
     .cornerRadius(12)
     .overlay(
