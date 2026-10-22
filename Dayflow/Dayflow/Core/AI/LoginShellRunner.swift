@@ -55,7 +55,8 @@ struct LoginShellRunner {
     return servers.filter { $0.enabled ?? true }.map { $0.name }
   }
 
-  /// Run a command via login shell and wait for completion.
+  /// Run a command with the user's shell environment and wait for completion.
+  /// See `ShellEnvironment` for how that environment is read and when the login shell is used.
   static func run(
     _ command: String,
     environment: [String: String] = [:],
@@ -67,9 +68,7 @@ struct LoginShellRunner {
 
     let fullCommand = envExports.isEmpty ? command : "\(envExports) \(command)"
 
-    let process = Process()
-    process.executableURL = userLoginShell
-    process.arguments = ["-l", "-i", "-c", fullCommand]
+    let process = ShellEnvironment.shared.makeProcess(command: fullCommand)
 
     let stdoutPipe = Pipe()
     let stderrPipe = Pipe()

@@ -337,17 +337,7 @@ struct ChatCLIProcessRunner {
   func makeShellProcess(shellCommand: String, environment: [String: String] = [:])
     -> Process
   {
-    let process = Process()
-    process.executableURL = LoginShellRunner.userLoginShell
-    process.arguments = ["-l", "-i", "-c", shellCommand]
-    if !environment.isEmpty {
-      var mergedEnvironment = ProcessInfo.processInfo.environment
-      for (key, value) in environment {
-        mergedEnvironment[key] = value
-      }
-      process.environment = mergedEnvironment
-    }
-    return process
+    ShellEnvironment.shared.makeProcess(command: shellCommand, environment: environment)
   }
 
   func shouldDisableConfiguredCodexMCPServers(processEnvironment: [String: String]) -> Bool {
