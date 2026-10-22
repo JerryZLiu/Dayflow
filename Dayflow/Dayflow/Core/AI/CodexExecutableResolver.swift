@@ -178,15 +178,8 @@ final class CodexExecutableResolver: @unchecked Sendable {
   private static func defaultCandidates() -> [Candidate] {
     var candidates: [Candidate] = []
 
-    let marker = "__DAYFLOW_CODEX_PATH__="
-    let shellPathResult = LoginShellRunner.run(
-      "printf '__DAYFLOW_CODEX_PATH__=%s\\n' \"$PATH\"",
-      timeout: 5
-    )
-    let shellPath = shellPathResult.stdout
-      .components(separatedBy: .newlines)
-      .last(where: { $0.hasPrefix(marker) })
-      .map { String($0.dropFirst(marker.count)) }
+    // The launch PATH already puts the shell's PATH first and the app's own after it.
+    let shellPath = ShellEnvironment.shared.current().launchEnvironment["PATH"]
 
     for path in [shellPath, ProcessInfo.processInfo.environment["PATH"]].compactMap({ $0 }) {
       appendPathCandidates(from: path, to: &candidates)
