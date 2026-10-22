@@ -247,6 +247,8 @@ struct ChatCLIProcessRunner {
     static let readChunkSize = 64 * 1024
     static let timeoutSeconds: TimeInterval = 300
     static let codexFallbackDirectoryPrefix = "Dayflow-codex-home-"
+    /// How often a "CLI not found" failure may trigger a fresh read of the shell environment.
+    static let notFoundRefreshInterval: TimeInterval = 10 * 60
   }
 
   let codexExecutableResolver: CodexExecutableResolver
@@ -370,16 +372,42 @@ struct ChatCLIProcessRunner {
     -> CodexExecutableResolver.Resolution?
   {
     guard tool == .codex else { return nil }
-    guard let resolution = codexExecutableResolver.resolve() else {
-      throw NSError(
-        domain: "ChatCLI", code: -2,
-        userInfo: [
-          NSLocalizedDescriptionKey:
-            "Codex CLI not found. Please install it and run 'codex auth' in Terminal."
-        ]
-      )
+    if let resolution = codexExecutableResolver.resolve() {
+      return resolution
     }
-    return resolution
+
+    // Codex may have been installed, or the shell file edited, after the environment was read.
+    // This path can repeat on every batch, so read the shell again at most once per interval.
+    let previousRead = ShellEnvironment.shared.current().readAt
+    let snapshot = ShellEnvironment.shared.refreshIfOlder(
+      than: Constants.notFoundRefreshInterval, trigger: "codex_not_found")
+    if snapshot.readAt != previousRead {
+      if let resolution = codexExecutableResolver.resolve() {
+        return resolution
+      }
+      ShellEnvironment.shared.reportCLINotFound("codex")
+    }
+
+    throw NSError(
+      domain: "ChatCLI", code: -2,
+      userInfo: [
+        NSLocalizedDescriptionKey:
+          "Codex CLI not found. Please install it and run 'codex login' in Terminal."
+      ]
+    )
+  }
+
+  /// The shell found no CLI to run. Report it and read the shell again (at most once per
+  /// interval), so a CLI installed after Dayflow started works on the next run.
+  func reportNotFoundAndRefreshShellEnvironment(tool: ChatCLITool) {
+    let previousRead = ShellEnvironment.shared.current().readAt
+    let snapshot = ShellEnvironment.shared.refreshIfOlder(
+      than: Constants.notFoundRefreshInterval, trigger: "\(tool.rawValue)_not_found")
+    if snapshot.readAt != previousRead,
+      ShellEnvironment.shared.executablePath(named: tool.rawValue) == nil
+    {
+      ShellEnvironment.shared.reportCLINotFound(tool.rawValue)
+    }
   }
 
   func shouldRetryCodexExecutableResolution(
@@ -906,9 +934,10 @@ struct ChatCLIProcessRunner {
     if process.terminationStatus != 0, !finalState.3 {
       let stderr = finalState.2
       if stderr.contains("command not found") {
+        reportNotFoundAndRefreshShellEnvironment(tool: tool)
         continuation.yield(
           .error(
-            "\(toolName) CLI not found. Please install it and run '\(tool == .codex ? "codex auth" : "claude login")' in Terminal."
+            "\(toolName) CLI not found. Please install it and run '\(tool == .codex ? "codex login" : "claude login")' in Terminal."
           ))
       } else if !stderr.isEmpty {
         continuation.yield(.error(stderr))
@@ -1641,15 +1670,18 @@ struct ChatCLIProcessRunner {
     if process.terminationStatus == 127
       || (process.terminationStatus != 0 && stderr.contains("command not found"))
     {
+      reportNotFoundAndRefreshShellEnvironment(tool: tool)
       throw NSError(
         domain: "ChatCLI", code: -2,
         userInfo: [
           NSLocalizedDescriptionKey:
-            "\(toolName) CLI not found. Please install it and run '\(tool == .codex ? "codex auth" : "claude login")' in Terminal."
+            "\(toolName) CLI not found. Please install it and run '\(tool == .codex ? "codex login" : "claude login")' in Terminal."
         ])
     }
 
-    let parsed = parseAssistant(tool: tool, raw: rawOut)
+    let parsed =
+      codexOutput.map { (text: $0.text, usage: $0.usage) }
+      ?? parseAssistant(tool: tool, raw: rawOut)
     let duration = finished.timeIntervalSince(started)
     let modelLabel = model ?? "default"
     print("⏱️ [ChatCLI] \(tool.rawValue) \(modelLabel) \(String(format: "%.2f", duration))s")
