@@ -1177,6 +1177,52 @@ struct ChatCLIProcessRunner {
     return (trimmed, nil)
   }
 
+  /// Reads `codex exec --json` output: the last agent message is the answer, `turn.completed`
+  /// carries token usage, and `error` / `turn.failed` carry fatal errors. Returns nil when the
+  /// output has no Codex events, so plain-text output still goes through `parseAssistant`.
+  func parseCodexJSONOutput(_ raw: String) -> (
+    text: String, usage: TokenUsage?, errors: [String]
+  )? {
+    let decoder = JSONDecoder()
+    var sawEvent = false
+    var text = ""
+    var usage: TokenUsage?
+    var errors: [String] = []
+
+    for line in raw.split(whereSeparator: \.isNewline) {
+      guard let event = try? decoder.decode(CodexJSONLEvent.self, from: Data(line.utf8)) else {
+        continue
+      }
+      sawEvent = true
+
+      if event.type == "item.completed", event.item?.type == "agent_message",
+        let message = event.item?.text
+      {
+        text = message
+      }
+
+      if event.type == "turn.completed", let turnUsage = event.usage {
+        let input = turnUsage.input_tokens ?? 0
+        let cached = turnUsage.cached_input_tokens ?? 0
+        // Stored the way Claude reports it: input without the cached part, cached separately.
+        let turn = TokenUsage(
+          input: max(0, input - cached), cachedInput: cached,
+          output: turnUsage.output_tokens ?? 0)
+        usage = turn.adding(usage)
+      }
+
+      if event.type == "error" || event.type == "turn.failed",
+        let message = event.error?.message ?? event.message,
+        !errors.contains(message)
+      {
+        errors.append(message)
+      }
+    }
+
+    guard sawEvent else { return nil }
+    return (text.trimmingCharacters(in: .whitespacesAndNewlines), usage, errors)
+  }
+
   func parseClaudeJSONEnvelope(_ raw: String) -> (
     text: String, usage: TokenUsage?, sessionId: String?
   )? {
@@ -1384,10 +1430,11 @@ struct ChatCLIProcessRunner {
       if let codexResumeSessionId {
         cmdParts.append(contentsOf: [
           "exec", "resume", LoginShellRunner.shellEscape(codexResumeSessionId),
-          "--skip-git-repo-check",
+          "--skip-git-repo-check", "--json",
         ])
       } else {
-        cmdParts.append(contentsOf: ["exec", "--skip-git-repo-check"])
+        // JSON events are the only place Codex reports input and output tokens separately.
+        cmdParts.append(contentsOf: ["exec", "--skip-git-repo-check", "--json"])
       }
       if let model = model { cmdParts.append(contentsOf: ["-m", model]) }
       if let effort = reasoningEffort {
@@ -1519,7 +1566,15 @@ struct ChatCLIProcessRunner {
       // Plain pipes are sufficient for Claude non-streaming mode and avoid PTY escape noise.
       rawOut = stripANSIEscapes(rawOut)
     }
-    let stderr = String(data: stderrBuffer, encoding: .utf8) ?? ""
+    var stderr = String(data: stderrBuffer, encoding: .utf8) ?? ""
+    let codexOutput = tool == .codex ? parseCodexJSONOutput(rawOut) : nil
+    if let codexOutput {
+      // In JSON mode Codex reports errors on stdout. Plain mode printed them to stderr as
+      // "ERROR: ...", and failure messages and the model fallback still look for them there.
+      for message in codexOutput.errors {
+        stderr += "\nERROR: " + message
+      }
+    }
 
     if let codexExecutable,
       shouldRetryCodexExecutableResolution(

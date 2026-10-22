@@ -37,6 +37,7 @@ enum LLMLogger {
     let record = makeRecord(
       ctx: ctx, http: http, status: .success, latencyMs: latencyMs, error: nil)
     StorageManager.shared.insertLLMCall(record)
+    let usage = usageProperties(http)
     Task { @MainActor in
       var props: [String: Any] = [
         "provider": ctx.provider,
@@ -50,18 +51,7 @@ enum LLMLogger {
       if let batchId = ctx.batchId { props["batch_id"] = batchId }
       if let groupId = ctx.callGroupId { props["group_id"] = groupId }
       if let providerID = ctx.providerID { props["provider_id"] = providerID }
-
-      // Bubble token usage if present in response headers (non-HTTP calls may stuff them here).
-      if let headers = http.responseHeaders {
-        if let v = headers["x-usage-input"], let n = Int(v) { props["usage_input_tokens"] = n }
-        if let v = headers["x-usage-cached-input"], let n = Int(v) {
-          props["usage_cached_input_tokens"] = n
-        }
-        if let v = headers["x-usage-cache-creation-input"], let n = Int(v) {
-          props["usage_cache_creation_input_tokens"] = n
-        }
-        if let v = headers["x-usage-output"], let n = Int(v) { props["usage_output_tokens"] = n }
-      }
+      props.merge(usage) { _, new in new }
 
       AnalyticsService.shared.capture("llm_api_call", props)
     }
@@ -77,6 +67,7 @@ enum LLMLogger {
       ctx: ctx, http: http, status: .failure, latencyMs: latencyMs,
       error: (errorDomain, errorCode, errorMessage))
     StorageManager.shared.insertLLMCall(record)
+    let usage = usageProperties(http)
     Task { @MainActor in
       var props: [String: Any] = [
         "provider": ctx.provider,
@@ -106,16 +97,7 @@ enum LLMLogger {
         TelemetryErrorSanitizer.failureOutputProperties(failureStderr, prefix: "stderr")
       ) { _, new in new }
       if let httpStatus = http?.httpStatus { props["http_status"] = httpStatus }
-      if let headers = http?.responseHeaders {
-        if let v = headers["x-usage-input"], let n = Int(v) { props["usage_input_tokens"] = n }
-        if let v = headers["x-usage-cached-input"], let n = Int(v) {
-          props["usage_cached_input_tokens"] = n
-        }
-        if let v = headers["x-usage-cache-creation-input"], let n = Int(v) {
-          props["usage_cache_creation_input_tokens"] = n
-        }
-        if let v = headers["x-usage-output"], let n = Int(v) { props["usage_output_tokens"] = n }
-      }
+      props.merge(usage) { _, new in new }
       if let body = http?.responseBody {
         props["has_response_body"] = true
         props["response_body_bytes"] = body.count
@@ -125,6 +107,63 @@ enum LLMLogger {
 
       AnalyticsService.shared.capture("llm_api_call", props)
     }
+  }
+
+  /// Token counts for the analytics event, stored the way Claude reports them: input without
+  /// the cached part, cached input, cache writes, and output (thinking included).
+  /// CLI providers pass them as x-usage-* headers; HTTP providers return them in the body.
+  private static func usageProperties(_ http: LLMHTTPInfo?) -> [String: Int] {
+    let usage = usageFromHeaders(http?.responseHeaders) ?? usageFromBody(http?.responseBody)
+    guard let usage else { return [:] }
+    return [
+      "usage_input_tokens": usage.input,
+      "usage_cached_input_tokens": usage.cachedInput,
+      "usage_cache_creation_input_tokens": usage.cacheCreationInput,
+      "usage_output_tokens": usage.output,
+    ]
+  }
+
+  private static func usageFromHeaders(_ headers: [String: String]?) -> TokenUsage? {
+    guard let headers, let input = headers["x-usage-input"].flatMap({ Int($0) }) else {
+      return nil
+    }
+    return TokenUsage(
+      input: input,
+      cachedInput: headers["x-usage-cached-input"].flatMap { Int($0) } ?? 0,
+      cacheCreationInput: headers["x-usage-cache-creation-input"].flatMap { Int($0) } ?? 0,
+      output: headers["x-usage-output"].flatMap { Int($0) } ?? 0)
+  }
+
+  private static func usageFromBody(_ body: Data?) -> TokenUsage? {
+    guard let body, let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
+    else { return nil }
+    func count(_ value: Any?) -> Int { (value as? NSNumber)?.intValue ?? 0 }
+
+    // Gemini: promptTokenCount includes cached tokens; thinking is counted separately.
+    if let gemini = json["usageMetadata"] as? [String: Any] {
+      let cached = count(gemini["cachedContentTokenCount"])
+      return TokenUsage(
+        input: max(0, count(gemini["promptTokenCount"]) - cached), cachedInput: cached,
+        output: count(gemini["candidatesTokenCount"]) + count(gemini["thoughtsTokenCount"]))
+    }
+
+    // OpenAI-compatible servers (LM Studio, custom endpoints): prompt_tokens includes cached.
+    if let openAI = json["usage"] as? [String: Any], openAI["prompt_tokens"] != nil {
+      let details = openAI["prompt_tokens_details"] as? [String: Any]
+      let cached = count(details?["cached_tokens"])
+      return TokenUsage(
+        input: max(0, count(openAI["prompt_tokens"]) - cached), cachedInput: cached,
+        output: count(openAI["completion_tokens"]))
+    }
+
+    // Ollama's native API.
+    if json["prompt_eval_count"] != nil || json["eval_count"] != nil {
+      return TokenUsage(
+        input: count(json["prompt_eval_count"]), cachedInput: 0,
+        output: count(json["eval_count"]))
+    }
+
+    return nil
   }
 
   private static func makeRecord(
