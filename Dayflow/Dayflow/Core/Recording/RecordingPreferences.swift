@@ -61,3 +61,27 @@ enum ScreenshotConfig {
     }
   }
 }
+
+/// Settings for the accessibility recorder (clicks, typing and screen text,
+/// written next to the recordings). Off for users until it's been checked for
+/// CPU use and file size; on in debug builds.
+enum AccessibilityCaptureConfig {
+  /// Overrides the default when set:
+  /// `defaults write teleportlabs.com.Dayflow accessibilityCaptureEnabled -bool YES`
+  static let enabledKey = "accessibilityCaptureEnabled"
+
+  /// Logs are deleted once the screenshots from the same time are gone, and
+  /// never kept longer than this.
+  static let maxRetention: TimeInterval = 7 * 24 * 60 * 60
+
+  static var isEnabled: Bool {
+    if let stored = UserDefaults.standard.object(forKey: enabledKey) as? Bool {
+      return stored
+    }
+    #if DEBUG
+      return true
+    #else
+      return false
+    #endif
+  }
+}
