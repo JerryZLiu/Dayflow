@@ -83,6 +83,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       AgentUsageTelemetryQueue.drain()
     }
 
+    // Read the user's shell environment in the background now, so the first Claude or Codex
+    // run doesn't wait on a slow shell. Runs after analytics start so a failure gets reported.
+    Task.detached(priority: .utility) {
+      _ = ShellEnvironment.shared.current(trigger: "launch")
+    }
+
     // App opened (cold start)
     var openedProps: [String: Any] = ["cold_start": true]
     openedProps.merge(previousRunProperties()) { _, new in new }
