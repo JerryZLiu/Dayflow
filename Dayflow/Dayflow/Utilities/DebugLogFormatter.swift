@@ -25,6 +25,7 @@ struct DebugLogSnapshot {
     let batches = StorageManager.shared.fetchRecentAnalysisBatchesForDebug(limit: 5)
     let text =
       AgentPlaybackDiagnostics.snapshot() + "\n\n"
+      + ShellEnvironment.shared.diagnosticsText() + "\n\n"
       + DebugLogFormatter.makeLog(timeline: timeline, llmCalls: llmCalls, batches: batches)
 
     return DebugLogSnapshot(
