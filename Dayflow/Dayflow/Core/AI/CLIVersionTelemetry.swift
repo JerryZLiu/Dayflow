@@ -30,7 +30,9 @@ enum CLIVersionTelemetry {
   }
 
   private nonisolated static func probe() -> [String: String] {
-    // Drop the cached resolution so an updated binary reports its new version.
+    // Read the shell again so PATH changes made while Dayflow runs show up about once a day,
+    // and drop the cached resolution so an updated binary reports its new version.
+    ShellEnvironment.shared.refresh(trigger: "daily_check")
     CodexExecutableResolver.shared.invalidate()
     let codex = CodexExecutableResolver.shared.resolve()
     let claude = LoginShellRunner.version(of: "claude")
