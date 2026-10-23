@@ -84,18 +84,17 @@ struct ClaudeCLIExecutionProfile: Sendable {
     allowedReadPath: nil
   )
 
-  /// One-step timeline generation: the model reads each screenshot of the batch from a
-  /// temporary folder and writes the cards directly, thinking at medium effort.
+  /// One-step timeline generation: the batch's screenshots arrive inside the first message
+  /// and the model writes the cards directly, with no tools, thinking at medium effort.
   static let oneStepTimeline = ClaudeCLIExecutionProfile(
     kind: .oneStepTimeline,
     allowedReadPath: nil
   )
 
   private static let oneStepTimelineSystemPrompt =
-    "You turn ordered screenshots of a computer screen into timeline cards. Each screenshot is "
-    + "a local file listed in the user message. Use Read exactly once on every listed file "
-    + "before answering and treat the pixels as authoritative. Do not inspect any other files "
-    + "or use any other tools. Return only the JSON requested by the user."
+    "You turn ordered screenshots of a computer screen into timeline cards. The screenshots are "
+    + "attached to the user message, each labeled with its time. Treat the pixels as "
+    + "authoritative. Return only the JSON requested by the user."
 
   /// The Flow focus companion: one resumable conversation per session that
   /// reads a screenshot each turn and answers with a JSON verdict.
@@ -115,11 +114,6 @@ struct ClaudeCLIExecutionProfile: Sendable {
   /// and timeline.json; it may read and edit inside it and nowhere else.
   func allowingFlowWorkspace(at directory: String) -> ClaudeCLIExecutionProfile {
     ClaudeCLIExecutionProfile(kind: .flowAgent, allowedReadPath: directory)
-  }
-
-  /// Lets the one-step profile read every frame inside its temporary folder and nothing else.
-  func allowingReadDirectory(at directory: String) -> ClaudeCLIExecutionProfile {
-    ClaudeCLIExecutionProfile(kind: kind, allowedReadPath: directory)
   }
 
   func allowingRead(at path: String) -> ClaudeCLIExecutionProfile {
@@ -145,6 +139,7 @@ struct ClaudeCLIExecutionProfile: Sendable {
       return transcriptionCommandArguments(
         systemPrompt: Self.oneStepTimelineSystemPrompt,
         name: "dayflow-timeline",
+        tools: LoginShellRunner.shellEscape(""),
         settings: #"{"alwaysThinkingEnabled":true,"effortLevel":"medium"}"#,
         persistenceArguments: persistenceArguments)
 
@@ -216,11 +211,6 @@ struct ClaudeCLIExecutionProfile: Sendable {
         "--allowedTools",
         LoginShellRunner.shellEscape("Read(/\(allowedReadPath)/**)"),
         LoginShellRunner.shellEscape("Edit(/\(allowedReadPath)/**)"),
-      ])
-    } else if let allowedReadPath, kind == .oneStepTimeline {
-      arguments.append(contentsOf: [
-        "--allowedTools",
-        LoginShellRunner.shellEscape("Read(/\(allowedReadPath)/**)"),
       ])
     } else if let allowedReadPath {
       // Claude permission rules use // for absolute paths; / is project-relative.
