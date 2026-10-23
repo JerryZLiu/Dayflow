@@ -28,6 +28,7 @@ final class ClaudeProvider: AgentCLISupporting {
     reasoningEffort: String?,
     profile: ClaudeCLIExecutionProfile,
     sessionMode: ClaudeCLISessionMode,
+    inlineImages: [ClaudeInlineImage] = [],
     environmentOverrides: [String: String] = [:]
   ) async throws -> ChatCLIRunResult {
     let runner = runner
@@ -43,6 +44,7 @@ final class ClaudeProvider: AgentCLISupporting {
         disableTools: false,
         claudeProfile: profile,
         claudeSessionMode: sessionMode,
+        claudeInlineImages: inlineImages,
         environmentOverrides: environmentOverrides
       )
     }.value

@@ -11,6 +11,13 @@ enum ClaudeCLISessionMode: Sendable, Equatable {
   case resume(id: String)
 }
 
+/// An image sent inside the first Claude message instead of as a file to Read.
+/// The label (e.g. "Frame at 9:01 PM") goes right before the image; the path is a JPEG.
+struct ClaudeInlineImage: Sendable {
+  let label: String
+  let path: String
+}
+
 /// Settings for a one-shot `claude -p` run whose final answer is checked against a
 /// JSON schema (`--json-schema`). Used by the Daily brief.
 struct ClaudeCLIStructuredOutputOptions: Sendable {
@@ -1072,12 +1079,22 @@ struct ChatCLIProcessRunner {
     reasoningEffort: String? = nil,
     disableTools: Bool,
     profile: ClaudeCLIExecutionProfile? = nil,
-    sessionMode: ClaudeCLISessionMode = .ephemeral
+    sessionMode: ClaudeCLISessionMode = .ephemeral,
+    usesInlineImages: Bool = false
   ) -> [String] {
     var cmdParts: [String] = ["claude", "-p"]
     if let profile {
-      cmdParts.append(contentsOf: ["--output-format", "json", "--verbose"])
+      // Images can only go inside a message in stream-json input mode, which needs
+      // stream-json output too. The result event is parsed the same way either way.
+      let format = usesInlineImages ? "stream-json" : "json"
+      if usesInlineImages {
+        cmdParts.append(contentsOf: ["--input-format", "stream-json"])
+      }
+      cmdParts.append(contentsOf: ["--output-format", format, "--verbose"])
       cmdParts.append(contentsOf: profile.commandArguments(sessionMode: sessionMode))
+    } else {
+      // The JSON envelope carries token usage; parseAssistant unwraps the result text.
+      cmdParts.append(contentsOf: ["--output-format", "json"])
     }
     switch sessionMode {
     case .ephemeral:
@@ -1118,6 +1135,30 @@ struct ChatCLIProcessRunner {
   ) -> Data? {
     guard tool == .claude, claudeProfile != nil else { return nil }
     return promptWithImageHints(prompt: prompt, imagePaths: imagePaths).data(using: .utf8)
+  }
+
+  /// One stream-json user message: the prompt, then each image as base64 after its label.
+  func claudeInlineImagesPayload(prompt: String, images: [ClaudeInlineImage]) throws -> Data {
+    var content: [[String: Any]] = [["type": "text", "text": prompt]]
+    for image in images {
+      let imageData = try Data(contentsOf: URL(fileURLWithPath: image.path))
+      content.append(["type": "text", "text": image.label])
+      content.append([
+        "type": "image",
+        "source": [
+          "type": "base64",
+          "media_type": "image/jpeg",
+          "data": imageData.base64EncodedString(),
+        ],
+      ])
+    }
+    let message: [String: Any] = [
+      "type": "user",
+      "message": ["role": "user", "content": content],
+    ]
+    var line = try JSONSerialization.data(withJSONObject: message)
+    line.append(0x0A)
+    return line
   }
 
   func mergedProcessEnvironment(
@@ -1400,6 +1441,7 @@ struct ChatCLIProcessRunner {
     model: String? = nil, reasoningEffort: String? = nil, disableTools: Bool = false,
     claudeProfile: ClaudeCLIExecutionProfile? = nil,
     claudeSessionMode: ClaudeCLISessionMode = .ephemeral,
+    claudeInlineImages: [ClaudeInlineImage] = [],
     codexResumeSessionId: String? = nil,
     codexConfigOverrides: [String] = [],
     environmentOverrides: [String: String] = [:],
@@ -1415,6 +1457,7 @@ struct ChatCLIProcessRunner {
       disableTools: disableTools,
       claudeProfile: claudeProfile,
       claudeSessionMode: claudeSessionMode,
+      claudeInlineImages: claudeInlineImages,
       codexResumeSessionId: codexResumeSessionId,
       codexConfigOverrides: codexConfigOverrides,
       processEnvironment: environmentOverrides,
@@ -1434,6 +1477,7 @@ struct ChatCLIProcessRunner {
     disableTools: Bool,
     claudeProfile: ClaudeCLIExecutionProfile?,
     claudeSessionMode: ClaudeCLISessionMode,
+    claudeInlineImages: [ClaudeInlineImage] = [],
     codexResumeSessionId: String? = nil,
     codexConfigOverrides: [String] = [],
     processEnvironment: [String: String],
@@ -1507,7 +1551,8 @@ struct ChatCLIProcessRunner {
         reasoningEffort: reasoningEffort,
         disableTools: disableTools,
         profile: claudeProfile,
-        sessionMode: claudeSessionMode
+        sessionMode: claudeSessionMode,
+        usesInlineImages: !claudeInlineImages.isEmpty
       )
     }
 
@@ -1525,12 +1570,17 @@ struct ChatCLIProcessRunner {
       shellCommand: shellCommand,
       environment: effectiveProcessEnvironment
     )
-    let standardInput = standardInputPayload(
-      tool: tool,
-      prompt: prompt,
-      imagePaths: imagePaths,
-      claudeProfile: claudeProfile
-    )
+    let standardInput: Data?
+    if tool == .claude, claudeProfile != nil, !claudeInlineImages.isEmpty {
+      standardInput = try claudeInlineImagesPayload(prompt: prompt, images: claudeInlineImages)
+    } else {
+      standardInput = standardInputPayload(
+        tool: tool,
+        prompt: prompt,
+        imagePaths: imagePaths,
+        claudeProfile: claudeProfile
+      )
+    }
     let stdinPipe = standardInput.map { _ in Pipe() }
     process.standardInput = stdinPipe ?? FileHandle.nullDevice
     let stdoutPipe = Pipe()
@@ -1627,6 +1677,7 @@ struct ChatCLIProcessRunner {
         disableTools: disableTools,
         claudeProfile: claudeProfile,
         claudeSessionMode: claudeSessionMode,
+        claudeInlineImages: claudeInlineImages,
         codexResumeSessionId: codexResumeSessionId,
         codexConfigOverrides: codexConfigOverrides,
         processEnvironment: effectiveProcessEnvironment,
@@ -1658,6 +1709,7 @@ struct ChatCLIProcessRunner {
         disableTools: disableTools,
         claudeProfile: claudeProfile,
         claudeSessionMode: claudeSessionMode,
+        claudeInlineImages: claudeInlineImages,
         codexResumeSessionId: codexResumeSessionId,
         codexConfigOverrides: codexConfigOverrides,
         processEnvironment: fallback.environment,
