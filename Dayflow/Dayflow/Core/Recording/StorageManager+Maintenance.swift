@@ -428,6 +428,7 @@ extension StorageManager {
   }
 
   func performPurgeIfNeeded() {
+    defer { pruneAccessibilityLogs() }
     do {
       let limit = StoragePreferences.recordingsLimitBytes
 
@@ -493,6 +494,21 @@ extension StorageManager {
     } catch {
       print("❌ Purge error: \(error)")
     }
+  }
+
+  /// Accessibility logs follow the screenshots: once the frames from a
+  /// stretch of time are purged, its logs go too. They're also never kept
+  /// longer than `AccessibilityCaptureConfig.maxRetention`, even with
+  /// unlimited storage.
+  func pruneAccessibilityLogs() {
+    var cutoff = Date().addingTimeInterval(-AccessibilityCaptureConfig.maxRetention)
+    let oldestScreenshotTs = try? timedRead("oldestLiveScreenshot") { db in
+      try Int.fetchOne(db, sql: "SELECT MIN(captured_at) FROM screenshots WHERE is_deleted = 0")
+    }
+    if let oldestScreenshotTs = oldestScreenshotTs ?? nil {
+      cutoff = max(cutoff, Date(timeIntervalSince1970: TimeInterval(oldestScreenshotTs)))
+    }
+    AccessibilityLogStore.shared.prune(before: cutoff)
   }
 
   func cleanupRecordingStragglers() {
