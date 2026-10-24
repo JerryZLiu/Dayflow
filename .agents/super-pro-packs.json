@@ -1,0 +1,282 @@
+{
+  "version": 2,
+  "description": "PraxStack manifest for Dayflow Cloud Agents. Installs globally to ~/.agents/skills. Sync: ~/.agents/.skill-lock.json",
+  "installCommand": "bash scripts/install-praxstack-skills.sh",
+  "packs": [
+    {
+      "repo": "vercel-labs/skills",
+      "skills": ["find-skills"],
+      "tier": "S",
+      "layer": "discover"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "skills": ["*"],
+      "tier": "S",
+      "layer": "security"
+    },
+    {
+      "repo": "vercel-labs/agent-browser",
+      "skills": ["agent-browser"],
+      "tier": "S",
+      "layer": "browser-qa",
+      "requires": ["npm install -g agent-browser && agent-browser install"]
+    },
+    {
+      "repo": "anthropics/skills",
+      "skills": ["*"],
+      "tier": "S",
+      "layer": "implement",
+      "note": "Use subset on demand"
+    },
+    {
+      "repo": "github/awesome-copilot",
+      "skills": ["*"],
+      "tier": "S",
+      "layer": "all",
+      "note": "Invoke on demand to avoid context rot"
+    },
+    {
+      "repo": "microsoft/skills",
+      "skills": [
+        "continual-learning",
+        "frontend-design-review",
+        "github-issue-creator",
+        "mcp-builder",
+        "skill-creator",
+        "copilot-sdk",
+        "microsoft-docs",
+        "cloud-solution-architect"
+      ],
+      "tier": "A",
+      "layer": "learn"
+    },
+    {
+      "repo": "EveryInc/compound-engineering-plugin",
+      "skills": ["*"],
+      "tier": "S",
+      "layer": "all"
+    },
+    {
+      "repo": "shadcn/improve",
+      "skills": ["improve"],
+      "tier": "A",
+      "layer": "implement"
+    },
+    {
+      "repo": "mattpocock/skills",
+      "skills": ["*"],
+      "tier": "S",
+      "layer": "implement"
+    },
+    {
+      "repo": "obra/superpowers",
+      "skills": ["*"],
+      "tier": "S",
+      "layer": "plan"
+    },
+    {
+      "repo": "addyosmani/agent-skills",
+      "skills": ["*"],
+      "tier": "A",
+      "layer": "implement"
+    },
+    {
+      "repo": "vercel-labs/agent-skills",
+      "skills": ["*"],
+      "tier": "S",
+      "layer": "implement"
+    },
+    {
+      "repo": "supabase/agent-skills",
+      "skills": ["*"],
+      "tier": "A",
+      "layer": "implement",
+      "optional": true
+    },
+    {
+      "repo": "cloudflare/skills",
+      "skills": ["*"],
+      "tier": "A",
+      "layer": "ship",
+      "optional": true
+    },
+    {
+      "repo": "aws/agent-toolkit-for-aws",
+      "skills": [
+        "aws-billing-and-cost-management",
+        "aws-security",
+        "aws-serverless",
+        "aws-observability",
+        "aws-iam",
+        "aws-cdk"
+      ],
+      "tier": "A",
+      "layer": "ship",
+      "optional": true
+    },
+    {
+      "repo": "forrestchang/andrej-karpathy-skills",
+      "skills": ["*"],
+      "tier": "A",
+      "layer": "interrogate"
+    },
+    {
+      "repo": "brainqub3/red-green-refactor",
+      "skills": ["*"],
+      "tier": "A",
+      "layer": "implement"
+    },
+    {
+      "repo": "jwynia/agent-skills",
+      "skills": ["security-scan", "dependency-scan", "config-scan"],
+      "tier": "A",
+      "layer": "security",
+      "note": "code-review skill not in repo; security scans substituted"
+    },
+    {
+      "repo": "pproenca/dot-skills",
+      "skills": ["tdd"],
+      "tier": "A",
+      "layer": "implement"
+    },
+    {
+      "repo": "mvanhorn/last30days-skill",
+      "skills": ["last30days"],
+      "tier": "A",
+      "layer": "discover",
+      "note": "Research recent news/trends"
+    },
+    {
+      "repo": "24601/agent-deep-research",
+      "skills": ["deep-research"],
+      "tier": "A",
+      "layer": "discover"
+    },
+    {
+      "repo": "nutlope/hallmark",
+      "skills": ["hallmark"],
+      "tier": "A",
+      "layer": "implement"
+    },
+    {
+      "repo": "google-labs-code/stitch-skills",
+      "skills": [
+        "stitch-generate-design",
+        "stitch-react-components",
+        "stitch-code-to-design"
+      ],
+      "tier": "A",
+      "layer": "implement",
+      "note": "Cursor target; selective Stitch skills"
+    },
+    {
+      "repo": "remotion-dev/skills",
+      "skills": ["*"],
+      "tier": "A",
+      "layer": "implement",
+      "note": "Video/remotion workflows"
+    },
+    {
+      "repo": "wshobson/agents",
+      "skills": [
+        "api-design-principles",
+        "architecture-patterns",
+        "architecture-decision-records",
+        "code-review-excellence",
+        "context-driven-development",
+        "microservices-patterns",
+        "auth-implementation-patterns",
+        "accessibility-compliance",
+        "before-you-build",
+        "hads",
+        "cqrs-implementation",
+        "bash-defensive-patterns",
+        "event-store-design",
+        "projection-patterns"
+      ],
+      "tier": "A",
+      "layer": "plan",
+      "note": "Selective — do not install all 181 skills"
+    },
+    {
+      "repo": "praxstack/skills-and-personas",
+      "skills": ["*"],
+      "tier": "S",
+      "layer": "all",
+      "note": "Prax personal workflow: kingmode, apex, constellation-team, teach-pro-max, chronicle, backend-pe variants, etc. Setup: bash scripts/install-praxstack-personas.sh"
+    },
+    {
+      "repo": "nvidia/skills",
+      "skills": [
+        "nvidia-skill-finder",
+        "cudaq-guide",
+        "jetson-quick-start",
+        "deepstream-dev",
+        "nemo-rl-docs",
+        "physicsnemo-discover",
+        "dynamo-troubleshoot",
+        "rag-blueprint"
+      ],
+      "tier": "A",
+      "layer": "ship",
+      "optional": true,
+      "note": "Selective GPU/AI infra skills"
+    }
+  ],
+  "external": [
+    {
+      "name": "gstack",
+      "setup": "bash scripts/install-gstack-skills.sh",
+      "tier": "S",
+      "note": "Links ~/.cursor/skills/gstack-* into ~/.agents/skills"
+    },
+    {
+      "name": "pstack",
+      "setup": "Manual: /add-plugin pstack on Cursor Desktop",
+      "tier": "S",
+      "note": "Desktop plugin; poteto-mode patterns"
+    },
+    {
+      "name": "specify-cli",
+      "setup": "uv tool install specify-cli --from git+https://github.com/github/spec-kit.git",
+      "tier": "S"
+    },
+    {
+      "name": "openspec",
+      "setup": "npm install -g @fission-ai/openspec && openspec init --tools cursor",
+      "tier": "S",
+      "note": "Spec-driven changes; /opsx-propose etc."
+    },
+    {
+      "name": "graphify",
+      "setup": "uv tool install graphifyy && graphify cursor install",
+      "tier": "A",
+      "note": "Code knowledge graph; /graphify"
+    },
+    {
+      "name": "impeccable",
+      "setup": "npx impeccable skills install (project) + symlink to ~/.agents/skills",
+      "tier": "A",
+      "note": "/impeccable init for design context"
+    },
+    {
+      "name": "context7",
+      "setup": "Add to ~/.cursor/mcp.json — npx @upstash/context7-mcp",
+      "tier": "S",
+      "note": "Up-to-date library docs MCP; set CONTEXT7_API_KEY"
+    },
+    {
+      "name": "serena",
+      "setup": "MCP: uvx --from git+https://github.com/oraios/serena serena-mcp-server",
+      "tier": "A",
+      "note": "Semantic code retrieval MCP; desktop/manual OAuth"
+    },
+    {
+      "name": "openai-plugins",
+      "setup": "Reference only — openai/skills deprecated; use anthropics/skills",
+      "tier": "B",
+      "note": "Legacy OpenAI plugin format; document only"
+    }
+  ]
+}

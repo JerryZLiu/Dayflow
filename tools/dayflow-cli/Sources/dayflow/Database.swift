@@ -8,7 +8,11 @@
 //
 
 import Foundation
+#if os(Linux)
+import CSQLite
+#else
 import SQLite3
+#endif
 
 // sqlite3_bind_text needs SQLITE_TRANSIENT, which the Swift importer can't
 // express directly because it's a C macro casting -1 to a function pointer.

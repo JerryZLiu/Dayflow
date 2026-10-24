@@ -13,6 +13,11 @@
 //
 
 import Foundation
+#if os(Linux)
+import Glibc
+#else
+import Darwin
+#endif
 
 enum AgentBridge {
   static let protocolVersion = 1
@@ -39,7 +44,11 @@ enum AgentBridge {
 
   /// Send one operation to the app and return its `data` payload.
   static func send(operation: String, arguments: [String: Any]) throws -> [String: Any] {
+    #if os(Linux)
+    let fd = socket(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0)
+    #else
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    #endif
     guard fd >= 0 else {
       throw BridgeError(code: "socket_error", message: "Could not create a socket.")
     }

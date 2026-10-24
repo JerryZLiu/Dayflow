@@ -34,3 +34,9 @@ codexeval/
 
 # Dayflow CLI SwiftPM artifacts
 tools/dayflow-cli/.build/
+tools/dayflow-cli/fixtures/chunks.sqlite
+tools/dayflow-cli/fixtures/chunks.sqlite-wal
+tools/dayflow-cli/fixtures/chunks.sqlite-shm
+
+# Cloud Agent generated binaries
+.cursor/bin/

@@ -1,0 +1,10 @@
+{
+  "name": "Dayflow",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "user": "ubuntu",
+  "install": "bash scripts/cloud-agent-install.sh",
+  "terminals": []
+}
