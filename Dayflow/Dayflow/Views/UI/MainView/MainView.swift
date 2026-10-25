@@ -89,8 +89,10 @@ struct MainView: View {
   @State var reviewSummaryRefreshToken: Int = 0
   @StateObject var retryCoordinator = RetryCoordinator()
   @State var weeklyHoursFrame: CGRect = .zero
-  @State var timelineTimeLabelFrames: [CGRect] = []
-  @State var weeklyHoursIntersectsCard: Bool = false
+  // Written by the timeline while it scrolls; read only by the footer view,
+  // so MainView never reads its properties in body. Held in @State, not
+  // @StateObject, so MainView doesn't subscribe to its changes.
+  @State var timelineFooterState = TimelineFooterState()
   @State var timelineFailureToastPayload: TimelineFailureToastPayload?
   @State var showScreenRecordingPermissionNotice = false
   @State var didDismissScreenRecordingPermissionNoticeThisSession = false
@@ -100,7 +102,6 @@ struct MainView: View {
   @Binding var goalFlowPresentation: DayGoalFlowPresentation?
 
   let rateSummaryFooterHeight: CGFloat = 28
-  let weeklyHoursFadeDistance: CGFloat = 12
   var rateSummaryFooterInset: CGFloat {
     selectedActivity == nil ? 0 : rateSummaryFooterHeight
   }

@@ -258,7 +258,7 @@ extension MainView {
       withTransaction(transaction) {
         hideWeekCardsDuringModeSwitch = true
         weekInspectorContentVisible = false
-        weeklyHoursIntersectsCard = false
+        timelineFooterState.clearCardOverlap()
       }
 
       timelinePerfLog("timelineModeSwitch.prehideWeekCards from=week to=day")

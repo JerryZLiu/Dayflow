@@ -46,18 +46,6 @@ struct WeekPositionedActivity: Identifiable {
   let batchIds: [Int64]
 }
 
-// Published by the week view's cards layer; consumed locally to drive the
-// weekly-hours-footer overlap check (mirrors the day view's equivalent key).
-private struct WeekCardsLayerFramePreferenceKey: PreferenceKey {
-  static var defaultValue: CGRect = .zero
-  static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-    let next = nextValue()
-    if next != .zero {
-      value = next
-    }
-  }
-}
-
 struct WeekTimelineGridView: View {
   @Binding var selectedDate: Date
   @Binding var selectedActivity: TimelineActivity?
@@ -72,7 +60,7 @@ struct WeekTimelineGridView: View {
   // space; the grid compares against this to hide the label when it'd sit
   // over a card. Defaults to .zero so Xcode previews don't need to wire it.
   var weeklyHoursFrame: CGRect = .zero
-  var weeklyHoursIntersectsCard: Binding<Bool> = .constant(false)
+  var footerState: TimelineFooterState? = nil
   var hideCardsForModeSwitch = false
   // Categories turned off in the chip row; their cards render dimmed.
   var mutedCategoryKeys: Set<String> = []
@@ -82,7 +70,7 @@ struct WeekTimelineGridView: View {
 
   @State private var positionedActivities: [WeekPositionedActivity] = []
   @State private var recordingProjection: TimelineRecordingProjectionWindow?
-  @State private var cardsLayerFrame: CGRect = .zero
+  @State private var scrollGeometry = TimelineScrollGeometry()
   @State private var refreshTimer: Timer?
   @State private var loadTask: Task<Void, Never>?
   @State private var autoScrollWeekKey: String?
@@ -201,9 +189,7 @@ struct WeekTimelineGridView: View {
       loadTask = nil
       pendingHoverWorkItem?.cancel()
       pendingHoverWorkItem = nil
-      if weeklyHoursIntersectsCard.wrappedValue {
-        weeklyHoursIntersectsCard.wrappedValue = false
-      }
+      footerState?.clearCardOverlap()
     }
     .onChange(of: selectedDate) { oldDate, newDate in
       let oldWeek = TimelineWeekRange.containing(oldDate)
@@ -240,12 +226,11 @@ struct WeekTimelineGridView: View {
         startRefreshTimer()
       }
     }
-    .onPreferenceChange(WeekCardsLayerFramePreferenceKey.self) { frame in
-      cardsLayerFrame = frame
-      updateWeeklyHoursIntersection()
-    }
     .onChange(of: weeklyHoursFrame) {
-      updateWeeklyHoursIntersection()
+      updateFooterState()
+    }
+    .onChange(of: hideCardsForModeSwitch) {
+      updateFooterState()
     }
   }
 
@@ -315,6 +300,13 @@ struct WeekTimelineGridView: View {
       }
     }
     .frame(height: WeekTimelineConfig.totalHeight)
+    // The one place scroll position is read; see updateFooterState().
+    .onGeometryChange(for: CGRect.self) { proxy in
+      proxy.frame(in: .named("TimelinePane"))
+    } action: { frame in
+      scrollGeometry.contentFrame = frame
+      updateFooterState()
+    }
   }
 
   @ViewBuilder
@@ -369,14 +361,11 @@ struct WeekTimelineGridView: View {
           .padding(.trailing, 6)
           .padding(.top, 2)
           .frame(width: WeekTimelineConfig.timeColumnWidth, alignment: .trailing)
-          .background(
-            GeometryReader { proxy in
-              Color.clear.preference(
-                key: TimelineTimeLabelFramesPreferenceKey.self,
-                value: [proxy.frame(in: .named("TimelinePane"))]
-              )
-            }
-          )
+          .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+          } action: { height in
+            scrollGeometry.timeLabelHeight = height
+          }
           .frame(height: WeekTimelineConfig.hourHeight, alignment: .top)
           .offset(y: -7)
           .id("week-hour-\(hourIndex)")
@@ -430,14 +419,6 @@ struct WeekTimelineGridView: View {
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background(
-      GeometryReader { proxy in
-        Color.clear.preference(
-          key: WeekCardsLayerFramePreferenceKey.self,
-          value: proxy.frame(in: .named("TimelinePane"))
-        )
-      }
-    )
     // Defensive hover-exit handler. SwiftUI's per-card `.onHover(false)` can
     // miss the exit event when the mouse moves quickly or when the card
     // resizes mid-hover (the expand animation can reach under the cursor
@@ -633,7 +614,7 @@ struct WeekTimelineGridView: View {
           autoScrollWeekKey = requestedWeekID
         }
 
-        updateWeeklyHoursIntersection(visibleWeekRange: requestedWeekRange)
+        updateFooterState(visibleWeekRange: requestedWeekRange)
 
         let commitMs = Int((CFAbsoluteTimeGetCurrent() - commitStart) * 1000)
         let totalMs = Int((CFAbsoluteTimeGetCurrent() - overallStart) * 1000)
@@ -644,55 +625,58 @@ struct WeekTimelineGridView: View {
     }
   }
 
-  // Mirrors CanvasTimelineDataView.updateWeeklyHoursIntersection but rebuilds
-  // each card's pane-space rect from (columnIndex × dayWidth) since the week
-  // view lays cards across 7 columns instead of one stacked column.
-  private func updateWeeklyHoursIntersection(visibleWeekRange: TimelineWeekRange? = nil) {
-    guard weeklyHoursFrame != .zero,
-      cardsLayerFrame != .zero,
-      weeklyHoursFrame.intersects(cardsLayerFrame)
-    else {
-      if weeklyHoursIntersectsCard.wrappedValue {
-        weeklyHoursIntersectsCard.wrappedValue = false
-      }
-      return
-    }
+  // Mirrors CanvasTimelineDataView.updateFooterState, but lays cards across
+  // 7 day columns instead of one stacked column.
+  private func updateFooterState(visibleWeekRange: TimelineWeekRange? = nil) {
+    guard let footerState else { return }
+    let contentFrame = scrollGeometry.contentFrame
+    guard contentFrame != .zero else { return }
 
-    let dayWidth = cardsLayerFrame.width / 7
+    let cardsMinX = contentFrame.minX + WeekTimelineConfig.timeColumnWidth
+    let dayWidth = max(0, contentFrame.width - WeekTimelineConfig.timeColumnWidth) / 7
     let cardWidth = weekCardWidth(for: dayWidth)
     let activeWeekRange = visibleWeekRange ?? weekRange
 
-    let intersectsTimelineCard = positionedActivities.contains { item in
-      let cardFrame = CGRect(
-        x: cardsLayerFrame.minX + CGFloat(item.columnIndex) * dayWidth
-          + WeekTimelineConfig.cardLeadingGap,
-        y: cardsLayerFrame.minY + item.yPosition,
-        width: cardWidth,
-        height: item.height
+    // Matches timeColumn: each label starts at its hour row and is nudged up 7pt.
+    let labelFrames = (0..<(WeekTimelineConfig.endHour - WeekTimelineConfig.startHour)).map {
+      hourIndex in
+      CGRect(
+        x: contentFrame.minX,
+        y: contentFrame.minY + CGFloat(hourIndex) * WeekTimelineConfig.hourHeight - 7,
+        width: WeekTimelineConfig.timeColumnWidth,
+        height: scrollGeometry.timeLabelHeight
       )
-      return cardFrame.intersects(weeklyHoursFrame)
     }
 
-    let intersectsStatusCard: Bool
-    if let projection = recordingProjection,
-      let todayIndex = activeWeekRange.days.firstIndex(where: { $0.dayString == todayDayString })
-    {
-      let statusFrame = CGRect(
-        x: cardsLayerFrame.minX + CGFloat(todayIndex) * dayWidth
-          + WeekTimelineConfig.cardLeadingGap,
-        y: cardsLayerFrame.minY + calculateYPosition(for: projection.start) + 1,
-        width: cardWidth,
-        height: recordingProjectionHeight(for: projection)
-      )
-      intersectsStatusCard = statusFrame.intersects(weeklyHoursFrame)
-    } else {
-      intersectsStatusCard = false
+    // Cards (and the status card) are hidden during the week -> day switch.
+    var cardFrames: [CGRect] = []
+    if !hideCardsForModeSwitch {
+      cardFrames = positionedActivities.map { item in
+        CGRect(
+          x: cardsMinX + CGFloat(item.columnIndex) * dayWidth + WeekTimelineConfig.cardLeadingGap,
+          y: contentFrame.minY + item.yPosition,
+          width: cardWidth,
+          height: item.height
+        )
+      }
+      if let projection = recordingProjection,
+        let todayIndex = activeWeekRange.days.firstIndex(where: { $0.dayString == todayDayString })
+      {
+        cardFrames.append(
+          CGRect(
+            x: cardsMinX + CGFloat(todayIndex) * dayWidth + WeekTimelineConfig.cardLeadingGap,
+            y: contentFrame.minY + calculateYPosition(for: projection.start) + 1,
+            width: cardWidth,
+            height: recordingProjectionHeight(for: projection)
+          ))
+      }
     }
 
-    let intersects = intersectsTimelineCard || intersectsStatusCard
-    if weeklyHoursIntersectsCard.wrappedValue != intersects {
-      weeklyHoursIntersectsCard.wrappedValue = intersects
-    }
+    footerState.update(
+      footerFrame: weeklyHoursFrame,
+      labelFrames: labelFrames,
+      cardFrames: cardFrames
+    )
   }
 
   private func startRefreshTimer() {
