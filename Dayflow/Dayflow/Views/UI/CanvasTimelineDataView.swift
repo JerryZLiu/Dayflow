@@ -318,66 +318,68 @@ struct CanvasTimelineDataView: View {
     .pointingHandCursor(enabled: selectedCardId != nil || selectedActivity != nil)
   }
 
+  // No GeometryReader here on purpose: inside a ScrollView its closure re-runs
+  // as the content moves, which rebuilt every card on every scroll frame.
+  // Cards fill the layer's width and are offset to their start time instead.
   private var cardsLayer: some View {
-    GeometryReader { geo in
-      ZStack(alignment: .topLeading) {
-        Color.clear
-          .contentShape(Rectangle())
-          .onTapGesture {
-            clearSelection()
-          }
-          .pointingHandCursor(enabled: selectedCardId != nil || selectedActivity != nil)
-        ForEach(Array(positionedActivities.enumerated()), id: \.element.id) { index, item in
-          let isVisible = cardEntranceProgress[item.id] ?? false
-          CanvasActivityCard(
-            title: item.title,
-            time: item.timeLabel,
-            height: item.height,
-            durationMinutes: item.durationMinutes,
-            style: style(for: item.categoryName),
-            isSelected: selectedCardId == item.id,
-            isSystemCategory: item.categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
-              .caseInsensitiveCompare("System") == .orderedSame,
-            isBackupGenerated: item.activity.isBackupGenerated == true,
-            onTap: {
-              if selectedCardId == item.id {
-                clearSelection()
-              } else {
-                selectedCardId = item.id
-                selectedActivity = item.activity
-              }
-            },
-            faviconPrimaryRaw: item.faviconPrimaryRaw,
-            faviconSecondaryRaw: item.faviconSecondaryRaw,
-            faviconPrimaryHost: item.faviconPrimaryHost,
-            faviconSecondaryHost: item.faviconSecondaryHost,
-            statusLine: retryCoordinator.statusLine(for: item.batchIds),
-            failureCount: item.failureCount,
-            fontSize: cardTextFontSize,
-            fontWeight: cardTextFontWeight,
-            iconLeadingInset: cardIconLeadingInset,
-            iconTextSpacing: cardIconTextSpacing,
-            faviconSize: cardFaviconSize,
-            faviconVerticalOffset: cardFaviconVerticalOffset,
-            compactDurationThreshold: cardCompactDurationThreshold,
-            compactVerticalPadding: cardCompactVerticalPadding,
-            normalVerticalPadding: cardNormalVerticalPadding,
-            hoverScale: cardHoverScale,
-            pressedScale: cardPressedScale
-          )
-          .frame(width: geo.size.width, height: item.height)
-          .position(x: geo.size.width / 2, y: item.yPosition + (item.height / 2))
-          .opacity(mutedCategoryKeys.contains(categoryFilterKey(item.categoryName)) ? 0.25 : 1)
-          .animation(.easeOut(duration: 0.15), value: mutedCategoryKeys)
-          // Staggered entrance animation (Emil Kowalski: sequential reveal creates polish)
-          .opacity(isVisible ? 1 : 0)
-          .offset(x: isVisible ? 0 : 12)
-          .animation(
-            .spring(response: 0.35, dampingFraction: 0.8)
-              .delay(Double(index) * 0.03),  // 30ms stagger between cards
-            value: isVisible
-          )
+    ZStack(alignment: .topLeading) {
+      Color.clear
+        .contentShape(Rectangle())
+        .onTapGesture {
+          clearSelection()
         }
+        .pointingHandCursor(enabled: selectedCardId != nil || selectedActivity != nil)
+      ForEach(Array(positionedActivities.enumerated()), id: \.element.id) { index, item in
+        let isVisible = cardEntranceProgress[item.id] ?? false
+        CanvasActivityCard(
+          title: item.title,
+          time: item.timeLabel,
+          height: item.height,
+          durationMinutes: item.durationMinutes,
+          style: style(for: item.categoryName),
+          isSelected: selectedCardId == item.id,
+          isSystemCategory: item.categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare("System") == .orderedSame,
+          isBackupGenerated: item.activity.isBackupGenerated == true,
+          onTap: {
+            if selectedCardId == item.id {
+              clearSelection()
+            } else {
+              selectedCardId = item.id
+              selectedActivity = item.activity
+            }
+          },
+          faviconPrimaryRaw: item.faviconPrimaryRaw,
+          faviconSecondaryRaw: item.faviconSecondaryRaw,
+          faviconPrimaryHost: item.faviconPrimaryHost,
+          faviconSecondaryHost: item.faviconSecondaryHost,
+          statusLine: retryCoordinator.statusLine(for: item.batchIds),
+          failureCount: item.failureCount,
+          fontSize: cardTextFontSize,
+          fontWeight: cardTextFontWeight,
+          iconLeadingInset: cardIconLeadingInset,
+          iconTextSpacing: cardIconTextSpacing,
+          faviconSize: cardFaviconSize,
+          faviconVerticalOffset: cardFaviconVerticalOffset,
+          compactDurationThreshold: cardCompactDurationThreshold,
+          compactVerticalPadding: cardCompactVerticalPadding,
+          normalVerticalPadding: cardNormalVerticalPadding,
+          hoverScale: cardHoverScale,
+          pressedScale: cardPressedScale
+        )
+        .frame(maxWidth: .infinity)
+        .frame(height: item.height)
+        .offset(y: item.yPosition)
+        .opacity(mutedCategoryKeys.contains(categoryFilterKey(item.categoryName)) ? 0.25 : 1)
+        .animation(.easeOut(duration: 0.15), value: mutedCategoryKeys)
+        // Staggered entrance animation (Emil Kowalski: sequential reveal creates polish)
+        .opacity(isVisible ? 1 : 0)
+        .offset(x: isVisible ? 0 : 12)
+        .animation(
+          .spring(response: 0.35, dampingFraction: 0.8)
+            .delay(Double(index) * 0.03),  // 30ms stagger between cards
+          value: isVisible
+        )
       }
     }
     // `.clipped()` was here previously with the comment "Prevent shadows/
