@@ -723,6 +723,10 @@ struct InnerGlow<S: InsettableShape>: View {
       .strokeBorder(color, lineWidth: spread ?? radius)
       .blur(radius: blur ?? radius)
       .clipShape(shape)
+      // Bakes the blurred, clipped glow into one bitmap. Without this the
+      // blur and clip stay live effects that are recomputed every frame the
+      // view moves (e.g. on every timeline card while scrolling).
+      .drawingGroup()
       .allowsHitTesting(false)
   }
 }
