@@ -107,7 +107,7 @@ struct OnboardingPrototypeChooseProviderStep: View {
     ComparisonProvider(
       providerID: .local,
       title: String(localized: "Local AI"),
-      accuracy: RatedValue(text: String(localized: "Decent"), rating: .basic),
+      accuracy: RatedValue(text: String(localized: "Passable"), rating: .basic),
       subscription: String(localized: "Free"),
       ease: RatedValue(text: String(localized: "Extensive setup"), rating: .basic),
       notes: String(
@@ -378,12 +378,15 @@ struct OnboardingPrototypeChooseProviderStep: View {
           .font(.custom(stylePreviewAfter ? "Figtree" : "Nunito", size: 14))
           .fontWeight(.semibold)
           .tracking(-0.14)
+          // Six columns get narrow on smaller windows; shrink the padding
+          // around the word instead of cutting it to "Sel...".
+          .fixedSize()
       },
       background: Color(hex: "FF9F6F"),
       foreground: .white,
       borderColor: Color(hex: "F4C8B1"),
       cornerRadius: 200,
-      horizontalPadding: 40,
+      horizontalPadding: 20,
       verticalPadding: 8,
       showOverlayStroke: false,
       innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)
