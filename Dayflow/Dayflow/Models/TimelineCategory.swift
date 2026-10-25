@@ -283,7 +283,7 @@ private enum OnboardingCategoryPreset: String {
     switch roleName {
     case "Software Engineer":
       self = .softwareEngineer
-    case "Founder / Executive":
+    case "Founder", "Executive", "Founder / Executive":
       self = .founderExecutive
     case "Designer":
       self = .designer

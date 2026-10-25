@@ -9,7 +9,7 @@ struct OnboardingPrototypeRoleSelectionStep: View {
   let onContinue: (String) -> Void
 
   private let roles = [
-    "Software Engineer", "Founder / Executive", "Designer", "Student", "Product Manager",
+    "Software Engineer", "Founder", "Executive", "Designer", "Student", "Product Manager",
     "Data Scientist", "Other",
   ]
   @State private var selectedRole: String?
@@ -131,7 +131,8 @@ struct OnboardingPrototypeRoleSelectionStep: View {
   private func roleTitle(_ role: String) -> String {
     switch role {
     case "Software Engineer": return String(localized: "Software Engineer")
-    case "Founder / Executive": return String(localized: "Founder / Executive")
+    case "Founder": return String(localized: "Founder")
+    case "Executive": return String(localized: "Executive")
     case "Designer": return String(localized: "Designer")
     case "Student": return String(localized: "Student")
     case "Product Manager": return String(localized: "Product Manager")
