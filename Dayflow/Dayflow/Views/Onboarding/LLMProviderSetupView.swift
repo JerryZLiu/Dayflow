@@ -106,6 +106,8 @@ struct LLMProviderSetupView: View {
         .textSelection(.enabled)
       }
       .padding(.leading, fixedOffset)
+      // Same right margin as the Next button, so cards never touch the window edge.
+      .padding(.trailing, 40)
 
       Spacer()  // Push everything to top
     }
