@@ -13853,48 +13853,48 @@
         }
       }
     },
-    "Choose your Gemini model. We recommend 3.5 Flash, with 3.1 Flash-Lite available as a fallback." : {
+    "Choose your Gemini model. We recommend 3.8 Flash, with 3.5 Flash-Lite available as a fallback." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Wähle dein Gemini-Modell. Wir empfehlen 3.5 Flash; 3.1 Flash-Lite ist als Ausweichmodell verfügbar."
+            "value" : "Wähle dein Gemini-Modell. Wir empfehlen 3.8 Flash; 3.5 Flash-Lite ist als Ausweichmodell verfügbar."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Choisissez votre modèle Gemini. Nous recommandons 3.5 Flash, avec 3.1 Flash-Lite comme solution de repli."
+            "value" : "Choisissez votre modèle Gemini. Nous recommandons 3.8 Flash, avec 3.5 Flash-Lite comme solution de repli."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Geminiモデルを選択してください。3.5 Flashを推奨します。フォールバックとして3.1 Flash-Liteも利用できます。"
+            "value" : "Geminiモデルを選択してください。3.8 Flashを推奨します。フォールバックとして3.5 Flash-Liteも利用できます。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Gemini 모델을 선택하세요. 3.5 Flash를 권장하며, 3.1 Flash-Lite를 대체 모델로 사용할 수 있습니다."
+            "value" : "Gemini 모델을 선택하세요. 3.8 Flash를 권장하며, 3.5 Flash-Lite를 대체 모델로 사용할 수 있습니다."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Выберите модель Gemini. Рекомендуем 3.5 Flash; в качестве резервной доступна 3.1 Flash-Lite."
+            "value" : "Выберите модель Gemini. Рекомендуем 3.8 Flash; в качестве резервной доступна 3.5 Flash-Lite."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "选择 Gemini 模型。推荐使用 3.5 Flash，也可将 3.1 Flash-Lite 用作备用。"
+            "value" : "选择 Gemini 模型。推荐使用 3.8 Flash，也可将 3.5 Flash-Lite 用作备用。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "選擇 Gemini 模型。建議使用 3.5 Flash，也可將 3.1 Flash-Lite 用作備援。"
+            "value" : "選擇 Gemini 模型。建議使用 3.8 Flash，也可將 3.5 Flash-Lite 用作備援。"
           }
         }
       }
