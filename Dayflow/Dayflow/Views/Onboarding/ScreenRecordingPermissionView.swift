@@ -334,8 +334,28 @@ struct ScreenRecordingPermissionView: View {
 
   private func quitAndReopen() {
     Task { @MainActor in
+      scheduleRelaunch()
       AppDelegate.permitTermination(reason: "screen_permission_quit_and_reopen")
       NSApp.terminate(nil)
     }
+  }
+
+  /// Starts a small shell script that waits for this process to exit, then opens
+  /// the app again. The short pause lets macOS finish forgetting the old copy, so `open`
+  /// starts a new one. Gives up after about 30 seconds if the app never quits.
+  private func scheduleRelaunch() {
+    let pid = ProcessInfo.processInfo.processIdentifier
+    let bundlePath = Bundle.main.bundlePath
+    let script = """
+      for i in $(seq 1 150); do
+        kill -0 \(pid) 2>/dev/null || { sleep 0.5; /usr/bin/open "$1"; exit 0; }
+        sleep 0.2
+      done
+      """
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/sh")
+    process.arguments = ["-c", script, "relaunch", bundlePath]
+    try? process.run()
   }
 }
