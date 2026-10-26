@@ -21,16 +21,17 @@ struct ScreenRecordingPermissionView: View {
   var onBack: () -> Void
   var onNext: () -> Void
 
-  @State private var permissionState: PermissionState = .notRequested
-  @State private var isCheckingPermission = false
-  @State private var initiatedFlow = false
+  @State private var screenRecordingGranted = false
+  @State private var accessibilityGranted = false
+  /// Set once the user has clicked Grant for screen recording, so the row can
+  /// offer Quit and Reopen (macOS often needs a relaunch before it applies).
+  @State private var screenRecordingRequested = false
   @State private var leftColumnSize: CGSize = .zero
 
-  enum PermissionState {
-    case notRequested
-    case granted
-    case needsAction  // requested or settings opened, awaiting quit & reopen / toggle
-  }
+  /// Re-checks both permissions while the user is over in System Settings.
+  private let permissionPoll = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+
+  private var allGranted: Bool { accessibilityGranted && screenRecordingGranted }
 
   private let brownAccent = Color(hex: "492304")
   private let privacyTextColor = Color(hex: "89380E")
@@ -44,25 +45,19 @@ struct ScreenRecordingPermissionView: View {
       .onPreferenceChange(LeftColumnSizeKey.self) { leftColumnSize = $0 }
     }
     .onAppear {
-      // If already granted, mark as granted; otherwise start in notRequested
-      if CGPreflightScreenCaptureAccess() {
-        permissionState = .granted
+      screenRecordingGranted = SystemPermission.screenRecording.isGranted
+      accessibilityGranted = SystemPermission.accessibility.isGranted
+      if screenRecordingGranted {
         Task { @MainActor in AppDelegate.allowTermination = false }
       } else {
-        permissionState = .notRequested
         Task { @MainActor in AppDelegate.permitTermination(reason: "screen_permission_step") }
       }
     }
-    // Re-check when app becomes active again (e.g., returning from System Settings)
-    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification))
-    { _ in
-      // Only transition to granted here; avoid flipping notChecked to denied automatically
-      if CGPreflightScreenCaptureAccess() {
-        permissionState = .granted
-        Task { @MainActor in AppDelegate.allowTermination = false }
-      }
+    .onReceive(permissionPoll) { _ in
+      refreshPermissions()
     }
     .onDisappear {
+      PermissionHelperPanelController.shared.hide()
       Task { @MainActor in AppDelegate.allowTermination = false }
     }
   }
@@ -102,7 +97,7 @@ struct ScreenRecordingPermissionView: View {
           .font(.custom("Figtree-Bold", size: 16))
           .foregroundColor(Color(hex: "F96E00"))
 
-        Text("Permission")
+        Text("Permissions")
           .font(.custom("InstrumentSerif-Regular", size: 28))
           .foregroundColor(.black)
 
@@ -129,7 +124,7 @@ struct ScreenRecordingPermissionView: View {
           .font(.custom("Figtree-Medium", size: 14))
           .foregroundColor(privacyTextColor)
 
-          Text("You are always in control — you can pause or turn off Dayflow whenever you like.")
+          Text("You are always in control. You can pause or turn off Dayflow whenever you like.")
             .font(.custom("Figtree-Medium", size: 14))
             .foregroundColor(privacyTextColor)
         }
@@ -144,81 +139,27 @@ struct ScreenRecordingPermissionView: View {
         .shadow(
           color: Color(red: 0.725, green: 0.608, blue: 0.482).opacity(0.3), radius: 4, x: 0, y: 0)
 
-        // State-based messaging
-        Group {
-          switch permissionState {
-          case .notRequested:
-            EmptyView()
-          case .granted:
-            Text("✓ Permission granted! Click Next to continue.")
-              .font(.custom("Figtree", size: 14))
-              .foregroundColor(.green)
-          case .needsAction:
-            Text("Turn on Screen Recording for Dayflow, then quit and reopen the app to finish.")
-              .font(.custom("Figtree", size: 14))
-              .foregroundColor(.orange)
-          }
+        // One row per permission. Accessibility comes first because it applies
+        // right away; Screen Recording usually needs a relaunch, so it goes last.
+        VStack(spacing: 8) {
+          permissionRow(
+            title: SystemPermission.accessibility.title,
+            detail: "Know which app you're in, so cards are labeled right.",
+            isGranted: accessibilityGranted,
+            isEnabled: true,
+            onGrant: grantAccessibility,
+            onQuitAndReopen: nil
+          )
+          permissionRow(
+            title: SystemPermission.screenRecording.title,
+            detail: "Periodic screenshots let Dayflow write your timeline for you.",
+            isGranted: screenRecordingGranted,
+            isEnabled: accessibilityGranted,
+            onGrant: grantScreenRecording,
+            onQuitAndReopen: screenRecordingRequested ? quitAndReopen : nil
+          )
         }
-
-        // Action buttons
-        Group {
-          switch permissionState {
-          case .notRequested:
-            Button(action: requestPermission) {
-              HStack(spacing: 6) {
-                if isCheckingPermission {
-                  ProgressView()
-                    .scaleEffect(0.7)
-                    .progressViewStyle(CircularProgressViewStyle())
-                }
-                Text(
-                  isCheckingPermission
-                    ? String(localized: "Checking...") : String(localized: "Open System Settings")
-                )
-                .font(.custom("Figtree-SemiBold", size: 12))
-                .tracking(-0.48)
-                .foregroundColor(brownAccent)
-              }
-              .padding(.horizontal, 12)
-              .frame(height: 36)
-            }
-            .buttonStyle(.plain)
-            .background(Capsule().fill(Color(hex: "FFC9A8")))
-            .disabled(isCheckingPermission)
-          case .needsAction:
-            HStack {
-              HStack(spacing: 12) {
-                Button(action: openSystemSettings) {
-                  Text("Open System Settings")
-                    .font(.custom("Figtree-SemiBold", size: 12))
-                    .tracking(-0.48)
-                    .foregroundColor(brownAccent)
-                    .padding(.horizontal, 12)
-                    .frame(height: 36)
-                }
-                .buttonStyle(.plain)
-                .background(Capsule().fill(Color(hex: "FFC9A8")))
-
-                Button(action: quitAndReopen) {
-                  Text("Quit and Reopen")
-                    .font(.custom("Figtree-SemiBold", size: 12))
-                    .tracking(-0.48)
-                    .foregroundColor(brownAccent)
-                    .padding(.horizontal, 12)
-                    .frame(height: 36)
-                }
-                .buttonStyle(.plain)
-                .background(Capsule().fill(Color.white.opacity(0.69)))
-                .overlay(
-                  Capsule()
-                    .stroke(Color(hex: "D9D9D9"), lineWidth: 1)
-                )
-              }
-            }
-          case .granted:
-            EmptyView()
-          }
-        }
+        .frame(maxWidth: 351)
       }
       .frame(maxWidth: 374)
       .background(
@@ -266,7 +207,7 @@ struct ScreenRecordingPermissionView: View {
       )
       DayflowSurfaceButton(
         action: {
-          if permissionState == .granted { onNext() }
+          if allGranted { onNext() }
         },
         content: {
           HStack(spacing: 6) {
@@ -275,7 +216,7 @@ struct ScreenRecordingPermissionView: View {
           }
           .padding(.leading, 4)
         },
-        background: permissionState == .granted
+        background: allGranted
           ? Color(hex: "FF9F6F")
           : Color(hex: "FF9F6F").opacity(0.3),
         foreground: .white,
@@ -287,41 +228,108 @@ struct ScreenRecordingPermissionView: View {
         showOverlayStroke: false,
         innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)
       )
-      .disabled(permissionState != .granted)
+      .disabled(!allGranted)
     }
     .padding(.trailing, 60)
     .padding(.bottom, 40)
   }
 
-  private func requestPermission() {
-    guard !isCheckingPermission else { return }
-    isCheckingPermission = true
-    initiatedFlow = true
+  private func permissionRow(
+    title: String,
+    detail: LocalizedStringKey,
+    isGranted: Bool,
+    isEnabled: Bool,
+    onGrant: @escaping () -> Void,
+    onQuitAndReopen: (() -> Void)?
+  ) -> some View {
+    HStack(alignment: .center, spacing: 12) {
+      VStack(alignment: .leading, spacing: 3) {
+        Text(title)
+          .font(.custom("Figtree-Bold", size: 14))
+          .foregroundColor(.black)
+        Text(detail)
+          .font(.custom("Figtree-Medium", size: 12))
+          .foregroundColor(Color(hex: "5B5B5B"))
+          .fixedSize(horizontal: false, vertical: true)
+      }
 
-    // This will prompt and register the app with TCC; may return false
-    _ = CGRequestScreenCaptureAccess()
-    if CGPreflightScreenCaptureAccess() {
-      permissionState = .granted
-      AnalyticsService.shared.capture("screen_permission_granted")
-      Task { @MainActor in AppDelegate.allowTermination = false }
-    } else {
-      permissionState = .needsAction
-      AnalyticsService.shared.capture("screen_permission_denied")
-      Task { @MainActor in AppDelegate.permitTermination(reason: "screen_permission_step") }
+      Spacer(minLength: 0)
+
+      if isGranted {
+        HStack(spacing: 4) {
+          Image(systemName: "checkmark.circle.fill")
+          Text("Granted")
+        }
+        .font(.custom("Figtree-SemiBold", size: 12))
+        .foregroundColor(Color(hex: "2E9E5B"))
+      } else {
+        VStack(alignment: .trailing, spacing: 4) {
+          Button(action: onGrant) {
+            Text("Grant")
+              .font(.custom("Figtree-SemiBold", size: 12))
+              .tracking(-0.48)
+              .foregroundColor(brownAccent)
+              .padding(.horizontal, 14)
+              .frame(height: 30)
+          }
+          .buttonStyle(.plain)
+          .background(Capsule().fill(Color(hex: "FFC9A8")))
+          .disabled(!isEnabled)
+
+          if let onQuitAndReopen {
+            Button(action: onQuitAndReopen) {
+              Text("Quit and Reopen")
+                .font(.custom("Figtree-Medium", size: 11))
+                .foregroundColor(brownAccent.opacity(0.7))
+                .underline()
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      }
     }
-    isCheckingPermission = false
+    .padding(12)
+    .background(Color.white.opacity(0.5))
+    .cornerRadius(8)
+    .overlay(
+      RoundedRectangle(cornerRadius: 8)
+        .stroke(Color(hex: "E8DDD5"), lineWidth: 1)
+    )
+    // Waiting on the row above: fade it so it reads as the next step.
+    .opacity(isEnabled || isGranted ? 1 : 0.5)
+    .animation(.easeInOut(duration: 0.2), value: isEnabled)
   }
 
-  private func openSystemSettings() {
-    initiatedFlow = true
-    Task { @MainActor in AppDelegate.permitTermination(reason: "screen_permission_step") }
-    if let url = URL(
-      string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
-    {
-      _ = NSWorkspace.shared.open(url)
+  private func refreshPermissions() {
+    let screenNow = SystemPermission.screenRecording.isGranted
+    if screenNow && !screenRecordingGranted {
+      AnalyticsService.shared.capture("screen_permission_granted")
+      Task { @MainActor in AppDelegate.allowTermination = false }
     }
-    // Move to needsAction so we show Quit & Reopen guidance
-    if permissionState != .granted { permissionState = .needsAction }
+    screenRecordingGranted = screenNow
+
+    let accessibilityNow = SystemPermission.accessibility.isGranted
+    if accessibilityNow && !accessibilityGranted {
+      AnalyticsService.shared.capture("accessibility_permission_granted")
+    }
+    accessibilityGranted = accessibilityNow
+  }
+
+  private func grantScreenRecording() {
+    screenRecordingRequested = true
+    Task { @MainActor in AppDelegate.permitTermination(reason: "screen_permission_step") }
+    // Adds Dayflow to the Screen Recording list (switched off) so the user
+    // only has to flip the switch, even if they never drag the icon across.
+    _ = CGRequestScreenCaptureAccess()
+    if SystemPermission.screenRecording.isGranted {
+      refreshPermissions()
+      return
+    }
+    PermissionHelperPanelController.shared.show(for: .screenRecording)
+  }
+
+  private func grantAccessibility() {
+    PermissionHelperPanelController.shared.show(for: .accessibility)
   }
 
   private func quitAndReopen() {
