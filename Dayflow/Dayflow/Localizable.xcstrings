@@ -7207,6 +7207,9 @@
         }
       }
     },
+    "Accessibility" : {
+
+    },
     "Account" : {
       "localizations" : {
         "de" : {
@@ -25547,6 +25550,9 @@
         }
       }
     },
+    "Drag into the list in System Settings" : {
+
+    },
     "Drag or scroll to adjust %@" : {
       "localizations" : {
         "de" : {
@@ -25592,6 +25598,9 @@
           }
         }
       }
+    },
+    "Drag the Dayflow icon into the list in System Settings." : {
+
     },
     "Drag to category" : {
       "localizations" : {
@@ -32700,6 +32709,9 @@
       }
     },
     "gpt-6-astra" : {
+
+    },
+    "Grant %@" : {
 
     },
     "Granted" : {
@@ -52376,6 +52388,9 @@
         }
       }
     },
+    "Screen Recording" : {
+
+    },
     "Screen recording access needed" : {
       "localizations" : {
         "de" : {
@@ -63733,6 +63748,9 @@
           }
         }
       }
+    },
+    "Turn on the switch next to Dayflow." : {
+
     },
     "Turn them on to continue. If you come back from System Settings, we'll check automatically." : {
       "localizations" : {
