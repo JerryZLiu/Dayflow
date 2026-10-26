@@ -15802,48 +15802,48 @@
         }
       }
     },
-    "Codex CLI is not signed in. Run 'codex auth' in Terminal to authenticate." : {
+    "Codex CLI is not signed in. Run 'codex login' in Terminal to authenticate." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Codex CLI ist nicht angemeldet. Führe zur Authentifizierung 'codex auth' im Terminal aus."
+            "value" : "Codex CLI ist nicht angemeldet. Führe zur Authentifizierung 'codex login' im Terminal aus."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Codex CLI n’est pas connecté. Exécutez 'codex auth' dans Terminal pour vous authentifier."
+            "value" : "Codex CLI n’est pas connecté. Exécutez 'codex login' dans Terminal pour vous authentifier."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Codex CLI にサインインしていません。認証するにはターミナルで 'codex auth' を実行してください。"
+            "value" : "Codex CLI にサインインしていません。認証するにはターミナルで 'codex login' を実行してください。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Codex CLI에 로그인되어 있지 않습니다. 터미널에서 'codex auth'를 실행하여 인증하세요."
+            "value" : "Codex CLI에 로그인되어 있지 않습니다. 터미널에서 'codex login'를 실행하여 인증하세요."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Вход в Codex CLI не выполнен. Запустите 'codex auth' в Терминале для аутентификации."
+            "value" : "Вход в Codex CLI не выполнен. Запустите 'codex login' в Терминале для аутентификации."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Codex CLI 尚未登录。请在终端中运行 'codex auth' 进行身份验证。"
+            "value" : "Codex CLI 尚未登录。请在终端中运行 'codex login' 进行身份验证。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Codex CLI 尚未登入。請在「終端機」中執行 'codex auth' 以進行驗證。"
+            "value" : "Codex CLI 尚未登入。請在「終端機」中執行 'codex login' 以進行驗證。"
           }
         }
       }
@@ -15894,48 +15894,48 @@
         }
       }
     },
-    "Codex CLI returned an error. You may need to sign in — run 'codex auth' in Terminal." : {
+    "Codex CLI returned an error. You may need to sign in — run 'codex login' in Terminal." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Codex CLI hat einen Fehler zurückgegeben. Möglicherweise musst du dich anmelden — führe „codex auth“ im Terminal aus."
+            "value" : "Codex CLI hat einen Fehler zurückgegeben. Möglicherweise musst du dich anmelden — führe „codex login“ im Terminal aus."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Codex CLI a renvoyé une erreur. Vous devrez peut-être vous connecter — exécutez « codex auth » dans Terminal."
+            "value" : "Codex CLI a renvoyé une erreur. Vous devrez peut-être vous connecter — exécutez « codex login » dans Terminal."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Codex CLIでエラーが発生しました。サインインが必要な可能性があります。ターミナルで 'codex auth' を実行してください。"
+            "value" : "Codex CLIでエラーが発生しました。サインインが必要な可能性があります。ターミナルで 'codex login' を実行してください。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Codex CLI에서 오류가 발생했습니다. 로그인이 필요할 수 있습니다. 터미널에서 'codex auth'를 실행하세요."
+            "value" : "Codex CLI에서 오류가 발생했습니다. 로그인이 필요할 수 있습니다. 터미널에서 'codex login'를 실행하세요."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Codex CLI вернул ошибку. Возможно, вам нужно войти — выполните команду 'codex auth' в Терминале."
+            "value" : "Codex CLI вернул ошибку. Возможно, вам нужно войти — выполните команду 'codex login' в Терминале."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Codex CLI 返回错误。你可能需要登录 — 请在终端中运行 'codex auth'。"
+            "value" : "Codex CLI 返回错误。你可能需要登录 — 请在终端中运行 'codex login'。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Codex CLI 傳回錯誤。你可能需要登入 — 請在「終端機」中執行 'codex auth'。"
+            "value" : "Codex CLI 傳回錯誤。你可能需要登入 — 請在「終端機」中執行 'codex login'。"
           }
         }
       }
@@ -21689,48 +21689,48 @@
         }
       }
     },
-    "Dayflow can talk to ChatGPT (via the Codex CLI) or Claude Code. You only need one installed and signed in on this Mac. After installing, run `codex auth` or `claude login` in Terminal to connect it to your account." : {
+    "Dayflow can talk to ChatGPT (via the Codex CLI) or Claude Code. You only need one installed and signed in on this Mac. After installing, run `codex login` or `claude login` in Terminal to connect it to your account." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Dayflow kann mit ChatGPT (über die Codex CLI) oder Claude Code kommunizieren. Du musst nur eines davon auf diesem Mac installieren und dich anmelden. Führe nach der Installation `codex auth` oder `claude login` im Terminal aus, um es mit deinem Konto zu verbinden."
+            "value" : "Dayflow kann mit ChatGPT (über die Codex CLI) oder Claude Code kommunizieren. Du musst nur eines davon auf diesem Mac installieren und dich anmelden. Führe nach der Installation `codex login` oder `claude login` im Terminal aus, um es mit deinem Konto zu verbinden."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Dayflow peut communiquer avec ChatGPT (via le CLI Codex) ou Claude Code. Il vous suffit d’en installer un et de vous y connecter sur ce Mac. Après l’installation, exécutez `codex auth` ou `claude login` dans Terminal pour le connecter à votre compte."
+            "value" : "Dayflow peut communiquer avec ChatGPT (via le CLI Codex) ou Claude Code. Il vous suffit d’en installer un et de vous y connecter sur ce Mac. Après l’installation, exécutez `codex login` ou `claude login` dans Terminal pour le connecter à votre compte."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "DayflowはChatGPT（Codex CLI経由）またはClaude Codeと連携できます。このMacにいずれか一方をインストールしてサインインするだけです。インストール後、ターミナルで`codex auth`または`claude login`を実行し、アカウントに接続してください。"
+            "value" : "DayflowはChatGPT（Codex CLI経由）またはClaude Codeと連携できます。このMacにいずれか一方をインストールしてサインインするだけです。インストール後、ターミナルで`codex login`または`claude login`を実行し、アカウントに接続してください。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Dayflow는 ChatGPT(Codex CLI 사용) 또는 Claude Code와 통신할 수 있습니다. 이 Mac에 둘 중 하나만 설치하고 로그인하면 됩니다. 설치 후 터미널에서 `codex auth` 또는 `claude login`을 실행하여 계정에 연결하세요."
+            "value" : "Dayflow는 ChatGPT(Codex CLI 사용) 또는 Claude Code와 통신할 수 있습니다. 이 Mac에 둘 중 하나만 설치하고 로그인하면 됩니다. 설치 후 터미널에서 `codex login` 또는 `claude login`을 실행하여 계정에 연결하세요."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Dayflow может взаимодействовать с ChatGPT (через Codex CLI) или Claude Code. Достаточно установить один из них на этом Mac и войти в учётную запись. После установки выполните `codex auth` или `claude login` в Терминале, чтобы подключить его к своей учётной записи."
+            "value" : "Dayflow может взаимодействовать с ChatGPT (через Codex CLI) или Claude Code. Достаточно установить один из них на этом Mac и войти в учётную запись. После установки выполните `codex login` или `claude login` в Терминале, чтобы подключить его к своей учётной записи."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Dayflow 可以与 ChatGPT（通过 Codex CLI）或 Claude Code 通信。你只需在这台 Mac 上安装其中一个并登录。安装后，在“终端”中运行 `codex auth` 或 `claude login`，将其连接到你的账户。"
+            "value" : "Dayflow 可以与 ChatGPT（通过 Codex CLI）或 Claude Code 通信。你只需在这台 Mac 上安装其中一个并登录。安装后，在“终端”中运行 `codex login` 或 `claude login`，将其连接到你的账户。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Dayflow 可以與 ChatGPT（透過 Codex CLI）或 Claude Code 通訊。你只需在這台 Mac 上安裝其中一個並登入。安裝後，在「終端機」中執行 `codex auth` 或 `claude login`，將其連線至你的帳號。"
+            "value" : "Dayflow 可以與 ChatGPT（透過 Codex CLI）或 Claude Code 通訊。你只需在這台 Mac 上安裝其中一個並登入。安裝後，在「終端機」中執行 `codex login` 或 `claude login`，將其連線至你的帳號。"
           }
         }
       }

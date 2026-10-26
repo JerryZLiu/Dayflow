@@ -94,7 +94,7 @@ struct ChatCLIDetectionStepView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 24) {
       Text(
-        "Dayflow can talk to ChatGPT (via the Codex CLI) or Claude Code. You only need one installed and signed in on this Mac. After installing, run `codex auth` or `claude login` in Terminal to connect it to your account."
+        "Dayflow can talk to ChatGPT (via the Codex CLI) or Claude Code. You only need one installed and signed in on this Mac. After installing, run `codex login` or `claude login` in Terminal to connect it to your account."
       )
       .font(.custom("Figtree", size: 16))
       .foregroundColor(Color(hex: "333333"))

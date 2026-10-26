@@ -192,7 +192,7 @@ struct ChatCLITestView: View {
                   resultMessage =
                     String(
                       localized:
-                        "Codex CLI returned an error. You may need to sign in — run 'codex auth' in Terminal."
+                        "Codex CLI returned an error. You may need to sign in — run 'codex login' in Terminal."
                     )
                 }
               } else {
@@ -348,7 +348,7 @@ struct ChatCLITestView: View {
           NSLocalizedDescriptionKey:
             String(
               localized:
-                "\(tool.shortName) CLI not found. Install it and run '\(tool == .codex ? "codex auth" : "claude login")' in Terminal."
+                "\(tool.shortName) CLI not found. Install it and run '\(tool == .codex ? "codex login" : "claude login")' in Terminal."
             )
         ])
     }
@@ -409,7 +409,7 @@ struct ChatCLITestView: View {
       || combined.contains("please run /login")
       || combined.contains("401 unauthorized")
       || combined.contains("not logged in")
-      || combined.contains("codex auth")
+      || combined.contains("codex login")
       || combined.contains("claude login")
       || combined.contains("authentication required")
       || combined.contains("unauthorized")
@@ -423,7 +423,7 @@ struct ChatCLITestView: View {
         localized: "Claude CLI is not signed in. Run 'claude login' in Terminal to authenticate.")
     case .codex:
       return String(
-        localized: "Codex CLI is not signed in. Run 'codex auth' in Terminal to authenticate.")
+        localized: "Codex CLI is not signed in. Run 'codex login' in Terminal to authenticate.")
     }
   }
 }
