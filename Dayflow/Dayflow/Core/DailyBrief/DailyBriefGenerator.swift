@@ -3,9 +3,12 @@
 //  Dayflow
 //
 //  Builds one day's Daily brief: gathers yesterday's cards and a screenshot per
-//  card, fills in DailyBriefPrompt, runs `claude -p` (Opus) with web search, the
-//  user's own connectors (read-only), and Dayflow's MCP server, then checks the
-//  returned DailyBriefContent and copies the images it uses into the brief folder.
+//  card, then runs two `claude -p` (Opus) runs at the same time, each with web
+//  search, the user's own connectors (read-only), and Dayflow's MCP server. One
+//  run writes the docket; the other writes every other section and is the only
+//  one that sees the screenshots. The two answers are merged in code into one
+//  DailyBriefContent, checked, and the images it uses are copied into the brief
+//  folder. If one run fails, the brief keeps the other run's sections.
 //
 //  Everything here is synchronous and blocking; DailyBriefStore calls it from a
 //  detached task.
@@ -23,6 +26,45 @@ struct DailyBriefGeneration: Sendable {
 }
 
 enum DailyBriefGenerator {
+  /// The two Claude runs that write a brief. Each has its own prompt, schema, and transcript.
+  enum Part: String, CaseIterable, Sendable {
+    /// "Your docket today" only.
+    case docket
+    /// Every other section, using the candidate screenshots.
+    case extras
+
+    var displayName: String {
+      switch self {
+      case .docket: return "Docket"
+      case .extras: return "Other sections"
+      }
+    }
+
+    /// The built-in prompt with its `{{PLACEHOLDERS}}` intact. The prompt editor starts from it.
+    var defaultTemplate: String {
+      switch self {
+      case .docket: return DailyBriefPrompt.docketTemplate
+      case .extras: return DailyBriefPrompt.extrasTemplate
+      }
+    }
+
+    /// Every placeholder the app fills in for this part, for the prompt editor to list.
+    var placeholderNames: [String] {
+      switch self {
+      case .docket: return DailyBriefPrompt.docketPlaceholderNames
+      case .extras: return DailyBriefPrompt.extrasPlaceholderNames
+      }
+    }
+
+    /// The sections this part writes.
+    var kinds: [DailyBriefSectionKind] {
+      switch self {
+      case .docket: return [.docket]
+      case .extras: return DailyBriefSectionKind.allCases.filter { $0 != .docket }
+      }
+    }
+  }
+
   struct Input: Sendable {
     /// The logical day the brief is for, yyyy-MM-dd.
     let day: String
@@ -30,9 +72,9 @@ enum DailyBriefGenerator {
     let sourceDay: String
     let trigger: String
     let overrideInstructions: String
-    /// A full replacement for defaultPromptTemplate, with the same placeholders. nil or empty
-    /// means use the default.
-    let promptOverride: String?
+    /// Full replacements for a part's default prompt, with the same placeholders. A part
+    /// that's missing or empty uses its default.
+    let promptOverrides: [Part: String]
     let feedbackEvents: [DailyBriefFeedbackEvent]
     let recentBriefs: [DailyBrief]
   }
@@ -58,12 +100,6 @@ enum DailyBriefGenerator {
     "get_time_breakdown", "get_timeline", "get_activity_detail", "search_activities",
     "get_daily", "get_weekly", "list_categories", "get_status",
   ]
-
-  /// The built-in prompt with its `{{PLACEHOLDERS}}` intact. The override editor starts from it.
-  static let defaultPromptTemplate = DailyBriefPrompt.template
-
-  /// Every placeholder the app fills in, for the override editor to list.
-  static let placeholderNames = DailyBriefPrompt.placeholderNames
 
   // MARK: - Readiness
 
@@ -102,6 +138,10 @@ enum DailyBriefGenerator {
     let runDirectory = try makeRunDirectory(for: input.day)
     defer { try? FileManager.default.removeItem(at: runDirectory) }
     let candidatesDirectory = runDirectory.appendingPathComponent("candidates", isDirectory: true)
+    // So the footer never opens an older run's transcript for a part that failed early.
+    for part in Part.allCases {
+      try? FileManager.default.removeItem(at: DailyBriefStore.transcriptURL(for: input.day, part: part))
+    }
 
     let categories = CategoryPersistence.loadPersistedCategories()
     let cards = nonIdleCards(
@@ -111,61 +151,172 @@ enum DailyBriefGenerator {
     }
 
     let candidates = exportCandidates(for: cards, into: candidatesDirectory)
-    let override = input.promptOverride?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let values: [String: String] = [
+      "USER_NAME": userName(),
+      "TODAY_LONG": longDate(input.day),
+      "YESTERDAY_LONG": longDate(input.sourceDay),
+      "TIMEZONE": TimeZone.current.identifier,
+      "YESTERDAY_CARDS": cardLines(cards),
+      "CATEGORIES_WITH_DESCRIPTIONS": categoryLines(categories),
+      "FEEDBACK_DAYS": String(feedbackDays),
+      "CANDIDATES_DIR": candidatesDirectory.path,
+      "OVERRIDE_INSTRUCTIONS": DailyBriefPrompt.overrideInstructionsBlock(
+        input.overrideInstructions),
+    ]
+
+    // Both runs go at once, so the wait is the slower of the two, not the sum.
+    let parts = Part.allCases
+    var outcomes: [Part: Result<PartRun, Error>] = [:]
+    let outcomesLock = NSLock()
+    DispatchQueue.concurrentPerform(iterations: parts.count) { index in
+      let part = parts[index]
+      let outcome = Result {
+        try runPart(
+          part, input: input, values: values, runDirectory: runDirectory,
+          candidatesDirectory: candidatesDirectory)
+      }
+      outcomesLock.withLock { outcomes[part] = outcome }
+    }
+
+    // Merge in code: the docket goes first, then the other run's sections in its order.
+    var content = DailyBriefContent(order: [])
+    var stats = DailyBriefRunStats()
+    var failures: [String: String] = [:]
+    for part in parts {
+      switch outcomes[part] {
+      case .success(let run):
+        switch part {
+        case .docket:
+          content.docket = run.docket
+        case .extras:
+          if let extras = run.extras {
+            let docket = content.docket
+            content = extras
+            content.docket = docket
+          }
+        }
+        stats = combined(stats, run.stats)
+      case .failure(let error):
+        failures[part.rawValue] =
+          (error as? GenerationError)?.message ?? error.localizedDescription
+      case nil:
+        failures[part.rawValue] = "It didn't run."
+      }
+    }
+    content.order = (content.docket == nil ? [] : [Part.docket.rawValue]) + content.order
+
+    // Both failed. They usually fail for the same reason, so say it once.
+    var failureMessage: String {
+      var unique: [String] = []
+      for message in parts.compactMap({ failures[$0.rawValue] }) where !unique.contains(message) {
+        unique.append(message)
+      }
+      return unique.joined(separator: " ")
+    }
+    if failures.count == parts.count {
+      throw GenerationError(message: failureMessage)
+    }
+
+    stats.cardCount = cards.count
+    stats.candidateImageCount = candidates.count
+    stats.usedOverrideInstructions =
+      !input.overrideInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    stats.failedParts = failures.isEmpty ? nil : failures
+
+    let cleanedContent = cleaned(
+      content, candidates: candidates, candidatesDirectory: candidatesDirectory, day: input.day)
+    // One run failed and the other found nothing, so this is a failure, not a quiet day.
+    if !failures.isEmpty && cleanedContent.orderedKinds.isEmpty {
+      throw GenerationError(message: failureMessage)
+    }
+    return DailyBriefGeneration(content: cleanedContent, stats: stats)
+  }
+
+  /// What one part's run produced. Only the field for that part is set.
+  private struct PartRun {
+    var docket: [DailyBriefDocketItem]?
+    var extras: DailyBriefContent?
+    var stats: DailyBriefRunStats
+  }
+
+  /// The docket run's answer. `notes` and `why` are only for the transcript.
+  private struct DocketAnswer: Decodable {
+    let docket: [DailyBriefDocketItem]?
+  }
+
+  /// Fills in one part's prompt, runs Claude, and decodes the answer.
+  private static func runPart(
+    _ part: Part, input: Input, values: [String: String], runDirectory: URL,
+    candidatesDirectory: URL
+  ) throws -> PartRun {
+    let override =
+      input.promptOverrides[part]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let usesPromptOverride = !override.isEmpty
-    var template = usesPromptOverride ? override : defaultPromptTemplate
+    var template = usesPromptOverride ? override : part.defaultTemplate
     // A custom prompt without the slot still gets the user's extra instructions, at the end.
     if !template.contains("{{OVERRIDE_INSTRUCTIONS}}") {
       template += "\n\n{{OVERRIDE_INSTRUCTIONS}}"
     }
-    let prompt = DailyBriefPrompt.build(
-      template: template,
-      values: [
-        "USER_NAME": userName(),
-        "TODAY_LONG": longDate(input.day),
-        "YESTERDAY_LONG": longDate(input.sourceDay),
-        "TIMEZONE": TimeZone.current.identifier,
-        "YESTERDAY_CARDS": cardLines(cards),
-        "CATEGORIES_WITH_DESCRIPTIONS": categoryLines(categories),
-        "FEEDBACK_DAYS": String(feedbackDays),
-        "FEEDBACK_SUMMARY": feedbackSummary(input.feedbackEvents),
-        "RECENT_BRIEF_ITEMS": recentBriefItems(input.recentBriefs),
-        "CANDIDATES_DIR": candidatesDirectory.path,
-        "OVERRIDE_INSTRUCTIONS": DailyBriefPrompt.overrideInstructionsBlock(
-          input.overrideInstructions),
-      ])
+    // Feedback and past items only cover the sections this part writes.
+    var partValues = values
+    partValues["FEEDBACK_SUMMARY"] = feedbackSummary(input.feedbackEvents, kinds: part.kinds)
+    partValues["RECENT_BRIEF_ITEMS"] = recentBriefItems(input.recentBriefs, kinds: part.kinds)
+    let prompt = DailyBriefPrompt.build(template: template, values: partValues)
 
     let options = try commandOptions(
-      runDirectory: runDirectory, candidatesDirectory: candidatesDirectory)
+      part: part, runDirectory: runDirectory, candidatesDirectory: candidatesDirectory)
     let run = try runStructuredClaude(
       prompt: prompt,
       options: options,
       workingDirectory: runDirectory,
       timeoutSeconds: runTimeoutSeconds,
-      transcriptURL: DailyBriefStore.transcriptURL(for: input.day),
+      transcriptURL: DailyBriefStore.transcriptURL(for: input.day, part: part),
       tooLongMessage:
         "Claude took longer than 20 minutes on your brief, so Dayflow stopped it. Try again."
     )
 
-    let content: DailyBriefContent
-    do {
-      content = try JSONDecoder().decode(DailyBriefContent.self, from: run.json)
-    } catch {
-      print("[DailyBrief] Could not decode the brief: \(error)")
-      throw GenerationError(message: "Claude's answer came back in an unexpected shape. Try again.")
-    }
-
     var stats = run.stats
-    stats.cardCount = cards.count
-    stats.candidateImageCount = candidates.count
     stats.promptCharacters = prompt.count
     stats.usedPromptOverride = usesPromptOverride
-    stats.usedOverrideInstructions =
-      !input.overrideInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
-    let cleanedContent = cleaned(
-      content, candidates: candidates, candidatesDirectory: candidatesDirectory, day: input.day)
-    return DailyBriefGeneration(content: cleanedContent, stats: stats)
+    do {
+      switch part {
+      case .docket:
+        let answer = try JSONDecoder().decode(DocketAnswer.self, from: run.json)
+        return PartRun(docket: answer.docket, stats: stats)
+      case .extras:
+        var content = try JSONDecoder().decode(DailyBriefContent.self, from: run.json)
+        content.docket = nil
+        return PartRun(extras: content, stats: stats)
+      }
+    } catch {
+      print("[DailyBrief] Could not decode the \(part.rawValue) answer: \(error)")
+      throw GenerationError(message: "Claude's answer came back in an unexpected shape. Try again.")
+    }
+  }
+
+  /// Adds up two runs' numbers. Duration is set later by the store (wall-clock time).
+  private static func combined(_ a: DailyBriefRunStats, _ b: DailyBriefRunStats)
+    -> DailyBriefRunStats
+  {
+    func sum(_ x: Int?, _ y: Int?) -> Int? {
+      x == nil && y == nil ? nil : (x ?? 0) + (y ?? 0)
+    }
+    var result = a
+    result.model = a.model ?? b.model
+    if a.costUSD != nil || b.costUSD != nil {
+      result.costUSD = (a.costUSD ?? 0) + (b.costUSD ?? 0)
+    }
+    result.inputTokens = sum(a.inputTokens, b.inputTokens)
+    result.outputTokens = sum(a.outputTokens, b.outputTokens)
+    result.cacheReadTokens = sum(a.cacheReadTokens, b.cacheReadTokens)
+    result.numTurns = sum(a.numTurns, b.numTurns)
+    result.promptCharacters = sum(a.promptCharacters, b.promptCharacters)
+    if a.toolCalls != nil || b.toolCalls != nil {
+      result.toolCalls = (a.toolCalls ?? [:]).merging(b.toolCalls ?? [:], uniquingKeysWith: +)
+    }
+    result.usedPromptOverride = a.usedPromptOverride || b.usedPromptOverride
+    return result
   }
 
   // MARK: - Run directory
@@ -323,9 +474,15 @@ enum DailyBriefGenerator {
     return formatter.string(from: date)
   }
 
-  private static func feedbackSummary(_ events: [DailyBriefFeedbackEvent]) -> String {
+  private static func feedbackSummary(
+    _ events: [DailyBriefFeedbackEvent], kinds: [DailyBriefSectionKind]
+  ) -> String {
     let cutoff = Date().addingTimeInterval(-Double(feedbackDays) * 24 * 60 * 60)
-    let recent = events.filter { $0.at >= cutoff }.sorted { $0.at < $1.at }
+    let sections = Set(kinds.map(\.rawValue))
+    let recent =
+      events
+      .filter { $0.at >= cutoff && sections.contains($0.section) }
+      .sorted { $0.at < $1.at }
     guard !recent.isEmpty else { return "No feedback yet." }
 
     var lines = ["Counts by section:"]
@@ -347,31 +504,30 @@ enum DailyBriefGenerator {
     return lines.joined(separator: "\n")
   }
 
-  private static func recentBriefItems(_ briefs: [DailyBrief]) -> String {
+  private static func recentBriefItems(
+    _ briefs: [DailyBrief], kinds: [DailyBriefSectionKind]
+  ) -> String {
     var blocks: [String] = []
     for brief in briefs.sorted(by: { $0.day > $1.day }) {
       let content = brief.content
       var lines: [String] = []
-      for item in content.docket ?? [] {
-        lines.append("- docket: \(item.title)")
-      }
-      for item in content.keepTracking ?? [] {
-        lines.append("- keep_tracking: \(item.label) — \(item.status)")
-      }
-      for item in content.completedYesterday ?? [] {
-        lines.append("- completed_yesterday: \(item.title)")
-      }
-      for item in content.teamDecisions ?? [] {
-        lines.append("- team_decisions: \(item.decision)")
-      }
-      for item in content.relatedReading ?? [] {
-        lines.append("- related_reading: \(item.title) (\(item.url))")
-      }
-      for item in content.industryNews ?? [] {
-        lines.append("- industry_news: \(item.headline) (\(item.url))")
-      }
-      for item in content.siteSeeing ?? [] {
-        lines.append("- site_seeing: \(item.caption ?? item.file)")
+      for kind in kinds {
+        switch kind {
+        case .docket:
+          lines += (content.docket ?? []).map { "- docket: \($0.title)" }
+        case .keepTracking:
+          lines += (content.keepTracking ?? []).map { "- keep_tracking: \($0.label) — \($0.status)" }
+        case .completedYesterday:
+          lines += (content.completedYesterday ?? []).map { "- completed_yesterday: \($0.title)" }
+        case .teamDecisions:
+          lines += (content.teamDecisions ?? []).map { "- team_decisions: \($0.decision)" }
+        case .relatedReading:
+          lines += (content.relatedReading ?? []).map { "- related_reading: \($0.title) (\($0.url))" }
+        case .industryNews:
+          lines += (content.industryNews ?? []).map { "- industry_news: \($0.headline) (\($0.url))" }
+        case .siteSeeing:
+          lines += (content.siteSeeing ?? []).map { "- site_seeing: \($0.caption ?? $0.file)" }
+        }
       }
       guard !lines.isEmpty else { continue }
       blocks.append("#### \(brief.day)\n" + lines.joined(separator: "\n"))
@@ -381,10 +537,12 @@ enum DailyBriefGenerator {
 
   // MARK: - Command
 
-  private static func commandOptions(runDirectory: URL, candidatesDirectory: URL) throws
-    -> ClaudeCLIStructuredOutputOptions
+  /// The docket run gets no screenshots, so it has no Read tool.
+  private static func commandOptions(part: Part, runDirectory: URL, candidatesDirectory: URL)
+    throws -> ClaudeCLIStructuredOutputOptions
   {
-    let hookURL = runDirectory.appendingPathComponent("read_only_hook.sh")
+    // Each part writes its own files, since both runs start at the same time.
+    let hookURL = runDirectory.appendingPathComponent("\(part.rawValue)_read_only_hook.sh")
     do {
       try readOnlyHookScript.write(to: hookURL, atomically: true, encoding: .utf8)
     } catch {
@@ -398,16 +556,21 @@ enum DailyBriefGenerator {
     ]
     let settings: [String: Any] = ["hooks": ["PreToolUse": [hook]]]
 
-    // Claude permission rules use // for absolute paths; / is project-relative.
-    var allowedTools = ["WebSearch", "WebFetch", "Read(/\(candidatesDirectory.path)/**)"]
+    var tools = "WebSearch,WebFetch"
+    var allowedTools = ["WebSearch", "WebFetch"]
+    if part == .extras {
+      tools = "Read," + tools
+      // Claude permission rules use // for absolute paths; / is project-relative.
+      allowedTools.append("Read(/\(candidatesDirectory.path)/**)")
+    }
     allowedTools += dayflowReadTools.map { "mcp__dayflow__\($0)" }
 
     return ClaudeCLIStructuredOutputOptions(
-      tools: "Read,WebSearch,WebFetch",
-      jsonSchema: jsonString(contentSchema),
-      name: "dayflow-daily-brief",
+      tools: tools,
+      jsonSchema: jsonString(schema(for: part)),
+      name: "dayflow-daily-brief-\(part.rawValue)",
       allowedTools: allowedTools,
-      mcpConfigPath: dayflowMCPConfigPath(in: runDirectory),
+      mcpConfigPath: dayflowMCPConfigPath(in: runDirectory, part: part),
       settingsJSON: jsonString(settings),
       loadsUserMCPServers: true
     )
@@ -415,14 +578,14 @@ enum DailyBriefGenerator {
 
   /// Writes an `--mcp-config` file that adds Dayflow's bundled MCP server, or nil
   /// when the bundled CLI is missing (e.g. some debug builds).
-  private static func dayflowMCPConfigPath(in runDirectory: URL) -> String? {
+  private static func dayflowMCPConfigPath(in runDirectory: URL, part: Part) -> String? {
     // Same path as AgentClientRegistration.cliPath, which is main-actor isolated.
     let cliPath = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/dayflow").path
     guard FileManager.default.isExecutableFile(atPath: cliPath) else { return nil }
 
     let server: [String: Any] = ["command": cliPath, "args": ["mcp"]]
     let config: [String: Any] = ["mcpServers": ["dayflow": server]]
-    let url = runDirectory.appendingPathComponent("mcp.json")
+    let url = runDirectory.appendingPathComponent("\(part.rawValue)_mcp.json")
     do {
       try jsonString(config).write(to: url, atomically: true, encoding: .utf8)
       return url.path
@@ -524,12 +687,19 @@ enum DailyBriefGenerator {
     ]
   }
 
-  /// JSON Schema for DailyBriefContent. Every section is optional; `order` is required.
+  /// JSON Schema for one part's answer. The docket run returns `notes` and `docket`; the
+  /// other run returns every other section, each optional, plus a required `order`.
   /// `imageFile` on completed items is filled in by the app, so it isn't offered here.
-  static var contentSchema: [String: Any] {
+  /// `notes` and each item's `why` are the model's justifications. The app doesn't show or
+  /// decode them; they're there so the transcript explains each choice (the CLI hides thinking).
+  static func schema(for part: Part) -> [String: Any] {
     let person = objectSchema(["name": stringSchema, "note": stringSchema], required: ["name"])
     let link = objectSchema(
       ["title": stringSchema, "url": stringSchema, "app": stringSchema], required: ["title"])
+
+    let feedbackNote = objectSchema(
+      ["name": stringSchema, "source": stringSchema, "text": stringSchema, "url": stringSchema],
+      required: ["name", "text"])
 
     let docketItem = objectSchema(
       [
@@ -538,7 +708,14 @@ enum DailyBriefGenerator {
         "due": stringSchema,
         "people": arraySchema(person),
         "links": arraySchema(link),
-      ], required: ["title"])
+        "prompt": stringSchema,
+        "agent": ["type": "boolean"],
+        "feedback": arraySchema(feedbackNote),
+        "feedbackSummary": stringSchema,
+        "feedbackUrl": stringSchema,
+        "attach": arraySchema(stringSchema),
+        "why": stringSchema,
+      ], required: ["title", "prompt", "agent", "why"])
     let trackingItem = objectSchema(
       [
         "label": stringSchema,
@@ -546,14 +723,16 @@ enum DailyBriefGenerator {
         "app": stringSchema,
         "asOf": stringSchema,
         "url": stringSchema,
-      ], required: ["label", "status"])
+        "why": stringSchema,
+      ], required: ["label", "status", "why"])
     let completedItem = objectSchema(
       [
         "project": stringSchema,
         "title": stringSchema,
         "apps": arraySchema(stringSchema),
         "cardId": ["type": "integer"],
-      ], required: ["title"])
+        "why": stringSchema,
+      ], required: ["title", "why"])
     let decisionItem = objectSchema(
       [
         "decision": stringSchema,
@@ -562,7 +741,8 @@ enum DailyBriefGenerator {
         "place": stringSchema,
         "app": stringSchema,
         "url": stringSchema,
-      ], required: ["decision"])
+        "why": stringSchema,
+      ], required: ["decision", "why"])
     let readingItem = objectSchema(
       [
         "title": stringSchema,
@@ -570,22 +750,30 @@ enum DailyBriefGenerator {
         "url": stringSchema,
         "reason": stringSchema,
         "imageUrl": stringSchema,
-      ], required: ["title", "url"])
+        "why": stringSchema,
+      ], required: ["title", "url", "why"])
     let newsItem = objectSchema(
       [
         "headline": stringSchema,
         "source": stringSchema,
         "url": stringSchema,
         "published": stringSchema,
-      ], required: ["headline", "url"])
+        "why": stringSchema,
+      ], required: ["headline", "url", "why"])
     let siteSeeingItem = objectSchema(
-      ["file": stringSchema, "caption": stringSchema], required: ["file"])
+      ["file": stringSchema, "caption": stringSchema, "why": stringSchema],
+      required: ["file", "why"])
 
-    let sectionNames = DailyBriefSectionKind.allCases.map(\.rawValue)
+    if part == .docket {
+      return objectSchema(
+        ["notes": stringSchema, "docket": arraySchema(docketItem)], required: ["notes", "docket"])
+    }
+
+    let sectionNames = part.kinds.map(\.rawValue)
     return objectSchema(
       [
+        "notes": stringSchema,
         "order": arraySchema(["type": "string", "enum": sectionNames]),
-        "docket": arraySchema(docketItem),
         "keep_tracking": arraySchema(trackingItem),
         "completed_yesterday": arraySchema(completedItem),
         "team_decisions": arraySchema(decisionItem),
@@ -593,7 +781,7 @@ enum DailyBriefGenerator {
         "related_reading": arraySchema(readingItem),
         "industry_news": arraySchema(newsItem),
         "site_seeing": arraySchema(siteSeeingItem),
-      ], required: ["order"])
+      ], required: ["notes", "order"])
   }
 
   static func jsonString(_ object: Any) -> String {
@@ -739,7 +927,10 @@ enum DailyBriefGenerator {
           case "text":
             sections.append("## Claude\n\n" + (block["text"] as? String ?? ""))
           case "thinking":
-            sections.append("## Claude (thinking)\n\n" + (block["thinking"] as? String ?? ""))
+            // The CLI currently sends thinking blocks with the text left out, so skip empty ones.
+            let thinking = block["thinking"] as? String ?? ""
+            guard !thinking.isEmpty else { continue }
+            sections.append("## Claude (thinking)\n\n" + thinking)
           case "tool_use":
             let name = block["name"] as? String ?? "?"
             sections.append("## Tool call: \(name)\n\n" + prettyJSON(block["input"] ?? [:]))
@@ -929,9 +1120,18 @@ enum DailyBriefGenerator {
           guard let title = clean(link.title) else { return nil }
           return DailyBriefLink(title: title, url: webURL(link.url), app: cleanApp(link.app))
         }
+        let feedback = (item.feedback ?? []).compactMap { note -> DailyBriefFeedbackNote? in
+          guard let name = clean(note.name), let text = clean(note.text) else { return nil }
+          return DailyBriefFeedbackNote(
+            name: name, source: clean(note.source), text: text, url: webURL(note.url))
+        }
+        let attach = (item.attach ?? []).compactMap { clean($0) }
         return DailyBriefDocketItem(
           title: title, detail: clean(item.detail), due: clean(item.due),
-          people: nonEmpty(people), links: nonEmpty(links))
+          people: nonEmpty(people), links: nonEmpty(links),
+          prompt: clean(item.prompt), agent: item.agent, feedback: nonEmpty(feedback),
+          feedbackSummary: clean(item.feedbackSummary), feedbackUrl: webURL(item.feedbackUrl),
+          attach: nonEmpty(attach))
       })
 
     result.keepTracking = nonEmpty(

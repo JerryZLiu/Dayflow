@@ -99,20 +99,27 @@ final class DailyBriefStore: ObservableObject {
     }
   }
 
-  private static let promptOverrideKey = "dailyBriefPromptOverride"
-
-  /// A full replacement for the default prompt template (same {{PLACEHOLDERS}}).
-  /// Empty means use DailyBriefGenerator.defaultPromptTemplate.
-  var promptOverride: String {
-    get { UserDefaults.standard.string(forKey: Self.promptOverrideKey) ?? "" }
-    set {
-      objectWillChange.send()
-      UserDefaults.standard.set(newValue, forKey: Self.promptOverrideKey)
-    }
+  private static func promptOverrideKey(_ part: DailyBriefGenerator.Part) -> String {
+    "dailyBriefPromptOverride.\(part.rawValue)"
   }
 
-  var hasPromptOverride: Bool {
-    !promptOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  /// A full replacement for one part's default prompt (same {{PLACEHOLDERS}}).
+  /// Empty means use the part's defaultTemplate.
+  func promptOverride(for part: DailyBriefGenerator.Part) -> String {
+    UserDefaults.standard.string(forKey: Self.promptOverrideKey(part)) ?? ""
+  }
+
+  func setPromptOverride(_ text: String, for part: DailyBriefGenerator.Part) {
+    objectWillChange.send()
+    UserDefaults.standard.set(text, forKey: Self.promptOverrideKey(part))
+  }
+
+  func hasPromptOverride(for part: DailyBriefGenerator.Part) -> Bool {
+    !promptOverride(for: part).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  var hasAnyPromptOverride: Bool {
+    DailyBriefGenerator.Part.allCases.contains { hasPromptOverride(for: $0) }
   }
 
   /// Stats from the most recent failed run, so the debug footer can show them.
@@ -146,9 +153,9 @@ final class DailyBriefStore: ObservableObject {
     briefDirectory(for: day).appendingPathComponent("brief.json")
   }
 
-  /// The last run's full Claude transcript for that day, readable text.
-  nonisolated static func transcriptURL(for day: String) -> URL {
-    briefDirectory(for: day).appendingPathComponent("transcript.txt")
+  /// One part's full Claude transcript from the last run for that day, readable text.
+  nonisolated static func transcriptURL(for day: String, part: DailyBriefGenerator.Part) -> URL {
+    briefDirectory(for: day).appendingPathComponent("transcript-\(part.rawValue).txt")
   }
 
   nonisolated static func savedDirectory() -> URL {
@@ -295,12 +302,16 @@ final class DailyBriefStore: ObservableObject {
     let startedAt = Date()
     runState = .running(startedAt: startedAt)
 
+    var promptOverrides: [DailyBriefGenerator.Part: String] = [:]
+    for part in DailyBriefGenerator.Part.allCases where hasPromptOverride(for: part) {
+      promptOverrides[part] = promptOverride(for: part)
+    }
     let input = DailyBriefGenerator.Input(
       day: day,
       sourceDay: sourceDay,
       trigger: trigger,
       overrideInstructions: overrideInstructions,
-      promptOverride: hasPromptOverride ? promptOverride : nil,
+      promptOverrides: promptOverrides,
       feedbackEvents: feedbackEvents,
       recentBriefs: Self.loadAllBriefs().filter { $0.day != day }.prefix(5).map { $0 }
     )
@@ -329,8 +340,13 @@ final class DailyBriefStore: ObservableObject {
     let durationSeconds = Int(elapsed)
     switch result {
     case .success(let generation):
-      let content = generation.content
+      var content = generation.content
       var stats = generation.stats
+      // A retry where one part failed keeps that part's sections from the brief already here.
+      if let existing = brief, existing.day == day, let failedParts = stats.failedParts {
+        let parts = failedParts.keys.compactMap { DailyBriefGenerator.Part(rawValue: $0) }
+        content = Self.content(content, keepingSectionsOf: parts, from: existing.content)
+      }
       stats.durationSeconds = elapsed
       stats.trigger = trigger
       // A retry replaces the content but keeps what the user already did today.
@@ -363,18 +379,45 @@ final class DailyBriefStore: ObservableObject {
           "cost_usd": stats.costUSD ?? 0,
           "num_turns": stats.numTurns ?? 0,
           "used_prompt_override": stats.usedPromptOverride,
+          "failed_parts": (stats.failedParts ?? [:]).keys.sorted().joined(separator: ","),
         ])
     case .failure(let error):
       let message =
         (error as? DailyBriefGenerator.GenerationError)?.message ?? error.localizedDescription
       runState = .failed(message)
       lastFailedRunStats = DailyBriefRunStats(
-        durationSeconds: elapsed, usedPromptOverride: hasPromptOverride,
+        durationSeconds: elapsed, usedPromptOverride: hasAnyPromptOverride,
         usedOverrideInstructions: !overrideInstructions.isEmpty, trigger: trigger)
       AnalyticsService.shared.capture(
         "daily_brief_run_failed",
         ["trigger": trigger, "day": day, "duration_seconds": durationSeconds])
     }
+  }
+
+  /// `new` with the sections of `parts` taken from `old`. The docket stays first.
+  private static func content(
+    _ new: DailyBriefContent, keepingSectionsOf parts: [DailyBriefGenerator.Part],
+    from old: DailyBriefContent
+  ) -> DailyBriefContent {
+    var result = new
+    if parts.contains(.docket) {
+      result.docket = old.docket
+    }
+    var otherOrder = new.order
+    if parts.contains(.extras) {
+      result.keepTracking = old.keepTracking
+      result.completedYesterday = old.completedYesterday
+      result.teamDecisions = old.teamDecisions
+      result.relatedReadingIntro = old.relatedReadingIntro
+      result.relatedReading = old.relatedReading
+      result.industryNews = old.industryNews
+      result.siteSeeing = old.siteSeeing
+      otherOrder = old.order
+    }
+    let docketName = DailyBriefSectionKind.docket.rawValue
+    result.order =
+      (result.hasItems(.docket) ? [docketName] : []) + otherOrder.filter { $0 != docketName }
+    return result
   }
 
   // MARK: - Presentation

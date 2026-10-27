@@ -412,7 +412,7 @@ private struct DailyBriefFooter: View {
             Image(systemName: "text.alignleft")
               .font(.system(size: 10, weight: .medium))
             Text("Edit prompt")
-            if store.hasPromptOverride {
+            if store.hasAnyPromptOverride {
               Text("Custom prompt")
                 .font(DailyBriefFonts.sans(10, weight: .semibold))
                 .foregroundStyle(theme.accent)
@@ -460,11 +460,11 @@ private struct DailyBriefDebugStats: View {
     isFailed ? store.lastFailedRunStats : store.brief?.stats
   }
 
-  /// The last run's saved Claude transcript, when there is one. Runs are always
-  /// for today, so a failed retry's transcript lives in the same folder.
-  private var transcriptURL: URL? {
+  /// One part's saved Claude transcript from the last run, when there is one. Runs are
+  /// always for today, so a failed retry's transcripts live in the same folder.
+  private func transcriptURL(_ part: DailyBriefGenerator.Part) -> URL? {
     let day = store.brief?.day ?? Date().getDayInfoFor4AMBoundary().dayString
-    let url = DailyBriefStore.transcriptURL(for: day)
+    let url = DailyBriefStore.transcriptURL(for: day, part: part)
     return FileManager.default.fileExists(atPath: url.path) ? url : nil
   }
 
@@ -563,7 +563,13 @@ private struct DailyBriefDebugStats: View {
     flags.append(stats.usedPromptOverride ? "custom prompt" : "default prompt")
     if stats.usedOverrideInstructions { flags.append("override instructions") }
 
-    return [run, tokens, work, flags]
+    // A run that failed while the other one succeeded gets its own line.
+    let failures = (stats.failedParts ?? [:]).sorted { $0.key < $1.key }.map { part, message in
+      let name = DailyBriefGenerator.Part(rawValue: part)?.displayName ?? part
+      return ["\(name) run failed: \(message)"]
+    }
+
+    return ([run, tokens, work, flags] + failures)
       .filter { !$0.isEmpty }
       .map { $0.joined(separator: " · ") }
   }
@@ -587,13 +593,23 @@ private struct DailyBriefDebugStats: View {
   }
 }
 
-/// Edits the whole prompt template. Empty override means the default is used.
+/// Edits the two prompt templates (docket, and other sections). An empty override means
+/// that part uses its default.
 private struct DailyBriefPromptEditor: View {
   @Binding var isPresented: Bool
 
   @ObservedObject private var store = DailyBriefStore.shared
   @Environment(\.dayflowTheme) private var theme
-  @State private var draft = ""
+  @State private var part: DailyBriefGenerator.Part = .docket
+  /// One draft per part, so switching between them keeps unsaved edits.
+  @State private var drafts: [DailyBriefGenerator.Part: String] = [:]
+
+  private var draft: Binding<String> {
+    Binding(
+      get: { drafts[part] ?? "" },
+      set: { drafts[part] = $0 }
+    )
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -602,15 +618,23 @@ private struct DailyBriefPromptEditor: View {
         .foregroundStyle(theme.textPrimary)
 
       Text(
-        "The full prompt sent to Claude. Placeholders are filled in at run time. Used from the next run, so Retry picks it up."
+        "The brief is written by two Claude runs at once: one for the docket, one for every other section. Placeholders are filled in at run time. Used from the next run, so Retry picks it up."
       )
       .font(DailyBriefFonts.sans(12))
       .foregroundStyle(DailyBriefColors.muted(theme))
       .fixedSize(horizontal: false, vertical: true)
 
+      Picker("Prompt", selection: $part) {
+        ForEach(DailyBriefGenerator.Part.allCases, id: \.self) { part in
+          Text(part.displayName).tag(part)
+        }
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
+
       placeholderChips
 
-      TextEditor(text: $draft)
+      TextEditor(text: draft)
         .font(.system(size: 12, design: .monospaced))
         .scrollContentBackground(.hidden)
         .padding(8)
@@ -624,19 +648,20 @@ private struct DailyBriefPromptEditor: View {
         )
 
       HStack {
-        Button("Reset to default") {
-          store.promptOverride = ""
-          draft = DailyBriefGenerator.defaultPromptTemplate
+        Button("Reset \(part.displayName.lowercased()) to default") {
+          drafts[part] = part.defaultTemplate
         }
         Spacer()
         Button("Cancel") { isPresented = false }
           .keyboardShortcut(.cancelAction)
         Button("Save") {
-          let isDefault =
-            draft.trimmingCharacters(in: .whitespacesAndNewlines)
-            == DailyBriefGenerator.defaultPromptTemplate.trimmingCharacters(
-              in: .whitespacesAndNewlines)
-          store.promptOverride = isDefault ? "" : draft
+          for part in DailyBriefGenerator.Part.allCases {
+            let draft = drafts[part] ?? ""
+            let isDefault =
+              draft.trimmingCharacters(in: .whitespacesAndNewlines)
+              == part.defaultTemplate.trimmingCharacters(in: .whitespacesAndNewlines)
+            store.setPromptOverride(isDefault ? "" : draft, for: part)
+          }
           isPresented = false
         }
         .keyboardShortcut(.defaultAction)
@@ -645,15 +670,17 @@ private struct DailyBriefPromptEditor: View {
     .padding(20)
     .frame(width: 760, height: 600)
     .onAppear {
-      draft =
-        store.hasPromptOverride ? store.promptOverride : DailyBriefGenerator.defaultPromptTemplate
+      for part in DailyBriefGenerator.Part.allCases {
+        drafts[part] =
+          store.hasPromptOverride(for: part) ? store.promptOverride(for: part) : part.defaultTemplate
+      }
     }
   }
 
   private var placeholderChips: some View {
     ScrollView(.horizontal, showsIndicators: false) {
       HStack(spacing: 6) {
-        ForEach(DailyBriefGenerator.placeholderNames, id: \.self) { name in
+        ForEach(part.placeholderNames, id: \.self) { name in
           Text(name.contains("{{") ? name : "{{\(name)}}")
             .font(.system(size: 10, design: .monospaced))
             .foregroundStyle(DailyBriefColors.body(theme))

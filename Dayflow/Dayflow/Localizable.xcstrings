@@ -1804,6 +1804,9 @@
         }
       }
     },
+    "%@ transcript" : {
+
+    },
     "%@ until your break ends." : {
 
     },
@@ -48476,9 +48479,6 @@
         }
       }
     },
-    "Read transcript" : {
-
-    },
     "Ready for review" : {
       "localizations" : {
         "de" : {
@@ -50903,6 +50903,9 @@
         }
       }
     },
+    "Reset %@ to default" : {
+
+    },
     "Reset Onboarding" : {
       "localizations" : {
         "de" : {
@@ -50994,9 +50997,6 @@
           }
         }
       }
-    },
-    "Reset to default" : {
-
     },
     "Resolution" : {
       "localizations" : {
@@ -59680,6 +59680,9 @@
         }
       }
     },
+    "The brief is written by two Claude runs at once: one for the docket, one for every other section. Placeholders are filled in at run time. Used from the next run, so Retry picks it up." : {
+
+    },
     "The Claude transcription contact sheet could not be created." : {
       "localizations" : {
         "de" : {
@@ -59909,9 +59912,6 @@
           }
         }
       }
-    },
-    "The full prompt sent to Claude. Placeholders are filled in at run time. Used from the next run, so Retry picks it up." : {
-
     },
     "The intro video, role-selection screen, and preferences screen are now wired up. We can keep replacing the remaining placeholders step by step without touching production onboarding yet." : {
       "localizations" : {
