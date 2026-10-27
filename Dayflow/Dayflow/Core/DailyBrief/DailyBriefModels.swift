@@ -198,6 +198,31 @@ struct DailyBriefAddedTask: Codable, Hashable, Identifiable, Sendable {
   var title: String
 }
 
+/// Where a docket task went: handed to an agent, or dismissed.
+struct DailyBriefHandoff: Codable, Hashable, Sendable {
+  enum Method: String, Codable, Sendable {
+    /// Copy the prompt and paste it into the agent's app.
+    case paste
+    /// Run the prompt in the background in the task's folder.
+    case run
+  }
+
+  var title: String
+  var dismissed: Bool
+  /// "Claude" or "ChatGPT"; nil for a dismissal.
+  var agent: String?
+  var method: Method?
+  var at = Date()
+  /// Why it was dismissed, from the pop-up.
+  var reason: String?
+  /// The user opened the result.
+  var reviewed = false
+  /// A background run: its output file (relative to the brief folder), and when it ended.
+  var outputFile: String?
+  var finishedAt: Date?
+  var failed = false
+}
+
 /// What the user did with one day's brief. Item keys come from DailyBriefStore.itemKey.
 struct DailyBriefUserState: Codable, Equatable, Sendable {
   var checkedItemKeys: Set<String> = []
@@ -205,6 +230,12 @@ struct DailyBriefUserState: Codable, Equatable, Sendable {
   var addedTasks: [DailyBriefAddedTask] = []
   /// True once the brief has been shown to the user (auto pop-up or opened from the notice).
   var hasBeenShown = false
+  /// Docket task title → the user's edited prompt.
+  var promptEdits: [String: String] = [:]
+  /// Docket task title → the folder its agent works in ("" for no folder).
+  var folders: [String: String] = [:]
+  /// Every hand-off and dismissal, oldest first. The last entry for a title wins.
+  var handoffs: [DailyBriefHandoff] = []
 
   init() {}
 
@@ -219,6 +250,11 @@ struct DailyBriefUserState: Codable, Equatable, Sendable {
     addedTasks =
       try container.decodeIfPresent([DailyBriefAddedTask].self, forKey: .addedTasks) ?? []
     hasBeenShown = try container.decodeIfPresent(Bool.self, forKey: .hasBeenShown) ?? false
+    promptEdits =
+      try container.decodeIfPresent([String: String].self, forKey: .promptEdits) ?? [:]
+    folders = try container.decodeIfPresent([String: String].self, forKey: .folders) ?? [:]
+    handoffs =
+      try container.decodeIfPresent([DailyBriefHandoff].self, forKey: .handoffs) ?? []
   }
 }
 
