@@ -241,6 +241,9 @@ struct DailyBriefRunStats: Codable, Equatable, Sendable {
   var usedPromptOverride = false
   var usedOverrideInstructions = false
   var trigger: String?
+  /// Part name ("docket" or "extras") → why that run failed, when the brief was kept
+  /// from the other run alone.
+  var failedParts: [String: String]?
 
   init(
     durationSeconds: Double = 0, usedPromptOverride: Bool = false,
@@ -271,6 +274,7 @@ struct DailyBriefRunStats: Codable, Equatable, Sendable {
     usedOverrideInstructions =
       try c.decodeIfPresent(Bool.self, forKey: .usedOverrideInstructions) ?? false
     trigger = try c.decodeIfPresent(String.self, forKey: .trigger)
+    failedParts = try c.decodeIfPresent([String: String].self, forKey: .failedParts)
   }
 }
 
