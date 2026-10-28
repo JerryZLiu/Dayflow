@@ -14,7 +14,7 @@
 //    summaries/<range>.json  the latest "Everything you completed" summary per range
 //
 
-import Foundation
+import AppKit
 
 @MainActor
 final class DailyBriefStore: ObservableObject {
@@ -519,6 +519,279 @@ final class DailyBriefStore: ObservableObject {
     Self.write(feedbackEvents, to: Self.feedbackURL)
     AnalyticsService.shared.capture(
       "daily_brief_item_action", ["section": kind.rawValue, "action": action.rawValue])
+  }
+
+  // MARK: - Docket hand-off
+
+  /// What a docket task shows in the list's Status column.
+  enum DocketStatus: Equatable {
+    case new
+    case dismissed
+    case inProgress(agent: DailyBriefAgent)
+    case ready(agent: DailyBriefAgent)
+    case reviewed(agent: DailyBriefAgent)
+    case failed(agent: DailyBriefAgent)
+  }
+
+  private static let docketAgentKey = "dailyBriefDocketAgent"
+  private static let docketMethodKey = "dailyBriefDocketHandoffMethod"
+  private static let docketViewKey = "dailyBriefDocketShowsList"
+  private static let pickedFoldersKey = "dailyBriefDocketPickedFolders"
+
+  /// The agent Hand off sends to (the gear menu's Providers).
+  var docketAgent: DailyBriefAgent {
+    get {
+      DailyBriefAgent(rawValue: UserDefaults.standard.string(forKey: Self.docketAgentKey) ?? "")
+        ?? .claude
+    }
+    set {
+      objectWillChange.send()
+      UserDefaults.standard.set(newValue.rawValue, forKey: Self.docketAgentKey)
+    }
+  }
+
+  /// How Hand off sends the prompt (the gear menu's Hand-off method).
+  var docketHandoffMethod: DailyBriefHandoff.Method {
+    get {
+      DailyBriefHandoff.Method(
+        rawValue: UserDefaults.standard.string(forKey: Self.docketMethodKey) ?? "") ?? .paste
+    }
+    set {
+      objectWillChange.send()
+      UserDefaults.standard.set(newValue.rawValue, forKey: Self.docketMethodKey)
+    }
+  }
+
+  /// The docket shows as a list instead of the card stack.
+  var docketShowsList: Bool {
+    get { UserDefaults.standard.bool(forKey: Self.docketViewKey) }
+    set {
+      objectWillChange.send()
+      UserDefaults.standard.set(newValue, forKey: Self.docketViewKey)
+    }
+  }
+
+  /// Today's docket tasks, in the model's order.
+  var docketItems: [DailyBriefDocketItem] {
+    brief?.content.docket ?? []
+  }
+
+  /// The latest hand-off or dismissal for a task, if any.
+  func handoff(for title: String) -> DailyBriefHandoff? {
+    brief?.userState.handoffs.last { $0.title == title }
+  }
+
+  /// True once a task has been handed off or dismissed, so it leaves the card stack.
+  func isDocketDone(_ title: String) -> Bool {
+    handoff(for: title) != nil
+  }
+
+  func docketStatus(for title: String) -> DocketStatus {
+    guard let entry = handoff(for: title) else { return .new }
+    if entry.dismissed { return .dismissed }
+    let agent = DailyBriefAgent(rawValue: entry.agent ?? "") ?? .claude
+    if entry.reviewed { return .reviewed(agent: agent) }
+    if entry.failed { return .failed(agent: agent) }
+    if entry.method == .run && entry.finishedAt != nil { return .ready(agent: agent) }
+    return .inProgress(agent: agent)
+  }
+
+  /// The prompt as the user last left it.
+  func docketPrompt(for item: DailyBriefDocketItem) -> String {
+    brief?.userState.promptEdits[item.title] ?? item.prompt ?? ""
+  }
+
+  func setDocketPrompt(_ text: String, for item: DailyBriefDocketItem) {
+    guard brief != nil else { return }
+    brief!.userState.promptEdits[item.title] = text == item.prompt ? nil : text
+    persistBrief()
+  }
+
+  /// The folder the task's agent works in; nil means "No folder". New tasks start with no
+  /// folder, so a run never edits a project the user didn't pick for it.
+  func docketFolder(for title: String) -> String? {
+    guard let picked = brief?.userState.folders[title], !picked.isEmpty else { return nil }
+    return picked
+  }
+
+  func setDocketFolder(_ path: String?, for title: String) {
+    guard brief != nil else { return }
+    brief!.userState.folders[title] = path ?? ""
+    if let path { rememberPickedFolder(path) }
+    persistBrief()
+  }
+
+  /// Folders for the folder menu: ones picked with "Open folder…" first, then the
+  /// projects Claude Code was used in most recently. At most five.
+  var recentFolders: [String] {
+    let picked = UserDefaults.standard.stringArray(forKey: Self.pickedFoldersKey) ?? []
+    var result: [String] = []
+    for path in picked + cachedClaudeProjects where !result.contains(path) {
+      if FileManager.default.fileExists(atPath: path) { result.append(path) }
+      if result.count == 5 { break }
+    }
+    return result
+  }
+
+  private lazy var cachedClaudeProjects: [String] = Self.recentClaudeProjects()
+
+  private func rememberPickedFolder(_ path: String) {
+    var picked = UserDefaults.standard.stringArray(forKey: Self.pickedFoldersKey) ?? []
+    picked.removeAll { $0 == path }
+    picked.insert(path, at: 0)
+    UserDefaults.standard.set(Array(picked.prefix(5)), forKey: Self.pickedFoldersKey)
+  }
+
+  /// Project folders from ~/.claude.json, newest first by when their session folder in
+  /// ~/.claude/projects last changed (that folder's name is the path with / and . as -).
+  private nonisolated static func recentClaudeProjects() -> [String] {
+    let home = URL(fileURLWithPath: NSHomeDirectory())
+    guard let data = try? Data(contentsOf: home.appendingPathComponent(".claude.json")),
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let projects = json["projects"] as? [String: Any]
+    else { return [] }
+
+    let sessions = home.appendingPathComponent(".claude/projects")
+    let dated: [(path: String, date: Date)] = projects.keys.compactMap { path in
+      guard path != NSHomeDirectory(), path != "/" else { return nil }
+      let encoded = path.replacingOccurrences(of: "/", with: "-")
+        .replacingOccurrences(of: ".", with: "-")
+      let folder = sessions.appendingPathComponent(encoded)
+      guard let date = (try? folder.resourceValues(forKeys: [.contentModificationDateKey]))?
+        .contentModificationDate
+      else { return nil }
+      return (path, date)
+    }
+    return dated.sorted { $0.date > $1.date }.map(\.path)
+  }
+
+  /// Hands a task to the chosen agent: pastes it into the agent's app, or runs it in
+  /// the background in the task's folder.
+  /// `card` is the front card as it left the deck, for transitions that carry it.
+  func handOffDocket(_ item: DailyBriefDocketItem, card: DocketLiftedCard? = nil) {
+    guard brief != nil else { return }
+    let agent = docketAgent
+    let method = docketHandoffMethod
+    let prompt = docketPrompt(for: item)
+    let folder = docketFolder(for: item.title)
+    var entry = DailyBriefHandoff(
+      title: item.title, dismissed: false, agent: agent.rawValue, method: method)
+
+    switch method {
+    case .paste:
+      DocketHandoffDirector.paste(prompt: prompt, agent: agent, card: card)
+    case .run:
+      let file = "handoffs/\(Self.fileSafe(item.title))-\(Int(Date().timeIntervalSince1970)).txt"
+      entry.outputFile = file
+      let day = brief!.day
+      let title = item.title
+      DailyBriefHandoffRunner.run(
+        prompt: prompt, agent: agent, folder: folder,
+        outputURL: Self.briefImageURL(day: day, file: file)
+      ) { exitCode in
+        DailyBriefStore.shared.finishDocketRun(day: day, title: title, exitCode: exitCode)
+      }
+    }
+
+    brief!.userState.handoffs.append(entry)
+    persistBrief()
+    recordFeedback(.docket, item.title, .opened)
+    AnalyticsService.shared.capture(
+      "daily_brief_docket_handoff",
+      ["agent": agent.rawValue, "method": method.rawValue, "has_folder": folder != nil])
+  }
+
+  private func finishDocketRun(day: String, title: String, exitCode: Int32) {
+    guard brief?.day == day,
+      let index = brief!.userState.handoffs.lastIndex(where: { $0.title == title })
+    else { return }
+    brief!.userState.handoffs[index].finishedAt = Date()
+    brief!.userState.handoffs[index].failed = exitCode != 0
+    persistBrief()
+    AnalyticsService.shared.capture(
+      "daily_brief_docket_run_finished", ["succeeded": exitCode == 0])
+  }
+
+  /// Runs that ended while Dayflow wasn't watching (it quit, or the run outlived it) leave
+  /// an exit code next to their output, so pick those up.
+  func refreshDocketRuns() {
+    guard let day = brief?.day else { return }
+    for (index, entry) in brief!.userState.handoffs.enumerated()
+    where entry.method == .run && entry.finishedAt == nil {
+      guard let file = entry.outputFile,
+        !DailyBriefHandoffRunner.isRunning(outputURL: Self.briefImageURL(day: day, file: file))
+      else { continue }
+      let exitURL = Self.briefImageURL(day: day, file: file + ".exit")
+      if let text = try? String(contentsOf: exitURL, encoding: .utf8) {
+        let code = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 1
+        brief!.userState.handoffs[index].finishedAt = Date()
+        brief!.userState.handoffs[index].failed = code != 0
+      } else if Date().timeIntervalSince(entry.at) > 3 * 60 * 60 {
+        brief!.userState.handoffs[index].finishedAt = Date()
+        brief!.userState.handoffs[index].failed = true
+      }
+    }
+    persistBrief()
+  }
+
+  /// Opens what the agent did: a run's output, or the agent's app for a pasted prompt.
+  func openDocketResult(_ title: String) {
+    guard let entry = handoff(for: title), !entry.dismissed, let day = brief?.day else { return }
+    if let file = entry.outputFile {
+      NSWorkspace.shared.open(Self.briefImageURL(day: day, file: file))
+    } else {
+      DailyBriefHandoffRunner.openApp(DailyBriefAgent(rawValue: entry.agent ?? "") ?? .claude)
+    }
+    // A finished run, or a pasted prompt (which never reports back), counts as reviewed
+    // once the user opens it. A run still going stays In progress.
+    let isFinishedRun = entry.method == .run && entry.finishedAt != nil
+    guard isFinishedRun || entry.method == .paste,
+      let index = brief!.userState.handoffs.lastIndex(where: { $0.title == title })
+    else { return }
+    brief!.userState.handoffs[index].reviewed = true
+    persistBrief()
+  }
+
+  func dismissDocket(_ title: String) {
+    guard brief != nil else { return }
+    brief!.userState.handoffs.append(DailyBriefHandoff(title: title, dismissed: true))
+    persistBrief()
+    recordFeedback(.docket, title, .dismissed)
+  }
+
+  /// Debug: puts every docket task back in the stack as new, forgetting hand-offs,
+  /// dismissals, prompt edits and folders. Runs already started keep going.
+  func resetDocket() {
+    guard brief != nil else { return }
+    brief!.userState.handoffs = []
+    brief!.userState.promptEdits = [:]
+    brief!.userState.folders = [:]
+    persistBrief()
+  }
+
+  /// Undo: forgets the task's last dismissal so it's back in the stack.
+  func undoDocketDismiss(_ title: String) {
+    guard brief != nil,
+      let index = brief!.userState.handoffs.lastIndex(where: { $0.title == title && $0.dismissed })
+    else { return }
+    brief!.userState.handoffs.remove(at: index)
+    persistBrief()
+    AnalyticsService.shared.capture("daily_brief_docket_dismiss_undone")
+  }
+
+  func setDocketDismissReason(_ reason: String, for title: String) {
+    guard brief != nil,
+      let index = brief!.userState.handoffs.lastIndex(where: { $0.title == title && $0.dismissed })
+    else { return }
+    brief!.userState.handoffs[index].reason = reason
+    persistBrief()
+    AnalyticsService.shared.capture("daily_brief_docket_dismiss_reason", ["reason": reason])
+  }
+
+  /// "Prototype card-swipe…" → "prototype-card-swipe", for file names.
+  private static func fileSafe(_ text: String) -> String {
+    let words = text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
+    return words.filter { !$0.isEmpty }.prefix(6).joined(separator: "-")
   }
 
   // MARK: - Saved images
