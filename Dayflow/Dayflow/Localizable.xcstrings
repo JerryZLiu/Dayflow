@@ -2475,6 +2475,9 @@
         }
       }
     },
+    "%lld Feedback" : {
+
+    },
     "%lld hours" : {
       "localizations" : {
         "de" : {
@@ -12972,6 +12975,9 @@
         }
       }
     },
+    "Check in on the status of each task in the list view.\nCome back tomorrow to see what else Dayflow can complete for you." : {
+
+    },
     "Check installations" : {
       "localizations" : {
         "de" : {
@@ -15436,6 +15442,9 @@
           }
         }
       }
+    },
+    "Click to edit" : {
+
     },
     "Close" : {
       "localizations" : {
@@ -19193,6 +19202,9 @@
           }
         }
       }
+    },
+    "Copy the prompt" : {
+
     },
     "Copy timeline" : {
       "localizations" : {
@@ -24400,6 +24412,12 @@
     "Dismiss" : {
 
     },
+    "DISMISS" : {
+
+    },
+    "Dismiss this task" : {
+
+    },
     "Distracted" : {
       "localizations" : {
         "de" : {
@@ -28990,6 +29008,9 @@
         }
       }
     },
+    "Feedback" : {
+
+    },
     "Feedback illustration" : {
       "localizations" : {
         "de" : {
@@ -32813,6 +32834,15 @@
         }
       }
     },
+    "HAND OFF" : {
+
+    },
+    "Hand off to agent" : {
+
+    },
+    "Hand-off settings" : {
+
+    },
     "Have an access code?" : {
       "localizations" : {
         "de" : {
@@ -33089,6 +33119,9 @@
           }
         }
       }
+    },
+    "HELP US IMPROVE THE PRODUCT" : {
+
     },
     "here" : {
       "localizations" : {
@@ -37625,6 +37658,9 @@
         }
       }
     },
+    "Let your agents complete these tasks for you." : {
+
+    },
     "Light" : {
       "localizations" : {
         "de" : {
@@ -37763,6 +37799,12 @@
           }
         }
       }
+    },
+    "Link" : {
+
+    },
+    "Links" : {
+
     },
     "LM Studio" : {
       "localizations" : {
@@ -45489,6 +45531,9 @@
         }
       }
     },
+    "Paste the prompt" : {
+
+    },
     "Paste this into any MCP client's configuration." : {
       "localizations" : {
         "de" : {
@@ -46800,6 +46845,9 @@
         }
       }
     },
+    "Press ⌘V to paste" : {
+
+    },
     "PRIMARY" : {
       "localizations" : {
         "de" : {
@@ -47538,6 +47586,9 @@
         }
       }
     },
+    "Prompt" : {
+
+    },
     "Prompt changes apply on Restart agent (a new Codex conversation)." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -47586,6 +47637,9 @@
       }
     },
     "Prompt changes apply on Restart agent (a new conversation)." : {
+
+    },
+    "PROMPT FOR YOUR AGENT" : {
 
     },
     "Prototype checkpoint" : {
@@ -47865,6 +47919,9 @@
           }
         }
       }
+    },
+    "Put every task back in the stack as new" : {
+
     },
     "Quick question" : {
       "localizations" : {
@@ -48616,6 +48673,9 @@
           }
         }
       }
+    },
+    "RECENT" : {
+
     },
     "Recent highlights" : {
       "localizations" : {
@@ -50952,6 +51012,9 @@
         }
       }
     },
+    "Reset tasks" : {
+
+    },
     "Reset to Dayflow defaults" : {
       "localizations" : {
         "de" : {
@@ -51467,6 +51530,9 @@
         }
       }
     },
+    "Reviewed" : {
+
+    },
     "Reviewed scope-switching and SBI handling flows; drafted \"Areas requiring additional PD input\" spec with ClickUp links; synced with Jason Ross on SBI UX details" : {
       "localizations" : {
         "de" : {
@@ -51788,6 +51854,9 @@
           }
         }
       }
+    },
+    "Run the prompt" : {
+
     },
     "Run this command:" : {
       "localizations" : {
@@ -57646,6 +57715,9 @@
         }
       }
     },
+    "SUBMITTED" : {
+
+    },
     "Subscription requirements" : {
       "localizations" : {
         "de" : {
@@ -58338,6 +58410,9 @@
         }
       }
     },
+    "Take these off your plate" : {
+
+    },
     "Taking a break" : {
 
     },
@@ -58432,6 +58507,12 @@
           }
         }
       }
+    },
+    "Task" : {
+
+    },
+    "Tasks" : {
+
     },
     "Tasks for %@" : {
       "localizations" : {
@@ -58662,6 +58743,9 @@
           }
         }
       }
+    },
+    "Tell us why:" : {
+
     },
     "Terminal command" : {
       "localizations" : {
@@ -64090,6 +64174,9 @@
         }
       }
     },
+    "Undo dismiss" : {
+
+    },
     "unknown" : {
       "localizations" : {
         "de" : {
@@ -69090,6 +69177,9 @@
         }
       }
     },
+    "You dismissed " : {
+
+    },
     "You earn " : {
       "extractionState" : "stale",
       "localizations" : {
@@ -69645,6 +69735,9 @@
           }
         }
       }
+    },
+    "You’ve swiped through all the tasks for the day" : {
+
     },
     "You've unlocked everything Dayflow does. Enjoy your timeline." : {
       "localizations" : {

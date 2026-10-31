@@ -2,122 +2,101 @@
 //  DailyBriefPageView.swift
 //  Dayflow
 //
-//  The Daily brief page: a painting with the date, yesterday's activity
-//  heatmap, the sections the model filled, saved items, and a small footer
-//  with Retry and Override instructions.
+//  The Daily brief page: the Daybreak header with the date, "Take these off your plate"
+//  (the docket as a card stack or list), the other sections the model filled, saved
+//  items, and a small footer with Retry and Override instructions.
 //
 
 import AppKit
 import SwiftUI
 
-/// Header paintings. Add more asset names here; one is picked per day of the year.
-enum DailyBriefPaintings {
-  static let names = ["DailyBriefPainting1"]
-
-  static func name(for date: Date) -> String {
-    let dayOfYear = Calendar.current.ordinality(of: .day, in: .year, for: date) ?? 0
-    return names[dayOfYear % names.count]
-  }
-}
-
 struct DailyBriefPageView: View {
   @ObservedObject private var store = DailyBriefStore.shared
-  @Environment(\.dayflowTheme) private var theme
+  @ObservedObject private var ui = DocketUIState.shared
 
   var body: some View {
     GeometryReader { geometry in
       let isCompact = geometry.size.width < DailyBriefLayout.compactWidth
       ZStack(alignment: .topTrailing) {
-        ScrollView(.vertical) {
-          VStack(alignment: .leading, spacing: 0) {
-            header(isCompact: isCompact)
+        ScrollViewReader { proxy in
+          ScrollView(.vertical) {
+            VStack(spacing: 0) {
+              DocketDaybreakHeader(date: pageDate, showsIntro: hasDocket)
+                .id("top")
 
-            // The painting runs edge to edge; the text column stays readable on wide windows.
-            VStack(alignment: .leading, spacing: 0) {
-              mainContent
-                .padding(.horizontal, DailyBriefLayout.horizontalPadding(isCompact: isCompact))
-                .padding(.top, isCompact ? 40 : 64)
+              docketArea(viewportHeight: geometry.size.height)
 
-              DailyBriefFooter()
-                .frame(maxWidth: .infinity)
-                .padding(.top, 72)
-                .padding(.bottom, 48)
+              VStack(alignment: .leading, spacing: 0) {
+                lowerSections
+                  .padding(.horizontal, DailyBriefLayout.horizontalPadding(isCompact: isCompact))
+                  .padding(.top, 40)
+
+                DailyBriefFooter()
+                  .frame(maxWidth: .infinity)
+                  .padding(.top, 72)
+                  .padding(.bottom, 48)
+                  .modifier(DailyBriefRiseIn())
+              }
+              .frame(maxWidth: DailyBriefLayout.pageMaxWidth)
+              .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: DailyBriefLayout.pageMaxWidth)
-            .frame(maxWidth: .infinity)
+            .frame(width: geometry.size.width)
+            .background(alignment: .top) { DocketTwilightWash() }
           }
-          .frame(width: geometry.size.width)
+          .scrollIndicators(.hidden)
+          .onChange(of: ui.scrollToTopRequest) {
+            withAnimation(DocketMotion.ease(0.46)) { proxy.scrollTo("top", anchor: .top) }
+          }
         }
-        .scrollIndicators(.hidden)
 
         closeButton
           .padding(16)
+          .opacity(ui.isPromptOpen ? 0 : 1)
+          .animation(.easeOut(duration: 0.26), value: ui.isPromptOpen)
       }
       .environment(\.dailyBriefIsCompact, isCompact)
       .frame(width: geometry.size.width, height: geometry.size.height)
     }
-    .background(DailyBriefColors.pageBackground(theme))
+    .background(pageBackground)
+    .overlay(alignment: .bottomTrailing) {
+      if let title = ui.askTitle {
+        DocketAskPopup(title: title)
+          .id(title)
+          .padding(24)
+          .transition(.opacity.combined(with: .offset(x: 32)))
+      }
+    }
+    .animation(DocketMotion.ease(0.3), value: ui.askTitle)
+    .overlayPreferenceValue(DocketAnchorKey.self) { anchors in
+      DocketMenuLayer(anchors: anchors)
+    }
+    // The prototype is light only, so the brief stays light in dark mode.
+    .dayflowTheme(.light)
+    .onDisappear {
+      ui.openMenu = nil
+      ui.askTitle = nil
+      ui.isPromptOpen = false
+    }
   }
 
-  // MARK: Header
+  /// The window's peach-to-blue light under a pale, see-through panel.
+  private var pageBackground: some View {
+    GeometryReader { geometry in
+      DocketColors.pageBackground
+        .frame(width: 1150, height: 1270)
+        .position(x: geometry.size.width * 0.5917, y: geometry.size.height)
+    }
+    .background(Color(hex: "DAEAFC"))
+    .overlay(Color(red: 251 / 255, green: 251 / 255, blue: 251 / 255).opacity(0.55))
+    .clipped()
+  }
 
   /// The logical day the page is for: the brief's day, or today while there's no brief.
   private var pageDate: Date {
     DailyBriefDates.date(from: store.brief?.day) ?? Date().getDayInfoFor4AMBoundary().startOfDay
   }
 
-  /// The day the heatmap shows: what the brief was built from, else yesterday.
-  private var heatmapDay: String {
-    if let sourceDay = store.brief?.sourceDay { return sourceDay }
-    let today = Date().getDayInfoFor4AMBoundary()
-    return DailyBriefStore.previousDay(before: today.startOfDay).dayString
-  }
-
-  private func header(isCompact: Bool) -> some View {
-    VStack(alignment: .leading, spacing: 0) {
-      ZStack {
-        Color.clear
-          .overlay(
-            Image(DailyBriefPaintings.name(for: pageDate))
-              .resizable()
-              .aspectRatio(contentMode: .fill)
-          )
-          .clipped()
-
-        if theme.isDark {
-          Color.black.opacity(0.45)
-        }
-
-        // Fade the painting's bottom edge into the page.
-        VStack(spacing: 0) {
-          Spacer()
-          LinearGradient(
-            colors: [DailyBriefColors.pageTop(theme).opacity(0), DailyBriefColors.pageTop(theme)],
-            startPoint: .top,
-            endPoint: .bottom
-          )
-          .frame(height: 140)
-        }
-
-        Text(DailyBriefDates.longTitle(pageDate))
-          .font(DailyBriefFonts.serif(isCompact ? 44 : 64))
-          .foregroundStyle(.white)
-          .multilineTextAlignment(.center)
-          .padding(.horizontal, 24)
-          .shadow(color: Color.black.opacity(0.18), radius: 12, y: 2)
-          .padding(.top, 10)
-      }
-      .frame(height: isCompact ? 300 : 400)
-      .frame(maxWidth: .infinity)
-
-      // The legend sits over the faded bottom of the painting, as in Figma.
-      DailyBriefHeatmap(day: heatmapDay)
-        .frame(maxWidth: DailyBriefLayout.pageMaxWidth)
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 6)
-        .padding(.top, -45)
-    }
-  }
+  private var hasDocket: Bool { !store.docketItems.isEmpty }
 
   private var closeButton: some View {
     Button {
@@ -136,28 +115,42 @@ struct DailyBriefPageView: View {
     .pointingHandCursor()
   }
 
-  // MARK: Content
+  // MARK: Docket
+
+  /// The card stack, or a short message when there's nothing to stack yet.
+  @ViewBuilder
+  private func docketArea(viewportHeight: CGFloat) -> some View {
+    if store.brief == nil {
+      stateContent
+        .padding(.horizontal, 32)
+    } else if hasDocket {
+      DocketDeckView(viewportHeight: viewportHeight, deckTop: DocketDaybreakHeader.height)
+        .frame(maxWidth: .infinity)
+        .zIndex(1)
+    } else {
+      DailyBriefStateMessage(
+        title: "Nothing to hand off today",
+        detail: "Dayflow didn't find tasks from yesterday that an agent could pick up.")
+    }
+  }
+
+  // MARK: Other sections
 
   @ViewBuilder
-  private var mainContent: some View {
+  private var lowerSections: some View {
     if let brief = store.brief {
-      let kinds = DailyBriefSectionItems.visibleKinds(brief, store: store)
-      VStack(alignment: .leading, spacing: DailyBriefLayout.sectionSpacing) {
-        if kinds.isEmpty {
-          DailyBriefStateMessage(
-            title: "Nothing worth your time today",
-            detail: "Yesterday was quiet, so there's nothing to catch up on. Enjoy the morning.")
-        }
+      let kinds = DailyBriefSectionItems.visibleKinds(brief, store: store).filter { $0 != .docket }
+      VStack(alignment: .leading, spacing: 64) {
         ForEach(kinds, id: \.self) { kind in
           DailyBriefSectionView(kind: kind, brief: brief)
+            .modifier(DailyBriefRiseIn())
         }
         DailyBriefSavedRow(brief: brief)
+          .modifier(DailyBriefRiseIn())
       }
     } else {
-      VStack(alignment: .leading, spacing: DailyBriefLayout.sectionSpacing) {
-        stateContent
-        DailyBriefSavedRow(brief: nil)
-      }
+      DailyBriefSavedRow(brief: nil)
+        .modifier(DailyBriefRiseIn())
     }
   }
 
@@ -176,6 +169,18 @@ struct DailyBriefPageView: View {
         title: "Your brief will appear here tomorrow morning",
         detail:
           "Dayflow puts it together from yesterday's Timeline once you've recorded for a while.")
+    }
+  }
+}
+
+/// Sections rise 16pt and fade in as they scroll into view, and drop back once they
+/// leave below the window so they can rise again.
+private struct DailyBriefRiseIn: ViewModifier {
+  func body(content: Content) -> some View {
+    content.scrollTransition(.animated(.timingCurve(0.2, 0.7, 0.2, 1, duration: 0.55))) { view, phase in
+      view
+        .opacity(phase == .bottomTrailing ? 0 : 1)
+        .offset(y: phase == .bottomTrailing ? 16 : 0)
     }
   }
 }
@@ -490,9 +495,17 @@ private struct DailyBriefDebugStats: View {
           Button("Copy stats") {
             Self.copyJSON(stats, generatedAt: generatedAt)
           }
-          if let transcriptURL {
-            Button("Read transcript") {
-              NSWorkspace.shared.open(transcriptURL)
+          Button("Reset tasks") {
+            DocketUIState.shared.askTitle = nil
+            DocketUIState.shared.isPromptOpen = false
+            store.resetDocket()
+          }
+          .help("Put every task back in the stack as new")
+          ForEach(DailyBriefGenerator.Part.allCases, id: \.self) { part in
+            if let url = transcriptURL(part) {
+              Button("\(part.displayName) transcript") {
+                NSWorkspace.shared.open(url)
+              }
             }
           }
         }

@@ -34,6 +34,8 @@ struct DailyBriefOverlay: View {
   }
 
   private func handleEscape() {
+    // Docket menus and the "Tell us why" pop-up close before anything else.
+    if DocketUIState.shared.closeTopPopup() { return }
     if store.route != nil {
       store.route = nil
     } else {
