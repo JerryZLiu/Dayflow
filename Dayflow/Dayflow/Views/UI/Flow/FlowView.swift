@@ -2,9 +2,9 @@
 //  FlowView.swift
 //  Dayflow
 //
-//  Flow tab: hosts the remote Flow web app for accounts with Flow access
-//  (the web app talks to the backend with the user's session token). Everyone
-//  else, signed in or not, sees the waitlist.
+//  Flow tab: hosts the remote Flow web app (it talks to the backend with the
+//  user's session token). Until someone has signed in and tapped "Enter Flow"
+//  once, the tab shows the enter screen instead.
 //
 
 import SwiftUI
@@ -17,6 +17,9 @@ struct FlowView: View {
   /// Bumped to tear down and recreate the webview on retry.
   @State private var reloadToken = 0
   @State private var showingSupport = false
+  /// Set the first time someone taps "Enter Flow"; after that the tab opens
+  /// straight into the web app.
+  @AppStorage("flowHasEntered") private var hasEnteredFlow = false
   /// Read only so a provider change re-renders the gate.
   @AppStorage(LLMProviderRoutingStore.storageKey) private var providerRouting: Data?
 
@@ -28,16 +31,15 @@ struct FlowView: View {
 
   var body: some View {
     ZStack {
-      if (!authManager.hasLoadedStoredSession || authManager.isRestoringStoredSession)
-        && FlowWaitlistRegistration().email.isEmpty
-      {
+      if !authManager.hasLoadedStoredSession || authManager.isRestoringStoredSession {
         ProgressView()
-      } else if authManager.flowEnabled && !FlowDistractionAgent.providerCanWatch {
-        FlowWaitlistView(providerLimited: true)
-      } else if authManager.flowEnabled {
+      } else if authManager.flowEnabled && hasEnteredFlow && !FlowDistractionAgent.providerCanWatch
+      {
+        FlowEnterView(providerLimited: true)
+      } else if authManager.flowEnabled && hasEnteredFlow {
         webContent
-      } else if authManager.hasUnrestoredSession && !authManager.isRestoringStoredSession {
-        // Signed in, but the account couldn't be fetched: not a waitlist case.
+      } else if authManager.hasUnrestoredSession {
+        // Signed in, but the account couldn't be fetched.
         errorView(
           title: "Flow needs an internet connection",
           message: String(
@@ -46,7 +48,7 @@ struct FlowView: View {
           Task { await authManager.restoreStoredSession() }
         }
       } else {
-        FlowWaitlistView()
+        FlowEnterView { hasEnteredFlow = true }
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)

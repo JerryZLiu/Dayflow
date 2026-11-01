@@ -7122,6 +7122,7 @@
       }
     },
     "Access code" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -16807,6 +16808,7 @@
       }
     },
     "Coming Soon" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -27530,6 +27532,9 @@
         }
       }
     },
+    "Enter Flow" : {
+
+    },
     "Enter the 6 digit code." : {
       "localizations" : {
         "de" : {
@@ -29663,6 +29668,7 @@
 
     },
     "Flow helps you plan your day and find your way back when you get distracted." : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -29761,6 +29767,9 @@
     "Flow is unlocked on this Mac and attached to your Dayflow account." : {
 
     },
+    "Flow isn't available for your account yet." : {
+
+    },
     "Flow needs an internet connection" : {
 
     },
@@ -29814,7 +29823,7 @@
         }
       }
     },
-    "Flow watches your screen during a session to keep you on track, and that takes a level of intelligence Gemini and local models can't reach yet. Switch your provider to Claude, ChatGPT or Dayflow Pro in Settings to use Flow now, or sign up and we'll tell you when it works with yours." : {
+    "Flow watches your screen during a session to keep you on track, and that takes a level of intelligence Gemini and local models can't reach yet. Switch your provider to Claude, ChatGPT or Dayflow Pro in Settings to use Flow." : {
 
     },
     "Flow: Nudge Style — %@" : {
@@ -32224,6 +32233,7 @@
       }
     },
     "Get early access to Flow" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -32844,6 +32854,7 @@
 
     },
     "Have an access code?" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -36221,6 +36232,7 @@
       }
     },
     "Join our waitlist" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -46151,6 +46163,9 @@
         }
       }
     },
+    "Pick what you want to get done and start a session. Flow watches your screen while it runs and nudges you back when you wander off. It's new, so tell us what feels off." : {
+
+    },
     "Pick your Daily provider" : {
       "localizations" : {
         "de" : {
@@ -46198,6 +46213,9 @@
       }
     },
     "Plan for your day and see new updates all in one place." : {
+
+    },
+    "Plan your day, then stay on it" : {
 
     },
     "Planning" : {
@@ -54989,6 +55007,9 @@
         }
       }
     },
+    "Sign in to enter" : {
+
+    },
     "Sign in to get your invite link" : {
       "localizations" : {
         "de" : {
@@ -55129,6 +55150,7 @@
       }
     },
     "Sign in under Settings › Account first, then enter your code." : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -55221,6 +55243,7 @@
       }
     },
     "Sign up" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -64270,6 +64293,7 @@
       }
     },
     "Unlock" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -69553,6 +69577,7 @@
       }
     },
     "You're on the list" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
