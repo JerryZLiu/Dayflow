@@ -153,20 +153,18 @@ This document lists manual events, properties, and code locations. All events re
   - file: Views/UI/MainView.swift
 
 ## Flow
-- screen_viewed (`screen: flow_waitlist`)
-  - file: Views/UI/Flow/FlowWaitlistView.swift
-- flow_waitlist_joined
-  - props: `outcome: success|failure`, `signed_in: bool`
-  - file: Views/UI/Flow/FlowWaitlistView.swift
+- screen_viewed (`screen: flow_enter|flow_provider_limited`)
+  - file: Views/UI/Flow/FlowEnterView.swift
+- flow_entered
+  - file: Views/UI/Flow/FlowEnterView.swift
+- flow_enter_sign_in_opened
+  - file: Views/UI/Flow/FlowEnterView.swift
 - flow_waitlist_message_sent
   - props: `has_debug_log: false`, `new_ticket: bool`
   - file: Views/UI/SupportChatWebView.swift
 - flow_waitlist_chat_unavailable
   - props: `reason: string`
   - file: Views/UI/SupportChatWebView.swift
-- flow_access_code_redeemed
-  - props: `outcome: success|failure`
-  - file: Views/UI/Flow/FlowWaitlistView.swift
 
 ## Dashboard Chat
 - chat_question_asked
