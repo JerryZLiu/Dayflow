@@ -122,6 +122,15 @@ final class AccessibilityLogStore: @unchecked Sendable {
           (try? fileManager.contentsOfDirectory(
             at: dayFolder, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
 
+        for file in files where file.pathExtension == "txt" {
+          // Condensed batch logs: dated by when they were written, at the batch's end.
+          let written = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate
+          if let written, written < cutoff {
+            try? fileManager.removeItem(at: file)
+          }
+        }
+
         for file in files where file.pathExtension == "jsonl" {
           if file.path == handlePath { continue }
           guard let windowStart = Self.windowStart(dayFolder: dayFolder, file: file) else {
@@ -139,6 +148,25 @@ final class AccessibilityLogStore: @unchecked Sendable {
         if remaining.isEmpty {
           try? fileManager.removeItem(at: dayFolder)
         }
+      }
+    }
+  }
+
+  /// Saves the condensed log sent with a batch next to the raw logs for the
+  /// same day, as `HHmm-batch<id>.txt`, so later steps (the daily brief,
+  /// chat) can read what card generation saw. Pruned with the raw logs.
+  func saveCondensedLog(_ text: String, batchId: Int64, batchStart: Date) {
+    let windowFile = fileURL(for: batchStart)
+    let parts = Calendar.current.dateComponents([.hour, .minute], from: batchStart)
+    let name = String(format: "%02d%02d-batch%lld.txt", parts.hour ?? 0, parts.minute ?? 0, batchId)
+    let url = windowFile.deletingLastPathComponent().appendingPathComponent(name)
+    queue.async {
+      do {
+        try FileManager.default.createDirectory(
+          at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: url, options: .atomic)
+      } catch {
+        print("⚠️ [AccessibilityLogStore] Could not save condensed log: \(error)")
       }
     }
   }
