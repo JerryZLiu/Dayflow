@@ -16,7 +16,7 @@
 import Foundation
 
 /// One line in an accessibility log file. Nil fields are left out of the JSON.
-struct AccessibilityLogEvent: Encodable {
+struct AccessibilityLogEvent: Codable {
   let time: Date
   /// What happened: session_start, session_stop, window, click, drag,
   /// context_menu, text, submit, shortcut, escape, snapshot, diff.
@@ -42,6 +42,26 @@ struct AccessibilityLogEvent: Encodable {
   /// What changed since the last snapshot of the same app.
   var diff: String?
   var snapshotMs: Int?
+
+  /// Reads the lines `AccessibilityLogStore` writes.
+  static func decoder() -> JSONDecoder {
+    let withFraction = ISO8601DateFormatter()
+    withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let withoutFraction = ISO8601DateFormatter()
+
+    let decoder = JSONDecoder()
+    decoder.keyDecodingStrategy = .convertFromSnakeCase
+    decoder.dateDecodingStrategy = .custom { decoder in
+      let container = try decoder.singleValueContainer()
+      let text = try container.decode(String.self)
+      guard let date = withFraction.date(from: text) ?? withoutFraction.date(from: text) else {
+        throw DecodingError.dataCorruptedError(
+          in: container, debugDescription: "Unreadable time: \(text)")
+      }
+      return date
+    }
+    return decoder
+  }
 }
 
 final class AccessibilityLogStore: @unchecked Sendable {
@@ -58,7 +78,8 @@ final class AccessibilityLogStore: @unchecked Sendable {
   private var handlePath: String?
 
   private init() {
-    let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    let appSupport = FileManager.default.urls(
+      for: .applicationSupportDirectory, in: .userDomainMask)[0]
     rootURL = appSupport.appendingPathComponent("Dayflow/accessibility", isDirectory: true)
 
     let timeFormatter = ISO8601DateFormatter()
@@ -122,6 +143,39 @@ final class AccessibilityLogStore: @unchecked Sendable {
     }
   }
 
+  /// The log files that may hold events from `[start, end)`. File names use
+  /// the local time when they were written, which is off after a time zone or
+  /// daylight saving change, so files are matched by when they were created
+  /// and last written instead. Folders a day either side are checked for the
+  /// same reason.
+  func logFiles(from start: Date, to end: Date) -> [URL] {
+    let fileManager = FileManager.default
+    let calendar = Calendar.current
+    let keys: [URLResourceKey] = [.creationDateKey, .contentModificationDateKey]
+    var urls: [URL] = []
+    guard
+      var day = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: start)),
+      let lastDay = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: end))
+    else { return [] }
+    while day <= lastDay {
+      let folder = fileURL(for: day).deletingLastPathComponent()
+      let files =
+        (try? fileManager.contentsOfDirectory(
+          at: folder, includingPropertiesForKeys: keys, options: .skipsHiddenFiles)) ?? []
+      for file in files where file.pathExtension == "jsonl" {
+        let values = try? file.resourceValues(forKeys: Set(keys))
+        let created = values?.creationDate ?? .distantPast
+        let written = values?.contentModificationDate ?? .distantFuture
+        if created < end && written >= start {
+          urls.append(file)
+        }
+      }
+      guard let nextDay = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+      day = nextDay
+    }
+    return urls.sorted { $0.path < $1.path }
+  }
+
   // MARK: - Writing
 
   private func write(_ event: AccessibilityLogEvent) {
@@ -169,7 +223,7 @@ final class AccessibilityLogStore: @unchecked Sendable {
 
   /// `accessibility/yyyy-MM-dd/HHmm.jsonl`, with the minutes rounded down to
   /// the 10-minute window, in local time.
-  private func fileURL(for date: Date) -> URL {
+  func fileURL(for date: Date) -> URL {
     let parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
     let day = String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     let windowMinute = (parts.minute ?? 0) / 10 * 10
