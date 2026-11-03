@@ -571,7 +571,11 @@ enum DailyBriefGenerator {
       "matcher": "mcp__.*",
       "hooks": [["type": "command", "command": "/bin/sh '\(hookURL.path)'"]],
     ]
-    let settings: [String: Any] = ["hooks": ["PreToolUse": [hook]]]
+    var settings: [String: Any] = ["hooks": ["PreToolUse": [hook]]]
+    // The docket runs at medium effort: in testing it matched high and max for far less time and cost.
+    if part == .docket {
+      settings["effortLevel"] = "medium"
+    }
 
     var tools = "WebSearch,WebFetch"
     var allowedTools = ["WebSearch", "WebFetch"]
