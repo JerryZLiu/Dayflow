@@ -61,8 +61,11 @@ extension CodexProvider {
         )
       )
       let previousCards = plan.context.existingCards
+      let accessibilityLog = await OneStepTimelineAccessibilityLog.load(
+        windowStart: frames.windowStart, windowEnd: frames.windowEnd, batchId: batchId)
       let basePrompt = buildTimelinePrompt(
-        frames: frames, previousCards: previousCards, categories: context.categories)
+        frames: frames, previousCards: previousCards, categories: context.categories,
+        accessibilityLog: accessibilityLog)
       let imagePaths = frames.frames.map(\.url.path)
       var currentPrompt = basePrompt
       var lastError: Error?
@@ -187,7 +190,8 @@ extension CodexProvider {
   private func buildTimelinePrompt(
     frames: OneStepTimelineFrames,
     previousCards: [ActivityCardData],
-    categories: [LLMCategoryDescriptor]
+    categories: [LLMCategoryDescriptor],
+    accessibilityLog: String?
   ) -> String {
     let userName = NSFullUserName()
       .split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
@@ -241,6 +245,9 @@ extension CodexProvider {
     text += frameLines + "\n\n"
     text += "Do not run commands or use tools; everything you need is in this message.\n\n"
     text += CodexTimelinePrompt.outputBlock
+    if let accessibilityLog {
+      text += ClaudeTimelinePrompt.accessibilityLogSection(accessibilityLog)
+    }
     return text
   }
 }
