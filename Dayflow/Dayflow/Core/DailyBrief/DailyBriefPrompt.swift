@@ -124,6 +124,33 @@ enum DailyBriefPrompt {
 
   // MARK: - Docket prompt
 
+  /// What the docket run knows about the person. Like `aboutThem`, but its cards carry
+  /// their minute-by-minute detail lines.
+  private static let aboutThemWithDetail = """
+    ## What you know about them
+
+    ### Yesterday's timeline
+    These are yesterday's activity cards (cardId, start–end, category, title, summary, apps/sites), each
+    followed by its minute-by-minute detail lines. Idle cards are already removed.
+
+    {{YESTERDAY_CARDS}}
+
+    ### Their categories
+    {{CATEGORIES_WITH_DESCRIPTIONS}}
+
+    ### What they did with past lists
+    This is feedback from the last {{FEEDBACK_DAYS}} days: what they opened, saved, dismissed with the X,
+    or checked off. Items with no feedback were ignored. Treat a dismissal as a strong signal against that
+    kind of item.
+
+    {{FEEDBACK_SUMMARY}}
+
+    ### Items from recent lists
+    Don't repeat these unless something meaningfully changed (and say what changed).
+
+    {{RECENT_BRIEF_ITEMS}}
+    """
+
   static let docketTemplate = """
     You're writing the docket for today's Daily brief for {{USER_NAME}}, a person who uses Dayflow, an app
     that records their screen and turns it into a timeline of what they did. They'll open the brief this
