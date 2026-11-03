@@ -68,6 +68,34 @@ struct OneStepTimelineFrames {
   }
 }
 
+/// The condensed accessibility log for a batch's window, for users who have the accessibility
+/// recorder on. It rides along with the screenshots so cards can quote exact text.
+enum OneStepTimelineAccessibilityLog {
+  /// Nil when there is no log for the window (the recorder is off or wasn't running), and the
+  /// prompt is then exactly what it was without one. Reading and condensing can't fail the
+  /// batch: a log that can't be read is the same as no log.
+  static func load(windowStart: Int, windowEnd: Int, batchId: Int64?) async -> String? {
+    await Task.detached(priority: .utility) {
+      let startedAt = Date()
+      let start = Date(timeIntervalSince1970: TimeInterval(windowStart))
+      let end = Date(timeIntervalSince1970: TimeInterval(windowEnd))
+      guard let log = AccessibilityLogCondenser.condensedLog(from: start, to: end) else {
+        return nil
+      }
+      if let batchId {
+        AccessibilityLogStore.shared.saveCondensedLog(log, batchId: batchId, batchStart: start)
+      }
+      var properties: [String: Any] = [
+        "characters": log.count,
+        "condense_ms": Int(Date().timeIntervalSince(startedAt) * 1000),
+      ]
+      if let batchId { properties["batch_id"] = batchId }
+      AnalyticsService.shared.capture("accessibility_log_condensed", properties)
+      return log
+    }.value
+  }
+}
+
 enum OneStepTimelineObservations {
   /// Rebuilds per-batch observations from the detail lines the cards carry for the new window,
   /// falling back to one observation per card when no line can be read.

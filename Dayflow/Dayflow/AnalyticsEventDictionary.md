@@ -291,5 +291,9 @@ This document lists manual events, properties, and code locations. All events re
   - props: `provider: string`, `provider_id?: dayflow|gemini|chatgpt|claude|openai_compatible|local`, `model: string`, `operation: string`, `attempt: int`, `latency_ms: int`, `outcome: success|error`, `error_domain?: string`, `error_code?: int`, `error_message?: string`, `stdout_was_present?: bool`, `stdout_length?: int`, `stdout_json_removed?: bool`, `stdout_non_json_length?: int`, `stdout_non_json_detail?: string`, `stderr_was_present?: bool`, `stderr_length?: int`, `stderr_json_removed?: bool`, `stderr_non_json_length?: int`, `stderr_non_json_detail?: string`, `http_status?: int`, `has_response_body?: bool`, `response_body_bytes?: int`
   - privacy: error messages and non-JSON failure stdout/stderr are redacted and capped at 500 characters; braced/bracketed blocks and fenced JSON are removed first, successful output is never emitted, and request/response bodies stay local
   - file: Core/AI/LLMLogger.swift
+- accessibility_log_condensed
+  - props: `batch_id?: int`, `characters: int`, `condense_ms: int`
+  - privacy: only the size and timing of the condensed accessibility log; its text stays on the Mac and goes only to the user's own card-generation provider
+  - file: Core/AI/OneStepTimelineSupport.swift
 
 <!-- Storage-related events intentionally removed -->
