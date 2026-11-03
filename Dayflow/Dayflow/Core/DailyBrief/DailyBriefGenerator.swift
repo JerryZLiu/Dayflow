@@ -164,7 +164,7 @@ enum DailyBriefGenerator {
         input.overrideInstructions),
     ]
 
-    // The docket run gets every card's full summary and detail lines; the other run keeps the short lines.
+    // The Spring run gets every card's full summary and detail lines; the other run keeps the short lines.
     let detailedCardLines = cardLines(cards, includesDetail: true)
 
     // Both runs go at once, so the wait is the slower of the two, not the sum.
@@ -246,9 +246,9 @@ enum DailyBriefGenerator {
     var stats: DailyBriefRunStats
   }
 
-  /// The docket run's answer. `notes` and `why` are only for the transcript.
+  /// The Spring run's answer (stored as the docket). `notes` and `why` are only for the transcript.
   private struct DocketAnswer: Decodable {
-    let docket: [DailyBriefDocketItem]?
+    let items: [DailyBriefDocketItem]?
   }
 
   /// Fills in one part's prompt, runs Claude, and decodes the answer.
@@ -290,7 +290,7 @@ enum DailyBriefGenerator {
       switch part {
       case .docket:
         let answer = try JSONDecoder().decode(DocketAnswer.self, from: run.json)
-        return PartRun(docket: answer.docket, stats: stats)
+        return PartRun(docket: answer.items, stats: stats)
       case .extras:
         var content = try JSONDecoder().decode(DailyBriefContent.self, from: run.json)
         content.docket = nil
@@ -572,7 +572,7 @@ enum DailyBriefGenerator {
       "hooks": [["type": "command", "command": "/bin/sh '\(hookURL.path)'"]],
     ]
     var settings: [String: Any] = ["hooks": ["PreToolUse": [hook]]]
-    // The docket runs at medium effort: in testing it matched high and max for far less time and cost.
+    // Spring runs at medium effort: in testing it matched high and max for far less time and cost.
     if part == .docket {
       settings["effortLevel"] = "medium"
     }
@@ -708,7 +708,7 @@ enum DailyBriefGenerator {
     ]
   }
 
-  /// JSON Schema for one part's answer. The docket run returns `notes` and `docket`; the
+  /// JSON Schema for one part's answer. The Spring run returns `notes` and `items`; the
   /// other run returns every other section, each optional, plus a required `order`.
   /// `imageFile` on completed items is filled in by the app, so it isn't offered here.
   /// `notes` and each item's `why` are the model's justifications. The app doesn't show or
@@ -787,7 +787,7 @@ enum DailyBriefGenerator {
 
     if part == .docket {
       return objectSchema(
-        ["notes": stringSchema, "docket": arraySchema(docketItem)], required: ["notes", "docket"])
+        ["notes": stringSchema, "items": arraySchema(docketItem)], required: ["notes", "items"])
     }
 
     let sectionNames = part.kinds.map(\.rawValue)

@@ -2,9 +2,9 @@
 //  DailyBriefPrompt.swift
 //  Dayflow
 //
-//  The two prompts for the Daily brief. One run writes only the docket; the other
-//  writes every other section. They run at the same time and the app merges the
-//  answers. Mirrors reports/daily_brief_prompt_docket.md and
+//  The two prompts for the Daily brief. One run writes only the Spring list (stored
+//  as the docket section); the other writes every other section. They run at the
+//  same time and the app merges the answers. Mirrors reports/daily_brief_prompt_docket.md and
 //  reports/daily_brief_prompt_extras.md; keep them in sync. `{{KEY}}` placeholders
 //  are filled by DailyBriefGenerator.
 //
@@ -122,9 +122,9 @@ enum DailyBriefPrompt {
       anything, and those calls will be refused. If no connectors are available, work from the timeline.
     """
 
-  // MARK: - Docket prompt
+  // MARK: - Spring prompt
 
-  /// What the docket run knows about the person. Like `aboutThem`, but its cards carry
+  /// What the Spring run knows about the person. Like `aboutThem`, but its cards carry
   /// their minute-by-minute detail lines.
   private static let aboutThemWithDetail = """
     ## What you know about them
@@ -151,78 +151,102 @@ enum DailyBriefPrompt {
     {{RECENT_BRIEF_ITEMS}}
     """
 
+  /// The Spring list at the top of the brief (stored as the docket section).
   static let docketTemplate = """
-    You're writing the docket for today's Daily brief for {{USER_NAME}}, a person who uses Dayflow, an app
-    that records their screen and turns it into a timeline of what they did. They'll open the brief this
-    morning inside Dayflow. Today is {{TODAY_LONG}} ({{TIMEZONE}}). Yesterday was {{YESTERDAY_LONG}}.
+    You're putting together Spring for {{USER_NAME}}, a person who uses Dayflow, an app that records
+    their screen and turns it into a timeline of what they did. They'll read it first thing this morning.
+    Today is {{TODAY_LONG}} ({{TIMEZONE}}). Yesterday was {{YESTERDAY_LONG}}.
 
-    The docket is the "Your docket today" list at the top of the brief: the few things most worth doing
-    today. The rest of the brief (reading, news, screenshots, what they finished) is written separately,
-    so your only job is the docket.
+    ## What Spring is for
 
-    ## What the docket is for
+    Spring should spring them into the day: a short list of the things most worth getting done today,
+    where an AI agent does as much of the work as possible. Each item is a card they can hand to Claude
+    Code or Codex. The ideal item is one they'd be glad to see because it moves something they care about,
+    and that an agent can take almost entirely off their plate: it gathers, researches, analyzes and
+    drafts, and they only scan the result and decide or send.
 
-    The docket should read like a list from a sharp assistant who watched their day and checked their
-    messages: the things they'd want to be reminded of first thing in the morning. Every item should be:
+    Three shapes of item work well, in this order of preference:
+    1. **Done for you.** The agent can do the whole task and hand back something ready to review: drafted
+       messages to the right people with the facts already pulled, a reply with the documents someone
+       asked for gathered from their mail, messages and files, an analysis with the numbers, a first draft
+       or a first version.
+    2. **Decision prepared.** Something only they can decide, where the agent does the deep dive first so
+       the decision takes minutes: the options, the evidence, the risks, and a recommendation.
+    3. **Unstuck.** Something important they keep circling or putting off, turned into a small concrete
+       first step the agent can start right now (a quick test, a rough first version, a first batch of
+       examples), so it stops waiting on them.
 
-    1. **Useful.** Doing it today moves real work forward, answers someone who's waiting on them, or keeps
-       a deadline from slipping.
-    2. **Correct.** Grounded in evidence you actually found: a card, a message, an issue, a doc. Never
-       invented, never padded.
-    3. **Concrete.** One action they can start right away, not a topic or a vague intention.
+    Value decides what makes the cut: money on the table, people waiting on them, their biggest goals,
+    things they've been dragging their feet on. A small task still belongs on the list when real value
+    rides on it and an agent can handle it. Size alone never disqualifies an item, and neither does it
+    being personal.
 
-    The docket is a daily habit, so being trusted matters more than being complete. One made-up or stale
-    item teaches them to skim it. **Leave an item out instead of including a weak one.** Two excellent
-    items are better than five decent ones, and an empty docket is fine on a day with nothing clear.
+    Things that don't belong:
+    - **Reminders an agent can't act on.** A bare "reply to X" or "decide Y" with nothing prepared. Either
+      the agent can do the work or prepare the decision, or the item is out.
+    - **Checking on their own tools.** Looking in on a task an agent or a script is already running, an
+      experiment they're in the middle of, or a choice inside their own unfinished research.
+    - **Busywork with no payoff,** and anything already done or already handled by someone else.
 
-    Things that make an item weak, and should get it cut:
-    - Generic: it could have been written for anyone ("Catch up on email", "Plan your week").
-    - Already done: the timeline or a connector shows they finished it, or someone else did.
-    - Obvious: a routine chore they clearly already track.
-    - Low confidence: you're guessing at a deadline, a request, or what they care about.
+    How to work:
+    1. **Map what matters.** From the last two to three weeks (yesterday's timeline, Dayflow history and
+       their connectors), list their active goals and open threads with other people, ranked by how much
+       rides on them. Write it in `notes`.
+    2. **Find at least 12 candidates.** Go through each of these sources of value, and check the data
+       rather than guessing:
+       - **People waiting on them:** emails, messages, tickets, issues and threads where someone asked
+         them for something and hasn't heard back.
+       - **The people their work is for:** clients, customers, users, students, readers, a manager. Check
+         how it's landing with them, using whatever sources show it.
+       - **Their biggest goals:** the next move that matters most for each one.
+       - **Work that's stuck:** something they've spent days on without shipping, or keep circling without
+         deciding. Being busy with it doesn't mean it's moving; if nothing has gone out, it's stuck.
+       - **Decisions they're circling,** and **risks** they're about to walk into.
+    3. **Score each candidate 1 to 5 on value** (how much moves, or how much money, trust or time rides on
+       it) **and on offload** (5: the agent does it all and hands back drafts or results; 3: the agent
+       does the deep dive and they make a quick decision; 1: only they can do it). Note the candidates
+       with both scores in `notes`, and keep the best by value times offload. Drop anything with offload 1.
+    4. **Do the groundwork** so each prompt lets the agent start immediately: who, what, where the facts
+       live (which mailbox, which thread, which file), and what "done" looks like, which is usually a draft
+       or a report they can scan.
 
-    \(aboutThem)
+    Aim for 4–6 items, most valuable first. Every item is grounded in real evidence; never invent facts or
+    numbers.
+
+    \(aboutThemWithDetail)
 
     ## Tools you can use
 
     \(dayflowAndConnectorTools)
-    - **WebSearch / WebFetch**: when an item depends on an outside fact (an event date, an application
-      deadline, a release), check it. Open every link you include and confirm it says what you claim.
+    - **WebSearch / WebFetch**: check outside facts, research ideas, and find examples. Open every link you
+      include and confirm it says what you claim.
 
-    The best items usually come from combining sources: a thread yesterday's cards show them reading, plus
-    the connector message where someone asked them for something, plus the timeline showing it's half
-    done. Before keeping an item, check that it isn't already finished.
+    Budget: aim to finish in about 10 minutes. Use the sources that would actually change what goes on the
+    list.
 
-    Budget: aim to finish in about 10 minutes. Prefer a few targeted searches over many broad ones.
+    ## Item format
 
-    ## What a good docket item looks like
+    Spring shows each item as a card they can hand to an AI agent (Claude Code or Codex), so each item
+    carries:
 
-    Aim for 3–6 items, fewer when the evidence is thin. Each item is one action, phrased as the thing to
-    do, not a topic ("Reply to Maggie about the Miami dates", not "Maggie"). Put the most important or most
-    time-sensitive item first. Include a due date only if a source states it. Attach the evidence: the
-    people involved, and the docs, threads, or issues it came from (with links when the connector gives
-    one).
-
-    The brief shows the docket as cards they can hand to an AI agent (Claude Code or Codex), so each item
-    also carries:
-
-    - `detail`: one or two sentences on what the task is and why it matters now. The title already says
-      the action, so don't repeat it.
-    - `prompt`: a complete, ready-to-send prompt for an agent that would do the task, written as {{USER_NAME}}
-      would write it to a capable colleague. Say what to produce, the facts it needs (names, numbers,
-      ticket ids, constraints people stated), and what "done" looks like. Split it into short paragraphs or
-      a numbered list when it has steps. Don't invent facts to make it sound complete.
-    - `agent`: true when an agent could do it without them (research, a draft, a prototype, a write-up);
-      false when it needs them (a decision only they can make, testing on their own machine, a meeting).
-      Write the prompt either way.
-    - `feedback`: what people said about the task, one note per message, each with `name` (full name),
-      `source` (where it was said, e.g. "#design, Oct 21" or "Huddle notes, Oct 22"), `text` (quote it word
-      for word when it's short; otherwise a faithful one-sentence paraphrase) and `url` when you have one.
-      Skip it when nobody said anything.
+    - `title`: the action, phrased as the thing to do. It says the whole point on its own.
+    - `detail`: one or two sentences on why it matters now and what the payoff is. Don't repeat the title.
+    - `due`: only if a source states a date.
+    - `people` and `links`: who's involved and the docs, threads, or pages it builds on, with links when
+      you have them.
+    - `prompt`: a complete, ready-to-send prompt for an agent that would do the task or its first big
+      chunk, written as {{USER_NAME}} would write it to a capable colleague. Say what to produce, the facts
+      it needs (names, numbers, constraints people stated), and what "done" looks like. Don't invent facts.
+    - `agent`: true when an agent could do it without them (research, a draft, a prototype, an analysis);
+      false when it needs them (a decision only they can make, a conversation, testing on their own
+      machine). Write the prompt either way.
+    - `feedback`: what people said about the task, one note per message, with `name`, `source`, `text`
+      (word for word when short) and `url` when you have one. Skip it when nobody said anything.
     - `feedbackSummary` and `feedbackUrl`: when every feedback note is from one person, a two-sentence
-      summary of what they want and the link to the main message. The card shows it in place of the notes.
-    - `attach`: titles of the `links` an agent needs to do the task (the doc or mock it works from), when
-      any.
+      summary of what they want and the link to the main message.
+    - `attach`: titles of the `links` an agent needs, when any.
+    - `why`: the evidence behind the item in one or two sentences: which card, message, record, or page
+      shows it. The user never sees it.
 
     \(writingStyle)
 
@@ -230,39 +254,12 @@ enum DailyBriefPrompt {
 
     ## Output
 
-    Your final answer is one JSON object (it's checked against a schema) with `notes` and `docket`.
-
-    Show your reasoning; it's how the docket gets debugged. `notes` is a short account of the run: what
-    you looked at, what you found, which candidates you dropped and why, and anything you weren't sure
-    about. Every item also gets a `why`: one or two sentences on why it made the cut, naming the evidence
-    (the card, thread, doc, or page and what it said). The user never sees `notes` or `why`, so be candid.
-    For example:
-
-    ```json
-    {
-      "notes": "Read 24 cards (mostly Flow paywall work and Slack). Searched Slack for paywall and launch threads; found Jeremy's request. Dropped 'review the onboarding copy' because Maggie finished it yesterday.",
-      "docket": [
-        {
-          "title": "Draft Flow paywall options for Jeremy",
-          "detail": "He asked for them in #design and wants a bigger Start button. Look at how other apps handle paywalls and include a 7-day free trial option.",
-          "due": "2026-10-24",
-          "people": [{ "name": "Jeremy Hong", "note": "Asked for a bigger Start button" }],
-          "links": [{ "title": "Daily design comp", "url": "https://...", "app": "figma" }],
-          "prompt": "Design five options for the Flow paywall shown at the end of onboarding. Each needs a clear CTA to a 7-day free trial and a Start button that stands out more than today's.\\n\\nLook at how the highest-converting productivity apps handle their paywalls first, and note what each option borrows. Work from the Daily design comp in Figma.",
-          "agent": true,
-          "feedback": [{ "name": "Jeremy Hong", "source": "#design, Oct 21", "text": "can we make start way more obvious", "url": "https://..." }],
-          "feedbackSummary": "Wants paywall options with a 7-day trial and a Start button that stands out more.",
-          "feedbackUrl": "https://...",
-          "attach": ["Daily design comp"],
-          "why": "Jeremy asked for paywall options in #design on Oct 21 and cards 1201–1210 show the paywall half done."
-        }
-      ]
-    }
-    ```
-
-    Use only the fields shown. Dates are yyyy-MM-dd. `app` values are lowercase app names such as
-    "slack", "linear", "notion", "figma", "gmail", or "google_docs". Omit a field when you don't have it;
-    never write placeholder values. If nothing clears the bar today, write `{"notes": "...", "docket": []}`.
+    Your final answer is one JSON object (checked against a schema) with `notes` and `items`. `notes` is a
+    brief summary of the run: which sources you checked, what you found, and the candidates you considered
+    with their scores. Keep it to actions and findings, not a step-by-step account of your thinking. Use
+    only the fields described. Dates are yyyy-MM-dd. `app` values are lowercase app names such as "slack",
+    "linear", "notion", "figma", "gmail", or "google_docs". Omit a field when you don't have it; never
+    write placeholder values. If nothing clears the bar today, write `{"notes": "...", "items": []}`.
     """
 
   // MARK: - Other-sections prompt
