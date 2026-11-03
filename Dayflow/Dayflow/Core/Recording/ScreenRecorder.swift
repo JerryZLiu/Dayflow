@@ -17,6 +17,10 @@ import Sentry
 // MARK: - Configuration
 // Capture interval and resolution live in `ScreenshotConfig` (RecordingPreferences.swift).
 
+private enum Config {
+  static let jpegQuality: CGFloat = 0.85  // Balance quality vs file size
+}
+
 private enum InputIdleSnapshot {
   // Bridge kCGAnyInputEventType into Swift without relying on a generated symbol name.
   static let anyInputEventType = CGEventType(rawValue: UInt32.max)!
@@ -141,6 +145,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
   private let q = DispatchQueue(label: "com.dayflow.recorder", qos: .userInitiated)
   private var captureTimer: DispatchSourceTimer?
+  private var currentCaptureInterval: TimeInterval?
   private var sub: AnyCancellable?
   private var activeDisplaySub: AnyCancellable?
   private var state: RecorderState = .idle
@@ -421,24 +426,54 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
   // MARK: - Capture Timer
 
-  private func startCaptureTimer() {
+  private func startCaptureTimer(interval: TimeInterval? = nil, requireCapturingState: Bool = false) {
+    if requireCapturingState {
+      guard state == .capturing else { return }
+    }
     stopCaptureTimer()
 
-    let interval = ScreenshotConfig.interval
+    let resolvedInterval =
+      interval
+      ?? IdleCaptureInterval.effectiveInterval(
+        idleSeconds: InputIdleSnapshot.currentIdleSeconds())
+    currentCaptureInterval = resolvedInterval
+
     let timer = DispatchSource.makeTimerSource(queue: q)
-    timer.schedule(deadline: .now() + interval, repeating: interval)
+    timer.schedule(deadline: .now() + resolvedInterval, repeating: resolvedInterval)
     timer.setEventHandler { [weak self] in
       self?.captureTick()
     }
     timer.resume()
     captureTimer = timer
 
-    dbg("Capture timer started (interval: \(interval)s)")
+    dbg("Capture timer started (interval: \(resolvedInterval)s)")
   }
 
   private func stopCaptureTimer() {
     captureTimer?.cancel()
     captureTimer = nil
+    currentCaptureInterval = nil
+  }
+
+  /// Re-checks the idle-throttled target interval and restarts the capture
+  /// timer if it has changed since it was last scheduled. Called on every
+  /// capture tick rather than driven by a separate poller, since a fixed
+  /// DispatchSourceTimer can't self-adjust its own repeat interval. The tick
+  /// that crosses the idle threshold still fires at the old cadence — the
+  /// new interval only takes effect starting from the next scheduled tick —
+  /// so there's a bounded, self-correcting one-tick lag in either direction.
+  /// Acceptable for a battery/disk optimization; not a correctness concern.
+  /// Must run on `q` — re-checks `state == .capturing` before installing a timer.
+  private func rescheduleCaptureTimerIfIntervalChanged() {
+    guard state == .capturing else { return }
+    let idleSeconds = InputIdleSnapshot.currentIdleSeconds()
+    let targetInterval = IdleCaptureInterval.effectiveInterval(idleSeconds: idleSeconds)
+    guard targetInterval != currentCaptureInterval else { return }
+
+    dbg(
+      "Capture interval changing: \(String(describing: currentCaptureInterval))s → \(targetInterval)s (idle: \(String(describing: idleSeconds))s)"
+    )
+    startCaptureTimer(interval: targetInterval, requireCapturingState: true)
   }
 
   // MARK: - Capture Tick & Backoff
@@ -450,6 +485,8 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       dbg("capture tick skipped - previous capture still in flight")
       return
     }
+    guard state == .capturing else { return }
+    rescheduleCaptureTimerIfIntervalChanged()
     captureInFlight = true
 
     Task { [weak self] in
@@ -541,6 +578,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       dbg("captureScreenshot skipped - state: \(state.description)")
       return .skipped
     }
+
     guard let display = cachedDisplay else {
       dbg("captureScreenshot skipped - no display")
       return .missingDisplay
