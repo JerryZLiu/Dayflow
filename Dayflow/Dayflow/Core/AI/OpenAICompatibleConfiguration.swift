@@ -2,11 +2,13 @@ import Foundation
 
 enum OpenAICompatiblePreset: String, Codable, CaseIterable {
   case openRouter = "openrouter"
+  case requesty
   case custom
 }
 
 struct OpenAICompatibleConfiguration: Codable, Equatable {
   static let openRouterBaseURL = "https://openrouter.ai/api/v1"
+  static let requestyBaseURL = "https://router.requesty.ai/v1"
 
   let preset: OpenAICompatiblePreset
   let baseURL: String
@@ -22,6 +24,14 @@ struct OpenAICompatibleConfiguration: Codable, Equatable {
     OpenAICompatibleConfiguration(
       preset: .openRouter,
       baseURL: openRouterBaseURL,
+      modelID: modelID
+    )
+  }
+
+  static func requesty(modelID: String = "") -> OpenAICompatibleConfiguration {
+    OpenAICompatibleConfiguration(
+      preset: .requesty,
+      baseURL: requestyBaseURL,
       modelID: modelID
     )
   }
