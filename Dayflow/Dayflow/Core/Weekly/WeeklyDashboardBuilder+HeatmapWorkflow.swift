@@ -427,13 +427,44 @@ extension WeeklyDashboardBuilder {
     .map { $0 }
   }
 
+  /// The workflow and heat map rows are clock days: work after midnight belongs to
+  /// the next calendar day's row, not to the 4 AM logical day it was recorded under.
+  /// Pass last week's facts too so Monday gets Sunday night's after-midnight work;
+  /// a card that spans the week boundary comes back in both fetches, so dedupe it.
+  static func calendarDayFacts(
+    _ facts: [WeeklyCardFact],
+    weekRange: WeeklyDateRange
+  ) -> [WeeklyCardFact] {
+    let weekDays = Set(dayDescriptors(for: weekRange, offsets: Array(0..<7)).map(\.dayString))
+    let midnight = 24.0 * 60.0
+    var seen = Set<String>()
+
+    return facts.filter { seen.insert($0.id).inserted }.flatMap { fact -> [WeeklyCardFact] in
+      guard fact.endMinute > midnight,
+        let day = DateFormatter.yyyyMMdd.date(from: fact.dayString),
+        let nextDay = calendar.date(byAdding: .day, value: 1, to: day)
+      else { return [fact] }
+
+      var before = fact
+      before.endMinute = midnight
+      before.durationMinutes = Int((midnight - fact.startMinute).rounded())
+      var after = fact
+      after.dayString = DateFormatter.yyyyMMdd.string(from: nextDay)
+      after.startMinute = max(fact.startMinute, midnight) - midnight
+      after.endMinute = fact.endMinute - midnight
+      after.durationMinutes = Int((after.endMinute - after.startMinute).rounded())
+      return fact.startMinute < midnight ? [before, after] : [after]
+    }
+    .filter { weekDays.contains($0.dayString) }
+  }
+
   private static func weeklyActivityWindow(from facts: [WeeklyCardFact]) -> (
     start: Double, end: Double
   ) {
     let fallbackStart = 9.0 * 60.0
     let fallbackEnd = 22.0 * 60.0
-    let dayStart = 4.0 * 60.0
-    let dayEnd = 28.0 * 60.0
+    let dayStart = 0.0
+    let dayEnd = 24.0 * 60.0
     let padding = 30.0
     let snapMinutes = 15.0
 
@@ -446,11 +477,7 @@ extension WeeklyDashboardBuilder {
     let paddedStart = max(dayStart, earliest - padding)
     let paddedEnd = min(dayEnd, latest + padding)
     let snappedStart = floor(paddedStart / snapMinutes) * snapMinutes
-    var snappedEnd = ceil(paddedEnd / snapMinutes) * snapMinutes
-
-    if snappedEnd == 24.0 * 60.0 {
-      snappedEnd = dayEnd
-    }
+    let snappedEnd = ceil(paddedEnd / snapMinutes) * snapMinutes
 
     guard snappedEnd > snappedStart else {
       return (fallbackStart, fallbackEnd)

@@ -165,12 +165,12 @@ struct WeeklyFlowFocusSnapshot {
 struct WeeklyCardFact {
   let id: String
   let card: TimelineCard
-  let dayString: String
+  var dayString: String
   let dayLabel: String
   let dayOrder: Int
-  let startMinute: Double
-  let endMinute: Double
-  let durationMinutes: Int
+  var startMinute: Double
+  var endMinute: Double
+  var durationMinutes: Int
   let categoryKey: String
   let categoryName: String
   let categoryColorHex: String
