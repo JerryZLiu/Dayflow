@@ -62,10 +62,13 @@ extension ClaudeProvider {
         )
       )
       let previousCards = plan.context.existingCards
+      let accessibilityLog = await OneStepTimelineAccessibilityLog.load(
+        windowStart: frames.windowStart, windowEnd: frames.windowEnd, batchId: batchId)
       let prompt = buildTimelinePrompt(
         frames: frames,
         previousCards: previousCards,
-        categories: context.categories
+        categories: context.categories,
+        accessibilityLog: accessibilityLog
       )
 
       let inlineImages = timelineInlineImages(frames: frames)
@@ -173,7 +176,8 @@ extension ClaudeProvider {
   private func buildTimelinePrompt(
     frames: OneStepTimelineFrames,
     previousCards: [ActivityCardData],
-    categories: [LLMCategoryDescriptor]
+    categories: [LLMCategoryDescriptor],
+    accessibilityLog: String?
   ) -> String {
     let userName = NSFullUserName()
       .split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
@@ -212,6 +216,9 @@ extension ClaudeProvider {
       + ". Each is attached below, labeled with its time.\n\n"
     text += "Do not narrate or summarize individual frames before the answer.\n\n"
     text += ClaudeTimelinePrompt.outputBlock
+    if let accessibilityLog {
+      text += ClaudeTimelinePrompt.accessibilityLogSection(accessibilityLog)
+    }
     return text
   }
 
