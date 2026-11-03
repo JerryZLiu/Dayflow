@@ -301,6 +301,7 @@ enum ClaudeTimelinePrompt {
     - Say a video is playing, paused, or finished only when the player shows it: a pause button means it is playing, a play button means it is paused, and elapsed time equal to the duration with suggested videos means it finished. Otherwise just say the video is open.
     - Describe things you cannot identify in generic terms instead of guessing what they are. Spell app, product, and people names exactly as they appear on screen.
     - Never write a street address, an email address, a password or verification code, or any digits of a phone, card or account number, not even the last four. Refer to them in words: "the delivery address", "a saved card", "a verification code".
+    - Some minutes show intimate or sensitive personal content: sexual or romantic messages, explicit images, health details, or a bank or other financial account. Still write the cards for those minutes; never refuse and never leave a minute out. Describe them at a high level without quoting the content: "texted a partner about personal matters", "checked a bank account". The timeline is the user's own private record, so cover the time and keep the private details out.
     - Include a concrete app, topic, and observed action per interval. Prefer these over incidental names, timestamps in a video, or long quotations. Do not invent activity after the final screenshot.
     """#
 }
