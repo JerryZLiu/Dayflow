@@ -164,15 +164,22 @@ enum DailyBriefGenerator {
         input.overrideInstructions),
     ]
 
+    // The docket run gets every card's full summary and detail lines; the other run keeps the short lines.
+    let detailedCardLines = cardLines(cards, includesDetail: true)
+
     // Both runs go at once, so the wait is the slower of the two, not the sum.
     let parts = Part.allCases
     var outcomes: [Part: Result<PartRun, Error>] = [:]
     let outcomesLock = NSLock()
     DispatchQueue.concurrentPerform(iterations: parts.count) { index in
       let part = parts[index]
+      var partValues = values
+      if part == .docket {
+        partValues["YESTERDAY_CARDS"] = detailedCardLines
+      }
       let outcome = Result {
         try runPart(
-          part, input: input, values: values, runDirectory: runDirectory,
+          part, input: input, values: partValues, runDirectory: runDirectory,
           candidatesDirectory: candidatesDirectory)
       }
       outcomesLock.withLock { outcomes[part] = outcome }
@@ -360,19 +367,29 @@ enum DailyBriefGenerator {
 
   /// One compact line per card:
   /// `[cardId 123] 9:05 AM–10:20 AM · Work · Title — summary · apps: figma.com, slack`
-  private static func cardLines(_ cards: [TimelineCard]) -> String {
+  /// With `includesDetail`, the summary isn't cut and the card's detail lines follow it, indented.
+  private static func cardLines(_ cards: [TimelineCard], includesDetail: Bool = false) -> String {
     cards.map { card in
       var line = "[cardId \(card.recordId.map { String($0) } ?? "?")] "
       line += "\(card.startTimestamp)–\(card.endTimestamp) · \(card.category) · \(card.title)"
       let summary = card.summary.trimmingCharacters(in: .whitespacesAndNewlines)
       if !summary.isEmpty {
-        line += " — " + String(summary.prefix(400))
+        line += " — " + (includesDetail ? summary : String(summary.prefix(400)))
       }
       let apps = [card.appSites?.primary, card.appSites?.secondary]
         .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
         .filter { !$0.isEmpty }
       if !apps.isEmpty {
         line += " · apps: " + apps.joined(separator: ", ")
+      }
+      if includesDetail {
+        let detailLines = card.detailedSummary
+          .split(separator: "\n")
+          .map { $0.trimmingCharacters(in: .whitespaces) }
+          .filter { !$0.isEmpty }
+        for detailLine in detailLines {
+          line += "\n    " + detailLine
+        }
       }
       return line
     }
