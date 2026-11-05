@@ -534,7 +534,38 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     AnalyticsService.shared.capture("recording_capture_backoff", props)
   }
 
+  // MARK: - Browser privacy
+
+  /// Asks the accessibility API whether the frontmost browser window is one
+  /// the user asked us to hide. Returns nil whenever browser privacy is off,
+  /// Accessibility isn't granted, or the front app isn't a browser — so the
+  /// common case costs one UserDefaults read.
+  private func blockedBrowserWindow() async -> (
+    app: BrowserForegroundApp, reason: BrowserPrivacyReason
+  )? {
+    let settings = BrowserPrivacyPreferences.settings()
+    guard !settings.isInactive else { return nil }
+    guard let app = await MainActor.run(body: { BrowserForegroundApp.frontmost() }) else {
+      return nil
+    }
+    return BrowserWindowInspector.shared.blockedBrowser(app: app, settings: settings)
+  }
+
+  /// One event per reason per hour, so a long private session doesn't send
+  /// thousands. Carries the reason only — never a URL or a domain.
+  private func noteBrowserRedaction(_ reason: BrowserPrivacyReason) {
+    let name = reason.analyticsName
+    let now = Date()
+    if let last = lastBrowserRedactionReport[name], now.timeIntervalSince(last) < 3600 {
+      return
+    }
+    lastBrowserRedactionReport[name] = now
+    AnalyticsService.shared.capture("recording_browser_redacted", ["reason": name])
+  }
+
   // MARK: - Screenshot Capture
+
+  private var lastBrowserRedactionReport: [String: Date] = [:]
 
   private func captureScreenshot() async -> CaptureOutcome {
     guard state == .capturing else {
@@ -572,6 +603,30 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         try appendFrame(
           placeholder, capturedAt: captureTime, idleSecondsAtCapture: idleSecondsAtCapture)
         dbg("🔒 Screenshot redacted for blocked foreground application")
+        return .succeeded
+      }
+
+      // A browser window the user asked us to hide: a private-browsing window,
+      // or a site in a category they blocked. Same redaction card as above —
+      // excluding just the one window from the content filter is a refinement
+      // for later.
+      if let blockedBrowser = await blockedBrowserWindow() {
+        guard
+          let placeholder = await MainActor.run(body: {
+            RecordingPrivacyPlaceholder.image(
+              width: captureSize.width,
+              height: captureSize.height,
+              applicationName: blockedBrowser.app.name,
+              detail: blockedBrowser.reason.detail
+            )
+          })
+        else {
+          throw ScreenRecorderError.imageConversionFailed
+        }
+        try appendFrame(
+          placeholder, capturedAt: captureTime, idleSecondsAtCapture: idleSecondsAtCapture)
+        dbg("🔒 Screenshot redacted for browser window (\(blockedBrowser.reason.analyticsName))")
+        noteBrowserRedaction(blockedBrowser.reason)
         return .succeeded
       }
 
