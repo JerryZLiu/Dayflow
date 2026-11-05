@@ -462,8 +462,23 @@ final class AccessibilityRecorder: @unchecked Sendable {
   }
 
   private func isBlocked(_ app: AccessibilityAppInfo) -> Bool {
-    RecordingPrivacyPreferences.isApplicationBlocked(
+    if RecordingPrivacyPreferences.isApplicationBlocked(
       bundleIdentifier: app.bundleId, applicationName: app.name)
+    {
+      return true
+    }
+    // A browser window the user asked us to hide. Screenshots of it get a
+    // redaction card; the accessibility log, which would otherwise hold the
+    // page's text and its URL, records nothing but the app name.
+    return isHiddenBrowserWindow(app)
+  }
+
+  private func isHiddenBrowserWindow(_ app: AccessibilityAppInfo) -> Bool {
+    let settings = BrowserPrivacyPreferences.settings()
+    guard !settings.isInactive else { return false }
+    let foreground = BrowserForegroundApp(
+      pid: app.pid, bundleIdentifier: app.bundleId, name: app.name)
+    return BrowserWindowInspector.shared.blockedBrowser(app: foreground, settings: settings) != nil
   }
 
   /// For elements that may belong to an app other than `frontApp`.
