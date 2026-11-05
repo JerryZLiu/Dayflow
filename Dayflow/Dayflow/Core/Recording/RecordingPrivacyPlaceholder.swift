@@ -8,7 +8,8 @@ enum RecordingPrivacyPlaceholder {
   static func image(
     width: Int,
     height: Int,
-    applicationName: String = "Private app"
+    applicationName: String = "Private app",
+    detail: String? = nil
   ) -> CGImage? {
     guard
       let context = CGContext(
@@ -28,7 +29,11 @@ enum RecordingPrivacyPlaceholder {
     let maxTextWidth = size.width * 0.82
     let title = "\(displayName(applicationName)) hidden by your privacy settings"
     let subtitle =
-      "This screenshot was saved without the app's contents because you blocked it from recording."
+      detail
+      ?? String(
+        localized:
+          "This screenshot was saved without the app's contents because you blocked it from recording."
+      )
     drawCenteredText(
       title,
       fontSize: min(size.width, size.height) * 0.035,
