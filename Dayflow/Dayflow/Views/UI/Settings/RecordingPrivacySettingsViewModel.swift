@@ -7,8 +7,89 @@ final class RecordingPrivacySettingsViewModel: ObservableObject {
   @Published private(set) var blockedIdentifiers: [String]
   @Published private(set) var isLoadingApplications = false
 
+  // MARK: Browser privacy
+  //
+  // Every value here is a boolean, a category name or a domain the user typed
+  // in themselves. No URL Dayflow reads off a browser is ever stored.
+
+  @Published var hidePrivateWindows: Bool {
+    didSet {
+      guard hidePrivateWindows != oldValue else { return }
+      BrowserPrivacyPreferences.setHidePrivateWindows(hidePrivateWindows)
+      reportBrowserPrivacyChange()
+    }
+  }
+
+  @Published private(set) var blockedCategories: Set<SiteCategory>
+  @Published private(set) var customDomains: [String]
+  @Published var customDomainDraft = ""
+
+  @Published var unknownWindowHandling: UnknownBrowserWindowHandling {
+    didSet {
+      guard unknownWindowHandling != oldValue else { return }
+      BrowserPrivacyPreferences.setUnknownWindowHandling(unknownWindowHandling)
+      reportBrowserPrivacyChange()
+    }
+  }
+
   init() {
     blockedIdentifiers = RecordingPrivacyPreferences.blockedApplicationIdentifiers()
+    hidePrivateWindows = BrowserPrivacyPreferences.hidePrivateWindows()
+    blockedCategories = BrowserPrivacyPreferences.blockedCategories()
+    customDomains = BrowserPrivacyPreferences.customBlockedDomains()
+    unknownWindowHandling = BrowserPrivacyPreferences.unknownWindowHandling()
+  }
+
+  func isCategoryBlocked(_ category: SiteCategory) -> Bool {
+    blockedCategories.contains(category)
+  }
+
+  func toggleCategory(_ category: SiteCategory) {
+    if blockedCategories.contains(category) {
+      blockedCategories.remove(category)
+    } else {
+      blockedCategories.insert(category)
+    }
+    BrowserPrivacyPreferences.setBlockedCategories(blockedCategories)
+    reportBrowserPrivacyChange()
+  }
+
+  var canAddCustomDomain: Bool {
+    guard let domain = SiteCategoryCatalog.registrableDomain(forHost: customDomainDraft),
+      domain.contains(".")
+    else { return false }
+    return !customDomains.contains(domain)
+  }
+
+  func addCustomDomain() {
+    guard canAddCustomDomain,
+      let domain = SiteCategoryCatalog.registrableDomain(forHost: customDomainDraft)
+    else { return }
+    customDomains = BrowserPrivacyPreferences.normalizedDomains(customDomains + [domain])
+    BrowserPrivacyPreferences.setCustomBlockedDomains(customDomains)
+    customDomainDraft = ""
+    reportBrowserPrivacyChange()
+  }
+
+  func removeCustomDomain(_ domain: String) {
+    customDomains.removeAll { $0 == domain }
+    BrowserPrivacyPreferences.setCustomBlockedDomains(customDomains)
+    reportBrowserPrivacyChange()
+  }
+
+  /// Counts only. The categories a person blocked and the domains they typed
+  /// stay on this Mac.
+  private func reportBrowserPrivacyChange() {
+    BrowserWindowInspector.shared.invalidate()
+    AnalyticsService.shared.capture(
+      "browser_privacy_rules_saved",
+      [
+        "hide_private_windows": hidePrivateWindows,
+        "blocked_category_count": blockedCategories.count,
+        "custom_domain_count": customDomains.count,
+        "unknown_window_handling": unknownWindowHandling.rawValue,
+      ]
+    )
   }
 
   var filteredApplications: [RecordingPrivacyApplication] {
