@@ -76,6 +76,12 @@ struct DailyBriefDocketItem: Codable, Hashable, Sendable {
   var feedbackUrl: String?
   /// Titles of the `links` worth handing to the agent along with the prompt.
   var attach: [String]?
+  /// An earlier Codex thread or Claude Code session (by id) the task continues. The hand-off
+  /// opens it, in its own app; without one it opens a new thread.
+  var thread: String?
+  /// For a new thread, the app the brief judged best for it: "claude" or "codex". Nil leaves
+  /// it to the agent picked in the gear menu.
+  var newThreadApp: String?
 }
 
 struct DailyBriefTrackingItem: Codable, Hashable, Sendable {
