@@ -12,15 +12,19 @@
 import Foundation
 
 enum DailyBriefPrompt {
-  /// Every placeholder the docket prompt can use.
-  static let docketPlaceholderNames = [
+  /// The placeholders both prompts can use.
+  private static let sharedPlaceholderNames = [
     "USER_NAME", "TODAY_LONG", "YESTERDAY_LONG", "TIMEZONE", "YESTERDAY_CARDS",
     "CATEGORIES_WITH_DESCRIPTIONS", "FEEDBACK_DAYS", "FEEDBACK_SUMMARY", "RECENT_BRIEF_ITEMS",
     "OVERRIDE_INSTRUCTIONS",
   ]
 
-  /// Every placeholder the other-sections prompt can use: the same, plus the screenshots folder.
-  static let extrasPlaceholderNames = docketPlaceholderNames + ["CANDIDATES_DIR"]
+  /// Every placeholder the docket prompt can use: the shared ones, plus their recent Claude
+  /// Code and Codex threads.
+  static let docketPlaceholderNames = sharedPlaceholderNames + ["RECENT_AGENT_THREADS"]
+
+  /// Every placeholder the other-sections prompt can use: the shared ones, plus the screenshots folder.
+  static let extrasPlaceholderNames = sharedPlaceholderNames + ["CANDIDATES_DIR"]
 
   /// Replaces every `{{KEY}}` in the template with `values[KEY]` in a single pass,
   /// so text inside a value (a card title, an override instruction) is never re-expanded.
@@ -287,6 +291,18 @@ enum DailyBriefPrompt {
        item needs (the thread, the amount, the date, the contract term). Keep an item only if this confirms
        it's still open and still worth doing today. If you can't settle it, write it as a question to check
        or leave it out.
+
+       Then check their agent threads (listed below), since they may already have handed the task to
+       Claude Code or Codex. For each finalist, look for a thread on the same work. The list only shows each
+       thread's first and last few messages, so when one looks related, open its full transcript with Read
+       and read as much of the raw log as you need, especially the end, to see how far it got. Drop the item
+       if the work is done there or they've already followed up. Then pick where the task should go. When
+       the task grows out of work in one of these threads, send it back to that thread: set `thread` to its
+       id and write the `prompt` as the next message in that conversation, building on what it already did
+       instead of repeating it. Start a new thread only when the task is separate work that no listed
+       thread covers. For a new thread, set `newThreadApp` to `claude` (Claude Code) or `codex` (Codex):
+       the app they use for this kind of work, judged from the usage counts and threads above (the same
+       folder or project first, then what they use most). Leave it out when they use neither.
     5. **Check every fact before you finish.** Reread each item against the cards and sources it came
        from. Names, numbers, versions, dates and weekdays must match the evidence exactly. Keep separate
        threads separate instead of merging them into one item. Only point the agent to files, repos,
@@ -302,11 +318,21 @@ enum DailyBriefPrompt {
 
     \(aboutThemWithDetail)
 
+    ### Their recent agent threads
+
+    How much they used Claude Code and Codex in the last 3 days, overall and per folder, then their threads
+    from those days, newest first, each with its first and last few messages (cut short) and the path of
+    its full transcript:
+
+    {{RECENT_AGENT_THREADS}}
+
     ## Tools you can use
 
     \(dayflowAndConnectorTools)
     - **WebSearch / WebFetch**: check outside facts, research ideas, and find examples. Open every link you
       include and confirm it says what you claim.
+    - **Read**: open the full transcript of any thread listed above. The summaries above are short, so
+      read the raw log, as deeply as you need, whenever a thread might already cover a task.
 
     Budget: aim to finish in about 10 minutes. Use the sources that would actually change what goes on the
     list.
@@ -332,6 +358,9 @@ enum DailyBriefPrompt {
     - `feedbackSummary` and `feedbackUrl`: when every feedback note is from one person, a two-sentence
       summary of what they want and the link to the main message.
     - `attach`: titles of the `links` an agent needs, when any.
+    - `thread`: the id of the thread the task continues (from the list above). Set it whenever the task
+      grows out of work in that thread. Leave it out to start a new thread.
+    - `newThreadApp`: for a new thread only, `claude` or `codex`, the app the task should open in.
     - `why`: the evidence behind the item in one or two sentences: which card, message, record, or page
       shows it. The user never sees it.
 

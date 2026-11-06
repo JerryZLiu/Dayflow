@@ -140,7 +140,8 @@ enum DailyBriefGenerator {
     let candidatesDirectory = runDirectory.appendingPathComponent("candidates", isDirectory: true)
     // So the footer never opens an older run's transcript for a part that failed early.
     for part in Part.allCases {
-      try? FileManager.default.removeItem(at: DailyBriefStore.transcriptURL(for: input.day, part: part))
+      try? FileManager.default.removeItem(
+        at: DailyBriefStore.transcriptURL(for: input.day, part: part))
     }
 
     let categories = CategoryPersistence.loadPersistedCategories()
@@ -176,6 +177,8 @@ enum DailyBriefGenerator {
       var partValues = values
       if part == .docket {
         partValues["YESTERDAY_CARDS"] = detailedCardLines
+        // Read here, on the docket's own thread, so the scan overlaps the other run.
+        partValues["RECENT_AGENT_THREADS"] = DailyBriefThreadIndex.promptBlock()
       }
       let outcome = Result {
         try runPart(
@@ -533,15 +536,21 @@ enum DailyBriefGenerator {
         case .docket:
           lines += (content.docket ?? []).map { "- docket: \($0.title)" }
         case .keepTracking:
-          lines += (content.keepTracking ?? []).map { "- keep_tracking: \($0.label) — \($0.status)" }
+          lines += (content.keepTracking ?? []).map {
+            "- keep_tracking: \($0.label) — \($0.status)"
+          }
         case .completedYesterday:
           lines += (content.completedYesterday ?? []).map { "- completed_yesterday: \($0.title)" }
         case .teamDecisions:
           lines += (content.teamDecisions ?? []).map { "- team_decisions: \($0.decision)" }
         case .relatedReading:
-          lines += (content.relatedReading ?? []).map { "- related_reading: \($0.title) (\($0.url))" }
+          lines += (content.relatedReading ?? []).map {
+            "- related_reading: \($0.title) (\($0.url))"
+          }
         case .industryNews:
-          lines += (content.industryNews ?? []).map { "- industry_news: \($0.headline) (\($0.url))" }
+          lines += (content.industryNews ?? []).map {
+            "- industry_news: \($0.headline) (\($0.url))"
+          }
         case .siteSeeing:
           lines += (content.siteSeeing ?? []).map { "- site_seeing: \($0.caption ?? $0.file)" }
         }
@@ -554,7 +563,8 @@ enum DailyBriefGenerator {
 
   // MARK: - Command
 
-  /// The docket run gets no screenshots, so it has no Read tool.
+  /// The docket run can read the person's Claude Code and Codex transcripts, to check whether
+  /// a task was already started; the other run can read its screenshots.
   private static func commandOptions(part: Part, runDirectory: URL, candidatesDirectory: URL)
     throws -> ClaudeCLIStructuredOutputOptions
   {
@@ -579,9 +589,13 @@ enum DailyBriefGenerator {
 
     var tools = "WebSearch,WebFetch"
     var allowedTools = ["WebSearch", "WebFetch"]
-    if part == .extras {
+    // Claude permission rules use // for absolute paths; / is project-relative.
+    switch part {
+    case .docket:
       tools = "Read," + tools
-      // Claude permission rules use // for absolute paths; / is project-relative.
+      allowedTools += DailyBriefThreadIndex.transcriptFolders.map { "Read(/\($0.path)/**)" }
+    case .extras:
+      tools = "Read," + tools
       allowedTools.append("Read(/\(candidatesDirectory.path)/**)")
     }
     allowedTools += dayflowReadTools.map { "mcp__dayflow__\($0)" }
@@ -735,6 +749,8 @@ enum DailyBriefGenerator {
         "feedbackSummary": stringSchema,
         "feedbackUrl": stringSchema,
         "attach": arraySchema(stringSchema),
+        "thread": stringSchema,
+        "newThreadApp": ["type": "string", "enum": ["claude", "codex"]],
         "why": stringSchema,
       ], required: ["title", "prompt", "agent", "why"])
     let trackingItem = objectSchema(
@@ -1147,12 +1163,20 @@ enum DailyBriefGenerator {
             name: name, source: clean(note.source), text: text, url: webURL(note.url))
         }
         let attach = (item.attach ?? []).compactMap { clean($0) }
+        // A thread id that isn't shaped like a Codex or Claude Code one is dropped, so the
+        // task starts a new thread.
+        let thread = clean(item.thread).flatMap { DailyBriefAgent(threadID: $0) == nil ? nil : $0 }
+        // Only a new thread needs an app picked; an existing thread already has one.
+        let newThreadApp =
+          thread == nil
+          ? clean(item.newThreadApp).flatMap { DailyBriefAgent(appName: $0) == nil ? nil : $0 }
+          : nil
         return DailyBriefDocketItem(
           title: title, detail: clean(item.detail), due: clean(item.due),
           people: nonEmpty(people), links: nonEmpty(links),
           prompt: clean(item.prompt), agent: item.agent, feedback: nonEmpty(feedback),
           feedbackSummary: clean(item.feedbackSummary), feedbackUrl: webURL(item.feedbackUrl),
-          attach: nonEmpty(attach))
+          attach: nonEmpty(attach), thread: thread, newThreadApp: newThreadApp)
       })
 
     result.keepTracking = nonEmpty(
