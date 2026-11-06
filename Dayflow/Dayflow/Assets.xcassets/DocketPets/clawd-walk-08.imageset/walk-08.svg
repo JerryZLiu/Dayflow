@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 18" width="240" height="180" shape-rendering="crispEdges">
+  <title>Clawd walk frame 8</title>
+  <path data-layer="body" fill="#d97757" d="M7 18V16H8V14H6V18H4V10H1V6H4V2H20V6H23V10H20V13H21V17H19V14H17V16H18V18H16V16H15V14H10V16H9V18Z"/>
+  <path data-layer="shade" fill="#be684d" d="M7 14H6V18H4V10H7ZM21 10H20V6H21ZM4 2H7V6H4ZM4 10H1V6H4Z"/>
+  <path data-layer="eyes" fill="#141413" d="M18 4H20V6H18ZM11 6H9V4H11Z"/>
+</svg>

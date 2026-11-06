@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 30" width="240" height="300" shape-rendering="crispEdges">
+  <title>Clawd jumping frame 4</title>
+  <path data-layer="body" fill="#d97757" d="M4 22V16H20V22H24V26H20V30H18V28H16V30H14V28H10V30H8V28H6V30H4V26H0V22Z"/>
+  <path data-layer="shade" fill="#be684d" d="M10 28V29H8V28ZM4 28H6V29H4ZM18 28H20V29H18ZM14 28H16V29H14ZM4 17H5V18H4Z"/>
+  <path data-layer="eyes" fill="#141413" d="M6 21H8V23H6ZM16 23V21H18V23Z"/>
+</svg>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 30" width="240" height="300" shape-rendering="crispEdges">
+  <title>Clawd jumping frame 14, with its usual 2 × 2 eyes</title>
+  <path data-layer="body" fill="#d97757" d="M19 27H17V29H16V30H14V28H10V30H8V29H7V27H5V28H6V30H4V29H3V26H4V25H0V21H4V15H20V21H24V25H20V26H21V29H20V30H18V28H19Z"/>
+  <path data-layer="eyes" fill="#141413" d="M6 18H8V20H6ZM16 18H18V20H16Z"/>
+</svg>

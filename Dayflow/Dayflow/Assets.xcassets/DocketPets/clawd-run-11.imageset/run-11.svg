@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25 17" width="250" height="170" shape-rendering="crispEdges">
+  <title>Clawd run frame 11</title>
+  <path data-layer="body" fill="#d97757" d="M5 10H2V6H6V1H22V5H25V9H22V10H21V13H20V17H18V13H17V17H15V13H10V17H8V13H5V16H3V12H4V11H5Z"/>
+  <path data-layer="shade" fill="#bf694d" d="M7 13H5V16H3V12H4V11H5V10H7ZM23 9H22V5H23ZM5 10H2V6H5ZM9 6H6V1H9Z"/>
+  <path data-layer="eyes" fill="#000000" d="M13 5H11V3H13ZM20 5V3H22V5Z"/>
+</svg>

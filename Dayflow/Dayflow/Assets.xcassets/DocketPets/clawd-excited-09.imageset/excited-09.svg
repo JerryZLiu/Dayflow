@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 17" width="240" height="170" shape-rendering="crispEdges">
+  <title>Clawd excited frame 9</title>
+  <path data-layer="body" fill="#d97757" d="M4 0H20V4H21V8H20V17H18V13H16V17H14V13H9V16H7V12H6V13H5V16H3V11H4V8H3V4H4Z"/>
+  <path data-layer="shade" fill="#be684d" d="M17 8H20V9H16V4H17ZM7 4H8V9H4V8H7Z"/>
+  <path data-layer="eyes" fill="#141413" d="M9 3H10V4H9ZM9 3H7V2H9ZM17 3H18V4H17ZM17 3H15V2H17ZM14 3H15V4H14ZM7 3V4H6V3Z"/>
+</svg>
