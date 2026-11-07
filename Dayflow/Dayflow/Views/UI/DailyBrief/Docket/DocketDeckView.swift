@@ -71,7 +71,9 @@ struct DocketDeckView: View {
 
   /// Tasks still in the stack, plus any card mid-throw.
   private var stackItems: [DailyBriefDocketItem] {
-    store.docketItems.filter { !store.isDocketDone($0.title) || flights[$0.title]?.isLeaving == true }
+    store.docketItems.filter {
+      !store.isDocketDone($0.title) || flights[$0.title]?.isLeaving == true
+    }
   }
 
   /// Tasks the stack is laid out from: everything not flying away.
@@ -86,7 +88,9 @@ struct DocketDeckView: View {
 
   private var isOpen: Bool { ui.isPromptOpen && frontItem != nil && !store.docketShowsList }
 
-  private var showsSummary: Bool { settledItems.isEmpty && flights.values.allSatisfy { !$0.isLeaving } }
+  private var showsSummary: Bool {
+    settledItems.isEmpty && flights.values.allSatisfy { !$0.isLeaving }
+  }
 
   private var reviewedCount: Int {
     store.docketItems.filter { store.isDocketDone($0.title) }.count
@@ -94,7 +98,8 @@ struct DocketDeckView: View {
 
   /// Lift so the open card (and its buttons) sit centred in the window.
   private var openLift: CGFloat {
-    let openTop = max(24, (viewportHeight - (Self.openHeight + Self.buttonGap + Self.buttonHeight)) / 2)
+    let openTop = max(
+      24, (viewportHeight - (Self.openHeight + Self.buttonGap + Self.buttonHeight)) / 2)
     return min(0, openTop - deckTop)
   }
 
@@ -106,16 +111,22 @@ struct DocketDeckView: View {
         DocketListView()
           .frame(width: 902)
           .padding(.top, -12.2)
-          .transition(.asymmetric(
-            insertion: .modifier(active: DocketBoxIn(isIn: false), identity: DocketBoxIn(isIn: true)),
-            removal: .identity))
+          .transition(
+            .asymmetric(
+              insertion: .modifier(
+                active: DocketBoxIn(isIn: false), identity: DocketBoxIn(isIn: true)),
+              removal: .identity)
+          )
           .id("list-\(viewSwitchCount)")
       } else {
         cardArea
-          .frame(width: Self.width, height: showsSummary ? 400 : Self.height, alignment: .topLeading)
+          .frame(
+            width: Self.width, height: showsSummary ? 400 : Self.height, alignment: .topLeading
+          )
           .background(
             DocketEventMonitor(
-              onWheel: handleWheel, onArrow: handleArrow, isWheelEnabled: !showsSummary, wheel: wheel)
+              onWheel: handleWheel, onArrow: handleArrow, isWheelEnabled: !showsSummary,
+              wheel: wheel)
           )
           .offset(y: isOpen ? openLift : 0)
       }
@@ -139,9 +150,11 @@ struct DocketDeckView: View {
       if showsSummary {
         DocketSummaryCard(count: reviewedCount)
           .frame(width: Self.width, height: 400)
-          .transition(.asymmetric(
-            insertion: .modifier(active: DocketSummaryIn(isIn: false), identity: DocketSummaryIn(isIn: true)),
-            removal: .opacity))
+          .transition(
+            .asymmetric(
+              insertion: .modifier(
+                active: DocketSummaryIn(isIn: false), identity: DocketSummaryIn(isIn: true)),
+              removal: .opacity))
       } else {
         ForEach(Array(stackItems.enumerated()), id: \.element.title) { _, item in
           if let position = position(of: item), position >= -1, position <= 3 {
@@ -179,17 +192,31 @@ struct DocketDeckView: View {
   private func slot(_ position: Int) -> Slot {
     switch position {
     case ..<0:
-      return Slot(x: 0, y: -28, width: Self.width, height: Self.cardHeight, fill: DocketColors.cardFront, opacity: 0)
+      return Slot(
+        x: 0, y: -28, width: Self.width, height: Self.cardHeight, fill: DocketColors.cardFront,
+        opacity: 0)
     case 0:
       return isOpen
-        ? Slot(x: -57, y: 0, width: Self.openWidth, height: Self.openHeight, fill: DocketColors.cardFront, opacity: 1)
-        : Slot(x: 0, y: 0, width: Self.width, height: Self.cardHeight, fill: DocketColors.cardFront, opacity: 1)
+        ? Slot(
+          x: -57, y: 0, width: Self.openWidth, height: Self.openHeight,
+          fill: DocketColors.cardFront, opacity: 1)
+        : Slot(
+          x: 0, y: 0, width: Self.width, height: Self.cardHeight, fill: DocketColors.cardFront,
+          opacity: 1)
+    // The cards behind are full height, so dragging the front card aside uncovers a whole
+    // card; at rest only their top edges show.
     case 1:
-      return Slot(x: 11.94, y: -10.15, width: 651, height: 105, fill: DocketColors.cardSecond, opacity: isOpen ? 0 : 1)
+      return Slot(
+        x: 11.94, y: -10.15, width: 651, height: Self.cardHeight, fill: DocketColors.cardSecond,
+        opacity: isOpen ? 0 : 1)
     case 2:
-      return Slot(x: 25.94, y: -20.15, width: 624, height: 105, fill: DocketColors.cardThird, opacity: isOpen ? 0 : 1)
+      return Slot(
+        x: 25.94, y: -20.15, width: 624, height: Self.cardHeight, fill: DocketColors.cardThird,
+        opacity: isOpen ? 0 : 1)
     default:
-      return Slot(x: 25.94, y: -20.15, width: 624, height: 105, fill: DocketColors.cardThird, opacity: 0)
+      return Slot(
+        x: 25.94, y: -20.15, width: 624, height: Self.cardHeight, fill: DocketColors.cardThird,
+        opacity: 0)
     }
   }
 
@@ -207,12 +234,22 @@ struct DocketDeckView: View {
     let veilSide: CGFloat = flight?.direction ?? (dragX < 0 ? -1 : 1)
     let veilStrength = flight != nil ? 1 : min(1, abs(dragX) / Self.swipeThreshold)
 
-    DocketCardShell(fill: slot.fill, isFront: position == 0) {
+    // The next card shows its task as the front card is dragged off it.
+    let previewOpacity = position == 1 ? min(1, abs(dragX) / 160) : 0
+
+    DocketCardShell(fill: slot.fill, isFront: position == 0, previewOpacity: previewOpacity) {
       if position == 0 {
         DocketCardContent(
           item: item, isOpen: isOpen, revealStart: revealStart, panel: $panel,
           promptScroll: $promptScroll, promptContentHeight: $promptContentHeight,
           isEditingPrompt: $isEditingPrompt, togglePrompt: togglePrompt)
+      } else if position == 1 {
+        DocketCardContent(
+          item: item, isOpen: false, revealStart: nil, panel: .constant(nil),
+          promptScroll: .constant(0), promptContentHeight: .constant(0),
+          isEditingPrompt: .constant(false), togglePrompt: {}
+        )
+        .allowsHitTesting(false)
       }
     }
     .modifier(DocketScanSurfaceIfFront(start: position == 0 ? scanStart : nil))
@@ -351,14 +388,17 @@ struct DocketDeckView: View {
     var heldX: CGFloat?
     var staysVisible = false
     let curve: Animation =
-      eased ? .timingCurve(0.25, 0.6, 0.4, 1, duration: 0.3) : .timingCurve(0.5, 0, 0.75, 0.2, duration: 0.3)
+      eased
+      ? .timingCurve(0.25, 0.6, 0.4, 1, duration: 0.3)
+      : .timingCurve(0.5, 0, 0.75, 0.2, duration: 0.3)
 
     if direction < 0 {
       store.dismissDocket(title)
       undoTitle = title
       withAnimation(DocketMotion.ease(0.3)) { ui.askTitle = title }
     } else {
-      let exit = store.docketHandoffMethod == .paste
+      let exit =
+        store.docketHandoffMethod == .paste
         ? DocketHandoffDirector.cardExit(for: store.docketAgent) : .thrown
       store.handOffDocket(item, card: exit == .carried ? liftedCard(for: item) : nil)
       undoTitle = nil
@@ -403,11 +443,13 @@ struct DocketDeckView: View {
   private func liftedCard(for item: DailyBriefDocketItem) -> DocketLiftedCard? {
     guard let view = wheel.hostView, let window = view.window else { return nil }
     // The deck's top-left corner on screen, then the card's slot plus the drag inside it.
-    let deck = DocketHandoffDirector.globalRect(fromAppKit: window.convertToScreen(view.convert(view.bounds, to: nil)))
+    let deck = DocketHandoffDirector.globalRect(
+      fromAppKit: window.convertToScreen(view.convert(view.bounds, to: nil)))
     let slot = slot(0)
     let lift = -8 * abs(dragX) / 240
     let frame = CGRect(
-      x: deck.minX + slot.x + dragX, y: deck.minY + slot.y + lift, width: slot.width, height: slot.height)
+      x: deck.minX + slot.x + dragX, y: deck.minY + slot.y + lift, width: slot.width,
+      height: slot.height)
     return DocketLiftedCard(item: item, isOpen: isOpen, frame: frame, tilt: Double(5 * dragX / 240))
   }
 
@@ -510,7 +552,8 @@ struct DocketDeckView: View {
       // A mouse never reports lifted fingers, so decide once its scrolling stops.
       if !phase.hasFingers {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) {
-          guard Date().timeIntervalSince(wheel.lastWheelAt) >= 0.16, wheel.swipeAccumulated != 0 else { return }
+          guard Date().timeIntervalSince(wheel.lastWheelAt) >= 0.16, wheel.swipeAccumulated != 0
+          else { return }
           finishSwipe()
         }
       }
@@ -576,6 +619,8 @@ struct DocketDeckView: View {
 struct DocketCardShell<Content: View>: View {
   let fill: Color
   let isFront: Bool
+  /// How much of a card behind's content shows (while the front card is dragged).
+  var previewOpacity: Double = 0
   @ViewBuilder let content: () -> Content
 
   var body: some View {
@@ -583,7 +628,7 @@ struct DocketCardShell<Content: View>: View {
     ZStack {
       shape.fill(fill)
       content()
-        .opacity(isFront ? 1 : 0)
+        .opacity(isFront ? 1 : previewOpacity)
         .animation(.easeOut(duration: 0.3).delay(isFront ? 0.1 : 0), value: isFront)
     }
     .clipShape(shape)
@@ -619,10 +664,14 @@ struct DocketSwipeVeil: View {
       Rectangle().fill(.ultraThinMaterial).opacity(0.5)
       LinearGradient(
         colors: isDismiss
-          ? [Color(red: 222 / 255, green: 166 / 255, blue: 173 / 255).opacity(0.3),
-             Color(red: 82 / 255, green: 70 / 255, blue: 69 / 255).opacity(0.3)]
-          : [Color(red: 209 / 255, green: 236 / 255, blue: 231 / 255).opacity(0.5),
-             Color(red: 121 / 255, green: 142 / 255, blue: 208 / 255).opacity(0.5)],
+          ? [
+            Color(red: 222 / 255, green: 166 / 255, blue: 173 / 255).opacity(0.3),
+            Color(red: 82 / 255, green: 70 / 255, blue: 69 / 255).opacity(0.3),
+          ]
+          : [
+            Color(red: 209 / 255, green: 236 / 255, blue: 231 / 255).opacity(0.5),
+            Color(red: 121 / 255, green: 142 / 255, blue: 208 / 255).opacity(0.5),
+          ],
         startPoint: .top, endPoint: .bottom)
       VStack(spacing: 4) {
         Image(isDismiss ? "DocketVeilClose" : "DocketVeilSend")
@@ -698,7 +747,9 @@ private struct DocketViewToggle: View {
       segment("List", isOn: showsList) { select(true) }
     }
     .padding(1)
-    .background(Capsule().fill(Color(red: 223 / 255, green: 223 / 255, blue: 223 / 255).opacity(0.3)))
+    .background(
+      Capsule().fill(Color(red: 223 / 255, green: 223 / 255, blue: 223 / 255).opacity(0.3))
+    )
     .overlay(Capsule().strokeBorder(DocketColors.roundBorder, lineWidth: 0.5))
   }
 
@@ -775,7 +826,9 @@ private struct DocketCardEntrance: ViewModifier {
     let rise: CGFloat = position == 0 ? -24 : -16
     content
       .opacity(hasEntered ? 1 : 0)
-      .animation(hasEntered ? .easeOut(duration: duration * 0.45).delay(delay) : nil, value: hasEntered)
+      .animation(
+        hasEntered ? .easeOut(duration: duration * 0.45).delay(delay) : nil, value: hasEntered
+      )
       .offset(y: hasEntered ? 0 : rise)
       .animation(hasEntered ? DocketMotion.enter(duration).delay(delay) : nil, value: hasEntered)
   }
@@ -883,7 +936,8 @@ private struct DocketEventMonitor: NSViewRepresentable {
       // dx is how far the fingers moved right, so the card always follows them: without
       // natural scrolling, macOS reports sideways deltas the other way round.
       let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 16
-      let fingerX = event.isDirectionInvertedFromDevice ? event.scrollingDeltaX : -event.scrollingDeltaX
+      let fingerX =
+        event.isDirectionInvertedFromDevice ? event.scrollingDeltaX : -event.scrollingDeltaX
       let dx = fingerX * scale
       let dy = -event.scrollingDeltaY * scale
       let phase = DocketWheelPhase(
