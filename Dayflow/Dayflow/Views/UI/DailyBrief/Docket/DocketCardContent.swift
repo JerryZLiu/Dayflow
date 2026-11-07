@@ -35,7 +35,15 @@ struct DocketCardContent: View {
   @ObservedObject private var store = DailyBriefStore.shared
   @ObservedObject private var ui = DocketUIState.shared
 
+  /// The title's measured height, and the height of one line of it. A title that wraps
+  /// grows upward, so the counts stay where the layout expects them.
+  @State private var titleHeight: CGFloat = 0
+  @State private var titleLineHeight: CGFloat = 0
+
   private var inset: CGFloat { isOpen ? 36 : 26 }
+
+  /// How much taller than one line the title is.
+  private var titleExtraHeight: CGFloat { max(0, titleHeight - titleLineHeight) }
 
   /// Where the title and counts sit.
   private var headTop: CGFloat {
@@ -56,7 +64,7 @@ struct DocketCardContent: View {
       head
         .padding(.horizontal, inset)
         .frame(maxWidth: .infinity)
-        .offset(y: headTop)
+        .offset(y: headTop - titleExtraHeight)
 
       if let panel {
         DocketPanelView(item: item, panel: panel, isWide: isOpen)
@@ -100,11 +108,32 @@ struct DocketCardContent: View {
 
   private var head: some View {
     VStack(spacing: isOpen ? 16 : 10) {
+      // Never cut off: a long title wraps onto more lines.
       Text(item.title)
         .font(DailyBriefFonts.sans(18, weight: .medium))
         .foregroundStyle(DocketColors.title)
-        .lineLimit(1)
         .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(
+          GeometryReader { geometry in
+            Color.clear
+              .onAppear { titleHeight = geometry.size.height }
+              .onChange(of: geometry.size.height) { _, height in titleHeight = height }
+          }
+        )
+        .background(
+          // One line of the same text style, measured but never shown.
+          Text("Ag")
+            .font(DailyBriefFonts.sans(18, weight: .medium))
+            .hidden()
+            .background(
+              GeometryReader { geometry in
+                Color.clear
+                  .onAppear { titleLineHeight = geometry.size.height }
+                  .onChange(of: geometry.size.height) { _, height in titleLineHeight = height }
+              }
+            )
+        )
 
       DocketCountsRow(item: item, panel: $panel)
     }
@@ -144,8 +173,9 @@ struct DocketCardContent: View {
       if showsOpenPrompt {
         DocketOpenPrompt(
           item: item, revealStart: revealStart, scroll: $promptScroll,
-          contentHeight: $promptContentHeight, isEditing: $isEditingPrompt)
-          .padding(.top, 21)
+          contentHeight: $promptContentHeight, isEditing: $isEditingPrompt
+        )
+        .padding(.top, 21)
       } else {
         tuckedPrompt
       }
@@ -170,7 +200,8 @@ struct DocketCardContent: View {
             .init(color: Color(hex: "FFFBFA").opacity(0.77), location: 0.5),
             .init(color: Color(hex: "FFFBFA").opacity(0.83), location: 0.67),
             .init(color: Color(hex: "FFFBFA").opacity(0.9), location: 1),
-          ], startPoint: .top, endPoint: .bottom)
+          ], startPoint: .top, endPoint: .bottom
+        )
         .frame(height: 59.3)
         .padding(.horizontal, -inset)
         .offset(y: 12.7)
@@ -342,7 +373,9 @@ private struct DocketPromptTools: View {
 /// Positions of the gear and folder pickers, so the page can draw their menus on top.
 struct DocketAnchorKey: PreferenceKey {
   static let defaultValue: [String: Anchor<CGRect>] = [:]
-  static func reduce(value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]) {
+  static func reduce(
+    value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]
+  ) {
     value.merge(nextValue()) { $1 }
   }
 }
@@ -399,7 +432,9 @@ struct DocketCountsRow: View {
     }
   }
 
-  private func count<Label: View>(_ kind: DocketPanel, @ViewBuilder label: @escaping () -> Label) -> some View {
+  private func count<Label: View>(_ kind: DocketPanel, @ViewBuilder label: @escaping () -> Label)
+    -> some View
+  {
     DocketCountButton(isOpen: panel == kind, openFill: openFill) {
       withAnimation(DocketMotion.ease(0.42)) { panel = panel == kind ? nil : kind }
     } label: {
@@ -420,12 +455,17 @@ private struct DocketCountButton<Label: View>: View {
     Button(action: action) {
       HStack(spacing: 4) { label() }
         .font(DailyBriefFonts.sans(14))
-        .foregroundStyle(isOpen ? Color(hex: "696868") : (isHovered ? DocketColors.countHover : DocketColors.count))
+        .foregroundStyle(
+          isOpen ? Color(hex: "696868") : (isHovered ? DocketColors.countHover : DocketColors.count)
+        )
         .padding(.vertical, 3)
         .padding(.horizontal, 6)
         .background(
           Capsule().fill(
-            isOpen ? openFill : (isHovered ? Color(red: 193 / 255, green: 160 / 255, blue: 144 / 255).opacity(0.1) : .clear))
+            isOpen
+              ? openFill
+              : (isHovered
+                ? Color(red: 193 / 255, green: 160 / 255, blue: 144 / 255).opacity(0.1) : .clear))
         )
         .padding(.vertical, -3)
         .padding(.horizontal, -6)
@@ -445,7 +485,9 @@ struct DocketLinkIcon: View {
 
   var body: some View {
     Circle()
-      .fill(LinearGradient(colors: [.white, Color(hex: "E4E4E4")], startPoint: .top, endPoint: .bottom))
+      .fill(
+        LinearGradient(colors: [.white, Color(hex: "E4E4E4")], startPoint: .top, endPoint: .bottom)
+      )
       .overlay(Circle().strokeBorder(Color(hex: "DBDBDB"), lineWidth: 0.5))
       .overlay(icon)
       .frame(width: size, height: size)
@@ -455,7 +497,9 @@ struct DocketLinkIcon: View {
   @ViewBuilder
   private var icon: some View {
     let app = link.app?.lowercased() ?? "web"
-    if app == "web" || (DailyBriefApps.host(app) == nil && DailyBriefLinks.host(of: link.url) == nil) {
+    if app == "web"
+      || (DailyBriefApps.host(app) == nil && DailyBriefLinks.host(of: link.url) == nil)
+    {
       Image(systemName: "globe")
         .font(.system(size: size * 0.55))
         .foregroundStyle(Color(hex: "8A9BB0"))
