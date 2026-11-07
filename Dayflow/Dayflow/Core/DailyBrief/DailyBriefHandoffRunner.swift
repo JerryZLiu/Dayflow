@@ -39,7 +39,8 @@ enum DailyBriefAgent: String, Codable, CaseIterable, Sendable {
     switch self {
     case .claude: return "com.anthropic.claudefordesktop"
     case .chatgpt:
-      return NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.codexBundleIdentifier) != nil
+      return NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.codexBundleIdentifier)
+        != nil
         ? Self.codexBundleIdentifier : "com.openai.chat"
     }
   }
@@ -116,7 +117,8 @@ enum DailyBriefAgent: String, Codable, CaseIterable, Sendable {
     let configuration = NSWorkspace.OpenConfiguration()
     configuration.activates = true
     if let link {
-      NSWorkspace.shared.open([link], withApplicationAt: appURL, configuration: configuration) { _, error in
+      NSWorkspace.shared.open([link], withApplicationAt: appURL, configuration: configuration) {
+        _, error in
         completion?(error)
       }
     } else {
@@ -157,32 +159,29 @@ enum DailyBriefHandoffRunner {
 
   // MARK: - Paste
 
-  static func paste(prompt: String, agent: DailyBriefAgent, folder: String?) {
+  /// `link` opens the thread to paste into (see DailyBriefAgent.threadLink); nil just opens the app.
+  static func paste(prompt: String, agent: DailyBriefAgent, link: URL?) {
     let pasteboard = NSPasteboard.general
     pasteboard.clearContents()
     pasteboard.setString(prompt, forType: .string)
 
-    guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: agent.bundleIdentifier)
+    guard NSWorkspace.shared.urlForApplication(withBundleIdentifier: agent.bundleIdentifier) != nil
     else {
       if let url = agent.webURL(prompt: prompt) { NSWorkspace.shared.open(url) }
       return
     }
 
-    let configuration = NSWorkspace.OpenConfiguration()
-    configuration.activates = true
-    NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, error in
+    agent.open(link: link) { error in
       guard error == nil else { return }
-      // Give the app a moment to come forward and focus its message box.
-      DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+      // Give the app a moment to come forward (and switch threads) and focus its message box.
+      DispatchQueue.main.asyncAfter(deadline: .now() + (link == nil ? 1.2 : 1.8)) {
         MainActor.assumeIsolated { pressCommandV() }
       }
     }
   }
 
   static func openApp(_ agent: DailyBriefAgent) {
-    guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: agent.bundleIdentifier)
-    else { return }
-    NSWorkspace.shared.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration())
+    agent.open(link: nil)
   }
 
   /// Posts ⌘V to the frontmost app. Needs Accessibility access; without it nothing happens

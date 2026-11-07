@@ -13,6 +13,14 @@
 //    zoom        the card grows into the app's window, like opening an app on an iPhone
 //    crab        a pixel crab catches the card, holds it while the app comes forward, then
 //                throws it into the message box (the crab is in DocketCrab.swift)
+//    catchOnTop  Dayflow stays put: a pet comes up out of the Dock, catches the card, walks
+//                with it while the app opens on top, throws it into the message box, and
+//                the prompt types in (the pet is in DocketPet.swift)
+//    inApp       Dayflow stays put: the card swipes off as usual, the app opens on top, and
+//                the prompt types in
+//
+//  The last two also work when the app isn't open yet: it launches, and the pet waits with
+//  the card until its window is up.
 //
 //  We can't animate another app's window, so everything happens in a transparent, click-
 //  through window above every app. It draws the card live, and the windows as pictures taken
@@ -29,6 +37,8 @@ import ScreenCaptureKit
 import SwiftUI
 
 enum DocketTransitionStyle: String, CaseIterable {
+  case catchOnTop
+  case inApp
   case instant
   case cardGenie
   case appGenie
@@ -39,11 +49,13 @@ enum DocketTransitionStyle: String, CaseIterable {
   static let defaultsKey = "docketTransitionStyle"
 
   static var current: DocketTransitionStyle {
-    UserDefaults.standard.string(forKey: defaultsKey).flatMap(Self.init(rawValue:)) ?? .crab
+    UserDefaults.standard.string(forKey: defaultsKey).flatMap(Self.init(rawValue:)) ?? .catchOnTop
   }
 
   var displayName: String {
     switch self {
+    case .catchOnTop: return "Pet catches it, app on top"
+    case .inApp: return "App pops up over Dayflow"
     case .instant: return "Instant"
     case .cardGenie: return "Card into message box"
     case .appGenie: return "Dayflow into Dock, app out"
@@ -55,8 +67,13 @@ enum DocketTransitionStyle: String, CaseIterable {
 
   var note: String {
     switch self {
+    case .catchOnTop:
+      return
+        "A pet comes up out of the Dock, catches the card and throws it into the message box as the app opens over Dayflow."
+    case .inApp: return "The card swipes off, the app opens over Dayflow, and the prompt types in."
     case .instant: return "Switches straight to the app, like before."
-    case .cardGenie: return "The card floats above while the app opens, then genies into its message box."
+    case .cardGenie:
+      return "The card floats above while the app opens, then genies into its message box."
     case .appGenie: return "Dayflow genies into the app’s Dock icon, then the app genies out of it."
     case .slide: return "Dayflow slides away as the app slides in, like switching desktops."
     case .zoom: return "The card grows into the app’s window, like opening an app on iPhone."
@@ -65,7 +82,12 @@ enum DocketTransitionStyle: String, CaseIterable {
   }
 
   /// The card itself carries the hand-off, so the deck hides it in place instead of throwing it.
-  var liftsCard: Bool { self == .cardGenie || self == .zoom || self == .crab }
+  var liftsCard: Bool {
+    self == .cardGenie || self == .zoom || self == .crab || self == .catchOnTop
+  }
+
+  /// Dayflow stays where it is and the app opens on top of it, launching first if needed.
+  var opensOnTop: Bool { self == .catchOnTop || self == .inApp }
 }
 
 /// The front card at the moment it was handed off.
@@ -105,14 +127,22 @@ enum DocketHandoffDirector {
   /// comes back to it. Showing it again behind the app would look like a glitch.
   private static var keepsDayflowHidden = false
   private static var isWatchingForReturn = false
+  /// The deep link to the thread this run hands the prompt to (see DailyBriefAgent.threadLink).
+  /// The first open of the app during the run uses it, so the app lands on that thread.
+  private static var link: URL?
 
   /// Reduce Motion turns every style into the instant switch.
   private static var style: DocketTransitionStyle {
-    NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? .instant : DocketTransitionStyle.current
+    NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+      ? .instant : DocketTransitionStyle.current
   }
 
   /// What the deck should do with the card if it's handed off right now.
   static func cardExit(for agent: DailyBriefAgent) -> DocketCardExit {
+    if style.opensOnTop {
+      // The pet takes the card from where it is; In app throws it as usual.
+      return style == .catchOnTop && !isRunning && isInstalled(agent) ? .carried : .thrown
+    }
     guard style != .instant, !isRunning, let app = runningApp(agent),
       frontWindow(of: app.processIdentifier) != nil
     else { return .thrown }
@@ -121,43 +151,34 @@ enum DocketHandoffDirector {
 
   /// Copies the prompt and brings the agent's app forward with the chosen transition,
   /// then pastes. Falls back to an instant switch when the app isn't open with a window.
-  static func paste(prompt: String, agent: DailyBriefAgent, card: DocketLiftedCard?) {
+  /// `link` opens the thread to paste into; nil just brings the app forward.
+  static func paste(prompt: String, agent: DailyBriefAgent, link: URL?, card: DocketLiftedCard?) {
     let style = self.style
+    if style.opensOnTop {
+      openOnTop(prompt: prompt, agent: agent, link: link, card: card, style: style)
+      return
+    }
     // A card-carrying style needs the card; without one (the list's button) switch instantly.
-    guard style != .instant, !isRunning, !style.liftsCard || card != nil,
+    // These styles find the message box before the app comes forward, which a thread switch
+    // would make stale, so a hand-off to a thread switches instantly too.
+    guard style != .instant, !isRunning, !style.liftsCard || card != nil, link == nil,
       let app = runningApp(agent),
       let agentWindow = frontWindow(of: app.processIdentifier),
       let window = NSApp.keyWindow ?? NSApp.mainWindow,
       let screen = window.screen ?? NSScreen.main
     else {
-      DailyBriefHandoffRunner.paste(prompt: prompt, agent: agent, folder: nil)
+      DailyBriefHandoffRunner.paste(prompt: prompt, agent: agent, link: link)
       return
     }
 
-    let pasteboard = NSPasteboard.general
-    pasteboard.clearContents()
-    pasteboard.setString(prompt, forType: .string)
-
-    isRunning = true
-    runID += 1
-    let id = runID
-    dayflowWindow = window
-    watchForReturn()
-    openOverlay(on: screen, style: style)
+    let id = begin(prompt: prompt, style: style, window: window, screen: screen, timeout: 8)
     let pid = app.processIdentifier
     Task.detached { prepareAccessibility(pid: pid) }
 
-    // Whatever happens, never leave the overlay up or Dayflow invisible.
-    Task { @MainActor in
-      try? await Task.sleep(for: .seconds(8))
-      guard runID == id else { return }
-      keepsDayflowHidden = false
-      closeOverlay()
-    }
-
     Task { @MainActor in
       switch style {
-      case .instant:
+      case .instant, .catchOnTop, .inApp:
+        // (Catch on top and In app never get here: see openOnTop.)
         break
       case .cardGenie:
         if let card { await carry(card, agent: agent, pid: pid, agentWindow: agentWindow) }
@@ -172,6 +193,32 @@ enum DocketHandoffDirector {
       }
       if runID == id { closeOverlay() }
     }
+  }
+
+  /// Copies the prompt, puts the overlay up and starts a run. Whatever happens, the overlay
+  /// comes down (and Dayflow shows again) after `timeout` seconds.
+  private static func begin(
+    prompt: String, style: DocketTransitionStyle, window: NSWindow, screen: NSScreen,
+    timeout: Double
+  ) -> Int {
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    pasteboard.setString(prompt, forType: .string)
+
+    isRunning = true
+    runID += 1
+    let id = runID
+    dayflowWindow = window
+    watchForReturn()
+    openOverlay(on: screen, style: style)
+
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(timeout))
+      guard runID == id else { return }
+      keepsDayflowHidden = false
+      closeOverlay()
+    }
+    return id
   }
 
   // MARK: Styles
@@ -196,7 +243,8 @@ enum DocketHandoffDirector {
         model.dayflowImage = picture
       }
     }
-    await genieCard(into: await boxSearch.value, agent: agent, pid: pid, fallbackFrame: agentWindow.frame)
+    await genieCard(
+      into: await boxSearch.value, agent: agent, pid: pid, fallbackFrame: agentWindow.frame)
   }
 
   /// Card opens into app:
@@ -210,7 +258,8 @@ enum DocketHandoffDirector {
     lift(card)
     let boxSearch = Task.detached { findMessageBox(pid: pid, within: 0.35) }
     guard let picture = await capture([agentWindow.id])[agentWindow.id] else {
-      await genieCard(into: await boxSearch.value, agent: agent, pid: pid, fallbackFrame: agentWindow.frame)
+      await genieCard(
+        into: await boxSearch.value, agent: agent, pid: pid, fallbackFrame: agentWindow.frame)
       return
     }
     model.agentImage = picture
@@ -322,11 +371,14 @@ enum DocketHandoffDirector {
     let heldWidth = min(start.width * 0.32, 110)
     let heldHeight = start.height * heldWidth / max(start.width, 1)
     let clawTop = DocketCrabSprite.clawTop(standingOn: ground)
-    let held = CGRect(x: ground.x - heldWidth / 2, y: clawTop + 4 - heldHeight, width: heldWidth, height: heldHeight)
+    let held = CGRect(
+      x: ground.x - heldWidth / 2, y: clawTop + 4 - heldHeight, width: heldWidth, height: heldHeight
+    )
     for step in 1...3 {
       let amount = Double(step) / 3
       model.cardRect = CGRect(
-        x: DocketMotion.mix(start.minX, held.minX, amount), y: DocketMotion.mix(start.minY, held.minY, amount),
+        x: DocketMotion.mix(start.minX, held.minX, amount),
+        y: DocketMotion.mix(start.minY, held.minY, amount),
         width: DocketMotion.mix(start.width, held.width, amount),
         height: DocketMotion.mix(start.height, held.height, amount))
       model.cardTilt = DocketMotion.mix(card.tilt, -4, amount)
@@ -339,7 +391,8 @@ enum DocketHandoffDirector {
     guard await bringForward(agent) else { return }
     withAnimation(.easeOut(duration: 0.2)) { model.dayflowOpacity = 0 }
     let box = await boxSearch.value
-    let target = box?.frame ?? fallbackMessageBox(in: frontWindow(of: pid)?.frame ?? agentWindow.frame)
+    let target =
+      box?.frame ?? fallbackMessageBox(in: frontWindow(of: pid)?.frame ?? agentWindow.frame)
     let landing = local(target)
     try? await Task.sleep(for: .seconds(0.2))
 
@@ -357,7 +410,8 @@ enum DocketHandoffDirector {
     model.cardRidesCrab = false
     model.cardRect = held
     model.throwTarget = CGRect(
-      x: landing.midX - endWidth / 2, y: landing.midY - endHeight / 2, width: endWidth, height: endHeight)
+      x: landing.midX - endWidth / 2, y: landing.midY - endHeight / 2, width: endWidth,
+      height: endHeight)
     model.crab?.move = .throwing
     model.crab?.start = Date()
     withAnimation(.timingCurve(0.3, 0.1, 0.55, 1, duration: 0.45)) { model.throwProgress = 1 }
@@ -375,16 +429,276 @@ enum DocketHandoffDirector {
     }
     await land(in: box, at: target)
     await leave.value
-    let gone = DocketCrabArt.duration(of: .leaving) - Date().timeIntervalSince(model.crab?.start ?? Date())
+    let gone =
+      DocketCrabArt.duration(of: .leaving) - Date().timeIntervalSince(model.crab?.start ?? Date())
     if gone > 0 { try? await Task.sleep(for: .seconds(gone)) }
     model.crab = nil
+  }
+
+  // MARK: Styles that open the app on top
+
+  /// Catch on top and In app. Without the card (the list's button), Catch on top plays as
+  /// In app. Falls back to a plain paste when the app isn't installed.
+  private static func openOnTop(
+    prompt: String, agent: DailyBriefAgent, link: URL?, card: DocketLiftedCard?,
+    style: DocketTransitionStyle
+  ) {
+    guard !isRunning, isInstalled(agent),
+      let window = NSApp.keyWindow ?? NSApp.mainWindow,
+      let screen = window.screen ?? NSScreen.main
+    else {
+      DailyBriefHandoffRunner.paste(prompt: prompt, agent: agent, link: link)
+      return
+    }
+    let style: DocketTransitionStyle = card == nil ? .inApp : style
+    // Long enough for an app that's still starting up.
+    let id = begin(prompt: prompt, style: style, window: window, screen: screen, timeout: 30)
+    self.link = link
+    Task { @MainActor in
+      if style == .catchOnTop, let card {
+        await petCatch(card, prompt: prompt, agent: agent, screen: screen)
+      } else {
+        await inApp(prompt: prompt, agent: agent)
+      }
+      if runID == id { closeOverlay() }
+    }
+  }
+
+  /// Catch on top, from the moment the fingers lift (times at the pet's tempo):
+  ///   0.0   the overlay's copy of the card replaces the real one and flies out, up and
+  ///         over toward the Trash; the pet comes up out of the Dock over it
+  ///   ~0.67 the pet jumps and catches the card on its raised hands, the card shrinking
+  ///   ~0.75 the app's window springs up on top of Dayflow (a picture of it, then the real
+  ///         one under it); if the app isn't open yet it launches at 0.2 instead
+  ///   ~1.5  the pet walks left with the card held up (or waits, bobbing, until the app's
+  ///         window is up and its message box found)
+  ///   then  it throws the card up and over into the message box, which it grows to fill;
+  ///         the prompt types in as it sinks in; the pet cheers, then hops back into the Dock
+  private static func petCatch(
+    _ card: DocketLiftedCard, prompt: String, agent: DailyBriefAgent, screen: NSScreen
+  ) async {
+    let pid = runningApp(agent)?.processIdentifier
+    let agentWindow = pid.flatMap { frontWindow(of: $0) }
+    if let pid { Task.detached { prepareAccessibility(pid: pid) } }
+    let picture = agentWindow.map { window in Task { await capture([window.id])[window.id] } }
+
+    // The pet stands on the Dock and comes up over the Trash. When the Dock is hidden or on
+    // the side, it comes up from the bottom of the screen, near the right edge.
+    let screenFrame = globalRect(fromAppKit: screen.frame)
+    let ground = globalRect(fromAppKit: screen.visibleFrame).maxY - screenFrame.minY
+    var trashX = screenFrame.width - 60
+    var dockLeft: CGFloat = 0
+    var dockRight = screenFrame.width
+    let dock = dockLayout()
+    if let list = dock.list, let trash = dock.trash, list.width > list.height,
+      screenFrame.contains(CGPoint(x: trash.midX, y: trash.midY))
+    {
+      trashX = local(trash).midX
+      dockLeft = local(list).minX
+      dockRight = local(list).maxX
+    }
+
+    let start = local(card.frame)
+    let plan = DocketCatchPlan(
+      kind: DocketPetKind.current, card: start, tilt: card.tilt, ground: ground, trashX: trashX,
+      dockLeft: dockLeft, dockRight: dockRight, screenWidth: screenFrame.width,
+      typingMs: typingSeconds(prompt) * 1000)
+    let run = DocketCatchRun(plan: plan, start: Date())
+    model.card = DocketTransitionModel.Card(item: card.item, isOpen: card.isOpen, frame: start)
+    model.catchRun = run
+
+    // The app opens as the pet jumps for the card, or starts launching straight away.
+    await wait(for: run, until: agentWindow == nil ? 200 : 755)
+    guard let opened = await bringUpOnTop(agent, window: agentWindow, picture: picture) else {
+      return
+    }
+    let box = local(opened.boxFrame)
+    run.plan.target = CGPoint(x: box.midX, y: box.midY)
+    run.plan.targetScale = box.width * 0.85 / max(start.width, 1)
+    run.resume()
+
+    await wait(for: run, until: run.plan.land - 60)
+    await typeIn(prompt, box: opened.box, at: opened.boxFrame)
+    await wait(for: run, until: run.plan.end)
+  }
+
+  /// In app: the deck throws the card off as usual; then the app pops up over Dayflow and
+  /// the prompt types in.
+  private static func inApp(prompt: String, agent: DailyBriefAgent) async {
+    let pid = runningApp(agent)?.processIdentifier
+    let agentWindow = pid.flatMap { frontWindow(of: $0) }
+    if let pid { Task.detached { prepareAccessibility(pid: pid) } }
+    let picture = agentWindow.map { window in Task { await capture([window.id])[window.id] } }
+
+    try? await Task.sleep(for: .seconds(agentWindow == nil ? 0.2 : 0.45))
+    guard let opened = await bringUpOnTop(agent, window: agentWindow, picture: picture) else {
+      return
+    }
+    try? await Task.sleep(for: .seconds(0.15))
+    await typeIn(prompt, box: opened.box, at: opened.boxFrame)
+  }
+
+  /// Brings the app up over Dayflow. When it has a window, a picture of it springs up in
+  /// place (as macOS opens a window) and the real one comes forward under it. Otherwise the
+  /// app launches and this waits for its window. Returns the message box (nil when it can't
+  /// be found) and where it is, or nil when the app never came up.
+  private static func bringUpOnTop(
+    _ agent: DailyBriefAgent, window: AgentWindow?, picture: Task<CGImage?, Never>?
+  ) async -> (box: MessageBox?, boxFrame: CGRect)? {
+    // After a deep link the app swaps to that thread, which can take a moment longer than
+    // coming forward, so look for the box once the new thread is up.
+    let switchesThread = link != nil
+    if let window, let pid = runningApp(agent)?.processIdentifier {
+      if let image = await picture?.value {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+          model.agentFrame = local(window.frame)
+          model.agentScale = 0.98
+          model.agentImage = image
+        }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.66)) { model.agentScale = 1 }
+        try? await Task.sleep(for: .seconds(0.4))
+      }
+      guard await bringForward(agent) else { return nil }
+      try? await Task.sleep(for: .milliseconds(60))
+      model.agentImage = nil
+      if switchesThread { try? await Task.sleep(for: .milliseconds(600)) }
+      let box = await messageBox(pid: pid, patience: switchesThread ? 2 : 0.35)
+      return (
+        box, box?.frame ?? fallbackMessageBox(in: frontWindow(of: pid)?.frame ?? window.frame)
+      )
+    }
+
+    guard let launched = await launch(agent) else { return nil }
+    if switchesThread { try? await Task.sleep(for: .milliseconds(800)) }
+    // A freshly opened app may take a moment to draw its message box.
+    let box = await messageBox(pid: launched.pid, patience: 4)
+    return (box, box?.frame ?? fallbackMessageBox(in: launched.window.frame))
+  }
+
+  /// Opens the app (it may not be running, or have no window) and waits up to 15 seconds
+  /// for it to be in front with a window.
+  private static func launch(_ agent: DailyBriefAgent) async -> (pid: pid_t, window: AgentWindow)? {
+    guard isInstalled(agent) else { return nil }
+    agent.open(link: takeLink())
+
+    var preparedPID: pid_t?
+    let deadline = Date().addingTimeInterval(15)
+    while Date() < deadline {
+      if let pid = runningApp(agent)?.processIdentifier {
+        if preparedPID != pid {
+          preparedPID = pid
+          Task.detached { prepareAccessibility(pid: pid) }
+        }
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+          let window = frontWindow(of: pid)
+        {
+          return (pid, window)
+        }
+      }
+      try? await Task.sleep(for: .milliseconds(100))
+    }
+    return nil
+  }
+
+  /// Looks for the message box until it's found or `patience` seconds pass.
+  private static func messageBox(pid: pid_t, patience: Double) async -> MessageBox? {
+    let deadline = Date().addingTimeInterval(patience)
+    repeat {
+      if let box = await Task.detached(operation: { findMessageBox(pid: pid, within: 0.35) }).value
+      {
+        return box
+      }
+      if Date() < deadline { try? await Task.sleep(for: .milliseconds(250)) }
+    } while Date() < deadline
+    return nil
+  }
+
+  /// Waits until the catch's story reaches `ms`, or the overlay is taken down.
+  private static func wait(for run: DocketCatchRun, until ms: Double) async {
+    while model.catchRun === run && run.storyMs(at: Date()) < ms {
+      try? await Task.sleep(for: .milliseconds(15))
+    }
+  }
+
+  private static func isInstalled(_ agent: DailyBriefAgent) -> Bool {
+    NSWorkspace.shared.urlForApplication(withBundleIdentifier: agent.bundleIdentifier) != nil
+  }
+
+  // MARK: Typing
+
+  /// How long the prompt takes to type in: 3 ms a character, from 0.9 to 2 seconds.
+  private static func typingSeconds(_ prompt: String) -> Double {
+    min(2, max(0.9, Double(prompt.trimmingCharacters(in: .whitespacesAndNewlines).count) * 0.003))
+  }
+
+  /// Types the prompt into the message box: it's pasted in about 30 pieces over
+  /// `typingSeconds`, so it appears as if typed, line breaks and all (a typed Return would
+  /// send the message). Before each piece goes on the clipboard, Dayflow waits until the
+  /// app has taken the last one, when the box says how long its text is. The whole prompt
+  /// is left on the clipboard. Without Accessibility access it shows "Press ⌘V to paste".
+  private static func typeIn(_ prompt: String, box: MessageBox?, at target: CGRect) async {
+    guard AXIsProcessTrusted() else {
+      await pasteAndHint(into: nil, at: target)
+      return
+    }
+    if let box {
+      AXUIElementSetAttributeValue(box.element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+      try? await Task.sleep(for: .milliseconds(60))
+    }
+
+    let text = Array(prompt.trimmingCharacters(in: .whitespacesAndNewlines))
+    let seconds = typingSeconds(prompt)
+    let count = max(1, min(text.count, Int((seconds / 0.07).rounded())))
+    let interval = seconds / Double(count)
+    let pasteboard = NSPasteboard.general
+    var lengthWorks = box != nil
+
+    for index in 0..<count {
+      let started = Date()
+      let piece = String(text[(text.count * index / count)..<(text.count * (index + 1) / count)])
+      var before: Int?
+      if lengthWorks { before = await textLength(box) }
+      pasteboard.clearContents()
+      pasteboard.setString(piece, forType: .string)
+      DailyBriefHandoffRunner.pressCommandV()
+
+      // Wait (up to 0.3s) for the box to change, so the clipboard isn't swapped under the
+      // paste. If it never does, its length can't be read: use a fixed wait from now on.
+      if let before {
+        var changed = false
+        for _ in 0..<25 {
+          try? await Task.sleep(for: .milliseconds(12))
+          if let now = await textLength(box), now != before {
+            changed = true
+            break
+          }
+        }
+        if !changed { lengthWorks = false }
+      } else {
+        try? await Task.sleep(for: .milliseconds(80))
+      }
+      let left = interval - Date().timeIntervalSince(started)
+      if left > 0 { try? await Task.sleep(for: .seconds(left)) }
+    }
+
+    pasteboard.clearContents()
+    pasteboard.setString(prompt, forType: .string)
+  }
+
+  /// How many characters the message box holds, when the app says.
+  private static func textLength(_ box: MessageBox?) async -> Int? {
+    guard let box else { return nil }
+    return await Task.detached { characterCount(box.element) }.value
   }
 
   // MARK: Steps
 
   /// Puts the card in the overlay exactly where the deck had it, then lifts and straightens it.
   private static func lift(_ card: DocketLiftedCard) {
-    model.card = DocketTransitionModel.Card(item: card.item, isOpen: card.isOpen, frame: local(card.frame))
+    model.card = DocketTransitionModel.Card(
+      item: card.item, isOpen: card.isOpen, frame: local(card.frame))
     model.cardTilt = card.tilt
     withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
       model.cardTilt = 0
@@ -426,11 +740,15 @@ enum DocketHandoffDirector {
   }
 
   /// Takes pictures of Dayflow and the app, and notes where both windows are.
-  private static func capturePictures(agentWindow: AgentWindow) async -> (dayflow: CGImage, agent: CGImage)? {
+  private static func capturePictures(agentWindow: AgentWindow) async -> (
+    dayflow: CGImage, agent: CGImage
+  )? {
     guard let window = dayflowWindow else { return nil }
     let dayflowID = CGWindowID(window.windowNumber)
     let pictures = await capture([dayflowID, agentWindow.id])
-    guard let dayflow = pictures[dayflowID], let agent = pictures[agentWindow.id] else { return nil }
+    guard let dayflow = pictures[dayflowID], let agent = pictures[agentWindow.id] else {
+      return nil
+    }
     model.dayflowFrame = local(globalRect(fromAppKit: window.frame))
     model.agentFrame = local(agentWindow.frame)
     return (dayflow, agent)
@@ -469,16 +787,22 @@ enum DocketHandoffDirector {
 
   /// Opens the app and waits (up to 3 seconds) until it's actually in front.
   private static func bringForward(_ agent: DailyBriefAgent) async -> Bool {
-    guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: agent.bundleIdentifier)
-    else { return false }
-    let configuration = NSWorkspace.OpenConfiguration()
-    configuration.activates = true
-    NSWorkspace.shared.openApplication(at: url, configuration: configuration, completionHandler: nil)
+    guard isInstalled(agent) else { return false }
+    agent.open(link: takeLink())
     for _ in 0..<100 {
-      if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == agent.bundleIdentifier { return true }
+      if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == agent.bundleIdentifier {
+        return true
+      }
       try? await Task.sleep(for: .milliseconds(30))
     }
     return false
+  }
+
+  /// The run's deep link, the first time it's asked for; nil after that, so later opens
+  /// only bring the app forward.
+  private static func takeLink() -> URL? {
+    defer { link = nil }
+    return link
   }
 
   // MARK: Dayflow's window
@@ -520,6 +844,7 @@ enum DocketHandoffDirector {
   }
 
   private static func closeOverlay() {
+    link = nil
     panel?.orderOut(nil)
     model.reset(style: .instant, screenSize: model.screenSize)
     isRunning = false
@@ -533,7 +858,8 @@ enum DocketHandoffDirector {
 
   private static func makePanel() -> NSPanel {
     let panel = NSPanel(
-      contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+      contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered,
+      defer: false)
     // Above the app as it comes forward, never taking clicks or focus.
     panel.level = .statusBar
     panel.backgroundColor = .clear
@@ -542,7 +868,9 @@ enum DocketHandoffDirector {
     panel.ignoresMouseEvents = true
     panel.hidesOnDeactivate = false
     panel.isReleasedWhenClosed = false
-    panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+    panel.collectionBehavior = [
+      .canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle,
+    ]
     let hosting = NSHostingView(rootView: DocketTransitionView(model: model))
     hosting.sizingOptions = []
     panel.contentView = hosting
@@ -559,12 +887,15 @@ enum DocketHandoffDirector {
   /// AppKit's bottom-left screen rectangle as a global top-left one.
   static func globalRect(fromAppKit rect: NSRect) -> CGRect {
     let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
-    return CGRect(x: rect.minX, y: primaryHeight - rect.maxY, width: rect.width, height: rect.height)
+    return CGRect(
+      x: rect.minX, y: primaryHeight - rect.maxY, width: rect.width, height: rect.height)
   }
 
   /// Roughly where a chat app's message box sits: low and centred in its window.
   private static func fallbackMessageBox(in window: CGRect) -> CGRect {
-    CGRect(x: window.minX + window.width * 0.2, y: window.maxY - 120, width: window.width * 0.6, height: 64)
+    CGRect(
+      x: window.minX + window.width * 0.2, y: window.maxY - 120, width: window.width * 0.6,
+      height: 64)
   }
 
   /// The middle of the screen's bottom edge, for when the Dock icon can't be found.
@@ -609,7 +940,8 @@ enum DocketHandoffDirector {
   /// Windows that can't be captured are left out.
   private static func capture(_ ids: [CGWindowID]) async -> [CGWindowID: CGImage] {
     guard
-      let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+      let content = try? await SCShareableContent.excludingDesktopWindows(
+        false, onScreenWindowsOnly: true)
     else { return [:] }
     let scale = panel?.screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
     var pictures: [CGWindowID: CGImage] = [:]
@@ -621,7 +953,8 @@ enum DocketHandoffDirector {
       configuration.showsCursor = false
       configuration.ignoreShadowsSingleWindow = true
       pictures[id] = try? await SCScreenshotManager.captureImage(
-        contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: configuration)
+        contentFilter: SCContentFilter(desktopIndependentWindow: window),
+        configuration: configuration)
     }
     return pictures
   }
@@ -643,11 +976,13 @@ enum DocketHandoffDirector {
 
   /// The app's message box: the lowest wide text area in its focused window. Gives up
   /// after `seconds` so the animation never waits on a slow app.
-  nonisolated private static func findMessageBox(pid: pid_t, within seconds: Double) -> MessageBox? {
+  nonisolated private static func findMessageBox(pid: pid_t, within seconds: Double) -> MessageBox?
+  {
     let deadline = Date().addingTimeInterval(seconds)
     let app = AXUIElementCreateApplication(pid)
     AXUIElementSetMessagingTimeout(app, 0.25)
-    guard let window = element(app, kAXFocusedWindowAttribute) ?? element(app, kAXMainWindowAttribute)
+    guard
+      let window = element(app, kAXFocusedWindowAttribute) ?? element(app, kAXMainWindowAttribute)
     else { return nil }
 
     var queue = [window]
@@ -668,10 +1003,44 @@ enum DocketHandoffDirector {
     return best
   }
 
+  struct DockLayout {
+    /// The Dock's row of icons, and the Trash's icon (global, top-left origin).
+    let list: CGRect?
+    let trash: CGRect?
+  }
+
+  /// Where the Dock and its Trash are.
+  nonisolated private static func dockLayout() -> DockLayout {
+    guard
+      let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock")
+        .first
+    else { return DockLayout(list: nil, trash: nil) }
+    let app = AXUIElementCreateApplication(dock.processIdentifier)
+    AXUIElementSetMessagingTimeout(app, 0.1)
+    for list in children(of: app) where string(list, kAXRoleAttribute) == kAXListRole {
+      let trash = children(of: list).first { string($0, kAXSubroleAttribute) == "AXTrashDockItem" }
+      return DockLayout(list: frame(of: list), trash: trash.flatMap { frame(of: $0) })
+    }
+    return DockLayout(list: nil, trash: nil)
+  }
+
+  /// How many characters a text area holds, or nil when the app doesn't say.
+  nonisolated private static func characterCount(_ element: AXUIElement) -> Int? {
+    var value: CFTypeRef?
+    if AXUIElementCopyAttributeValue(element, kAXNumberOfCharactersAttribute as CFString, &value)
+      == .success,
+      let count = value as? Int
+    {
+      return count
+    }
+    return string(element, kAXValueAttribute)?.utf16.count
+  }
+
   /// The Dock icon whose title matches, like "Claude".
   nonisolated private static func dockIconFrame(title: String) -> CGRect? {
     guard
-      let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first
+      let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock")
+        .first
     else { return nil }
     let app = AXUIElementCreateApplication(dock.processIdentifier)
     for list in children(of: app) where string(list, kAXRoleAttribute) == kAXListRole {
@@ -692,13 +1061,16 @@ enum DocketHandoffDirector {
 
   nonisolated private static func string(_ element: AXUIElement, _ name: String) -> String? {
     var value: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
+    guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else {
+      return nil
+    }
     return value as? String
   }
 
   nonisolated private static func children(of element: AXUIElement) -> [AXUIElement] {
     var value: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value) == .success
+    guard
+      AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value) == .success
     else { return [] }
     return (value as? [AXUIElement]) ?? []
   }
@@ -706,7 +1078,9 @@ enum DocketHandoffDirector {
   nonisolated private static func frame(of element: AXUIElement) -> CGRect? {
     var positionValue: CFTypeRef?
     var sizeValue: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue) == .success,
+    guard
+      AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue)
+        == .success,
       AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success,
       let positionValue, let sizeValue
     else { return nil }
@@ -753,6 +1127,9 @@ final class DocketTransitionModel: ObservableObject {
   @Published var throwTarget: CGRect = .zero
   @Published var throwProgress: Double = 0
 
+  // The pet (catchOnTop): the catch plays on its own clock, drawn every frame.
+  @Published var catchRun: DocketCatchRun?
+
   // Window pictures
   @Published var dayflowImage: CGImage?
   @Published var dayflowFrame: CGRect = .zero
@@ -761,6 +1138,8 @@ final class DocketTransitionModel: ObservableObject {
   @Published var agentImage: CGImage?
   @Published var agentFrame: CGRect = .zero
   @Published var showsAgent = true
+  /// The app's picture springs up from 98% as it opens on top (catchOnTop, inApp).
+  @Published var agentScale: Double = 1
   @Published var dockFrame: CGRect = .zero
   /// 0 is Dayflow's window, 1 is inside the Dock icon.
   @Published var dayflowGenie: Double = 0
@@ -797,6 +1176,8 @@ final class DocketTransitionModel: ObservableObject {
       dayflowOpacity = 1
       agentImage = nil
       showsAgent = true
+      agentScale = 1
+      catchRun = nil
       dayflowGenie = 0
       agentGenie = 0
       slide = 0
@@ -822,11 +1203,13 @@ private struct DocketTransitionView: View {
         switch model.style {
         case .appGenie:
           placed(picture(image), in: model.dayflowFrame)
-            .modifier(DocketGenieEffect(
-              progress: model.dayflowGenie, source: model.dayflowFrame, target: model.dockFrame,
-              size: size))
+            .modifier(
+              DocketGenieEffect(
+                progress: model.dayflowGenie, source: model.dayflowFrame, target: model.dockFrame,
+                size: size))
         case .slide:
-          placed(picture(image), in: model.dayflowFrame.offsetBy(dx: -model.slide * size.width, dy: 0))
+          placed(
+            picture(image), in: model.dayflowFrame.offsetBy(dx: -model.slide * size.width, dy: 0))
         default:
           // Covers the switch, then dissolves to show the app underneath.
           placed(picture(image), in: model.dayflowFrame)
@@ -838,11 +1221,21 @@ private struct DocketTransitionView: View {
         switch model.style {
         case .appGenie:
           placed(picture(image), in: model.agentFrame)
-            .modifier(DocketGenieEffect(
-              progress: model.agentGenie, source: model.agentFrame, target: model.dockFrame,
-              size: size))
+            .modifier(
+              DocketGenieEffect(
+                progress: model.agentGenie, source: model.agentFrame, target: model.dockFrame,
+                size: size))
         case .slide:
-          placed(picture(image), in: model.agentFrame.offsetBy(dx: (1 - model.slide) * size.width, dy: 0))
+          placed(
+            picture(image), in: model.agentFrame.offsetBy(dx: (1 - model.slide) * size.width, dy: 0)
+          )
+        case .catchOnTop, .inApp:
+          // Opening on top of Dayflow, with a window's shadow.
+          placed(
+            picture(image)
+              .shadow(color: Color.black.opacity(0.28), radius: 20, y: 10)
+              .scaleEffect(model.agentScale),
+            in: model.agentFrame)
         default:
           EmptyView()
         }
@@ -850,6 +1243,8 @@ private struct DocketTransitionView: View {
 
       if model.style == .crab {
         crabLayer
+      } else if model.style == .catchOnTop {
+        catchLayer
       } else if let card = model.card {
         if model.style == .zoom {
           DocketZoomLayer(
@@ -858,9 +1253,10 @@ private struct DocketTransitionView: View {
             picture: model.agentImage)
         } else {
           placed(liftedCardView(card), in: card.frame)
-            .modifier(DocketGenieEffect(
-              progress: model.cardGenie, source: card.frame, target: model.cardTarget,
-              size: size))
+            .modifier(
+              DocketGenieEffect(
+                progress: model.cardGenie, source: card.frame, target: model.cardTarget,
+                size: size))
         }
       }
 
@@ -917,6 +1313,30 @@ private struct DocketTransitionView: View {
           placed(
             DocketCrabSprite(frame: crab.frame(at: timeline.date), facesLeft: crab.facesLeft),
             in: DocketCrabSprite.box(standingOn: crab.ground))
+        }
+      }
+    }
+  }
+
+  /// The pet and the card it catches, drawn every frame from the catch's clock. The pet is
+  /// in front, so the card rests behind its raised hands.
+  private var catchLayer: some View {
+    TimelineView(.animation) { timeline in
+      if let run = model.catchRun, let card = model.card {
+        let moment = run.moment(at: timeline.date)
+        ZStack(alignment: .topLeading) {
+          if let place = moment.card {
+            cardView(card)
+              .frame(width: card.frame.width, height: card.frame.height)
+              .scaleEffect(place.scale)
+              .rotationEffect(.degrees(place.tilt))
+              .opacity(place.opacity)
+              .position(place.center)
+              .frame(width: model.screenSize.width, height: model.screenSize.height)
+          }
+          DocketPetCanvas(
+            kind: run.plan.kind, drawing: moment.drawing, feet: moment.feet, dip: moment.dip,
+            ground: run.plan.ground, opacity: moment.petOpacity)
         }
       }
     }
@@ -984,7 +1404,8 @@ private struct DocketGenieEffect: ViewModifier, Animatable {
   /// One strip: the content cut down to the strip, then scaled and moved into place.
   private func strip(_ content: Content, index: Int) -> some View {
     let (from, to) = rects(for: index)
-    return content
+    return
+      content
       .mask {
         Rectangle()
           .frame(width: from.width, height: from.height)
@@ -992,7 +1413,8 @@ private struct DocketGenieEffect: ViewModifier, Animatable {
       }
       .scaleEffect(
         x: to.width / from.width, y: to.height / from.height,
-        anchor: UnitPoint(x: from.minX / size.width, y: from.minY / size.height))
+        anchor: UnitPoint(x: from.minX / size.width, y: from.minY / size.height)
+      )
       .offset(x: to.minX - from.minX, y: to.minY - from.minY)
   }
 
@@ -1022,8 +1444,11 @@ private struct DocketGenieEffect: ViewModifier, Animatable {
     // Each strip reaches 1pt into the next, so no hairline gaps show between them.
     let stripHeight = (v1 - v0) * Double(from.height)
     let stretch = (y1 - y0) / stripHeight
-    var piece = CGRect(x: from.minX, y: Double(from.minY) + v0 * Double(from.height), width: from.width, height: stripHeight + 1)
-    var place = CGRect(x: left, y: y0, width: max(right - left, 0.01), height: max((y1 - y0) + stretch, 0.01))
+    var piece = CGRect(
+      x: from.minX, y: Double(from.minY) + v0 * Double(from.height), width: from.width,
+      height: stripHeight + 1)
+    var place = CGRect(
+      x: left, y: y0, width: max(right - left, 0.01), height: max((y1 - y0) + stretch, 0.01))
     if flip {
       piece = flipped(piece)
       place = flipped(place)
@@ -1038,8 +1463,8 @@ private struct DocketGenieEffect: ViewModifier, Animatable {
   private func smooth(_ x: Double) -> Double { x * x * (3 - 2 * x) }
 }
 
-private extension Double {
-  var clamped01: Double { Swift.min(Swift.max(self, 0), 1) }
+extension Double {
+  fileprivate var clamped01: Double { Swift.min(Swift.max(self, 0), 1) }
 }
 
 /// The card growing into the app's window: its frame moves from the card's to the
@@ -1061,7 +1486,8 @@ private struct DocketZoomLayer: View, Animatable {
     let p = progress
     let frame = CGRect(
       x: DocketMotion.mix(from.minX, to.minX, p), y: DocketMotion.mix(from.minY, to.minY, p),
-      width: DocketMotion.mix(from.width, to.width, p), height: DocketMotion.mix(from.height, to.height, p))
+      width: DocketMotion.mix(from.width, to.width, p),
+      height: DocketMotion.mix(from.height, to.height, p))
     let crossfade = min(p * 1.8, 1)
     ZStack {
       card
