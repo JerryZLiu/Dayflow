@@ -54,7 +54,9 @@ struct DocketMenuLayer: View {
 
 private struct DocketGearMenu: View {
   @ObservedObject private var store = DailyBriefStore.shared
-  @AppStorage(DocketTransitionStyle.defaultsKey) private var transition = DocketTransitionStyle.crab.rawValue
+  @AppStorage(DocketTransitionStyle.defaultsKey) private var transition = DocketTransitionStyle
+    .catchOnTop.rawValue
+  @AppStorage(DocketPetKind.defaultsKey) private var pet = DocketPetKind.clawd.rawValue
 
   var body: some View {
     VStack(spacing: 0) {
@@ -96,7 +98,8 @@ private struct DocketGearMenu: View {
       }
       // For trying the paste transitions side by side.
       if store.docketHandoffMethod == .paste {
-        section("Transition (testing)", corners: .bottom) {
+        let showsPets = transition == DocketTransitionStyle.catchOnTop.rawValue
+        section("Transition (testing)", corners: showsPets ? .middle : .bottom) {
           ForEach(DocketTransitionStyle.allCases, id: \.self) { style in
             option(isOn: transition == style.rawValue) {
               transition = style.rawValue
@@ -104,6 +107,19 @@ private struct DocketGearMenu: View {
               Text(style.displayName)
             } note: {
               note(style.note)
+            }
+          }
+        }
+        if showsPets {
+          section("Pet (testing)", corners: .bottom) {
+            ForEach(DocketPetKind.allCases, id: \.self) { kind in
+              option(isOn: pet == kind.rawValue) {
+                pet = kind.rawValue
+              } label: {
+                Text(kind.displayName)
+              } note: {
+                EmptyView()
+              }
             }
           }
         }
@@ -115,12 +131,15 @@ private struct DocketGearMenu: View {
 
   private enum Corners { case top, middle, bottom }
 
-  private func section<Content: View>(_ title: String, corners: Corners, @ViewBuilder content: () -> Content)
+  private func section<Content: View>(
+    _ title: String, corners: Corners, @ViewBuilder content: () -> Content
+  )
     -> some View
   {
     let shape = UnevenRoundedRectangle(
       topLeadingRadius: corners == .top ? 12 : 0, bottomLeadingRadius: corners == .bottom ? 12 : 0,
-      bottomTrailingRadius: corners == .bottom ? 12 : 0, topTrailingRadius: corners == .top ? 12 : 0,
+      bottomTrailingRadius: corners == .bottom ? 12 : 0,
+      topTrailingRadius: corners == .top ? 12 : 0,
       style: .continuous)
     return VStack(alignment: .leading, spacing: 8) {
       Text(title.uppercased())
@@ -188,8 +207,10 @@ private struct DocketFolderMenu: View {
 
       VStack(alignment: .leading, spacing: 6) {
         ForEach(store.recentFolders, id: \.self) { path in
-          row(URL(fileURLWithPath: path).lastPathComponent, isChecked: current == path) { pick(path) }
-            .help(path)
+          row(URL(fileURLWithPath: path).lastPathComponent, isChecked: current == path) {
+            pick(path)
+          }
+          .help(path)
         }
       }
 
@@ -203,7 +224,8 @@ private struct DocketFolderMenu: View {
     .frame(width: 200.29, alignment: .leading)
     .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color(hex: "FFFDFC")))
     .overlay(
-      RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color(hex: "EFE4E1"), lineWidth: 1)
+      RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(
+        Color(hex: "EFE4E1"), lineWidth: 1)
     )
     .shadow(color: Color.black.opacity(0.1), radius: 3, y: 2)
   }
@@ -337,11 +359,18 @@ struct DocketAskPopup: View {
             .padding(.horizontal, 24)
             .frame(height: 36)
             .background(Capsule().fill(Color(hex: "FF9F6F")))
-            .overlay(InnerGlow(shape: Capsule(), color: Color(red: 1, green: 220 / 255, blue: 203 / 255).opacity(0.9), radius: 1.5))
+            .overlay(
+              InnerGlow(
+                shape: Capsule(),
+                color: Color(red: 1, green: 220 / 255, blue: 203 / 255).opacity(0.9), radius: 1.5)
+            )
             .overlay(Capsule().strokeBorder(Color(hex: "F4C8B1"), lineWidth: 0.5))
             .shadow(
-              color: isSubmitHovered ? Color(red: 1, green: 120 / 255, blue: 60 / 255).opacity(0.18) : Color.black.opacity(0.06),
-              radius: isSubmitHovered ? 5 : 2, y: isSubmitHovered ? 4 : 2)
+              color: isSubmitHovered
+                ? Color(red: 1, green: 120 / 255, blue: 60 / 255).opacity(0.18)
+                : Color.black.opacity(0.06),
+              radius: isSubmitHovered ? 5 : 2, y: isSubmitHovered ? 4 : 2
+            )
             .scaleEffect(isSubmitHovered ? 1.02 : 1)
             .contentShape(Capsule())
         }
@@ -358,7 +387,9 @@ struct DocketAskPopup: View {
     .frame(width: 340)
     .background(
       RoundedRectangle(cornerRadius: 12, style: .continuous)
-        .fill(LinearGradient(colors: [.white, Color(hex: "FFF8F5")], startPoint: .top, endPoint: .bottom))
+        .fill(
+          LinearGradient(
+            colors: [.white, Color(hex: "FFF8F5")], startPoint: .top, endPoint: .bottom))
     )
     .overlay {
       if isSubmitted {
@@ -366,7 +397,8 @@ struct DocketAskPopup: View {
       }
     }
     .overlay(
-      RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color(hex: "F0E5E1"), lineWidth: 1)
+      RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(
+        Color(hex: "F0E5E1"), lineWidth: 1)
     )
     .overlay(alignment: .topTrailing) {
       Button(action: close) {
@@ -380,7 +412,9 @@ struct DocketAskPopup: View {
       .padding(12)
       .pointingHandCursor()
     }
-    .shadow(color: Color(red: 77 / 255, green: 45 / 255, blue: 32 / 255).opacity(0.14), radius: 15, y: 10)
+    .shadow(
+      color: Color(red: 77 / 255, green: 45 / 255, blue: 32 / 255).opacity(0.14), radius: 15, y: 10
+    )
     .shadow(color: Color.black.opacity(0.05), radius: 3, y: 2)
     .modifier(DocketShake(amount: shake))
   }
@@ -392,9 +426,14 @@ struct DocketAskPopup: View {
         .fill(
           LinearGradient(
             stops: [
-              .init(color: Color(red: 1, green: 241 / 255, blue: 232 / 255).opacity(0.61), location: 0),
-              .init(color: Color(red: 234 / 255, green: 197 / 255, blue: 188 / 255).opacity(0.61), location: 0.5048),
-              .init(color: Color(red: 174 / 255, green: 190 / 255, blue: 230 / 255).opacity(0.61), location: 1),
+              .init(
+                color: Color(red: 1, green: 241 / 255, blue: 232 / 255).opacity(0.61), location: 0),
+              .init(
+                color: Color(red: 234 / 255, green: 197 / 255, blue: 188 / 255).opacity(0.61),
+                location: 0.5048),
+              .init(
+                color: Color(red: 174 / 255, green: 190 / 255, blue: 230 / 255).opacity(0.61),
+                location: 1),
             ], startPoint: .top, endPoint: .bottom))
       Text("SUBMITTED")
         .font(DailyBriefFonts.sans(18, weight: .semibold))
