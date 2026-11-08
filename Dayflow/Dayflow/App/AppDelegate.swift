@@ -187,6 +187,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Start Daily and Weekly notifications and retire legacy Journal reminders
     NotificationService.shared.start()
     DayflowAuthManager.shared.loadStoredSessionIfNeeded()
+    // Turns on once the account's Pro or Plus plan loads, if the user switched it on.
+    PrivacyShield.shared.start()
     SupportChatSession.shared.start()
     SupportChatSession.startFlowWaitlistMonitoring()
 
