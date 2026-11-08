@@ -659,8 +659,12 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         configuration: config
       )
 
-      // 4. Encode into the current HEVC segment and register in the database
-      try appendFrame(image, capturedAt: captureTime, idleSecondsAtCapture: idleSecondsAtCapture)
+      // 4. Privacy Shield (Pro and Plus): pixelate secrets before the frame is stored anywhere.
+      let storedImage = await maskSecrets(in: image)
+
+      // 5. Encode into the current HEVC segment and register in the database
+      try appendFrame(
+        storedImage, capturedAt: captureTime, idleSecondsAtCapture: idleSecondsAtCapture)
       dbg("📸 Frame appended (\(image.width)x\(image.height))")
       return .succeeded
 
@@ -679,6 +683,39 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
       monitor.recordFailure(error, source: .recorderCapture)
       return .captureKitFailed(error)
+    }
+  }
+
+  private var lastPrivacyShieldFailureReport: Date?
+
+  /// Runs the Privacy Shield over a captured frame when it's on. If the shield can't check a frame, the
+  /// frame is replaced by the privacy card rather than stored with secrets possibly showing.
+  private func maskSecrets(in image: CGImage) async -> CGImage {
+    guard let masker = PrivacyShieldMaskerBox.shared.current() else { return image }
+    do {
+      return try masker.mask(image).image
+    } catch {
+      dbg("🔒 Privacy Shield could not check a frame: \(error)")
+      let now = Date()
+      if lastPrivacyShieldFailureReport.map({ now.timeIntervalSince($0) >= 3600 }) ?? true {
+        lastPrivacyShieldFailureReport = now
+        let nsError = error as NSError
+        AnalyticsService.shared.capture(
+          "privacy_shield_frame_failed",
+          ["error_domain": nsError.domain, "error_code": nsError.code])
+      }
+      let placeholder = await MainActor.run {
+        RecordingPrivacyPlaceholder.image(
+          width: image.width,
+          height: image.height,
+          applicationName: String(localized: "This screen"),
+          detail: String(
+            localized:
+              "Privacy Shield couldn't check this screenshot, so it was saved without its contents."
+          )
+        )
+      }
+      return placeholder ?? image
     }
   }
 
