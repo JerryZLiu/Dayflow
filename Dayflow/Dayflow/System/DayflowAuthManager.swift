@@ -520,6 +520,17 @@ final class DayflowAuthManager: ObservableObject {
     }
   }
 
+  /// Where to download the Privacy Shield model. The backend answers only for an active Pro or Plus plan
+  /// (402 otherwise). Runs outside `perform` so it never blocks or overwrites the account screen's state.
+  func privacyModelDownload() async throws -> PrivacyModelDownload {
+    guard let token = retrieveSessionToken() else {
+      throw DayflowAuthError.unauthorized
+    }
+    var request = try makeRequest(path: "/v1/privacy-model", method: "GET")
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    return try await send(request)
+  }
+
   /// Waits for a request already in flight, for a few seconds at most.
   private func waitUntilIdle() async {
     for _ in 0..<100 where isBusy {
