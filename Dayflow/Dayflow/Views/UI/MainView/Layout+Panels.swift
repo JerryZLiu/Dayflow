@@ -40,6 +40,9 @@ extension MainView {
     }
     .padding(0)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .overlay {
+      PrivacyShieldUpgradeHost()
+    }
   }
 
   private var leftColumn: some View {
@@ -255,7 +258,12 @@ extension MainView {
     let reviewPromptCount = cardsToReviewPromptCount
 
     return ZStack(alignment: .bottom) {
-      HStack(alignment: .bottom) {
+      // Figma (Dayflow - minor adjustments, 2:1141): Copy timeline and the hours on the left,
+      // the Privacy shield toggle on the right.
+      HStack(alignment: .center, spacing: 10) {
+        copyTimelineButton
+          .opacity(contentOpacity)
+
         TimelineFooterFade(state: timelineFooterState) {
           weeklyHoursText
         }
@@ -263,7 +271,7 @@ extension MainView {
 
         Spacer()
 
-        copyTimelineButton
+        PrivacyShieldFooterItem()
           .opacity(contentOpacity)
       }
       .padding(.horizontal, 24)
