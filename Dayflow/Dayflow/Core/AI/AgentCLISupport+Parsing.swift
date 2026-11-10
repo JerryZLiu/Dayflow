@@ -69,11 +69,12 @@ extension AgentCLISupporting {
     // Check stdout for API Error messages (Claude format)
     // e.g. "API Error: The SSO session associated with this profile has expired..."
     // e.g. "You've hit your limit · resets 3pm (Asia/Shanghai)"
+    // e.g. "You've hit your 5-hour limit · resets 4:30pm (America/Los_Angeles)"
     // e.g. "Invalid API key · Please run /login"
     for line in stdout.components(separatedBy: .newlines) {
       let trimmed = line.trimmingCharacters(in: .whitespaces)
       if trimmed.hasPrefix("API Error:") || trimmed.hasPrefix("Invalid API key")
-        || trimmed.hasPrefix("You've hit your limit")
+        || trimmed.hasPrefix("You've hit your ")
       {
         // Strip trailing escape sequences like ]9;4;0;
         let cleaned = trimmed.replacingOccurrences(

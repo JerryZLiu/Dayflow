@@ -423,6 +423,8 @@ enum TimelineFailureClassifier {
       [
         "hit your usage limit", "hit your limit", "usage limit", "session limit",
         "weekly limit", "spend limit", "accountquotaexceeded", "usage quota",
+        // Claude names the window: "You've hit your 5-hour limit", "...weekly limit".
+        "you've hit your", "you’ve hit your",
       ]
     ),
     (

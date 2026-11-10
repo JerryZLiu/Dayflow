@@ -465,7 +465,7 @@ final class LLMService: LLMServicing {
     let message = error.localizedDescription.lowercased()
     if message.contains("rate limit") || message.contains("too many requests")
       || message.contains("quota exceeded") || message.contains("quota")
-      || message.contains("you've hit your limit")
+      || message.contains("you've hit your")
     {
       return true
     }
