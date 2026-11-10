@@ -853,6 +853,10 @@ final class LLMService: LLMServicing {
             if nsError.domain == "DayflowBackend", [401, 402, 403].contains(nsError.code) {
               throw error
             }
+            // A usage limit, sign-out or similar account problem fails the two-step calls to the
+            // same provider too, so skip them: go to the backup provider, or fail the batch now.
+            let failureKind = TimelineFailureClassifier.classify(error).kind
+            let skipsPrimaryTwoStep = failureKind.failsEveryRequestToProvider
             AnalyticsService.shared.capture(
               "timeline_one_step_fallback",
               [
@@ -861,11 +865,34 @@ final class LLMService: LLMServicing {
                 "provider_id": activeContext.id.rawValue,
                 "error_domain": nsError.domain,
                 "error_code": nsError.code,
+                "failure_kind": failureKind.rawValue,
+                "skipped_primary_two_step": skipsPrimaryTwoStep,
                 "latency_ms": Int(Date().timeIntervalSince(oneStepStartedAt) * 1000),
               ])
-            print(
-              "⚠️ [LLMService] One-step timeline failed for batch \(batchId), "
-                + "falling back to transcribe + generate: \(nsError.localizedDescription)")
+            if skipsPrimaryTwoStep {
+              guard let backupContext else { throw error }
+              AnalyticsService.shared.capture(
+                "llm_timeline_fallback_attempted",
+                fallbackProps(
+                  operation: "generate_timeline",
+                  batchId: batchId,
+                  primaryProviderID: primaryContext.id,
+                  primaryProviderLabel: primaryContext.providerLabel,
+                  backupProviderID: backupContext.id,
+                  backupProviderLabel: backupContext.providerLabel,
+                  error: error
+                ))
+              activeContext = backupContext
+              usedProviderBackup = true
+              print(
+                "⚠️ [LLMService] One-step timeline failed for batch \(batchId) with an account "
+                  + "problem; skipping \(primaryContext.providerLabel)'s two-step path and using "
+                  + "\(backupContext.providerLabel): \(nsError.localizedDescription)")
+            } else {
+              print(
+                "⚠️ [LLMService] One-step timeline failed for batch \(batchId), "
+                  + "falling back to transcribe + generate: \(nsError.localizedDescription)")
+            }
           }
         }
 
