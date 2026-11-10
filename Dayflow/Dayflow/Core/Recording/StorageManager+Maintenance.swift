@@ -143,7 +143,7 @@ extension StorageManager {
       alert.informativeText = String(
         localized: """
           Dayflow couldn't open its database and has to quit. This usually happens \
-          when the disk is full — free up some space and open Dayflow again.
+          when the disk is full. Free up some space and open Dayflow again.
 
           Error: \(error)
           """)

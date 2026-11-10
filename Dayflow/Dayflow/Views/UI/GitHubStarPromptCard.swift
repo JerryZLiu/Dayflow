@@ -129,7 +129,7 @@ struct GitHubStarPromptCard: View {
           .fixedSize(horizontal: false, vertical: true)
           .frame(maxWidth: .infinity, alignment: .leading)
 
-        Text("— Jerry, who makes Dayflow")
+        Text("Jerry, who makes Dayflow")
           .font(.custom("Figtree", size: 13))
           .foregroundStyle(theme.textPrimary.opacity(0.6))
           .frame(maxWidth: .infinity, alignment: .trailing)

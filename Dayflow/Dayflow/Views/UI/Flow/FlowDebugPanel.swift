@@ -17,7 +17,7 @@ struct FlowDebugPanel: View {
   @ObservedObject private var timeline = FlowSessionTimeline.shared
   @State private var isOpen = false
   @State private var tab: Tab = .log
-  @State private var toastText = "Nice streak — keep it up!"
+  @State private var toastText = "Nice streak, keep it up!"
   @State private var showBriefing = false
 
   private enum Tab: String, CaseIterable {

@@ -66,7 +66,7 @@ struct TimelineClipboardFormatter {
 
       let timeRange = formattedRange(start: card.startTimestamp, end: card.endTimestamp)
       let titleText = card.title.trimmingCharacters(in: .whitespacesAndNewlines)
-      let bulletTitle = timeRange.isEmpty ? titleText : "\(timeRange) — \(titleText)"
+      let bulletTitle = timeRange.isEmpty ? titleText : "\(timeRange): \(titleText)"
       lines.append("\(index + 1). **\(bulletTitle)**")
 
       let metaParts = metadataParts(for: card)
@@ -190,7 +190,7 @@ struct TimelineClipboardFormatter {
 
     let timeRange = formattedRange(start: card.startTimestamp, end: card.endTimestamp)
     let titleText = card.title.trimmingCharacters(in: .whitespacesAndNewlines)
-    let bullet = "\(index + 1). \(timeRange.isEmpty ? "" : "\(timeRange) — ")\(titleText)"
+    let bullet = "\(index + 1). \(timeRange.isEmpty ? "" : "\(timeRange): ")\(titleText)"
     lines.append(bullet.trimmingCharacters(in: .whitespaces))
 
     let metaParts = metadataParts(for: card)

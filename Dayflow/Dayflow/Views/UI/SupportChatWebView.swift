@@ -455,7 +455,7 @@ struct SupportChatWebView: NSViewRepresentable {
         "messagePlaceholder": context.isFlowWaitlist
           ? String(localized: "Who are you, and how would you use Flow?")
           // The image hint is its own string so the original keeps its translations.
-          : String(localized: "What's going on? Bugs, ideas, confusion — all welcome.") + " "
+          : String(localized: "What's going on? Bugs, ideas and confusion are all welcome.") + " "
             + String(localized: "Paste or drop screenshots here too."),
         "debug": String(localized: "Attach debug logs"),
         "send": String(localized: "Send"),
@@ -475,7 +475,7 @@ struct SupportChatWebView: NSViewRepresentable {
           ? String(localized: "Sent. Our team will reply here.")
           : String(localized: "Sent. Replies show up here and in your inbox."),
         "sendFailed": String(localized: "Couldn't send. Try again."),
-        "rateLimited": String(localized: "Slow down a little — try again in a minute."),
+        "rateLimited": String(localized: "Slow down a little and try again in a minute."),
         "dropHint": String(localized: "Drop images to attach"),
         "imageUnsupported": String(localized: "That file type isn't supported."),
         "imageTooLarge": String(localized: "Images can be up to 50 MB."),
@@ -800,7 +800,7 @@ private enum SupportChatPage {
           <label for="email">Your email</label>
           <input id="email" type="email" placeholder="so we can reply if you close the app" autocomplete="email">
         </div>
-        <textarea id="text" placeholder="What's going on? Bugs, ideas, confusion — all welcome." rows="3"></textarea>
+        <textarea id="text" placeholder="What's going on? Bugs, ideas and confusion are all welcome." rows="3"></textarea>
         <div id="attachments"></div>
         <div id="actions">
           <label id="debug-toggle">

@@ -74,7 +74,7 @@ struct AgentsOverviewView: View {
       VStack(alignment: .trailing, spacing: 5) {
         refreshButton
         if refreshError != nil {
-          Text("Last refresh failed — try again")
+          Text("Last refresh failed. Try again")
             .font(.custom("Figtree", size: 11))
             .foregroundColor(Color(hex: "C04A00"))
         } else if let generatedText = generatedAtText {

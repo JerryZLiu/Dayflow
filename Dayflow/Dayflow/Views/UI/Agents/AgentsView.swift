@@ -170,7 +170,7 @@ struct AgentsView: View {
         .foregroundColor(.black.opacity(0.85))
 
       Text(
-        "Fable reads today's Claude Code and Codex sessions and builds a review of everything your agents did — grouped by workstream, thread by thread."
+        "Fable reads today's Claude Code and Codex sessions and builds a review of everything your agents did, grouped by workstream, thread by thread."
       )
       .font(.custom("Figtree", size: 13))
       .foregroundColor(.black.opacity(0.55))
@@ -180,7 +180,7 @@ struct AgentsView: View {
       generateButton(title: String(localized: "Generate today's recap"))
         .padding(.top, 10)
 
-      Text("Runs only when you ask — nothing happens automatically.")
+      Text("Runs only when you ask. Nothing happens automatically.")
         .font(.custom("Figtree", size: 11))
         .foregroundColor(.black.opacity(0.35))
     }
@@ -198,7 +198,7 @@ struct AgentsView: View {
 
       TimelineView(.periodic(from: startedAt, by: 1)) { context in
         let elapsed = Int(context.date.timeIntervalSince(startedAt))
-        Text("Running for \(elapsed / 60)m \(elapsed % 60)s — a full day can take several minutes.")
+        Text("Running for \(elapsed / 60)m \(elapsed % 60)s. A full day can take several minutes.")
           .font(.custom("Figtree", size: 12))
           .foregroundColor(.black.opacity(0.45))
       }

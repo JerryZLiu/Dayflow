@@ -364,10 +364,10 @@ extension StorageManager {
       let localEngine = UserDefaults.standard.string(forKey: "llmLocalEngine") ?? "ollama"
       if localEngine == "lmstudio" {
         return
-          "You successfully installed Dayflow with LM Studio — your data stays 100% on your device. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
+          "You successfully installed Dayflow with LM Studio, and your data stays 100% on your device. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
       } else {
         return
-          "You successfully installed Dayflow with Ollama — your data stays 100% on your device. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
+          "You successfully installed Dayflow with Ollama, and your data stays 100% on your device. Come back in 30 minutes to see your first real activity card! ✨ (This is a sample card, so you can see what your timeline will look like.)"
       }
 
     case .dayflow:

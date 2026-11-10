@@ -281,7 +281,7 @@ struct TimelineReviewSummaryCard: View {
   }
 
   private var formattedLastReviewedAt: String {
-    guard let last = summary.lastReviewedAt else { return "—" }
+    guard let last = summary.lastReviewedAt else { return "-" }
     return Self.timeFormatter.string(from: last)
   }
 

@@ -142,7 +142,7 @@ final class AgentBridgeServer {
     }
 
     guard (message["protocol_version"] as? Int) == 1 else {
-      return failure("protocol_mismatch", "Update Dayflow — the CLI and app disagree on protocol.")
+      return failure("protocol_mismatch", "Update Dayflow. The CLI and app disagree on protocol.")
     }
 
     // Authoritative permission check, independent of whether the CLI checked.

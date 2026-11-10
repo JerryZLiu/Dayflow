@@ -36,7 +36,7 @@ struct SettingsPermissionsTabView: View {
     SystemPermissionRow(
       title: SystemPermission.accessibility.title,
       detail:
-        "Know which app you're in, so cards are labeled right — and so Dayflow can hide private browsing windows.",
+        "Know which app you're in, so cards are labeled right and Dayflow can hide private browsing windows.",
       isGranted: permissions.accessibilityGranted,
       onGrant: { permissions.grantAccessibility() }
     )

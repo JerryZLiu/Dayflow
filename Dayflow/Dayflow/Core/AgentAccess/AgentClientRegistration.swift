@@ -170,7 +170,7 @@ enum AgentClientRegistration {
     if let data = try? Data(contentsOf: url) {
       guard let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         return .failed(
-          "\(url.lastPathComponent) exists but isn't valid JSON — not touching it.")
+          "\(url.lastPathComponent) exists but isn't valid JSON, so Dayflow left it alone.")
       }
       config = existing
     }

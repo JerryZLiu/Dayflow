@@ -465,7 +465,7 @@ struct DayflowApp: App {
           FlowSessionMirror.shared.simulateDistraction()
         }
         .keyboardShortcut("D", modifiers: [.command, .shift])
-        Button("Flow: Nudge Style — \(FlowNudgeVariant.current.title)") {
+        Button("Flow: Nudge Style: \(FlowNudgeVariant.current.title)") {
           FlowNudgeVariant.current = FlowNudgeVariant.current.next
           flowNudgeVariant = FlowNudgeVariant.current.rawValue
         }

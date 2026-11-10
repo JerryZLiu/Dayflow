@@ -365,7 +365,7 @@ final class FlowSessionMirror: ObservableObject {
       if isDistracted, snapshot.phase == .active, snapshot.alertStyle != .quiet {
         nudgeStreak += 1
         overlay = .nudge(
-          message: String(localized: "Snooze is up — ready to get back to it?"),
+          message: String(localized: "Snooze is up. Ready to get back to it?"),
           escalated: nudgeStreak >= 2)
       }
     }

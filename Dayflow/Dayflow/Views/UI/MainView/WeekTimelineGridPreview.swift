@@ -20,7 +20,7 @@ private struct WeekTimelineHoverPrototypeHarness: View {
           .font(.custom("Figtree", size: 13).weight(.semibold))
           .foregroundColor(Color(hex: "333333"))
         Text(
-          "Hover a short card — the card grows to reveal the full title. No text shifts; only new lines appear below."
+          "Hover a short card and it grows to reveal the full title. No text shifts; only new lines appear below."
         )
         .font(.custom("Figtree", size: 11))
         .foregroundColor(Color(hex: "6B5548"))
@@ -69,19 +69,19 @@ private struct WeekTimelineHoverPrototypeHarness: View {
       // Tuesday (col 2) — stacked cluster of short cards (displace showcase)
       Spec(
         column: 2, startMinutes: 6 * 60, durationMinutes: 12,
-        title: "Refining UI mockups — iteration 1 of the hover card",
+        title: "Refining UI mockups: iteration 1 of the hover card",
         category: "Work", favicon: "figma.com"),
       Spec(
         column: 2, startMinutes: 6 * 60 + 12, durationMinutes: 10,
-        title: "Refining UI mockups — iteration 2",
+        title: "Refining UI mockups: iteration 2",
         category: "Work", favicon: "figma.com"),
       Spec(
         column: 2, startMinutes: 6 * 60 + 22, durationMinutes: 8,
-        title: "Refining UI mockups — quick pass",
+        title: "Refining UI mockups: quick pass",
         category: "Work", favicon: "figma.com"),
       Spec(
         column: 2, startMinutes: 6 * 60 + 30, durationMinutes: 11,
-        title: "Refining UI mockups — small tweaks",
+        title: "Refining UI mockups: small tweaks",
         category: "Work", favicon: "figma.com"),
 
       // Wednesday (col 3) — medium card followed closely by a tiny one

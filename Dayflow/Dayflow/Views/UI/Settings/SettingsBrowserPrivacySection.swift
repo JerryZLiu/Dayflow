@@ -4,7 +4,7 @@
 //
 //  Hiding private browsing windows and whole categories of site. These need
 //  Accessibility, so when it isn't granted the controls are visibly off and
-//  the explanation and the Grant button sit right here — nobody should have
+//  the explanation and the Grant button sit right here, so nobody has
 //  to go hunting for the permission somewhere else.
 //
 
@@ -38,7 +38,7 @@ struct SettingsBrowserPrivacySection: View {
         .fontWeight(.semibold)
         .foregroundColor(SettingsStyle.text)
       Text(
-        "Dayflow checks the front browser window on your Mac and never sends the address anywhere. It stores whether a window was private and which category matched — never the address itself."
+        "Dayflow checks the front browser window on your Mac and never sends the address anywhere. It stores whether a window was private and which category matched, never the address itself."
       )
       .font(.custom("Figtree", size: 12))
       .foregroundColor(SettingsStyle.secondary)
@@ -51,7 +51,7 @@ struct SettingsBrowserPrivacySection: View {
   private var permissionGate: some View {
     VStack(alignment: .leading, spacing: 8) {
       Text(
-        "These need Accessibility, which lets Dayflow read the front window's title and address. Turn it on and the controls below go live right away — no restart."
+        "These need Accessibility, which lets Dayflow read the front window's title and address. Turn it on and the controls below go live right away, with no restart."
       )
       .font(.custom("Figtree", size: 12))
       .foregroundColor(SettingsStyle.secondary)

@@ -186,13 +186,13 @@ struct ChatCLITestView: View {
                   resultMessage =
                     String(
                       localized:
-                        "Claude CLI returned an error. You may need to sign in — run 'claude login' in Terminal."
+                        "Claude CLI returned an error. You may need to sign in: run 'claude login' in Terminal."
                     )
                 } else {
                   resultMessage =
                     String(
                       localized:
-                        "Codex CLI returned an error. You may need to sign in — run 'codex login' in Terminal."
+                        "Codex CLI returned an error. You may need to sign in: run 'codex login' in Terminal."
                     )
                 }
               } else {
@@ -231,7 +231,7 @@ struct ChatCLITestView: View {
             )
           } else {
             let preview = cliResult.stdout.prefix(100)
-            resultMessage = "Got: \"\(preview)\" — expected '4'"
+            resultMessage = "Got \"\(preview)\", expected '4'"
             captureChatCLITestFailed(
               for: tool,
               durationMs: durationMs,
