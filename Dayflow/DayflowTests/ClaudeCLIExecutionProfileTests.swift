@@ -5,6 +5,30 @@ import XCTest
 final class ClaudeCLIExecutionProfileTests: XCTestCase {
   private let runner = ChatCLIProcessRunner()
 
+  func testOldClaudeCLIDropsOnlyOptionalFlagsItDoesNotKnow() {
+    let parts = [
+      "claude", "-p", "--disable-slash-commands", "--prompt-suggestions", "false",
+      "--tools", "Read", "--name", "dayflow-timeline", "--strict-mcp-config", "--",
+      "--name",
+    ]
+    // Like Claude 2.1.71: knows --tools and --disable-slash-commands, not --name or
+    // --prompt-suggestions.
+    let oldHelp = """
+        --disable-slash-commands     Disable all slash commands
+        --tools <tools...>           Specify the list of available tools
+      """
+
+    XCTAssertEqual(
+      ChatCLIProcessRunner.removingUnsupportedClaudeFlags(parts, helpText: oldHelp),
+      [
+        "claude", "-p", "--disable-slash-commands", "--tools", "Read",
+        "--strict-mcp-config", "--", "--name",
+      ]
+    )
+    // Unreadable --help keeps every flag.
+    XCTAssertEqual(ChatCLIProcessRunner.removingUnsupportedClaudeFlags(parts, helpText: ""), parts)
+  }
+
   func testOptimizedTranscriptionUsesRestrictedToolsAndExplicitLowEffort() throws {
     let parts = runner.buildClaudeCommandParts(
       prompt: "Transcribe the contact sheet",

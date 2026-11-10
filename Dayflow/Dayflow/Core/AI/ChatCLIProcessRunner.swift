@@ -365,6 +365,76 @@ struct ChatCLIProcessRunner {
     return supported
   }
 
+  /// Claude flags Dayflow can safely leave off when the installed Claude CLI is too old to
+  /// know them. An unknown flag makes Claude reject the whole call ("unknown option"), so
+  /// skipping one of these is better than failing. Flags that limit tools, MCP servers or
+  /// permissions are not listed here: if Claude doesn't know those, the call should fail.
+  private static let optionalClaudeFlagsWithValue: Set<String> = [
+    "--prompt-suggestions", "--name", "--effort",
+  ]
+  private static let optionalClaudeFlagsWithoutValue: Set<String> = [
+    "--disable-slash-commands", "--no-session-persistence",
+  ]
+
+  /// `claude --help` output, cached per installed binary (its real path and modified date),
+  /// so a Claude update is picked up on the next call.
+  private nonisolated(unsafe) static var claudeHelpCache: (key: String, helpText: String)?
+  private static let claudeHelpCacheLock = NSLock()
+
+  static func claudeHelpText() -> String {
+    let path = ShellEnvironment.shared.executablePath(named: "claude")
+      .map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }
+    let modified = path.flatMap {
+      try? FileManager.default.attributesOfItem(atPath: $0)[.modificationDate] as? Date
+    }
+    let key = "\(path ?? "claude")|\(modified?.timeIntervalSince1970 ?? 0)"
+
+    claudeHelpCacheLock.lock()
+    if let cached = claudeHelpCache, cached.key == key {
+      claudeHelpCacheLock.unlock()
+      return cached.helpText
+    }
+    claudeHelpCacheLock.unlock()
+
+    let result = LoginShellRunner.run("claude --help", timeout: 10)
+    let helpText = result.exitCode == 0 ? result.stdout : ""
+    claudeHelpCacheLock.lock()
+    claudeHelpCache = (key, helpText)
+    claudeHelpCacheLock.unlock()
+    return helpText
+  }
+
+  /// Removes optional flags that the installed Claude CLI's `--help` doesn't list.
+  /// If `--help` can't be read, every flag is kept.
+  static func removingUnsupportedClaudeFlags(
+    _ parts: [String], helpText: String = claudeHelpText()
+  ) -> [String] {
+    guard !helpText.isEmpty else { return parts }
+    func isUnsupported(_ flag: String) -> Bool { !helpText.contains(flag + " ") }
+
+    var kept: [String] = []
+    var index = 0
+    while index < parts.count {
+      let part = parts[index]
+      if part == "--" {
+        // Everything after "--" is the prompt, not flags.
+        kept.append(contentsOf: parts[index...])
+        break
+      }
+      if optionalClaudeFlagsWithValue.contains(part), isUnsupported(part) {
+        index += 2
+        continue
+      }
+      if optionalClaudeFlagsWithoutValue.contains(part), isUnsupported(part) {
+        index += 1
+        continue
+      }
+      kept.append(part)
+      index += 1
+    }
+    return kept
+  }
+
   func resolvedCodexExecutable(for tool: ChatCLITool) throws
     -> CodexExecutableResolver.Resolution?
   {
@@ -661,12 +731,13 @@ struct ChatCLIProcessRunner {
       cmdParts.append(LoginShellRunner.shellEscape(prompt))
 
     case .claude:
-      cmdParts = buildClaudeStreamingCommandParts(
-        prompt: prompt,
-        model: model,
-        reasoningEffort: reasoningEffort,
-        sessionId: sessionId
-      )
+      cmdParts = Self.removingUnsupportedClaudeFlags(
+        buildClaudeStreamingCommandParts(
+          prompt: prompt,
+          model: model,
+          reasoningEffort: reasoningEffort,
+          sessionId: sessionId
+        ))
     }
 
     let shellCommand =
@@ -1534,16 +1605,17 @@ struct ChatCLIProcessRunner {
       cmdParts.append("--")
       cmdParts.append(LoginShellRunner.shellEscape(prompt))
     case .claude:
-      cmdParts = buildClaudeCommandParts(
-        prompt: prompt,
-        imagePaths: imagePaths,
-        model: model,
-        reasoningEffort: reasoningEffort,
-        disableTools: disableTools,
-        profile: claudeProfile,
-        sessionMode: claudeSessionMode,
-        usesInlineImages: !claudeInlineImages.isEmpty
-      )
+      cmdParts = Self.removingUnsupportedClaudeFlags(
+        buildClaudeCommandParts(
+          prompt: prompt,
+          imagePaths: imagePaths,
+          model: model,
+          reasoningEffort: reasoningEffort,
+          disableTools: disableTools,
+          profile: claudeProfile,
+          sessionMode: claudeSessionMode,
+          usesInlineImages: !claudeInlineImages.isEmpty
+        ))
     }
 
     let shellCommand =
