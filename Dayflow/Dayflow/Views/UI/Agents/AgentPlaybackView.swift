@@ -40,11 +40,15 @@ struct AgentPlaybackView: View {
       }
     }
     .onAppear {
+      host.setTabSelected(true)
       host.usage.appear(foreground: NSApp.isActive)
       setupStarted = host.hasStarted
       if onboardingCompleted { host.startIfNeeded() }
     }
-    .onDisappear { host.usage.disappear() }
+    .onDisappear {
+      host.usage.disappear()
+      host.setTabSelected(false)
+    }
   }
 
   private var onboarding: some View {
@@ -154,7 +158,8 @@ private struct AgentPlaybackWebView: NSViewRepresentable {
   }
 }
 
-/// Owns one server and WebView for the app session, including across tab switches.
+/// Owns one server and WebView. They survive short tab switches, and shut down after
+/// `idleShutdownDelay` with the dashboard off screen so their memory is released.
 @MainActor
 final class AgentPlaybackHost: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate {
   static let shared = AgentPlaybackHost()
@@ -180,6 +185,14 @@ final class AgentPlaybackHost: NSObject, ObservableObject, WKNavigationDelegate,
   private var requestedVersion = "latest"
   private var fallbackFromAttempt: String?
 
+  /// How long the server and WebView stay loaded once the dashboard is off screen
+  /// (another tab is selected, or the window is closed, minimized or fully covered).
+  static let idleShutdownDelay: Duration = .seconds(300)
+  private var tabSelected = false
+  private var idleShutdown: Task<Void, Never>?
+  private var stoppedWhileIdle = false
+  private weak var dashboardWindow: NSWindow?
+
   private enum FailureCategory: String {
     case preparation
     case processLaunch = "process_launch"
@@ -203,6 +216,46 @@ final class AgentPlaybackHost: NSObject, ObservableObject, WKNavigationDelegate,
       object: nil)
     NotificationCenter.default.addObserver(
       self, selector: #selector(consentChanged), name: .analyticsPreferenceChanged, object: nil)
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(windowOcclusionChanged),
+      name: NSWindow.didChangeOcclusionStateNotification, object: nil)
+  }
+
+  func setTabSelected(_ value: Bool) {
+    tabSelected = value
+    refreshIdleShutdown()
+  }
+
+  @objc private func windowOcclusionChanged(_ notification: Notification) {
+    guard let window = notification.object as? NSWindow,
+      window === (webView?.window ?? dashboardWindow)
+    else { return }
+    refreshIdleShutdown()
+  }
+
+  /// Starts the shutdown countdown when the dashboard leaves the screen, and cancels it
+  /// (restarting the server if it was already shut down) when the dashboard comes back.
+  private func refreshIdleShutdown() {
+    if let window = webView?.window { dashboardWindow = window }
+    let onScreen = tabSelected && (dashboardWindow?.occlusionState.contains(.visible) ?? true)
+    if onScreen {
+      idleShutdown?.cancel()
+      idleShutdown = nil
+      if stoppedWhileIdle { start() }
+    } else if idleShutdown == nil, process != nil {
+      idleShutdown = Task { [weak self] in
+        do { try await Task.sleep(for: Self.idleShutdownDelay) } catch { return }
+        self?.shutDownIdle()
+      }
+    }
+  }
+
+  private func shutDownIdle() {
+    idleShutdown = nil
+    guard process != nil else { return }
+    AnalyticsService.shared.capture("agentplayback_idle_shutdown")
+    stop()
+    stoppedWhileIdle = true
   }
 
   @objc private func becameActive() { usage.setForeground(true) }
@@ -226,6 +279,7 @@ final class AgentPlaybackHost: NSObject, ObservableObject, WKNavigationDelegate,
 
   private func launch(version requestedVersion: String, offline: Bool) {
     stop()
+    stoppedWhileIdle = false
     error = nil
     output = ""
     pendingOutput = ""
@@ -469,6 +523,8 @@ final class AgentPlaybackHost: NSObject, ObservableObject, WKNavigationDelegate,
     usage.setReady(true)
     timeout?.cancel()
     if let version { UserDefaults.standard.set(version, forKey: versionKey) }
+    // The WebView has a window by now, so a window closed during startup is noticed here.
+    refreshIdleShutdown()
   }
 
   func webView(
