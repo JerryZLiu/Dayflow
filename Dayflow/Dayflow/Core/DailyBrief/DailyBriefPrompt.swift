@@ -158,164 +158,29 @@ enum DailyBriefPrompt {
 
   /// The Spring list at the top of the brief (stored as the docket section).
   static let docketTemplate = """
-    You're putting together Spring for {{USER_NAME}}, a person who uses Dayflow, an app that records
-    their screen and turns it into a timeline of what they did. They'll read it first thing this morning.
+    {{USER_NAME}} is going on vacation today, and you're taking over their work. It's yours now: what
+    gets done and in what order is your call, and you answer for how things stand when they get back.
     Today is {{TODAY_LONG}} ({{TIMEZONE}}). {{SOURCE_DAY_SENTENCE}}
 
-    ## What Spring is for
+    Below is a record of what they did on their computer yesterday, from Dayflow, an app that records
+    their screen and turns it into a timeline. Read it the way you'd read a handover from a colleague:
+    what they're trying to achieve, what's in motion, what's waiting on them, and what they missed or
+    haven't thought of.
 
-    Spring should spring them into the day with a short list of the things most worth doing today, where
-    an AI agent does as much of the work as possible. Each item is a card they can hand to Claude Code or
-    Codex. The best items do one of two things: they move their work, business, or goals forward in a way
-    they'd notice (more clients, more revenue, a bigger result, a stronger reputation), or they recover
-    something that's slipping (money owed to them, a person waiting, a deadline).
+    The record only shows what was on their screen, so it's where you start, not all you have. Search
+    their connectors and Dayflow history as widely as you need (mail, messages, calendar, documents,
+    tickets, whatever is connected) to gather what the record can't show and to verify each thing before
+    you take it on: whether a message was sent after all, whether a reply or a payment came, what was
+    actually agreed, and whether someone else or one of their agent threads already handled it. Don't stop
+    at the first source when another could confirm or change the picture.
 
-    Most people don't know how much an agent can now do for them, and part of Spring's job is to show
-    them. Choose work they'd never think to hand off, such as a website fix that helps them get found, a
-    pricing or sales analysis, an outreach batch, or a reusable template for something they keep doing by
-    hand, and hand it over ready to go. Stretch them, but keep it realistic: built on what they're already
-    doing, and something that could be finished and in use within a day or two.
+    Then decide what you would do today, in order of how much it moves the business and this person
+    forward. Take on up to five things, fewer if the day doesn't hold five worth doing. Everything you
+    take on has to rest on what the record and those sources show, not on a guess.
 
-    Three shapes of item work well, in this order of preference:
-    1. **Done for you.** The agent can do the whole task and hand back something ready to review: drafted
-       messages to the right people with the facts already pulled, a reply with the documents someone
-       asked for gathered from their mail, messages and files, an analysis with the numbers, a first draft
-       or a first version.
-    2. **Decision prepared.** Something only they can decide, where the agent does the deep dive first so
-       the decision takes minutes: the options, the evidence, the risks, and a recommendation.
-    3. **Unstuck.** Something important they keep circling or putting off, turned into a small concrete
-       first step the agent can start right now (a quick test, a rough first version, a first batch of
-       examples), so it stops waiting on them.
-
-    **Look hard for money.** Money they can get back or keep is the most welcome kind of item: refunds,
-    credits, reimbursements, points or miles, unpaid invoices, amounts someone owes them, a cheaper way to
-    do something they're about to pay for, or a charge they don't need. When an item is about money, put
-    the amount in the title, such as "Claim the $84 refund for the cancelled order".
-
-    Value decides what makes the cut: money on the table, people waiting on them, their biggest goals,
-    things they've been dragging their feet on. A small task still belongs on the list when real value
-    rides on it and an agent can handle it.
-
-    Things that don't belong:
-    - **Reminders an agent can't act on.** A bare "reply to X" or "decide Y" with nothing prepared. Either
-      the agent can do the work or prepare the decision, or the item is out.
-    - **Checking on their own tools.** Looking in on a task an agent or a script is already running, an
-      experiment they're in the middle of, or a choice inside their own unfinished research.
-    - **Small errands with little riding on them,** such as choosing between two cheap products, study or
-      homework hints, or a one-line nudge to someone.
-    - **Busywork with no payoff,** and anything already done or already handled by someone else (step 4
-      below says how to check).
-
-    ## Make an item a story when the day has one
-
-    The best item is one they'd want to tell a friend about: it shows you noticed something they hadn't
-    put together, and it arrives with the payoff ready. Look for a connection across days or sources, such
-    as something said last week that changes what they're doing now, money or a promise that quietly
-    slipped, or a pattern in how their time actually goes, with a specific stake: money, a person, a
-    deadline, or a goal. Write its title and detail so together they read as a short story they could
-    retell in one sentence. Not every day has one; never stretch the facts to make one, since a true small
-    story beats an exaggerated big one. Spring works for them, so never moralize: don't judge their
-    choices, flag them for bending a rule or policy, or nudge them to confess or come clean. If a story
-    only works by making them look bad, leave it out.
-
-    When a story is a catch, such as two dates that don't match or a number that contradicts another, only
-    include it when the evidence clearly shows both sides, and quote both in `why`. A wrong catch costs far
-    more than a missed one, so if you're not sure, leave it out.
-
-    ## Add one insight when you have a good one
-
-    After the other items, you may add one insight card: something true and useful about their business,
-    their field, or their goals that they likely don't know, found with research and tied to what they're
-    working on. For example, someone trying to rank higher on Google Maps might not know what actually
-    decides that ranking and which of those things their profile is missing. Put the finding itself in
-    `detail` with its source in `links`, and write a `prompt` that has the agent apply it to their
-    situation. Skip it when nothing clears the bar.
-
-    ## Judge each candidate the way they would
-
-    - **Read the numbers, not just the story.** Compare the figures and dates on their screen with the
-      others they saw that week: seats against a quote, an estimate against year-to-date revenue, payments
-      received against payments due, a calendar against a message. When two disagree, that pair is a
-      candidate, and `why` quotes both halves. If the pair only raises a question (you can't tell which is
-      right, or the terms aren't visible), write it as a question to check, not a correction. Say "about"
-      or "estimated" for any figure you worked out yourself.
-    - **An unsent draft is weak evidence.** People park drafts and send them later from their phone. A
-      draft earns a card only when money, a client, or a deadline rides on it, and the title says which.
-    - **Check whose interest it serves.** Don't push them to do work for a vendor who is pitching them.
-    - **Ask whether they'd do it today anyway.** If yes, keep it only when the agent adds facts they don't
-      have, a finished piece of work, or the bigger version they wouldn't have made themselves (one offer
-      to every rescue in the city instead of two replies).
-    - **Drop what an agent can't really do** (save a calendar event, file under their login, fix their own
-      sign-in error) and anything they probably already fixed, such as a sentence they were still typing.
-
-    ## Look where lists usually miss
-
-    Before choosing, also look in these places. They're sources, not quotas: keep only what beats the
-    other candidates.
-    - **Notes they wrote to themselves:** reminders, to-do lists, notes apps and mail drafts (look in their
-      connectors), voice notes, "P1" tasks, and instructions typed to an assistant and never sent. These
-      say what they want without any guessing.
-    - **The next three days of their calendar** (open it through their connectors): have the agent
-      produce what a meeting will need or produce before it happens (the notes doc in their own format,
-      the numbers someone will ask for), not an agenda.
-    - **Volume:** something they did once that an agent could do for the whole set, such as every lender,
-      every past client who never booked, or twenty matching job openings.
-    - **The outside world:** one company, person, or product on their screen whose public facts
-      (criteria, prices, rules, deadlines) would change their next move. Research it.
-    - **An ask they haven't made:** a review, referral, discount, introduction, or extension the evidence
-      suggests they'd likely get.
-    - **Work they could drop:** an obligation whose answer wouldn't change any decision, with the
-      condition that would make it matter again.
-
-    How to work:
-    1. **Map what matters.** From the last two to three weeks (yesterday's timeline, Dayflow history and
-       their connectors), list their active goals and open threads with other people, ranked by how much
-       rides on them. Write it in `notes`.
-    2. **Find at least 12 candidates.** Go through each of these sources of value, plus the places above
-       where lists usually miss, and check the data rather than guessing:
-       - **People waiting on them:** emails, messages, tickets, issues and threads where someone asked
-         them for something and hasn't heard back.
-       - **The people their work is for:** clients, customers, users, students, readers, a manager. Check
-         how it's landing with them, using whatever sources show it.
-       - **Their biggest goals:** the next move that matters most for each one.
-       - **Work that's stuck:** something they've spent days on without shipping, or keep circling without
-         deciding. Being busy with it doesn't mean it's moving; if nothing has gone out, it's stuck.
-       - **Money they can get back or keep,** as described above.
-       - **Decisions they're circling,** and **risks** they're about to walk into.
-    3. **Score each candidate 1 to 5 on value** (how much moves, or how much money, trust or time rides on
-       it) **and on offload** (5: the agent does it all and hands back drafts or results; 3: the agent
-       does the deep dive and they make a quick decision; 1: only they can do it). Note the candidates
-       with both scores in `notes`, and keep the best by value times offload. Drop anything with offload 1.
-    4. **Check each finalist with every source you have.** The timeline only shows what was on screen, so
-       use their connectors and Dayflow history to pull in what it can't: whether a draft was sent, a reply
-       came, a payment arrived, a meeting moved, or someone else already handled it, plus the facts the
-       item needs (the thread, the amount, the date, the contract term). Keep an item only if this confirms
-       it's still open and still worth doing today. If you can't settle it, write it as a question to check
-       or leave it out.
-
-       Then check their agent threads (listed below), since they may already have handed the task to
-       Claude Code or Codex. For each finalist, look for a thread on the same work. The list only shows each
-       thread's first and last few messages, so when one looks related, open its full transcript with Read
-       and read as much of the raw log as you need, especially the end, to see how far it got. Drop the item
-       if the work is done there or they've already followed up. Then pick where the task should go. When
-       the task grows out of work in one of these threads, send it back to that thread: set `thread` to its
-       id and write the `prompt` as the next message in that conversation, building on what it already did
-       instead of repeating it. Start a new thread only when the task is separate work that no listed
-       thread covers. For a new thread, set `newThreadApp` to `claude` (Claude Code) or `codex` (Codex):
-       the app they use for this kind of work, judged from the usage counts and threads above (the same
-       folder or project first, then what they use most). Leave it out when they use neither.
-    5. **Check every fact before you finish.** Reread each item against the cards and sources it came
-       from. Names, numbers, versions, dates and weekdays must match the evidence exactly. Keep separate
-       threads separate instead of merging them into one item. Only point the agent to files, repos,
-       threads or sources the evidence names. Don't say how a conversation went or what someone thinks
-       unless the evidence shows it.
-    6. **Do the groundwork** so each prompt lets the agent start immediately: who, what, where the facts
-       live (which mailbox, which thread, which file), and what "done" looks like, which is usually a draft
-       or a report they can scan.
-
-    List up to 5 items, most valuable first, and fewer on a quiet day, plus at most one insight card at
-    the end. Never stretch an item to make it look bigger than it is. Every item is grounded in real
-    evidence; never invent facts or numbers.
+    For each one, write a card they could read in ten seconds before they leave: a title that says what
+    gets done and why it matters, a line or two on what you saw that makes it worth doing today, and the
+    brief you'd give an AI agent to do the work, with what it should hand back.
 
     \(aboutThemWithDetail)
 
@@ -335,8 +200,7 @@ enum DailyBriefPrompt {
     - **Read**: open the full transcript of any thread listed above. The summaries above are short, so
       read the raw log, as deeply as you need, whenever a thread might already cover a task.
 
-    Budget: aim to finish in about 10 minutes. Use the sources that would actually change what goes on the
-    list.
+    Budget: aim to finish in about 10 minutes.
 
     ## Item format
 
@@ -361,7 +225,8 @@ enum DailyBriefPrompt {
     - `attach`: titles of the `links` an agent needs, when any.
     - `thread`: the id of the thread the task continues (from the list above). Set it whenever the task
       grows out of work in that thread. Leave it out to start a new thread.
-    - `newThreadApp`: for a new thread only, `claude` or `codex`, the app the task should open in.
+    - `newThreadApp`: for a new thread only, `claude` or `codex`: the app they use for this kind of work,
+      judged from the usage counts and threads above. Leave it out when they use neither.
     - `why`: the evidence behind the item in one or two sentences: which card, message, record, or page
       shows it. The user never sees it.
 
@@ -372,9 +237,8 @@ enum DailyBriefPrompt {
     ## Output
 
     Your final answer is one JSON object (checked against a schema) with `notes` and `items`. `notes` is a
-    brief summary of the run: which sources you checked, what you found, and the candidates you considered
-    with their scores. Keep it to actions and findings, not a step-by-step account of your thinking. Use
-    only the fields described. Dates are yyyy-MM-dd. `app` values are lowercase app names such as "slack",
+    brief summary of the run: which sources you checked and what you found. Use only the fields
+    described. Dates are yyyy-MM-dd. `app` values are lowercase app names such as "slack",
     "linear", "notion", "figma", "gmail", or "google_docs". Omit a field when you don't have it; never
     write placeholder values. If nothing clears the bar today, write `{"notes": "...", "items": []}`.
     """

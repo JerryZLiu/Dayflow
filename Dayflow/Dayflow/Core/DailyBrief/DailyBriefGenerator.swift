@@ -3,9 +3,10 @@
 //  Dayflow
 //
 //  Builds one day's Daily brief: gathers yesterday's cards and a screenshot per
-//  card, then runs two `claude -p` (Opus) runs at the same time, each with web
+//  card, then runs two `claude -p` runs at the same time, each with web
 //  search, the user's own connectors (read-only), and Dayflow's MCP server. One
-//  run writes the docket; the other writes every other section and is the only
+//  run writes the docket (on Fable, falling back to Opus if that fails); the
+//  other (Opus) writes every other section and is the only
 //  one that sees the screenshots. The two answers are merged in code into one
 //  DailyBriefContent, checked, and the images it uses are copied into the brief
 //  folder. If one run fails, the brief keeps the other run's sections.
@@ -87,6 +88,9 @@ enum DailyBriefGenerator {
   }
 
   static let model = "opus"
+  /// Spring tries this model first: on the takeover prompt it wrote better lists than Opus in
+  /// testing. If its run fails for any reason, Spring runs again on `model`.
+  static let springFirstModel = "fable"
   static let runTimeoutSeconds: TimeInterval = 20 * 60
   /// More candidates than this are evenly sampled down, to keep the run's reading sane.
   static let maxCandidates = 60
@@ -276,15 +280,30 @@ enum DailyBriefGenerator {
 
     let options = try commandOptions(
       part: part, runDirectory: runDirectory, candidatesDirectory: candidatesDirectory)
-    let run = try runStructuredClaude(
-      prompt: prompt,
-      options: options,
-      workingDirectory: runDirectory,
-      timeoutSeconds: runTimeoutSeconds,
-      transcriptURL: DailyBriefStore.transcriptURL(for: input.day, part: part),
-      tooLongMessage:
-        "Claude took longer than 20 minutes on your brief, so Dayflow stopped it. Try again."
-    )
+    func runClaude(model: String) throws -> StructuredClaudeResult {
+      try runStructuredClaude(
+        prompt: prompt,
+        options: options,
+        workingDirectory: runDirectory,
+        timeoutSeconds: runTimeoutSeconds,
+        transcriptURL: DailyBriefStore.transcriptURL(for: input.day, part: part),
+        tooLongMessage:
+          "Claude took longer than 20 minutes on your brief, so Dayflow stopped it. Try again.",
+        model: model
+      )
+    }
+
+    let run: StructuredClaudeResult
+    if part == .docket {
+      do {
+        run = try runClaude(model: springFirstModel)
+      } catch {
+        print("[DailyBrief] Spring failed on \(springFirstModel), trying \(model): \(error)")
+        run = try runClaude(model: model)
+      }
+    } else {
+      run = try runClaude(model: model)
+    }
 
     var stats = run.stats
     stats.promptCharacters = prompt.count
@@ -863,7 +882,8 @@ enum DailyBriefGenerator {
     workingDirectory: URL,
     timeoutSeconds: TimeInterval,
     transcriptURL: URL? = nil,
-    tooLongMessage: String
+    tooLongMessage: String,
+    model: String = DailyBriefGenerator.model
   ) throws -> StructuredClaudeResult {
     let runner = ChatCLIProcessRunner()
     let run: ChatCLIRunResult
