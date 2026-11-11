@@ -37,8 +37,10 @@ final class DailyBriefStore: ObservableObject {
 
   private static let userEnabledKey = "dailyBriefEnabled"
 
-  /// The brief runs when yesterday had at least this much recorded activity.
+  /// The brief is built from a day with at least this much recorded activity.
   static let minimumSourceMinutes: Double = 60
+  /// How many days back to look for such a day, so a weekend or a short break doesn't skip the brief.
+  static let maxSourceDaysBack = 7
   /// Automatic runs per day before giving up. The Retry button ignores this.
   static let maxAutomaticAttemptsPerDay = 2
 
@@ -171,6 +173,20 @@ final class DailyBriefStore: ObservableObject {
     dayString: String, startOfDay: Date, endOfDay: Date
   ) {
     startOfDay.addingTimeInterval(-60 * 60).getDayInfoFor4AMBoundary()
+  }
+
+  /// The most recent logical day before `startOfDay` with enough recorded activity: yesterday
+  /// when they worked, otherwise the last day they did (Friday, on a Monday after a weekend
+  /// off). nil when no day in the lookback window has enough.
+  private static func latestSourceDay(before startOfDay: Date) -> String? {
+    var day = previousDay(before: startOfDay)
+    for _ in 0..<maxSourceDaysBack {
+      let recordedMinutes = StorageManager.shared.fetchTotalMinutesTracked(
+        from: day.startOfDay, to: day.endOfDay)
+      if recordedMinutes >= minimumSourceMinutes { return day.dayString }
+      day = previousDay(before: day.startOfDay)
+    }
+    return nil
   }
 
   // MARK: - Files
@@ -316,21 +332,21 @@ final class DailyBriefStore: ObservableObject {
     guard brief?.day != today.dayString else { return }
     guard automaticAttempts(for: today.dayString) < Self.maxAutomaticAttemptsPerDay else { return }
 
-    let source = Self.previousDay(before: today.startOfDay)
-    let recordedMinutes = StorageManager.shared.fetchTotalMinutesTracked(
-      from: source.startOfDay, to: source.endOfDay)
-    guard recordedMinutes >= Self.minimumSourceMinutes else { return }
+    guard let sourceDay = Self.latestSourceDay(before: today.startOfDay) else { return }
 
     recordAutomaticAttempt(for: today.dayString)
-    start(day: today.dayString, sourceDay: source.dayString, trigger: trigger)
+    start(day: today.dayString, sourceDay: sourceDay, trigger: trigger)
   }
 
   /// The Retry button: regenerate today's brief from scratch.
   func retry() {
     guard isFeatureEnabled, !isRunning else { return }
     let today = Date().getDayInfoFor4AMBoundary()
-    let source = Self.previousDay(before: today.startOfDay)
-    start(day: today.dayString, sourceDay: source.dayString, trigger: "retry")
+    // With no recent day to build from, the run fails with a message saying so.
+    let sourceDay =
+      Self.latestSourceDay(before: today.startOfDay)
+      ?? Self.previousDay(before: today.startOfDay).dayString
+    start(day: today.dayString, sourceDay: sourceDay, trigger: "retry")
   }
 
   private func start(day: String, sourceDay: String, trigger: String) {

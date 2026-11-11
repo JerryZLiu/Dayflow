@@ -148,7 +148,7 @@ enum DailyBriefGenerator {
     let cards = nonIdleCards(
       StorageManager.shared.fetchTimelineCards(forDay: input.sourceDay), categories: categories)
     guard !cards.isEmpty else {
-      throw GenerationError(message: "There's no activity from yesterday to build a brief from.")
+      throw GenerationError(message: "There's no recent activity to build a brief from.")
     }
 
     let candidates = exportCandidates(for: cards, into: candidatesDirectory)
@@ -156,6 +156,7 @@ enum DailyBriefGenerator {
       "USER_NAME": userName(),
       "TODAY_LONG": longDate(input.day),
       "YESTERDAY_LONG": longDate(input.sourceDay),
+      "SOURCE_DAY_SENTENCE": sourceDaySentence(day: input.day, sourceDay: input.sourceDay),
       "TIMEZONE": TimeZone.current.identifier,
       "YESTERDAY_CARDS": cardLines(cards),
       "CATEGORIES_WITH_DESCRIPTIONS": categoryLines(categories),
@@ -483,6 +484,20 @@ enum DailyBriefGenerator {
     let fullName = NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
     let firstName = fullName.split(separator: " ").first.map(String.init) ?? ""
     return firstName.isEmpty ? "the user" : firstName
+  }
+
+  /// Says which day the brief is built from. That's yesterday unless they were away from
+  /// the computer (a weekend, a day off), when it's the last day they used it.
+  private static func sourceDaySentence(day: String, sourceDay: String) -> String {
+    let formatter = DateFormatter.yyyyMMdd
+    if let today = formatter.date(from: day), let source = formatter.date(from: sourceDay),
+      Calendar.current.dateComponents([.day], from: source, to: today).day == 1
+    {
+      return "Yesterday was \(longDate(sourceDay))."
+    }
+    return
+      "They weren't at their computer yesterday. Their last day on it was \(longDate(sourceDay)), "
+      + "and wherever this prompt says \"yesterday\", it means that day."
   }
 
   /// "2026-10-22" -> "Thursday, October 22, 2026"

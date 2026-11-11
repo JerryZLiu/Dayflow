@@ -14,7 +14,8 @@ import Foundation
 enum DailyBriefPrompt {
   /// The placeholders both prompts can use.
   private static let sharedPlaceholderNames = [
-    "USER_NAME", "TODAY_LONG", "YESTERDAY_LONG", "TIMEZONE", "YESTERDAY_CARDS",
+    "USER_NAME", "TODAY_LONG", "YESTERDAY_LONG", "SOURCE_DAY_SENTENCE", "TIMEZONE",
+    "YESTERDAY_CARDS",
     "CATEGORIES_WITH_DESCRIPTIONS", "FEEDBACK_DAYS", "FEEDBACK_SUMMARY", "RECENT_BRIEF_ITEMS",
     "OVERRIDE_INSTRUCTIONS",
   ]
@@ -159,7 +160,7 @@ enum DailyBriefPrompt {
   static let docketTemplate = """
     You're putting together Spring for {{USER_NAME}}, a person who uses Dayflow, an app that records
     their screen and turns it into a timeline of what they did. They'll read it first thing this morning.
-    Today is {{TODAY_LONG}} ({{TIMEZONE}}). Yesterday was {{YESTERDAY_LONG}}.
+    Today is {{TODAY_LONG}} ({{TIMEZONE}}). {{SOURCE_DAY_SENTENCE}}
 
     ## What Spring is for
 
@@ -383,7 +384,7 @@ enum DailyBriefPrompt {
   static let extrasTemplate = """
     You're writing today's Daily brief for {{USER_NAME}}, a person who uses Dayflow, an app
     that records their screen and turns it into a timeline of what they did. They'll open it this morning
-    inside Dayflow. Today is {{TODAY_LONG}} ({{TIMEZONE}}). Yesterday was {{YESTERDAY_LONG}}.
+    inside Dayflow. Today is {{TODAY_LONG}} ({{TIMEZONE}}). {{SOURCE_DAY_SENTENCE}}
 
     The brief's to-do list ("Your docket today") is written separately, so don't suggest tasks. You write
     the other sections, described below.
