@@ -16,6 +16,11 @@ extension MainView {
       .environmentObject(retryCoordinator)
   }
 
+  /// The goal flow or the Privacy Shield upgrade modal is over the window, so the content behind it blurs.
+  private var isMainContentCovered: Bool {
+    goalFlowPresentation != nil || privacyShield.showUpgrade
+  }
+
   // Layer 1: layout + visual overlays.
   private var mainLayoutWithOverlays: some View {
     contentStack
@@ -24,8 +29,10 @@ extension MainView {
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .background(Color.clear)
       .ignoresSafeArea()
-      .blur(radius: goalFlowPresentation == nil ? 0 : 10)
-      .allowsHitTesting(goalFlowPresentation == nil)
+      .blur(radius: isMainContentCovered ? 10 : 0)
+      .allowsHitTesting(!isMainContentCovered)
+      .animation(.easeOut(duration: 0.2), value: privacyShield.showUpgrade)
+      .overlay { PrivacyShieldUpgradeHost() }
       // Hero animation overlay for video expansion (Emil Kowalski: shared element transitions)
       .overlay { overlayContent }
       .overlay(alignment: .bottomTrailing) { timelineFailureToastOverlayContent }

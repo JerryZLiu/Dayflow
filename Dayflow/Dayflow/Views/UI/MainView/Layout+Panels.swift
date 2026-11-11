@@ -40,9 +40,6 @@ extension MainView {
     }
     .padding(0)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .overlay {
-      PrivacyShieldUpgradeHost()
-    }
   }
 
   private var leftColumn: some View {
