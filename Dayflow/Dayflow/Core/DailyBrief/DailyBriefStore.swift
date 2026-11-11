@@ -22,20 +22,55 @@ final class DailyBriefStore: ObservableObject {
 
   // MARK: - Access
 
-  /// Signed-in Dayflow account emails that get the brief. Widen this when it rolls out.
+  /// Signed-in Dayflow account emails that always get the brief, whatever their
+  /// provider and the kill switch say.
   static let allowlistedEmails: Set<String> = [
     "zhengyu.j.liu@gmail.com",
     "maggiechangjx@gmail.com",
   ]
+
+  /// PostHog kill switch. The brief runs unless this flag comes back explicitly
+  /// false, so a missing flag, flags that haven't loaded yet, or analytics being
+  /// off all leave it on. To turn it off, keep the flag active and set its rollout
+  /// to 0%; disabling or deleting the flag makes it nil, which leaves the brief on.
+  static let killSwitchFlagKey = "daily-brief-enabled"
+
+  private static let userEnabledKey = "dailyBriefEnabled"
 
   /// The brief runs when yesterday had at least this much recorded activity.
   static let minimumSourceMinutes: Double = 60
   /// Automatic runs per day before giving up. The Retry button ignores this.
   static let maxAutomaticAttemptsPerDay = 2
 
+  /// Whether this user can get the brief at all: allowlisted, or Claude Code is
+  /// their main timeline provider and the kill switch isn't off.
+  var isEligible: Bool {
+    if let email = DayflowAuthManager.shared.signedInEmail?.lowercased(),
+      Self.allowlistedEmails.contains(email)
+    {
+      return true
+    }
+    guard (try? LLMProviderRoutingStore.load())?.primary == .claude else { return false }
+    let killSwitch = AnalyticsService.shared.featureFlagValue(Self.killSwitchFlagKey) as? Bool
+    return killSwitch != false
+  }
+
+  /// The "Daily brief" toggle in Settings. On by default.
+  var isUserEnabled: Bool {
+    get { UserDefaults.standard.object(forKey: Self.userEnabledKey) as? Bool ?? true }
+    set {
+      objectWillChange.send()
+      UserDefaults.standard.set(newValue, forKey: Self.userEnabledKey)
+      if !newValue {
+        dismiss()
+        showsReadyNotice = false
+      }
+      AnalyticsService.shared.capture("daily_brief_setting_changed", ["enabled": newValue])
+    }
+  }
+
   var isFeatureEnabled: Bool {
-    guard let email = DayflowAuthManager.shared.signedInEmail?.lowercased() else { return false }
-    return Self.allowlistedEmails.contains(email)
+    isEligible && isUserEnabled
   }
 
   // MARK: - State
@@ -365,7 +400,7 @@ final class DailyBriefStore: ObservableObject {
       persistBrief()
       runState = .idle
       // A retry happens while the brief is open, so only announce automatic runs.
-      if trigger != "retry" && !isPresented {
+      if trigger != "retry" && !isPresented && isFeatureEnabled {
         showsReadyNotice = true
       }
       AnalyticsService.shared.capture(

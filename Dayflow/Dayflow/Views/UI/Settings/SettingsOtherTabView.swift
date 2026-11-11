@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsOtherTabView: View {
   @ObservedObject var viewModel: OtherSettingsViewModel
   @ObservedObject var launchAtLoginManager: LaunchAtLoginManager
+  @ObservedObject private var dailyBrief = DailyBriefStore.shared
   @AppStorage(DayflowAppearance.storageKey) private var appearance: DayflowAppearance = .system
   @FocusState private var isOutputLanguageFocused: Bool
   @State private var appLanguage = AppLanguagePreferences.selection()
@@ -120,6 +121,24 @@ struct SettingsOtherTabView: View {
             )
         ) {
           SettingsToggle(isOn: $viewModel.showDailyGoalPopups)
+        }
+
+        if dailyBrief.isEligible {
+          SettingsRow(
+            label: String(localized: "Daily brief"),
+            subtitle:
+              String(
+                localized:
+                  "Each morning, Claude Code reads yesterday's timeline and your connected apps and writes you a brief. Runs on your Claude plan."
+              )
+          ) {
+            SettingsToggle(
+              isOn: Binding(
+                get: { dailyBrief.isUserEnabled },
+                set: { dailyBrief.isUserEnabled = $0 }
+              )
+            )
+          }
         }
 
         SettingsRow(
