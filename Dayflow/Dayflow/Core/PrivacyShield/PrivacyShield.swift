@@ -55,6 +55,18 @@ final class PrivacyShield: ObservableObject {
   private var prepareTask: Task<Void, Never>?
   /// Identifies the current prepare, so a cancelled one never clears or overrides a newer one.
   private var prepareID = UUID()
+  /// Set when the upgrade modal sent the user to Settings to buy a plan: the shield turns on once
+  /// the plan arrives (until the app quits).
+  private var enableWhenEntitled = false
+  /// When the upgrade modal's button was clicked, for timing the rest of the upgrade.
+  private var upgradeClickedAt: Date?
+  /// When the upgrade modal opened, for how long it stayed up.
+  private var upgradeShownAt: Date?
+  /// When the current prepare started, and whether it had to download the model.
+  private var prepareStartedAt: Date?
+  private var prepareDownloaded = false
+  /// Whether an account was signed in at the last account update, to spot a sign-in mid-upgrade.
+  private var wasSignedIn = false
 
   private init() {
     isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
@@ -98,35 +110,109 @@ final class PrivacyShield: ObservableObject {
           if user != nil {
             UserDefaults.standard.set(self.isEntitled, forKey: Self.lastKnownEntitledKey)
           }
+          if self.enableWhenEntitled && user != nil && !self.wasSignedIn {
+            AnalyticsService.shared.capture(
+              "privacy_shield_upgrade_signed_in",
+              ["seconds_since_upgrade_click": self.secondsSince(self.upgradeClickedAt) as Any])
+          }
+          self.wasSignedIn = user != nil
+          if self.enableWhenEntitled && self.isEntitled {
+            self.enableWhenEntitled = false
+            AnalyticsService.shared.capture(
+              "privacy_shield_upgrade_plan_arrived",
+              [
+                "plan": DayflowAuthManager.shared.entitlements.plan,
+                "seconds_since_upgrade_click": self.secondsSince(self.upgradeClickedAt) as Any,
+              ])
+            self.upgradeClickedAt = nil
+            self.setEnabled(true, source: "after_upgrade")
+          }
           self.refresh()
         }
       }
   }
 
+  /// True between the upgrade modal's button and the plan arriving, so Settings can tell that a
+  /// checkout came from the Privacy Shield.
+  var isUpgradeInProgress: Bool { enableWhenEntitled }
+
   /// The footer toggle. Without Pro or Plus it opens the upgrade modal instead of turning on.
   func toggleTapped() {
-    dismissCallout()
+    AnalyticsService.shared.capture(
+      "privacy_shield_toggle_clicked",
+      [
+        "was_on": showsOn, "entitled": effectivelyEntitled, "status": Self.name(status),
+        "signed_in": DayflowAuthManager.shared.user != nil,
+        "callout_visible": !calloutDismissed,
+      ])
+    dismissCallout(method: "toggle")
     if showsOn {
-      setEnabled(false)
+      setEnabled(false, source: "toggle")
     } else if effectivelyEntitled {
-      setEnabled(true)
+      setEnabled(true, source: "toggle")
     } else {
       showUpgrade = true
-      AnalyticsService.shared.capture("privacy_shield_upgrade_shown", ["source": "toggle"])
+      upgradeShownAt = Date()
+      AnalyticsService.shared.capture(
+        "privacy_shield_upgrade_shown",
+        ["source": "toggle", "signed_in": DayflowAuthManager.shared.user != nil])
     }
   }
 
-  func setEnabled(_ enabled: Bool) {
+  /// The upgrade modal's button: closes it, and turns the shield on once a Pro or Plus plan lands.
+  func upgradeRequested() {
+    AnalyticsService.shared.capture(
+      "privacy_shield_upgrade_clicked",
+      [
+        "seconds_open": secondsSince(upgradeShownAt) as Any,
+        "signed_in": DayflowAuthManager.shared.user != nil,
+      ])
+    showUpgrade = false
+    upgradeShownAt = nil
+    enableWhenEntitled = true
+    upgradeClickedAt = Date()
+  }
+
+  /// The upgrade modal closed without the upgrade button. `method` is how: "close_button",
+  /// "backdrop" or "escape".
+  func upgradeDismissed(method: String) {
+    guard showUpgrade else { return }
+    AnalyticsService.shared.capture(
+      "privacy_shield_upgrade_closed",
+      ["method": method, "seconds_open": secondsSince(upgradeShownAt) as Any])
+    showUpgrade = false
+    upgradeShownAt = nil
+  }
+
+  /// `source` says what turned it on or off: "toggle" (the footer switch) or "after_upgrade"
+  /// (a plan arrived after the upgrade modal).
+  func setEnabled(_ enabled: Bool, source: String) {
     isEnabled = enabled
     UserDefaults.standard.set(enabled, forKey: Self.enabledKey)
-    AnalyticsService.shared.capture("privacy_shield_toggled", ["enabled": enabled])
+    AnalyticsService.shared.capture(
+      "privacy_shield_toggled", ["enabled": enabled, "source": source])
     refresh()
   }
 
-  func dismissCallout() {
+  /// `method` is "close_button" or "toggle" (the callout goes away once the switch is used).
+  func dismissCallout(method: String) {
     guard !calloutDismissed else { return }
     calloutDismissed = true
     UserDefaults.standard.set(true, forKey: Self.calloutDismissedKey)
+    AnalyticsService.shared.capture("privacy_shield_callout_dismissed", ["method": method])
+  }
+
+  private func secondsSince(_ date: Date?) -> Int? {
+    date.map { Int(Date().timeIntervalSince($0)) }
+  }
+
+  private static func name(_ status: Status) -> String {
+    switch status {
+    case .off: return "off"
+    case .preparing: return "preparing"
+    case .on: return "on"
+    case .failed: return "failed"
+    }
   }
 
   /// Brings the masker in line with the switch and the plan.
@@ -139,6 +225,11 @@ final class PrivacyShield: ObservableObject {
     }
     guard PrivacyShieldMaskerBox.shared.current() == nil, prepareTask == nil else { return }
     status = .preparing
+    prepareStartedAt = Date()
+    prepareDownloaded = false
+    AnalyticsService.shared.capture(
+      "privacy_shield_prepare_started",
+      ["model_installed": PrivacyShieldModelStore.installedVersion() != nil])
     let id = UUID()
     prepareID = id
     prepareTask = Task { [weak self] in
@@ -177,6 +268,12 @@ final class PrivacyShield: ObservableObject {
       PrivacyShieldMaskerBox.shared.set(masker)
       status = .on
       prepareTask = nil
+      AnalyticsService.shared.capture(
+        "privacy_shield_ready",
+        [
+          "seconds": secondsSince(prepareStartedAt) as Any, "downloaded": prepareDownloaded,
+          "version": PrivacyShieldModelStore.installedVersion() ?? "",
+        ])
     } catch {
       // Turned off or lost the plan mid-download: refresh() already set the status.
       guard id == prepareID, !(error is CancellationError), !Task.isCancelled else { return }
@@ -189,6 +286,7 @@ final class PrivacyShield: ObservableObject {
         [
           "error_type": String(describing: type(of: error)), "error_domain": nsError.domain,
           "error_code": nsError.code,
+          "seconds": secondsSince(prepareStartedAt) as Any,
         ])
     }
   }
@@ -201,6 +299,7 @@ final class PrivacyShield: ObservableObject {
       let download = try await DayflowAuthManager.shared.privacyModelDownload()
       guard download.version != installed else { return download.version }
       let version = try await PrivacyShieldModelStore.install(download)
+      prepareDownloaded = true
       AnalyticsService.shared.capture(
         "privacy_shield_model_downloaded",
         ["version": download.version, "seconds": Int(Date().timeIntervalSince(started))])

@@ -559,6 +559,8 @@ extension Notification.Name {
     "showScreenRecordingPermissionNotice")
   static let openProvidersSettings = Notification.Name("openProvidersSettings")
   static let openAccountSettings = Notification.Name("openAccountSettings")
+  /// Switches the main window to Settings and opens its Account tab.
+  static let navigateToAccountSettings = Notification.Name("navigateToAccountSettings")
   static let navigateToFlow = Notification.Name("navigateToFlow")
   static let navigateToTimeline = Notification.Name("navigateToTimeline")
 }

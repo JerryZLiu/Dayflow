@@ -43,6 +43,8 @@ struct MainView: View {
   @ObservedObject var inactivity = InactivityMonitor.shared
   @ObservedObject var pauseManager = PauseManager.shared
   @ObservedObject var dailyBrief = DailyBriefStore.shared
+  /// Blurs the main window while the Privacy Shield upgrade modal is up.
+  @ObservedObject var privacyShield = PrivacyShield.shared
 
   // Animation states for orchestrated entrance - Emil Kowalski principles
   @State var logoScale: CGFloat = 0.8
@@ -139,6 +141,15 @@ struct MainView: View {
         setSelectedDate(timelineDisplayDate(from: Date()))
         withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
           selectedIcon = .timeline
+        }
+      }
+      .onReceive(NotificationCenter.default.publisher(for: .navigateToAccountSettings)) { _ in
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+          selectedIcon = .settings
+        }
+        // Settings may not be on screen yet; give it a moment to appear before picking the tab.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+          NotificationCenter.default.post(name: .openAccountSettings, object: nil)
         }
       }
       .onReceive(NotificationCenter.default.publisher(for: .navigateToFlow)) { _ in
