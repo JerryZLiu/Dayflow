@@ -39,16 +39,13 @@ struct PrivacyShieldToggle: View {
   @ViewBuilder
   private var icon: some View {
     switch shield.status {
-    case .preparing:
-      ProgressView()
-        .scaleEffect(0.4)
-        .frame(width: 12, height: 12)
     case .failed:
       Image(systemName: "exclamationmark.triangle.fill")
         .resizable()
         .scaledToFit()
         .foregroundColor(theme.accent)
-    case .on, .off:
+    case .preparing, .on, .off:
+      // No spinner while the model downloads or loads: the switch already shows on, and the tooltip says it's getting ready.
       // Stand-in for the Figma shield icon (node 2:1510), which couldn't be exported.
       Image(systemName: "shield.lefthalf.filled")
         .resizable()
