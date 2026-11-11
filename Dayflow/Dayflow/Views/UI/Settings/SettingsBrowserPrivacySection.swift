@@ -80,7 +80,6 @@ struct SettingsBrowserPrivacySection: View {
 
       categoryRow
       customDomainRow
-      unknownWindowRow
     }
   }
 
@@ -160,29 +159,6 @@ struct SettingsBrowserPrivacySection: View {
       }
     }
     .padding(.vertical, SettingsStyle.rowVerticalPadding)
-    .overlay(alignment: .bottom) {
-      Rectangle().fill(SettingsStyle.divider).frame(height: 1)
-    }
-  }
-
-  private var unknownWindowRow: some View {
-    SettingsRow(
-      label: String(localized: "If Dayflow can't tell"),
-      subtitle: String(
-        localized:
-          "Browsers rename these labels per language and between versions, so a window sometimes can't be classified."
-      ),
-      showsDivider: false
-    ) {
-      Picker("", selection: $viewModel.unknownWindowHandling) {
-        ForEach(UnknownBrowserWindowHandling.allCases) { option in
-          Text(option.title).tag(option)
-        }
-      }
-      .labelsHidden()
-      .pickerStyle(.menu)
-      .frame(width: 190)
-    }
   }
 }
 

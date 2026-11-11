@@ -9,30 +9,10 @@
 
 import Foundation
 
-/// What to do with a browser window Dayflow can't classify: a browser whose
-/// private-window markers were never measured, or a window whose tree hadn't
-/// populated yet.
-enum UnknownBrowserWindowHandling: String, CaseIterable, Identifiable, Sendable {
-  /// Keep recording. The default — it never hides something unexpectedly.
-  case record
-  /// Hide the whole browser whenever Dayflow can't tell.
-  case hideBrowser
-
-  var id: String { rawValue }
-
-  var title: String {
-    switch self {
-    case .record: return String(localized: "Keep recording")
-    case .hideBrowser: return String(localized: "Hide the whole browser")
-    }
-  }
-}
-
 enum BrowserPrivacyPreferences {
   private static let hidePrivateWindowsKey = "browserPrivacyHidePrivateWindows"
   private static let blockedCategoriesKey = "browserPrivacyBlockedSiteCategories"
   private static let customDomainsKey = "browserPrivacyCustomBlockedDomains"
-  private static let unknownHandlingKey = "browserPrivacyUnknownWindowHandling"
 
   // MARK: Private browsing windows
 
@@ -83,22 +63,6 @@ enum BrowserPrivacyPreferences {
     }
   }
 
-  // MARK: Unknown windows
-
-  static func unknownWindowHandling(
-    defaults: UserDefaults = .standard
-  ) -> UnknownBrowserWindowHandling {
-    defaults.string(forKey: unknownHandlingKey)
-      .flatMap(UnknownBrowserWindowHandling.init(rawValue:)) ?? .record
-  }
-
-  static func setUnknownWindowHandling(
-    _ handling: UnknownBrowserWindowHandling,
-    defaults: UserDefaults = .standard
-  ) {
-    defaults.set(handling.rawValue, forKey: unknownHandlingKey)
-  }
-
   // MARK: Rollup
 
   /// Everything the recorder needs in one read, so a capture tick doesn't
@@ -107,12 +71,10 @@ enum BrowserPrivacyPreferences {
     var hidePrivateWindows: Bool
     var blockedCategories: Set<SiteCategory>
     var customDomains: [String]
-    var unknownHandling: UnknownBrowserWindowHandling
 
     /// Nothing to do, so the recorder can skip the accessibility read.
     var isInactive: Bool {
       !hidePrivateWindows && blockedCategories.isEmpty && customDomains.isEmpty
-        && unknownHandling == .record
     }
   }
 
@@ -120,8 +82,7 @@ enum BrowserPrivacyPreferences {
     Settings(
       hidePrivateWindows: hidePrivateWindows(defaults: defaults),
       blockedCategories: blockedCategories(defaults: defaults),
-      customDomains: customBlockedDomains(defaults: defaults),
-      unknownHandling: unknownWindowHandling(defaults: defaults)
+      customDomains: customBlockedDomains(defaults: defaults)
     )
   }
 
@@ -139,9 +100,10 @@ enum BrowserPrivacyPreferences {
       return settings.hidePrivateWindows ? .hide(reason: .privateWindow) : .record
     }
 
+    // A window Dayflow can't classify is always recorded. (An "If Dayflow can't tell" setting that
+    // could hide the whole browser was removed; its old saved value is ignored.)
     if privacy == .unknown {
-      return settings.unknownHandling == .hideBrowser
-        ? .hide(reason: .unclassifiedWindow) : .record
+      return .record
     }
 
     if SiteCategoryCatalog.matchesAnyCustomDomain(
@@ -177,7 +139,6 @@ enum BrowserPrivacyDecision: Equatable, Sendable {
 
 enum BrowserPrivacyReason: Equatable, Sendable {
   case privateWindow
-  case unclassifiedWindow
   case customSite
   case category(SiteCategory)
 
@@ -186,8 +147,6 @@ enum BrowserPrivacyReason: Equatable, Sendable {
     switch self {
     case .privateWindow:
       return String(localized: "This was a private browsing window.")
-    case .unclassifiedWindow:
-      return String(localized: "Dayflow couldn't tell what this browser window was showing.")
     case .customSite:
       return String(localized: "This site is on your hidden list.")
     case .category(let category):
@@ -199,7 +158,6 @@ enum BrowserPrivacyReason: Equatable, Sendable {
   var analyticsName: String {
     switch self {
     case .privateWindow: return "private_window"
-    case .unclassifiedWindow: return "unclassified_window"
     case .customSite: return "custom_site"
     case .category(let category): return "category_" + category.rawValue
     }

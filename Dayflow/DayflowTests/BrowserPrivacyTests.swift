@@ -203,14 +203,12 @@ final class BrowserPrivacyDecisionTests: XCTestCase {
   private func settings(
     hidePrivate: Bool = false,
     categories: Set<SiteCategory> = [],
-    custom: [String] = [],
-    unknown: UnknownBrowserWindowHandling = .record
+    custom: [String] = []
   ) -> BrowserPrivacyPreferences.Settings {
     BrowserPrivacyPreferences.Settings(
       hidePrivateWindows: hidePrivate,
       blockedCategories: categories,
-      customDomains: custom,
-      unknownHandling: unknown
+      customDomains: custom
     )
   }
 
@@ -266,16 +264,11 @@ final class BrowserPrivacyDecisionTests: XCTestCase {
     XCTAssertEqual(decision, .hide(reason: .customSite))
   }
 
-  func testUnknownWindowFollowsTheUsersChoice() {
+  func testUnknownWindowIsRecorded() {
     XCTAssertEqual(
       BrowserPrivacyPreferences.decision(
         privacy: .unknown, urlString: nil, settings: settings(hidePrivate: true)),
       .record)
-    XCTAssertEqual(
-      BrowserPrivacyPreferences.decision(
-        privacy: .unknown, urlString: nil,
-        settings: settings(hidePrivate: true, unknown: .hideBrowser)),
-      .hide(reason: .unclassifiedWindow))
   }
 
   func testReasonAnalyticsNamesCarryNoURL() {

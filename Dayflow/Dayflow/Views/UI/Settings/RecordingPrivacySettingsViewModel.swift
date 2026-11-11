@@ -24,20 +24,11 @@ final class RecordingPrivacySettingsViewModel: ObservableObject {
   @Published private(set) var customDomains: [String]
   @Published var customDomainDraft = ""
 
-  @Published var unknownWindowHandling: UnknownBrowserWindowHandling {
-    didSet {
-      guard unknownWindowHandling != oldValue else { return }
-      BrowserPrivacyPreferences.setUnknownWindowHandling(unknownWindowHandling)
-      reportBrowserPrivacyChange()
-    }
-  }
-
   init() {
     blockedIdentifiers = RecordingPrivacyPreferences.blockedApplicationIdentifiers()
     hidePrivateWindows = BrowserPrivacyPreferences.hidePrivateWindows()
     blockedCategories = BrowserPrivacyPreferences.blockedCategories()
     customDomains = BrowserPrivacyPreferences.customBlockedDomains()
-    unknownWindowHandling = BrowserPrivacyPreferences.unknownWindowHandling()
   }
 
   func isCategoryBlocked(_ category: SiteCategory) -> Bool {
@@ -87,7 +78,6 @@ final class RecordingPrivacySettingsViewModel: ObservableObject {
         "hide_private_windows": hidePrivateWindows,
         "blocked_category_count": blockedCategories.count,
         "custom_domain_count": customDomains.count,
-        "unknown_window_handling": unknownWindowHandling.rawValue,
       ]
     )
   }
