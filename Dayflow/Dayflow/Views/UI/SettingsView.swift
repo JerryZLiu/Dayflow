@@ -163,10 +163,19 @@ struct SettingsView: View {
       .frame(maxWidth: .infinity, minHeight: 0, alignment: .topLeading)
     }
     .frame(
-      maxWidth: selectedTab == .privacy ? 760 : 600,
+      maxWidth: contentMaxWidth,
       maxHeight: .infinity,
       alignment: .topLeading
     )
+  }
+
+  /// Privacy gets room for its app grid, Account for its plan cards (Figma: 794 wide); the rest read best narrow.
+  private var contentMaxWidth: CGFloat {
+    switch selectedTab {
+    case .account: return 820
+    case .privacy: return 760
+    default: return 600
+    }
   }
 
   private var sidebar: some View {
