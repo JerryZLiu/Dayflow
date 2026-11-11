@@ -50,34 +50,45 @@ final class UpdaterManager: NSObject, ObservableObject {
       "[Sparkle] Info SUPublicEDKey = \(Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") ?? "nil")"
     )
 
-    do {
-      try updater.start()
-      print("[Sparkle] updater.start() OK")
-      print("[Sparkle] feedURL=\(updater.feedURL?.absoluteString ?? "nil")")
-      print("[Sparkle] autoChecks=\(updater.automaticallyChecksForUpdates)")
-      print("[Sparkle] autoDownloads=\(updater.automaticallyDownloadsUpdates)")
-      print("[Sparkle] interval=\(Int(updater.updateCheckInterval))")
-    } catch {
-      print("[Sparkle] updater.start() FAILED: \(error)")
-    }
+    // Debug builds never update themselves. Sparkle would replace the Xcode build with the
+    // released app, which is signed with a different certificate, so macOS stops applying
+    // the Accessibility and Screen Recording permissions granted to the debug build.
+    #if DEBUG
+      print("[Sparkle] Off in Debug builds")
+    #else
+      do {
+        try updater.start()
+        print("[Sparkle] updater.start() OK")
+        print("[Sparkle] feedURL=\(updater.feedURL?.absoluteString ?? "nil")")
+        print("[Sparkle] autoChecks=\(updater.automaticallyChecksForUpdates)")
+        print("[Sparkle] autoDownloads=\(updater.automaticallyDownloadsUpdates)")
+        print("[Sparkle] interval=\(Int(updater.updateCheckInterval))")
+      } catch {
+        print("[Sparkle] updater.start() FAILED: \(error)")
+      }
+    #endif
   }
 
   func checkForUpdates(showUI: Bool = false) {
-    isChecking = true
-    statusText = "Checking…"
-    track(
-      "sparkle_check_triggered",
-      [
-        "mode": showUI ? "manual" : "background"
-      ])
-    if showUI {
-      // Start UI controller on demand so it can present prompts as needed
-      interactiveController.startUpdater()
-      interactiveController.checkForUpdates(nil)
-    } else {
-      // Trigger a background check immediately; the scheduler will also keep running
-      updater.checkForUpdatesInBackground()
-    }
+    #if DEBUG
+      statusText = "Updates are off in Debug builds"
+    #else
+      isChecking = true
+      statusText = "Checking…"
+      track(
+        "sparkle_check_triggered",
+        [
+          "mode": showUI ? "manual" : "background"
+        ])
+      if showUI {
+        // Start UI controller on demand so it can present prompts as needed
+        interactiveController.startUpdater()
+        interactiveController.checkForUpdates(nil)
+      } else {
+        // Trigger a background check immediately; the scheduler will also keep running
+        updater.checkForUpdatesInBackground()
+      }
+    #endif
   }
 }
 
