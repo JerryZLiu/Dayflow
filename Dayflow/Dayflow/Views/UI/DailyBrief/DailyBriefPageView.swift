@@ -177,7 +177,8 @@ struct DailyBriefPageView: View {
 /// leave below the window so they can rise again.
 private struct DailyBriefRiseIn: ViewModifier {
   func body(content: Content) -> some View {
-    content.scrollTransition(.animated(.timingCurve(0.2, 0.7, 0.2, 1, duration: 0.55))) { view, phase in
+    content.scrollTransition(.animated(.timingCurve(0.2, 0.7, 0.2, 1, duration: 0.55))) {
+      view, phase in
       view
         .opacity(phase == .bottomTrailing ? 0 : 1)
         .offset(y: phase == .bottomTrailing ? 16 : 0)
@@ -539,11 +540,21 @@ private struct DailyBriefDebugStats: View {
 
   /// A few short lines; nil fields are skipped.
   static func lines(_ stats: DailyBriefRunStats, generatedAt: Date?, failed: Bool) -> [String] {
-    var run: [String] = [
-      (failed ? "failed after " : "generated in ") + duration(stats.durationSeconds)
-    ]
+    // The clock time includes any time the Mac spent asleep; the API time doesn't.
+    var time = (failed ? "failed after " : "generated in ") + duration(stats.durationSeconds)
+    if let apiSeconds = stats.apiSeconds { time += " (\(duration(apiSeconds)) in API calls)" }
+    var run: [String] = [time]
     if let model = stats.model { run.append(model) }
-    if let cost = stats.costUSD { run.append(String(format: "$%.2f", cost)) }
+    // The CLI's own estimate at list prices, not a charge. Per model when it reports that.
+    if let cost = stats.costUSD {
+      var text = String(format: "CLI estimate $%.2f", cost)
+      if let modelCosts = stats.modelCosts, modelCosts.count > 1 {
+        let parts = modelCosts.sorted { $0.value > $1.value }
+          .map { String(format: "%@ $%.2f", $0.key, $0.value) }
+        text += " (" + parts.joined(separator: ", ") + ")"
+      }
+      run.append(text)
+    }
     if let trigger = stats.trigger { run.append("trigger: \(trigger)") }
     if let generatedAt {
       run.append(generatedAt.formatted(date: .abbreviated, time: .shortened))
@@ -554,6 +565,9 @@ private struct DailyBriefDebugStats: View {
     if let output = stats.outputTokens { tokens.append("out \(output.formatted())") }
     if let cacheRead = stats.cacheReadTokens {
       tokens.append("cache read \(cacheRead.formatted())")
+    }
+    if let cacheWrite = stats.cacheWriteTokens {
+      tokens.append("cache write \(cacheWrite.formatted())")
     }
     if let turns = stats.numTurns { tokens.append("\(turns) turns") }
 
@@ -570,6 +584,11 @@ private struct DailyBriefDebugStats: View {
     if let images = stats.candidateImageCount { work.append("\(images) candidate images") }
     if let characters = stats.promptCharacters {
       work.append("prompt \(characters.formatted()) chars")
+    }
+    if let connectors = stats.connectors, !connectors.isEmpty {
+      let names = connectors.sorted { $0.key < $1.key }
+        .map { $0.value == "connected" ? $0.key : "\($0.key) (\($0.value))" }
+      work.append("connectors: " + names.joined(separator: ", "))
     }
 
     var flags: [String] = []
@@ -685,7 +704,8 @@ private struct DailyBriefPromptEditor: View {
     .onAppear {
       for part in DailyBriefGenerator.Part.allCases {
         drafts[part] =
-          store.hasPromptOverride(for: part) ? store.promptOverride(for: part) : part.defaultTemplate
+          store.hasPromptOverride(for: part)
+          ? store.promptOverride(for: part) : part.defaultTemplate
       }
     }
   }

@@ -342,10 +342,22 @@ enum DailyBriefGenerator {
     result.inputTokens = sum(a.inputTokens, b.inputTokens)
     result.outputTokens = sum(a.outputTokens, b.outputTokens)
     result.cacheReadTokens = sum(a.cacheReadTokens, b.cacheReadTokens)
+    result.cacheWriteTokens = sum(a.cacheWriteTokens, b.cacheWriteTokens)
+    if a.modelCosts != nil || b.modelCosts != nil {
+      result.modelCosts = (a.modelCosts ?? [:]).merging(b.modelCosts ?? [:], uniquingKeysWith: +)
+    }
+    // The two runs go side by side, so the longer one is how long the brief took.
+    if a.apiSeconds != nil || b.apiSeconds != nil {
+      result.apiSeconds = max(a.apiSeconds ?? 0, b.apiSeconds ?? 0)
+    }
     result.numTurns = sum(a.numTurns, b.numTurns)
     result.promptCharacters = sum(a.promptCharacters, b.promptCharacters)
     if a.toolCalls != nil || b.toolCalls != nil {
       result.toolCalls = (a.toolCalls ?? [:]).merging(b.toolCalls ?? [:], uniquingKeysWith: +)
+    }
+    if a.connectors != nil || b.connectors != nil {
+      // Both runs get the same connectors, so either side's status will do.
+      result.connectors = (a.connectors ?? [:]).merging(b.connectors ?? [:]) { first, _ in first }
     }
     result.usedPromptOverride = a.usedPromptOverride || b.usedPromptOverride
     return result
@@ -1076,6 +1088,10 @@ enum DailyBriefGenerator {
       stats.inputTokens = (usage["input_tokens"] as? NSNumber)?.intValue
       stats.outputTokens = (usage["output_tokens"] as? NSNumber)?.intValue
       stats.cacheReadTokens = (usage["cache_read_input_tokens"] as? NSNumber)?.intValue
+      stats.cacheWriteTokens = (usage["cache_creation_input_tokens"] as? NSNumber)?.intValue
+    }
+    if let apiMilliseconds = (envelope["duration_api_ms"] as? NSNumber)?.doubleValue {
+      stats.apiSeconds = apiMilliseconds / 1000
     }
 
     // modelUsage is keyed by full model id; the one that wrote the most is the main model.
@@ -1084,8 +1100,21 @@ enum DailyBriefGenerator {
     }
     let modelUsage = envelope["modelUsage"] as? [String: Any] ?? [:]
     let mainModel = modelUsage.max(by: { outputTokens($0.value) < outputTokens($1.value) })
+    let modelCosts = modelUsage.compactMapValues {
+      (($0 as? [String: Any])?["costUSD"] as? NSNumber)?.doubleValue
+    }
+    stats.modelCosts = modelCosts.isEmpty ? nil : modelCosts
     let initEvent = events.first(where: { $0["type"] as? String == "system" })
     stats.model = mainModel?.key ?? (initEvent?["model"] as? String) ?? model
+
+    if let servers = initEvent?["mcp_servers"] as? [[String: Any]] {
+      var connectors: [String: String] = [:]
+      for server in servers {
+        guard let name = server["name"] as? String else { continue }
+        connectors[name] = server["status"] as? String ?? "unknown"
+      }
+      stats.connectors = connectors.isEmpty ? nil : connectors
+    }
 
     var toolCalls: [String: Int] = [:]
     for event in events where event["type"] as? String == "assistant" {

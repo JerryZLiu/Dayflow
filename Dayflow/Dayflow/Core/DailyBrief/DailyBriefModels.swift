@@ -287,13 +287,24 @@ struct DailyBriefRunStats: Codable, Equatable, Sendable {
   /// Wall-clock seconds from start to finish, measured by the app.
   var durationSeconds: Double = 0
   var model: String?
+  /// The CLI's own estimate at list prices, not a charge.
   var costUSD: Double?
+  /// Full model id → that model's share of `costUSD`.
+  var modelCosts: [String: Double]?
+  /// Seconds spent waiting on API calls. Unlike `durationSeconds`, time the Mac
+  /// spent asleep mid-run doesn't count. With two runs side by side, the longer one.
+  var apiSeconds: Double?
   var inputTokens: Int?
   var outputTokens: Int?
   var cacheReadTokens: Int?
+  /// Tokens written to the prompt cache, which cost more than plain input.
+  var cacheWriteTokens: Int?
   var numTurns: Int?
   /// Tool name → number of calls, e.g. ["WebSearch": 6, "mcp__slack__search": 3].
   var toolCalls: [String: Int]?
+  /// MCP server name → whether it connected, e.g. ["dayflow": "connected",
+  /// "slack": "failed"]. These are the connectors the run could read from.
+  var connectors: [String: String]?
   var cardCount: Int?
   var candidateImageCount: Int?
   var promptCharacters: Int?
@@ -324,8 +335,12 @@ struct DailyBriefRunStats: Codable, Equatable, Sendable {
     inputTokens = try c.decodeIfPresent(Int.self, forKey: .inputTokens)
     outputTokens = try c.decodeIfPresent(Int.self, forKey: .outputTokens)
     cacheReadTokens = try c.decodeIfPresent(Int.self, forKey: .cacheReadTokens)
+    cacheWriteTokens = try c.decodeIfPresent(Int.self, forKey: .cacheWriteTokens)
+    modelCosts = try c.decodeIfPresent([String: Double].self, forKey: .modelCosts)
+    apiSeconds = try c.decodeIfPresent(Double.self, forKey: .apiSeconds)
     numTurns = try c.decodeIfPresent(Int.self, forKey: .numTurns)
     toolCalls = try c.decodeIfPresent([String: Int].self, forKey: .toolCalls)
+    connectors = try c.decodeIfPresent([String: String].self, forKey: .connectors)
     cardCount = try c.decodeIfPresent(Int.self, forKey: .cardCount)
     candidateImageCount = try c.decodeIfPresent(Int.self, forKey: .candidateImageCount)
     promptCharacters = try c.decodeIfPresent(Int.self, forKey: .promptCharacters)
