@@ -15,6 +15,7 @@
 //
 
 import AppKit
+import SwiftUI
 
 @MainActor
 final class DailyBriefStore: ObservableObject {
@@ -506,9 +507,47 @@ final class DailyBriefStore: ObservableObject {
   }
 
   func dismiss() {
+    let wasPresented = isPresented
     route = nil
     isPresented = false
     showsIntro = false
+    // The brief shrinks into the Timeline's sun button on the way out (see Layout), and
+    // the button bounces once it lands, so people learn where to reopen it.
+    if wasPresented, shrinkTarget != nil {
+      closedIntoButtonCount += 1
+    }
+  }
+
+  // MARK: - Closing into the sun button
+
+  /// Where the Timeline header's sun button and the brief overlay sit on screen, in
+  /// global coordinates. Both are measured by the views themselves. Published so the
+  /// overlay's closing animation is rebuilt with the latest positions.
+  @Published private(set) var briefButtonFrame: CGRect?
+  @Published private(set) var overlayFrame: CGRect?
+
+  func setBriefButtonFrame(_ frame: CGRect) {
+    if briefButtonFrame != frame { briefButtonFrame = frame }
+  }
+
+  func setOverlayFrame(_ frame: CGRect) {
+    if overlayFrame != frame { overlayFrame = frame }
+  }
+
+  /// Goes up each time the brief closes into the sun button, so the button can bounce.
+  @Published private(set) var closedIntoButtonCount = 0
+
+  /// The point inside the overlay the brief shrinks toward (the sun button's centre) and
+  /// how far it shrinks to end up the button's size. nil when either isn't on screen.
+  var shrinkTarget: (anchor: UnitPoint, scale: CGSize)? {
+    guard let button = briefButtonFrame, let overlay = overlayFrame,
+      overlay.width > 0, overlay.height > 0, !button.isEmpty
+    else { return nil }
+    let anchor = UnitPoint(
+      x: (button.midX - overlay.minX) / overlay.width,
+      y: (button.midY - overlay.minY) / overlay.height)
+    let scale = CGSize(width: button.width / overlay.width, height: button.height / overlay.height)
+    return (anchor, scale)
   }
 
   // MARK: - Intro

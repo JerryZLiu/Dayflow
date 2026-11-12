@@ -259,6 +259,13 @@ extension MainView {
       )
     )
     .pointingHandCursorOnHover(reassertOnPressEnd: true)
+    // The brief shrinks into this button when it closes, then the button bounces.
+    .modifier(DailyBriefButtonLanding())
+    .onGeometryChange(for: CGRect.self) { proxy in
+      proxy.frame(in: .global)
+    } action: { frame in
+      dailyBrief.setBriefButtonFrame(frame)
+    }
     .help("Open today's brief")
     .accessibilityLabel("Open today's brief")
   }
