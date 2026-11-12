@@ -36,6 +36,52 @@ final class DailyBriefStore: ObservableObject {
   /// to 0%; disabling or deleting the flag makes it nil, which leaves the brief on.
   static let killSwitchFlagKey = "daily-brief-enabled"
 
+  /// PostHog A/B test on the page's layout. When this flag is on, "Related to your
+  /// interests" and "Latest in your industry" are shown above the task stack instead
+  /// of below it. A missing flag, flags that haven't loaded yet, or analytics being
+  /// off all leave the usual order, so those users count as the control half.
+  static let readingFirstFlagKey = "daily-brief-reading-first"
+
+  /// Which half of the layout test this user is in. Read from PostHog when the brief
+  /// opens (see `resolveLayoutVariant`) and then kept for the rest of the launch, so the
+  /// page can't reorder itself under someone mid-read if the flags reload. nil until
+  /// PostHog has answered.
+  private var resolvedReadingFirst: Bool?
+
+  /// The two sections the layout test moves above the task stack.
+  static let readingFirstKinds: [DailyBriefSectionKind] = [.relatedReading, .industryNews]
+
+  /// The reading and news sections go above the task stack.
+  var showsReadingFirst: Bool { resolvedReadingFirst ?? false }
+
+  /// The variant name reported on every event the brief page sends. "unassigned" means
+  /// PostHog hadn't answered yet, so the usual layout was shown; leave those out of the
+  /// test's numbers rather than counting them as the control half.
+  var layoutVariant: String {
+    guard let resolvedReadingFirst else { return "unassigned" }
+    return resolvedReadingFirst ? "reading_first" : "docket_first"
+  }
+
+  /// Asks PostHog once the answer is known; until then each opening asks again.
+  private func resolveLayoutVariant() {
+    guard resolvedReadingFirst == nil else { return }
+    resolvedReadingFirst =
+      AnalyticsService.shared.featureFlagValue(Self.readingFirstFlagKey) as? Bool
+  }
+
+  /// The page's sections split around the task stack, in the order they're drawn.
+  /// The page and the analytics both use this, so "position" means what people saw.
+  func pageSections(_ brief: DailyBrief)
+    -> (aboveDocket: [DailyBriefSectionKind], belowDocket: [DailyBriefSectionKind])
+  {
+    let others = DailyBriefSectionItems.visibleKinds(brief, store: self).filter { $0 != .docket }
+    guard showsReadingFirst else { return ([], others) }
+    return (
+      others.filter { Self.readingFirstKinds.contains($0) },
+      others.filter { !Self.readingFirstKinds.contains($0) }
+    )
+  }
+
   private static let userEnabledKey = "dailyBriefEnabled"
 
   /// The brief is built from a day with at least this much recorded activity.
@@ -489,6 +535,8 @@ final class DailyBriefStore: ObservableObject {
   func present(source: String) {
     guard isFeatureEnabled else { return }
     loadToday()
+    // Before the page draws, so it draws in its test layout from the first frame.
+    resolveLayoutVariant()
     route = nil
     isPresented = true
     showsReadyNotice = false
@@ -570,6 +618,13 @@ final class DailyBriefStore: ObservableObject {
       "daily_brief_intro_finished", ["outcome": outcome, "last_step": step + 1])
   }
 
+  /// Debug: flips this launch to the other half of the layout test, so both orders
+  /// can be seen without waiting for PostHog.
+  func debugToggleReadingFirst() {
+    objectWillChange.send()
+    resolvedReadingFirst = !showsReadingFirst
+  }
+
   /// Debug: forgets that the intro was seen and opens the brief with it on top.
   func debugReplayIntro() {
     UserDefaults.standard.set(false, forKey: Self.introSeenKey)
@@ -579,6 +634,13 @@ final class DailyBriefStore: ObservableObject {
 
   func dismissReadyNotice() {
     showsReadyNotice = false
+  }
+
+  /// Debug: closes the brief and shows the menu bar "ready" card, which only
+  /// appears while the brief is closed.
+  func debugShowReadyNotice() {
+    dismiss()
+    showsReadyNotice = true
   }
 
   // MARK: - Item actions

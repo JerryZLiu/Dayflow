@@ -14,6 +14,9 @@ struct DocketDaybreakHeader: View {
   let date: Date
   /// False when there's no docket, so the heading under the date is left out.
   var showsIntro = true
+  /// Only the date: the reading-first layout moves the heading down to the deck, and
+  /// the full height would leave an empty band under the date.
+  var isCompact = false
 
   @ObservedObject private var ui = DocketUIState.shared
   @State private var appearedAt = Date()
@@ -21,6 +24,8 @@ struct DocketDaybreakHeader: View {
 
   /// Height of the header area: the deck starts at 203.2.
   static let height: CGFloat = 203.2
+  /// The date ends at about 82; this leaves the same gap below it as above the heading.
+  static let compactHeight: CGFloat = 112
 
   private static let sunCurve = UnitCurve.bezier(
     startControlPoint: UnitPoint(x: 0.45, y: 0), endControlPoint: UnitPoint(x: 0.25, y: 1))
@@ -37,7 +42,7 @@ struct DocketDaybreakHeader: View {
         texts(t: t)
       }
     }
-    .frame(height: Self.height, alignment: .top)
+    .frame(height: isCompact ? Self.compactHeight : Self.height, alignment: .top)
     .onAppear { appearedAt = Date() }
     .task {
       try? await Task.sleep(for: .seconds(3.3))
@@ -51,15 +56,22 @@ struct DocketDaybreakHeader: View {
   private func sky(t: Double) -> some View {
     let (top, low) = Self.skyColors(t: t)
     return LinearGradient(
-      stops: [.init(color: top, location: 0), .init(color: low, location: 0.6), .init(color: .clear, location: 1)],
+      stops: [
+        .init(color: top, location: 0), .init(color: low, location: 0.6),
+        .init(color: .clear, location: 1),
+      ],
       startPoint: .top, endPoint: .bottom)
   }
 
   private static func skyColors(t: Double) -> (Color, Color) {
     let p = t / 2.8
     // (red, green, blue, alpha) at 20%, 62% and 100%.
-    let top: [(Double, Double, Double, Double)] = [(209, 219, 244, 0.64), (222, 212, 248, 0.4), (222, 212, 248, 0)]
-    let low: [(Double, Double, Double, Double)] = [(226, 230, 246, 0.5), (250, 214, 224, 0.3), (250, 214, 224, 0)]
+    let top: [(Double, Double, Double, Double)] = [
+      (209, 219, 244, 0.64), (222, 212, 248, 0.4), (222, 212, 248, 0),
+    ]
+    let low: [(Double, Double, Double, Double)] = [
+      (226, 230, 246, 0.5), (250, 214, 224, 0.3), (250, 214, 224, 0),
+    ]
     func blend(_ stops: [(Double, Double, Double, Double)]) -> Color {
       let a: (Double, Double, Double, Double)
       let b: (Double, Double, Double, Double)
@@ -72,9 +84,11 @@ struct DocketDaybreakHeader: View {
         (a, b, local) = (stops[1], stops[2], min((p - 0.62) / 0.38, 1))
       }
       let e = UnitCurve.easeInOut.value(at: local)
-      return color((
-        DocketMotion.mix(a.0, b.0, e), DocketMotion.mix(a.1, b.1, e),
-        DocketMotion.mix(a.2, b.2, e), DocketMotion.mix(a.3, b.3, e)))
+      return color(
+        (
+          DocketMotion.mix(a.0, b.0, e), DocketMotion.mix(a.1, b.1, e),
+          DocketMotion.mix(a.2, b.2, e), DocketMotion.mix(a.3, b.3, e)
+        ))
     }
     return (blend(top), blend(low))
   }
@@ -185,6 +199,34 @@ struct DocketDaybreakHeader: View {
   }
 }
 
+/// "Take these off your plate", drawn right above the card stack instead of in the
+/// header, for the half of the layout test that puts the reading sections on top.
+/// It dims and slides up with the header's copy while a prompt is open.
+struct DocketDeckHeading: View {
+  @ObservedObject private var ui = DocketUIState.shared
+
+  var body: some View {
+    let isOpen = ui.isPromptOpen
+    return VStack(spacing: 4) {
+      Text("Take these off your plate")
+        .font(DailyBriefFonts.serif(24))
+        .foregroundStyle(Color(hex: "474747"))
+        .frame(height: 28.8)
+      Text("Let your agents complete these tasks for you.")
+        .font(DailyBriefFonts.sans(14))
+        .foregroundStyle(Color(hex: "8A8A8A"))
+        .frame(height: 16)
+    }
+    .frame(maxWidth: .infinity)
+    // The gap the header leaves between this copy and the deck.
+    .padding(.bottom, 43)
+    .opacity(isOpen ? 0 : 1)
+    .offset(y: isOpen ? -64 : 0)
+    .animation(isOpen ? DocketMotion.ease(0.46) : DocketMotion.ease(0.5).delay(0.06), value: isOpen)
+    .allowsHitTesting(!isOpen)
+  }
+}
+
 /// Fades in from 12pt above over 0.9s, starting `start` seconds after the page appeared.
 private struct DocketHeaderRise: ViewModifier {
   let t: Double
@@ -215,7 +257,8 @@ struct DocketTwilightWash: View {
         colors: [
           Color(red: 218 / 255, green: 225 / 255, blue: 243 / 255).opacity(0.5 * strength),
           Color(red: 241 / 255, green: 232 / 255, blue: 235 / 255).opacity(0.5 * strength),
-        ], startPoint: .top, endPoint: .bottom)
+        ], startPoint: .top, endPoint: .bottom
+      )
       .frame(height: 745)
       .frame(maxHeight: .infinity, alignment: .top)
     }

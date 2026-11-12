@@ -21,13 +21,28 @@ struct DailyBriefPageView: View {
         ScrollViewReader { proxy in
           ScrollView(.vertical) {
             VStack(spacing: 0) {
-              DocketDaybreakHeader(date: pageDate, showsIntro: hasDocket)
-                .id("top")
+              // In the reading-first half of the test, "Take these off your plate" travels
+              // down with the cards it introduces instead of staying in the header.
+              // The header then holds only the date, so it's shorter too.
+              DocketDaybreakHeader(
+                date: pageDate, showsIntro: hasDocket && !store.showsReadingFirst,
+                isCompact: store.showsReadingFirst
+              )
+              .id("top")
+
+              topSections(viewportHeight: geometry.size.height, isCompact: isCompact)
+
+              if store.showsReadingFirst, hasDocket {
+                DocketDeckHeading()
+              }
+
+              // Marks the top of the deck for scrolling to it when a prompt opens.
+              Color.clear.frame(height: 0).id("deck")
 
               docketArea(viewportHeight: geometry.size.height)
 
               VStack(alignment: .leading, spacing: 0) {
-                lowerSections
+                lowerSections(viewportHeight: geometry.size.height)
                   .padding(.horizontal, DailyBriefLayout.horizontalPadding(isCompact: isCompact))
                   .padding(.top, 40)
 
@@ -45,7 +60,17 @@ struct DailyBriefPageView: View {
           }
           .scrollIndicators(.hidden)
           .onChange(of: ui.scrollToTopRequest) {
-            withAnimation(DocketMotion.ease(0.46)) { proxy.scrollTo("top", anchor: .top) }
+            // Opening a card's prompt scrolls the deck to where it sits under the header
+            // in the usual layout, so the deck's centring math works the same in both
+            // halves of the test. In the usual layout that's simply the page's top.
+            withAnimation(DocketMotion.ease(0.46)) {
+              if store.showsReadingFirst {
+                let fraction = min(DocketDaybreakHeader.height / max(geometry.size.height, 1), 1)
+                proxy.scrollTo("deck", anchor: UnitPoint(x: 0.5, y: fraction))
+              } else {
+                proxy.scrollTo("top", anchor: .top)
+              }
+            }
           }
         }
 
@@ -124,6 +149,8 @@ struct DailyBriefPageView: View {
       stateContent
         .padding(.horizontal, 32)
     } else if hasDocket {
+      // In both layouts the deck sits header-height below the window's top when a
+      // prompt opens (see the scrollToTopRequest handler).
       DocketDeckView(viewportHeight: viewportHeight, deckTop: DocketDaybreakHeader.height)
         .frame(maxWidth: .infinity)
         .zIndex(1)
@@ -136,21 +163,46 @@ struct DailyBriefPageView: View {
 
   // MARK: Other sections
 
+  /// Reading and news, shown here only for the reading-first half of the layout test.
+  /// Everyone else sees them below the stack with the rest.
   @ViewBuilder
-  private var lowerSections: some View {
+  private func topSections(viewportHeight: CGFloat, isCompact: Bool) -> some View {
     if let brief = store.brief {
-      let kinds = DailyBriefSectionItems.visibleKinds(brief, store: store).filter { $0 != .docket }
+      let kinds = store.pageSections(brief).aboveDocket
+      if !kinds.isEmpty {
+        sectionStack(kinds: kinds, brief: brief, viewportHeight: viewportHeight)
+          .padding(.horizontal, DailyBriefLayout.horizontalPadding(isCompact: isCompact))
+          .padding(.top, 28)
+          .padding(.bottom, 56)
+          .frame(maxWidth: DailyBriefLayout.pageMaxWidth)
+          .frame(maxWidth: .infinity)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func lowerSections(viewportHeight: CGFloat) -> some View {
+    if let brief = store.brief {
+      let kinds = store.pageSections(brief).belowDocket
       VStack(alignment: .leading, spacing: 64) {
-        ForEach(kinds, id: \.self) { kind in
-          DailyBriefSectionView(kind: kind, brief: brief)
-            .modifier(DailyBriefRiseIn())
-        }
+        sectionStack(kinds: kinds, brief: brief, viewportHeight: viewportHeight)
         DailyBriefSavedRow(brief: brief)
           .modifier(DailyBriefRiseIn())
       }
     } else {
       DailyBriefSavedRow(brief: nil)
         .modifier(DailyBriefRiseIn())
+    }
+  }
+
+  private func sectionStack(
+    kinds: [DailyBriefSectionKind], brief: DailyBrief, viewportHeight: CGFloat
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 64) {
+      ForEach(kinds, id: \.self) { kind in
+        DailyBriefSectionView(kind: kind, brief: brief)
+          .modifier(DailyBriefRiseIn())
+      }
     }
   }
 
@@ -516,6 +568,27 @@ private struct DailyBriefDebugStats: View {
         .padding(.top, 2)
         .pointingHandCursor()
       }
+
+      // Always here, even before the first run has stats.
+      HStack(spacing: 14) {
+        Button("Replay intro") {
+          store.debugReplayIntro()
+        }
+        .help("Show the Introducing Daily Briefs walkthrough again")
+        Button("Show ready notice") {
+          store.debugShowReadyNotice()
+        }
+        .help("Close the brief and show the menu bar card that says it's ready")
+        Button("Layout: \(store.layoutVariant)") {
+          store.debugToggleReadingFirst()
+        }
+        .help("Switch between the two halves of the reading-first layout test")
+      }
+      .buttonStyle(.plain)
+      .font(.system(size: 10, weight: .medium, design: .monospaced))
+      .foregroundStyle(DailyBriefColors.muted(theme))
+      .padding(.top, 2)
+      .pointingHandCursor()
     }
     .frame(maxWidth: 620)
   }
