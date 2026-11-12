@@ -1,0 +1,335 @@
+/* Daily Briefs · intro modal. Figma: Daily › 563:10268 (step 1), 563:28112 (2), 563:28687 (3),
+   563:31262 (4), 563:32024 (5). The frame is laid out at Figma's 1192 × 680 and scaled to fit.
+   Every right-hand illustration is animated: an entrance when its step opens, then an idle loop.
+   In-app copy: only the 730 × 422 modal, which fills the web view. */
+
+:root {
+  --font-serif: "Instrument Serif", Georgia, serif;
+  --font-sans: "Figtree", system-ui, sans-serif;
+  --desk: #e4e1dc;
+  --primary: #ff9f6f;
+  --primary-border: #f4c8b1;
+  --peach: #ffd2b9;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --spring: cubic-bezier(0.34, 1.45, 0.64, 1);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: transparent; font-family: var(--font-sans); color: #333; overflow: hidden; }
+p, h2 { margin: 0; font-weight: 400; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; }
+:focus-visible { outline: 2px solid #f2a27c; outline-offset: 2px; }
+img { display: block; }
+body { -webkit-user-select: none; user-select: none; cursor: default; }
+.frame { position: relative; width: 730px; height: 422px; }
+.abs { position: absolute; }
+.rel { position: relative; }
+.cover { width: 100%; height: 100%; object-fit: cover; }
+/* Figma rotated layers: the bounding box centres its (rotated) child */
+.rot { position: absolute; display: flex; align-items: center; justify-content: center; }
+.rot > * { flex: none; }
+
+.modal {
+  position: absolute; left: 0; top: 0; width: 730px; height: 422px; overflow: hidden;
+  background: #fff; border-radius: 8px;
+  transition: opacity 0.45s var(--ease-out), transform 0.45s var(--ease-out);
+}
+.is-intro .overlay { opacity: 0; }
+.is-intro .modal { opacity: 0; transform: translateY(10px) scale(0.98); }
+.is-done .overlay { opacity: 0; pointer-events: none; }
+.is-done .modal { opacity: 0; transform: scale(0.97); }
+
+.step { position: absolute; inset: 0; opacity: 0; visibility: hidden; transition: opacity 0.4s var(--ease-out), visibility 0s 0.4s; }
+.step.is-active { opacity: 1; visibility: visible; transition: opacity 0.4s var(--ease-out), visibility 0s; z-index: 1; }
+
+/* ---------- left copy ---------- */
+.copy { position: absolute; left: 32px; width: 270px; display: flex; flex-direction: column; gap: 20px; color: #000; line-height: 1.2; }
+.copy-head { display: flex; flex-direction: column; gap: 4px; }
+.copy-kicker { font-family: var(--font-serif); font-size: 20px; }
+.copy-title { font-family: var(--font-serif); font-size: 24px; line-height: 1.2; white-space: nowrap; }
+.copy-title--28 { font-size: 28px; }
+.copy-body { font-size: 16px; line-height: 1.2; width: 252.8px; }
+.copy-paras { display: flex; flex-direction: column; gap: 8px; width: 238.816px; }
+.copy-paras .copy-body { width: auto; }
+.step.is-active .copy > * { animation: copy-in 0.6s var(--ease-out) both; }
+.step.is-active .copy > *:nth-child(2) { animation-delay: 0.08s; }
+@keyframes copy-in { from { opacity: 0; transform: translateY(8px); } }
+
+/* ---------- Next button (Figma Button 49:3328, Primary · Medium 36) ---------- */
+.next-btn {
+  position: absolute; left: 32px; top: 353px; width: 282px; height: 44px; z-index: 2;
+  display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0 24px;
+  border-radius: 200px; border: 0.5px solid var(--primary-border); background: var(--primary);
+  box-shadow: inset 0 0 3px rgba(255, 220, 203, 0.9), 0 2px 2px rgba(0, 0, 0, 0.06);
+  font-size: 14px; font-weight: 500; line-height: 1.3; color: #fff;
+  transition: transform 0.18s var(--ease-out), box-shadow 0.18s, opacity 0.3s;
+}
+/* hover: a slight lift (1.2%), no glow; pressing it adds nothing either */
+.next-btn:hover { transform: scale(1.012); }
+.next-btn:active { transform: scale(1.012); }
+.next-btn.is-hidden { opacity: 0; pointer-events: none; }
+
+/* ---------- right art (shared) ---------- */
+.art { position: absolute; left: 346px; top: 0; width: 384px; height: 422px; overflow: hidden; background: #000; }
+.flip180 { transform: rotate(180deg); }
+.step.is-active .drift { animation: drift 16s ease-in-out infinite alternate; }
+.step.is-active .flip180.drift { animation-name: drift-flip; }
+@keyframes drift { from { transform: scale(1); } to { transform: scale(1.07) translate(-1.5%, 1%); } }
+@keyframes drift-flip { from { transform: rotate(180deg) scale(1); } to { transform: rotate(180deg) scale(1.07) translate(1.5%, -1%); } }
+
+/* ---------- Step 1 · timeline + connectors converge on Dayflow ---------- */
+.s1-bg-in { width: 877.361px; height: 1169.815px; transform: rotate(90deg); }
+.s1-card { position: absolute; display: flex; width: 283px; }
+.s1-card > i { width: 6px; background: #b984ff; border-radius: 2px 0 0 2px; }
+.s1-card > div {
+  width: 277px; display: flex; align-items: flex-start; gap: 4px; padding: 4px 10px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.9); border: 0.25px solid #d0d0d0; border-left: 0; border-radius: 0 2px 2px 0;
+  box-shadow: inset 0 0 6px #fff;
+}
+.s1-card > div img { margin: 0.5px 2px 0; }
+.s1-card > div img.s1-logo { margin: 0.5px 0 0; object-fit: contain; }
+.s1-card p { font-size: 11px; line-height: 1.2; letter-spacing: -0.11px; white-space: nowrap; }
+.step.is-active .s1-card { animation: s1-card-in 0.55s var(--ease-out) both; }
+.step.is-active .s1-card:nth-of-type(2) { animation-delay: 0.1s; }
+.step.is-active .s1-card:nth-of-type(3) { animation-delay: 0.2s; }
+@keyframes s1-card-in { from { opacity: 0; transform: translateY(-10px); } }
+
+
+/* connector lines (all drawn by intro.js as smooth curves) */
+.s1-net { position: absolute; left: 0; top: 0; overflow: visible; }
+.s1-net path { fill: none; stroke: #fff; stroke-width: 1.1; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; }
+.s1-net path.main { stroke-opacity: 0.95; }
+.s1-net path.app { stroke-opacity: 0.6; }
+.step.is-active .s1-net path { animation: s1-net-draw 0.7s var(--ease-out) var(--d) both; }
+@keyframes s1-net-draw { to { stroke-dashoffset: 0; } }
+.s1-net-pk { position: absolute; left: 0; top: 0; width: 384px; height: 422px; }
+
+/* light packets travelling along the connectors into the ring */
+.pk { display: block; }
+.pk b {
+  position: absolute; left: 0; top: 0; width: 3.5px; height: 3.5px; margin: -1.75px 0 0 -1.75px; border-radius: 50%;
+  background: #fff; box-shadow: 0 0 6px 2px rgba(255, 228, 205, 0.9);
+  offset-rotate: 0deg; offset-anchor: center; opacity: 0;
+}
+.step.is-active .pk b { animation: pk-down 2.6s ease-in infinite; animation-delay: 1.8s; }
+.step.is-active .pk--up b { animation-name: pk-up; }
+@keyframes pk-down { 0% { offset-distance: 0%; opacity: 0; } 10% { opacity: 0.9; } 55% { offset-distance: 100%; opacity: 0.9; } 62%, 100% { offset-distance: 100%; opacity: 0; } }
+@keyframes pk-up { 0% { offset-distance: 100%; opacity: 0; } 10% { opacity: 0.9; } 55% { offset-distance: 0%; opacity: 0.9; } 62%, 100% { offset-distance: 0%; opacity: 0; } }
+
+/* the centre: a thin ring with a soft glow inside it */
+.s1-pulse { position: relative; width: 30px; height: 30px; border-radius: 50%; border: 1.2px solid rgba(255, 255, 255, 0.95); box-sizing: border-box; }
+.s1-pulse::before {
+  content: ""; position: absolute; inset: 2px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 250, 245, 0.95) 0%, rgba(255, 196, 160, 0.55) 45%, rgba(255, 196, 160, 0) 75%);
+  opacity: 0.6;
+}
+.step.is-active .s1-ring { animation: s1-ring-in 0.5s var(--spring) 0.8s both; }
+.step.is-active .s1-pulse { animation: s1-pulse 1.6s ease-in-out 1.3s infinite; }
+.step.is-active .s1-pulse::before { animation: s1-core 1.6s ease-in-out 1.3s infinite; }
+@keyframes s1-ring-in { from { opacity: 0; transform: scale(0.4); } }
+/* a light pulse with a soft orange glow: the ring swells a little and a warm halo blooms around it */
+@keyframes s1-pulse {
+  0%, 100% { transform: scale(0.96); border-color: rgba(255, 255, 255, 0.75); box-shadow: 0 0 3px rgba(255, 170, 120, 0.25); }
+  50% { transform: scale(1.05); border-color: rgba(255, 255, 255, 0.95); box-shadow: 0 0 8px 1px rgba(255, 168, 115, 0.55), 0 0 18px 3px rgba(255, 190, 150, 0.3); }
+}
+@keyframes s1-core { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.9; } }
+
+.s1-bub { position: absolute; display: grid; place-items: center; }
+.s1-bub--44, .s1-bub--56 { border-radius: 200px; border: 1px solid #fff; background: rgba(255, 255, 255, 0.31); overflow: hidden; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.s1-bub--svg { border-radius: 50%; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.s1-bub--44 { width: 44px; height: 44px; }
+.s1-bub--44 img { width: 24.924px; height: 24.924px; object-fit: cover; }
+.s1-bub--logo { background: rgba(255, 255, 255, 0.55); }
+.s1-bub--44.s1-bub--logo img { width: 21px; height: 21px; object-fit: contain; }
+.s1-bub--56 { width: 56px; height: 56px; }
+.s1-bub--56 img { width: 32.218px; height: 32.218px; object-fit: cover; }
+.step.is-active .s1-bub { animation: s1-pop 0.55s var(--spring) var(--d) both, s1-float var(--f) ease-in-out calc(var(--d) + 0.6s) infinite alternate; }
+@keyframes s1-pop { from { opacity: 0; transform: scale(0.3); } }
+@keyframes s1-float { from { transform: translateY(0); } to { transform: translateY(-4px); } }
+
+/* ---------- Step 2 · tasks hand off to agents ---------- */
+.s2-bg { position: absolute; left: 0; top: 0; width: 444.952px; height: 556.19px; object-fit: cover; transform-origin: 30% 30%; }
+.s2-stack { position: absolute; inset: 0; }
+.s2-card {
+  position: absolute; border-radius: 3.5px; overflow: hidden;
+  transition: left 0.5s var(--ease-out), top 0.5s var(--ease-out), width 0.5s var(--ease-out), height 0.5s var(--ease-out),
+    background-color 0.5s, border-color 0.5s, box-shadow 0.5s, transform 0.55s var(--ease-out), opacity 0.45s;
+}
+.s2-card[data-pos="2"] { left: 81px; top: 105px; width: 222px; height: 38px; z-index: 1; background: #eae3e1; border: 1px solid rgba(250, 250, 250, 0.8); box-shadow: 0 1px 10px rgba(0, 0, 0, 0.08); }
+.s2-card[data-pos="1"] { left: 73px; top: 109px; width: 238px; height: 38px; z-index: 2; background: #f3edec; border: 1px solid #fafafa; box-shadow: 0 1px 10px rgba(0, 0, 0, 0.08); }
+.s2-card[data-pos="0"] { left: 66px; top: 115px; width: 252px; height: 149px; z-index: 3; background: #fff8f6; border: 1px solid #fafafa; box-shadow: 0 2px 4.1px rgba(0, 0, 0, 0.08); }
+.s2-card.no-anim { transition: none; }
+.s2-card.is-entering { opacity: 0; transform: translateY(-8px); }
+.s2-body { position: absolute; left: 50%; top: 51px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 10px; opacity: 0; transition: opacity 0.3s; }
+.s2-card[data-pos="0"] .s2-body { opacity: 1; transition-delay: 0.25s; }
+.s2-title { font-size: 14px; font-weight: 500; color: #000; white-space: nowrap; }
+.s2-meta { display: flex; gap: 14px; }
+.s2-meta > span { display: flex; align-items: center; gap: 2px; font-size: 10px; line-height: 16px; color: #9d9d9d; white-space: nowrap; }
+.s2-fb { width: 12px; height: 12px; border-radius: 200px; border: 1px solid #fdf2ef; background: linear-gradient(#cdf6e2, #ffe07a); }
+.s2-link { width: 12px; height: 12px; display: grid; place-items: center; border-radius: 200px; border: 0.5px solid #dbdbdb; background: linear-gradient(#fff, #e4e4e4); box-shadow: 0 0 4px rgba(0, 0, 0, 0.06); }
+.step.is-active .s2-stack { animation: s2-stack-in 0.6s var(--ease-out) both; }
+@keyframes s2-stack-in { from { opacity: 0; transform: translateY(14px); } }
+
+.s2-agent { position: absolute; }
+.s2-agent--pixel { z-index: 6; }
+.s2-agent--robot { z-index: 5; }
+.s2-walker { position: absolute; inset: 0; }
+/* a pet, pinned by its feet to the bottom centre of its Figma box; intro.js shows one drawing at a time */
+.pet { position: absolute; left: 50%; top: 100%; width: 0; height: 0; }
+.pet.is-left { transform: scaleX(-1); }
+.pet > * { position: absolute; display: none; max-width: none; background-repeat: no-repeat; }
+.pet > .is-on { display: block; }
+.pet[data-pet="codex"] { filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.12)); }
+.step.is-active .s2-agent--pixel { animation: s2-in-left 0.6s var(--spring) 0.35s both; }
+.step.is-active .s2-agent--robot { animation: s2-in-right 0.6s var(--spring) 0.5s both; }
+/* holding the card up while it walks: a little rise each step */
+.s2-agent.is-walking.is-holding .s2-walker { animation: s2-step 0.27s ease-in-out infinite alternate; }
+.s2-agent.is-catching .s2-walker { animation: s2-catch 0.45s var(--spring) both !important; }
+@keyframes s2-in-left { from { opacity: 0; transform: translateX(-60px); } }
+@keyframes s2-in-right { from { opacity: 0; transform: translateX(60px); } }
+@keyframes s2-step { from { transform: translateY(0); } to { transform: translateY(-3px); } }
+@keyframes s2-catch { 0% { transform: translateY(0); } 40% { transform: translateY(5px) scaleY(0.94); } 100% { transform: translateY(0); } }
+/* the task card riding on a pet's raised hands (intro.js sets --ride: how far above its feet) */
+.s2-carry { position: absolute; left: 50%; top: 100%; width: 0; height: 0; }
+.s2-carry .s2-card { left: -126px !important; top: -74.5px !important; transition: none; transform: translateY(var(--ride, 0px)) rotate(6deg) scale(0.4); }
+
+/* ---------- Step 3 · updates surface while you were away ---------- */
+.s3-col { position: absolute; left: 30.5px; top: 85px; width: 323px; display: flex; flex-direction: column; gap: 30px; }
+.s3-card {
+  position: relative; display: flex; flex-direction: column; gap: 8px; padding: 12px 19px; overflow: hidden;
+  border: 1px solid #fff; border-radius: 12px; background: linear-gradient(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.5));
+}
+.s3-row { display: flex; align-items: center; gap: 8px; }
+.s3-row p { font-size: 16px; line-height: 20.3px; color: #000; flex: none; }
+.s3-bar { position: relative; width: 0; flex: none; transform-origin: top; }
+.s3-bar img { position: absolute; top: 0; bottom: 0; left: -2px; width: 4px; height: 100%; }
+.s3-meta { display: flex; align-items: center; gap: 12px; }
+.s3-avs { display: flex; }
+.s3-avs > span { position: relative; width: 36px; height: 36px; margin-right: -5px; border-radius: 200px; overflow: hidden; }
+.s3-avs > span:last-child { margin-right: 0; }
+.s3-avs b { position: absolute; left: 0; right: 0; top: 7.5px; text-align: center; font-size: 8px; font-weight: 500; line-height: 20.3px; color: #868686; white-space: nowrap; }
+.s3-chan { position: relative; height: 29px; border-radius: 6px; border: 1px solid #e3e3e3; background: rgba(255, 255, 255, 0.65); overflow: hidden; }
+.s3-chan > b { position: absolute; left: 31.28px; top: 3px; font-size: 14px; font-weight: 400; line-height: 20.3px; color: #000; white-space: nowrap; }
+.s3-slack { position: absolute; left: 6.7px; top: 5.5px; width: 16px; height: 16px; object-fit: cover; }
+.s3-arrow { position: absolute; top: 5.5px; width: 16px; height: 16px; overflow: hidden; }
+.s3-arrow img { position: absolute; left: 20.83%; right: 25%; top: 25%; bottom: 20.83%; width: 54.17%; height: 54.17%; }
+.art--3[data-phase^="a"] .s3-card { animation: s3-in 0.7s var(--ease-out) calc(var(--in, 0s) + var(--d)) both, s3-float 5s ease-in-out calc(var(--in, 0s) + var(--d) + 0.9s) infinite alternate; }
+.art--3[data-phase^="a"] .s3-card:nth-child(2) { animation-duration: 0.7s, 5.6s; }
+.art--3[data-phase^="a"] .s3-bar { animation: s3-bar 0.5s var(--ease-out) calc(var(--in, 0s) + var(--d) + 0.3s) both; }
+.art--3[data-phase^="a"] .s3-row p { animation: s3-fade 0.5s var(--ease-out) calc(var(--in, 0s) + var(--d) + 0.25s) both; }
+.art--3[data-phase^="a"] .s3-avs > span { animation: s3-pop 0.45s var(--spring) calc(var(--in, 0s) + var(--d) + 0.45s + var(--i) * 0.07s) both; }
+.art--3[data-phase^="a"] .s3-chan { animation: s3-slide 0.45s var(--ease-out) calc(var(--in, 0s) + var(--d) + 0.75s) both; }
+.s3-card::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.75) 50%, transparent 65%);
+  transform: translateX(-110%);
+}
+@keyframes s3-in { from { opacity: 0; transform: translateY(20px); filter: blur(6px); } }
+@keyframes s3-float { from { translate: 0 0; } to { translate: 0 -4px; } }
+@keyframes s3-bar { from { transform: scaleY(0); } }
+@keyframes s3-fade { from { opacity: 0; transform: translateX(-6px); } }
+@keyframes s3-pop { from { opacity: 0; transform: scale(0.4); } }
+@keyframes s3-slide { from { opacity: 0; transform: translateX(-10px); } }
+
+/* ---------- Step 3 · sources picked for you (shares the step with the updates) ----------
+   intro.js alternates data-phase: a = updates come in, b = updates leave as sources come in. */
+.s4-group { position: absolute; inset: 0; }
+.art--3 .s3-col, .art--3 .s4-group { opacity: 0; }
+.art--3[data-phase^="a"] .s3-col, .art--3[data-phase^="b"] .s4-group { opacity: 1; }
+/* one set leaves first (the updates lift away; the sources slide off, fanning apart), then the
+   other comes in: --in holds back the incoming entrance until the outgoing set is gone */
+.art--3[data-phase="a"], .art--3[data-phase="b"] { --in: 0.55s; }
+.art--3[data-phase="b"] .s3-col { animation: grp-out 0.55s cubic-bezier(0.5, 0, 0.75, 0.3) both; }
+.art--3[data-phase="a"] .s4-slot--a { animation: s4-out-a 0.6s cubic-bezier(0.5, 0, 0.75, 0.3) both; }
+.art--3[data-phase="a"] .s4-slot--b { animation: s4-out-b 0.6s cubic-bezier(0.5, 0, 0.75, 0.3) 0.06s both; }
+.art--3[data-phase="a"] .s4-group { opacity: 1; }
+@keyframes grp-out { from { opacity: 1; } to { opacity: 0; transform: translateY(-22px); filter: blur(4px); } }
+@keyframes s4-out-a { to { opacity: 0; transform: translate(-70px, 40px) rotate(-10deg); } }
+@keyframes s4-out-b { to { opacity: 0; transform: translate(80px, 40px) rotate(12deg); } }
+
+.s4-deal, .s4-sway { display: flex; align-items: center; justify-content: center; }
+.s4-card { position: relative; flex: none; border-radius: 12px; overflow: hidden; background: linear-gradient(#fff, rgba(255, 255, 255, 0.6)); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
+.s4-text { position: absolute; width: 152px; display: flex; flex-direction: column; }
+.s4-text p { font-size: 20px; line-height: 24px; color: #000; }
+.s4-text span { width: 98.411px; font-size: 12px; line-height: 13px; color: #9d9d9d; }
+.s4-thumb { position: relative; width: 152px; height: 89px; border-radius: 6px; overflow: hidden; background: #c9c9c9; box-shadow: 0 0 18px rgba(0, 0, 0, 0.26); transform: rotate(-0.16deg); }
+.s4-shot-a { position: absolute; left: -3.35px; top: -70.03px; width: 158.246px; height: 228.578px; object-fit: cover; }
+.s4-shot-b { width: 160.078px; height: 88.397px; object-fit: cover; transform: rotate(0.15deg); }
+.s4-shot-c { object-fit: cover; }
+.art--3[data-phase^="b"] .s4-slot--a .s4-deal { animation: s4-deal-a 0.8s var(--spring) calc(var(--in, 0s) + 0.15s) both; }
+.art--3[data-phase^="b"] .s4-slot--b .s4-deal { animation: s4-deal-b 0.8s var(--spring) calc(var(--in, 0s) + 0.38s) both; }
+.art--3[data-phase^="b"] .s4-slot--a .s4-sway { animation: s4-sway-a 4.2s ease-in-out 1s infinite alternate; }
+.art--3[data-phase^="b"] .s4-slot--b .s4-sway { animation: s4-sway-b 4.8s ease-in-out 1.2s infinite alternate; }
+.s4-slot { transition: z-index 0s; }
+.s4-slot:hover { z-index: 2; }
+.s4-slot .s4-card { transition: transform 0.35s var(--ease-out), box-shadow 0.35s; }
+.s4-slot:hover .s4-card { box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2); }
+@keyframes s4-deal-a { from { opacity: 0; transform: translate(-30px, 160px) rotate(-18deg) scale(0.9); } }
+@keyframes s4-deal-b { from { opacity: 0; transform: translate(60px, 160px) rotate(22deg) scale(0.9); } }
+@keyframes s4-sway-a { from { transform: translateY(0) rotate(0); } to { transform: translateY(-6px) rotate(-1.6deg); } }
+@keyframes s4-sway-b { from { transform: translateY(-3px) rotate(0); } to { transform: translateY(4px) rotate(1.8deg); } }
+
+/* ---------- Step 5 · the envelope ---------- */
+.art--5 { left: 0; width: 730px; background: #fff; }
+.s5-title { position: absolute; left: calc(50% + 11.27px); top: 29.5px; transform: translateX(-50%); width: 312px; text-align: center; font-family: var(--font-serif); font-size: 28px; line-height: 1.2; color: #000; }
+.step.is-active .s5-title { animation: s5-title-in 0.7s var(--ease-out) 0.1s both; }
+@keyframes s5-title-in { from { opacity: 0; transform: translate(-50%, 10px); } }
+.step.is-active .s5-bg { animation: s5-bg 22s ease-in-out infinite; }
+@keyframes s5-bg {
+  0%, 100% { transform: rotate(180deg) scale(1.04) translate(0, 0); filter: hue-rotate(0deg); }
+  33% { transform: rotate(181.5deg) scale(1.1) translate(2%, -1.8%); filter: hue-rotate(-5deg); }
+  66% { transform: rotate(178.5deg) scale(1.07) translate(-1.5%, 1.4%); filter: hue-rotate(4deg); }
+}
+
+.s5-drop, .s5-float { display: flex; align-items: center; justify-content: center; }
+.s5-env { position: relative; flex: none; width: 380.736px; height: 219.775px; transform: rotate(-4.89deg); isolation: isolate; }
+/* paper: a warm off-white with a fine grain, a hairline edge and layered, soft shadows */
+:root {
+  --paper-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.42  0 0 0 0 0.35  0 0 0 0 0.28  0 0 0 0.11 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+.s5-body {
+  position: absolute; inset: 0; z-index: 1; border-radius: 4px; overflow: hidden;
+  background: linear-gradient(170deg, #fdfcfa 0%, #f6f3ef 100%);
+  box-shadow:
+    inset 0 0 0 0.5px rgba(120, 95, 75, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 1.5px rgba(90, 60, 40, 0.08), 0 6px 14px rgba(143, 111, 94, 0.12), 0 24px 44px -10px rgba(143, 111, 94, 0.28);
+}
+.s5-folds { position: absolute; inset: 0; width: 100%; height: 100%; }
+.s5-grain { position: absolute; inset: 0; z-index: 2; border-radius: 4px; pointer-events: none; background-image: var(--paper-grain); mix-blend-mode: multiply; opacity: 0.6; }
+.s5-flapclip { position: absolute; left: 0; right: 0; top: -200px; bottom: 0; z-index: 2; overflow: hidden; border-radius: 0 0 5.5px 5.5px; pointer-events: none; perspective: 900px; }
+.s5-flap { transform-origin: 50% 44.95px; transition: transform 0.7s cubic-bezier(0.45, 0, 0.25, 1); }
+.s5-flap-in { position: relative; width: 459.127px; height: 161.934px; transform: rotate(180deg); }
+.s5-flap-in img { position: absolute; left: 5.41%; right: 5.41%; top: -3.03%; bottom: 20.74%; width: 89.18%; height: 82.29%; filter: drop-shadow(0 -1.5px 2px rgba(100, 70, 50, 0.13)) drop-shadow(0 -4px 8px rgba(143, 111, 94, 0.08)); }
+.s5-letter {
+  position: absolute; left: 28px; right: 28px; top: 14px; height: 190px; z-index: 0; padding: 18px 20px;
+  border-radius: 3px; background: var(--paper-grain), linear-gradient(#fff, #fbf9f6); box-shadow: 0 0 0 0.5px rgba(120, 95, 75, 0.12), 0 2px 10px rgba(143, 111, 94, 0.12);
+  transition: transform 1s var(--ease-out);
+}
+.s5-letter-k { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #f3854b; margin-bottom: 14px; }
+.s5-letter-t { font-family: var(--font-serif); font-size: 22px; line-height: 1.2; margin: 2px 0 12px; }
+.s5-letter i { display: block; height: 6px; margin-bottom: 8px; border-radius: 3px; background: #f1ebe8; }
+
+.s5-seal { position: absolute; left: 139.95px; top: 60.22px; width: 99.185px; height: 99.185px; z-index: 3; border-radius: 50%; transition: transform 0.25s var(--spring), opacity 0.3s; }
+.s5-seal:hover { transform: scale(1.05); }
+.s5-seal:active { transform: scale(0.96); }
+.s5-seal .rot img { transform: rotate(4.89deg); position: relative; filter: drop-shadow(0 1.5px 1.5px rgba(160, 80, 40, 0.25)) drop-shadow(0 4px 8px rgba(200, 110, 60, 0.18)); }
+.s5-seal-gloss { position: absolute; width: 86px; height: 86px; border-radius: 50%; pointer-events: none; background: radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0) 42%), radial-gradient(circle at 60% 78%, rgba(150, 60, 20, 0.12), rgba(150, 60, 20, 0) 55%); box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.18), inset 0 -2px 4px rgba(150, 60, 20, 0.12); }
+.s5-seal-text { position: absolute; left: 49.6px; top: 30.32px; width: 68px; transform: translateX(-50%) rotate(-0.47deg); text-align: center; font-size: 16px; line-height: 1.2; color: #fff; }
+.step.is-active .s5-drop { animation: s5-drop 0.8s var(--ease-out) 0.2s both; }
+.step.is-active .s5-float { animation: s5-float 5.5s ease-in-out 1s infinite alternate; }
+@keyframes s5-drop { from { opacity: 0; transform: translateY(-18px) rotate(-2deg); } }
+@keyframes s5-float { from { transform: translateY(0) rotate(0); } to { transform: translateY(-3px) rotate(0.4deg); } }
+
+/* opening: seal pops, flap folds back, letter slides up */
+.s5-env.is-open .s5-seal { transform: scale(1.06); opacity: 0; pointer-events: none; }
+.s5-env.is-open .s5-flap { transform: rotateX(180deg); }
+.s5-env.is-open .s5-letter { transform: translateY(-92px); transition-delay: 0.4s; }
+.s5-env.is-flap-back .s5-flapclip { z-index: -1; }
+.s5-title { transition: opacity 0.3s; }
+.art--5:has(.s5-env.is-open) .s5-title { opacity: 0; }
+
+/* fonts are inlined by build.py */
+@media (prefers-reduced-motion: reduce) {
+  .art *, .art *::after, .copy > * { animation: none !important; }
+  .s2-card, .s5-flap, .s5-letter { transition-duration: 0.01ms !important; }
+}

@@ -491,6 +491,11 @@ final class DailyBriefStore: ObservableObject {
     route = nil
     isPresented = true
     showsReadyNotice = false
+    if !UserDefaults.standard.bool(forKey: Self.introSeenKey) {
+      introStep = 0
+      showsIntro = true
+      AnalyticsService.shared.capture("daily_brief_intro_shown", ["source": source])
+    }
     if brief != nil && brief?.userState.hasBeenShown == false {
       brief?.userState.hasBeenShown = true
       persistBrief()
@@ -503,6 +508,34 @@ final class DailyBriefStore: ObservableObject {
   func dismiss() {
     route = nil
     isPresented = false
+    showsIntro = false
+  }
+
+  // MARK: - Intro
+
+  private static let introSeenKey = "dailyBriefIntroSeen"
+
+  /// The "Introducing Dayflow Daily Briefs" walkthrough is covering the brief. It shows the
+  /// first time the brief opens, and again next time if it was closed some other way.
+  @Published private(set) var showsIntro = false
+  /// The intro step on screen (0 to 3), reported by the intro page, for analytics.
+  var introStep = 0
+
+  /// The intro ended: `finished` when the envelope's seal was clicked, `skipped` on Escape.
+  /// Either way the brief underneath shows next.
+  func finishIntro(_ outcome: String, step: Int) {
+    guard showsIntro else { return }
+    UserDefaults.standard.set(true, forKey: Self.introSeenKey)
+    showsIntro = false
+    AnalyticsService.shared.capture(
+      "daily_brief_intro_finished", ["outcome": outcome, "last_step": step + 1])
+  }
+
+  /// Debug: forgets that the intro was seen and opens the brief with it on top.
+  func debugReplayIntro() {
+    UserDefaults.standard.set(false, forKey: Self.introSeenKey)
+    dismiss()
+    present(source: "debug")
   }
 
   func dismissReadyNotice() {

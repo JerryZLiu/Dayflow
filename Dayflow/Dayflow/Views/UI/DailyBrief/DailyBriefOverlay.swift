@@ -4,7 +4,9 @@
 //
 //  The Daily brief as an in-tab overlay: it covers the main panel (the sidebar
 //  stays visible), shows the brief page, and layers the current route
-//  (enlarged image, saved, everything completed, range summary) on top.
+//  (enlarged image, saved, everything completed, range summary) on top. The
+//  first time it opens, the "Introducing Dayflow Daily Briefs" walkthrough
+//  covers the page until it's finished or skipped.
 //
 
 import AppKit
@@ -27,13 +29,24 @@ struct DailyBriefOverlay: View {
           .transition(.opacity)
           .zIndex(1)
       }
+
+      if store.showsIntro {
+        DailyBriefIntroLayer()
+          .transition(.opacity)
+          .zIndex(2)
+      }
     }
     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     .animation(.easeOut(duration: 0.2), value: store.route)
+    .animation(.easeOut(duration: 0.45), value: store.showsIntro)
     .background(DailyBriefEscapeKeyHandler(onEscape: handleEscape))
   }
 
   private func handleEscape() {
+    if store.showsIntro {
+      store.finishIntro("skipped", step: store.introStep)
+      return
+    }
     // Docket menus and the "Tell us why" pop-up close before anything else.
     if DocketUIState.shared.closeTopPopup() { return }
     if store.route != nil {

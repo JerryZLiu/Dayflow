@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Daily Briefs intro</title>
+  <!-- In-app copy of the Daily Briefs intro modal (Figma › Daily: 563:10268, 563:28112,
+       563:28687 + 563:31262, 563:32024). Only the modal: the app draws the dimmed window
+       behind it and opens the real brief when the seal is clicked. Built into one file by
+       ../build.py. -->
+  <link rel="stylesheet" href="intro.css">
+  <!-- dev-only: start (build.py removes this block; it lets src/ open in a browser) -->
+  <style>
+    @font-face { font-family: "Figtree"; font-weight: 300 900; src: url("../../../Dayflow/Dayflow/Fonts/Figtree-VariableFont_wght.ttf"); }
+    @font-face { font-family: "Instrument Serif"; font-weight: 400; src: url("../../../Dayflow/Dayflow/Fonts/InstrumentSerif-Regular.ttf"); }
+    html { background: linear-gradient(#5b5550, #3f3a37); }
+    body { display: grid; place-items: center; }
+    .frame { box-shadow: 0 8px 40px rgba(0, 0, 0, 0.35); border-radius: 8px; }
+  </style>
+  <!-- dev-only: end -->
+</head>
+<body>
+  <div class="frame is-intro" id="frame">
+        <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="step-title-0">
+
+          <!-- Step 1 · Introducing Dayflow Daily Briefs -->
+          <section class="step step--1" data-step="0">
+            <div class="copy" style="top:48.79px">
+              <div class="copy-head">
+                <p class="copy-kicker">Introducing</p>
+                <h2 class="copy-title copy-title--28" id="step-title-0">Daily Briefs</h2>
+              </div>
+              <p class="copy-body">Every morning, Claude reads what you worked on yesterday and what’s new in Slack, Gmail and your other connected apps, then helps you get a jump start on your day by identifying what it can take off your plate.</p>
+            </div>
+            <div class="art art--1" aria-hidden="true">
+              <div class="rot s1-bg" style="left:-300.03px;top:-261.55px;width:1169.815px;height:877.361px">
+                <div class="s1-bg-in"><img class="cover drift" src="assets/modal/s1-bg.webp" alt=""></div>
+              </div>
+
+              <div class="s1-card" style="left:51.5px;top:29px;height:28px"><i></i><div><img src="assets/modal/s1-figma.svg" width="8" height="11" alt=""><p>Reading user study report</p></div></div>
+              <div class="s1-card" style="left:51.5px;top:64px;height:28px"><i style="background:#6aadff"></i><div><img class="s1-logo" src="assets/modal/logo-github.webp" width="11" height="11" alt=""><p>Reviewing PR #482 on GitHub</p></div></div>
+              <div class="s1-card" style="left:52px;top:99px;height:40px"><i style="background:#2b4c9b"></i><div><img class="s1-logo" src="assets/modal/s1-slack.webp" width="11" height="11" alt=""><p>Replying to the launch thread in Slack</p></div></div>
+
+              <!-- connector lines (drawn by intro.js): cards → ring, Claude/ChatGPT → ring, every app → Claude + ChatGPT -->
+              <svg class="s1-net" id="s1-net" width="384" height="422" viewBox="0 0 384 422" aria-hidden="true"></svg>
+              <span class="s1-net-pk" id="s1-net-pk"></span>
+
+              <div class="rot s1-ring" style="left:159.81px;top:192.65px;width:46.362px;height:46.362px">
+                <span class="s1-pulse"></span>
+              </div>
+
+              <span class="s1-bub s1-bub--44 s1-bub--logo" style="left:23.5px;top:316.54px;--d:.55s;--f:3.4s"><img src="assets/modal/logo-github.webp" alt=""></span>
+              <span class="s1-bub s1-bub--56" style="left:103.99px;top:270.08px;--d:.35s;--f:4s"><img src="assets/modal/s1-claude.webp" alt=""></span>
+              <span class="s1-bub s1-bub--svg" style="left:200px;top:266.26px;--d:.42s;--f:3.7s"><img src="assets/modal/s1-openai-bubble.svg" width="56" height="56" alt=""></span>
+              <span class="s1-bub s1-bub--44 s1-bub--logo" style="left:101.26px;top:351px;--d:.62s;--f:3.1s"><img src="assets/modal/logo-gmail.webp" alt=""></span>
+              <span class="s1-bub s1-bub--44" style="left:174.5px;top:360.54px;--d:.7s;--f:3.6s"><img src="assets/modal/s1-slack.webp" alt=""></span>
+              <span class="s1-bub s1-bub--44 s1-bub--logo" style="left:248.98px;top:348.08px;--d:.78s;--f:3.3s"><img src="assets/modal/logo-notion.webp" alt=""></span>
+              <span class="s1-bub s1-bub--44 s1-bub--logo" style="left:313px;top:304.08px;--d:.86s;--f:3.9s"><img src="assets/modal/logo-figma.webp" alt=""></span>
+            </div>
+          </section>
+
+          <!-- Step 2 · Your day, sorted into tasks -->
+          <section class="step step--2" data-step="1">
+            <div class="copy" style="top:52.73px">
+              <h2 class="copy-title" id="step-title-1">Tasks you can hand off</h2>
+              <p class="copy-body" style="width:252.5px">Your brief turns loose ends into tasks, each with a prompt already written. Swipe right to send one to Claude or Codex.</p>
+            </div>
+            <div class="art art--2" aria-hidden="true">
+              <img class="s2-bg drift" src="assets/modal/s2-bg.webp" alt="">
+              <div class="s2-stack" id="task-stack">
+                <div class="s2-card" data-pos="2"></div>
+                <div class="s2-card" data-pos="1"></div>
+                <div class="s2-card" data-pos="0"></div>
+              </div>
+              <template id="task-body">
+                <div class="s2-body">
+                  <p class="s2-title"></p>
+                  <div class="s2-meta">
+                    <span><img src="assets/modal/s2-sticky-note.svg" width="12" height="12" alt="">Details</span>
+                    <span><i class="s2-fb"></i>Feedback</span>
+                    <span><i class="s2-link"><img src="assets/modal/s2-slack.svg" width="7" height="7" alt=""></i>Link</span>
+                  </div>
+                </div>
+              </template>
+              <div class="s2-agent s2-agent--pixel" id="agent-left" style="left:31.42px;top:276.32px;width:79.581px;height:53.034px">
+                <div class="s2-walker">
+                  <span class="pet" data-pet="clawd"></span>
+                  <span class="s2-carry"></span>
+                </div>
+              </div>
+              <div class="s2-agent s2-agent--robot" id="agent-right" style="left:298px;top:302.84px;width:81.556px;height:92.44px">
+                <div class="s2-walker">
+                  <span class="pet" data-pet="codex"></span>
+                  <span class="s2-carry"></span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Step 3 · Get caught up in no time: updates, then sources, on a loop -->
+          <section class="step step--3" data-step="2">
+            <div class="copy" style="top:59.5px">
+              <h2 class="copy-title" id="step-title-2">Catch up in a minute</h2>
+              <div class="copy-paras">
+                <p class="copy-body">See the decisions and updates that happened while you were away.</p>
+                <p class="copy-body">Plus a few reads picked for what you’re working on.</p>
+              </div>
+            </div>
+            <div class="art art--3" id="caught-up" aria-hidden="true">
+              <div class="rot" style="left:0;top:0;width:384px;height:516.978px"><img class="cover flip180 drift" src="assets/modal/caught-up-bg.webp" alt=""></div>
+              <div class="s3-col">
+                <div class="s3-card" style="--d:.15s">
+                  <div class="s3-row">
+                    <span class="s3-bar" style="height:39.807px"><img src="assets/modal/s3-vector300.svg" alt=""></span>
+                    <p style="width:296.513px">Launch moved to July 26 after new requirements</p>
+                  </div>
+                  <div class="s3-meta">
+                    <div class="s3-avs">
+                      <span style="background:linear-gradient(#cdf6e2,#ffe07a);--i:0"><b>Mikayla</b></span>
+                      <span style="background:linear-gradient(#ffcf9c,#7fd9c8);--i:1"><b>Sam</b></span>
+                      <span style="background:linear-gradient(#fff1b8,#bac1ff);--i:2"><b>Austin</b></span>
+                      <span style="background:linear-gradient(#d4deff,#ffafc8);--i:3"><b>6+</b></span>
+                    </div>
+                    <span class="s3-chan" style="width:123px"><img class="s3-slack" src="assets/modal/s3-slack.webp" alt=""><b># Product</b><span class="s3-arrow" style="left:102px"><img src="assets/modal/s3-arrow-outward.svg" alt=""></span></span>
+                  </div>
+                </div>
+                <div class="s3-card" style="--d:.45s">
+                  <div class="s3-row">
+                    <span class="s3-bar" style="height:39.502px"><img src="assets/modal/s3-vector301.svg" alt=""></span>
+                    <p style="width:296.513px">Test A converts 2.6% better than Test B</p>
+                  </div>
+                  <div class="s3-meta">
+                    <div class="s3-avs">
+                      <span style="background:linear-gradient(#cdf6e2,#ffe07a);--i:0"><b>Serena</b></span>
+                      <span style="background:linear-gradient(#ffcf9c,#7fd9c8);--i:1"><b>Jasper</b></span>
+                      <span style="background:linear-gradient(#fff1b8,#bac1ff);--i:2"><b>Maya</b></span>
+                      <span style="background:linear-gradient(#d4deff,#ffafc8);--i:3"><b>6+</b></span>
+                    </div>
+                    <span class="s3-chan" style="width:101px"><img class="s3-slack" src="assets/modal/s3-slack.webp" alt=""><b># Test</b><span class="s3-arrow" style="left:78px"><img src="assets/modal/s3-arrow-outward.svg" alt=""></span></span>
+                  </div>
+                </div>
+              </div>
+              <div class="s4-group">
+              <div class="rot s4-slot s4-slot--a" style="left:30.8px;top:113.41px;width:153.485px;height:165.869px">
+                <div class="s4-deal"><div class="s4-sway">
+                  <div class="s4-card" style="width:145.534px;height:158.607px;transform:rotate(-2.94deg)">
+                    <div class="s4-text" style="left:8.45px;top:7.53px"><p>Releases</p><span>Fable 5.2 and Mythos 5.2</span></div>
+                    <div class="rot" style="left:13.28px;top:72.85px;width:152.248px;height:89.424px"><div class="s4-thumb">
+                      <img class="s4-shot-a" src="assets/modal/s4-shot-1119.webp" alt="">
+                      <span class="rot" style="left:-1.55px;top:-0.07px;width:160.308px;height:88.814px"><img class="s4-shot-b" src="assets/modal/s4-shot-0924.webp" alt=""></span>
+                      <span class="rot" style="left:-39.06px;top:-26.2px;width:230.766px;height:141.042px"><img class="s4-shot-c" src="assets/modal/s4-releases.webp" style="width:229.061px;height:138.196px;transform:rotate(-0.71deg)" alt=""></span>
+                    </div></div>
+                  </div>
+                </div></div>
+              </div>
+              <div class="rot s4-slot s4-slot--b" style="left:192px;top:162.39px;width:160.324px;height:156.518px">
+                <div class="s4-deal"><div class="s4-sway">
+                  <div class="s4-card" style="width:148.934px;height:144.772px;transform:rotate(4.71deg)">
+                    <div class="s4-text" style="left:12.42px;top:8.12px"><p>Design</p><span style="width:125.899px">Principles for inventing new interfaces</span></div>
+                    <div class="rot" style="left:12.88px;top:70.73px;width:152.248px;height:89.424px"><div class="s4-thumb">
+                      <img class="s4-shot-a" src="assets/modal/s4-shot-1119.webp" alt="">
+                      <span class="rot" style="left:-1.55px;top:-0.07px;width:160.308px;height:88.814px"><img class="s4-shot-b" src="assets/modal/s4-shot-0924.webp" alt=""></span>
+                      <span class="rot" style="left:-4.71px;top:-6.85px;width:149.879px;height:91.107px"><img class="s4-shot-c" src="assets/modal/s4-design.webp" style="width:148.989px;height:89.619px;transform:rotate(-0.57deg)" alt=""></span>
+                    </div></div>
+                  </div>
+                </div></div>
+              </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Step 4 · Envelope -->
+          <section class="step step--5" data-step="3">
+            <div class="art art--5">
+              <div class="rot" style="left:0;top:-483.08px;width:730px;height:1541.452px"><img class="cover flip180 s5-bg" src="assets/modal/s5-bg.webp" alt=""></div>
+              <h2 class="s5-title" id="step-title-3">Your first brief is ready</h2>
+              <div class="rot s5-env-slot" style="left:173px;top:118px;width:398.096px;height:251.451px">
+                <div class="s5-drop"><div class="s5-float">
+                  <div class="s5-env" id="envelope">
+                    <div class="s5-letter" aria-hidden="true">
+                      <p class="s5-letter-k">Daily Brief</p>
+                      <i style="width:78%"></i><i style="width:64%"></i><i style="width:72%"></i><i style="width:40%"></i>
+                    </div>
+                    <div class="s5-body">
+                      <!-- the back of the envelope: side flaps and the bottom flap, folded in -->
+                      <svg class="s5-folds" viewBox="0 0 380.736 219.775" preserveAspectRatio="none" aria-hidden="true">
+                        <defs>
+                          <linearGradient id="fold-side" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#efebe6"/><stop offset="1" stop-color="#f6f3ef"/></linearGradient>
+                          <linearGradient id="fold-side-r" x1="1" y1="0" x2="0" y2="0"><stop offset="0" stop-color="#efebe6"/><stop offset="1" stop-color="#f6f3ef"/></linearGradient>
+                          <linearGradient id="fold-bottom" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#f4f1ed"/><stop offset="1" stop-color="#fbfaf8"/></linearGradient>
+                        </defs>
+                        <path d="M0 0L176 118Q190.4 128 176 136L0 219.775Z" fill="url(#fold-side)"/>
+                        <path d="M380.736 0L204.7 118Q190.4 128 204.7 136L380.736 219.775Z" fill="url(#fold-side-r)"/>
+                        <path d="M0 219.775L176 120Q190.4 111 204.7 120L380.736 219.775Z" fill="url(#fold-bottom)"/>
+                        <path d="M0 219.775L176 120Q190.4 111 204.7 120L380.736 219.775" fill="none" stroke="rgba(120,95,75,0.10)" stroke-width="0.8"/>
+                        <path d="M1.5 219.5L176.6 121.2Q190.4 112.6 204.1 121.2L379.2 219.5" fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="0.8"/>
+                      </svg>
+                    </div>
+                    <div class="s5-flapclip">
+                      <div class="rot s5-flap" style="left:-40.77px;top:155.05px;width:459.127px;height:161.934px">
+                        <div class="s5-flap-in"><img src="assets/modal/s5-flap.svg" alt=""></div>
+                      </div>
+                    </div>
+                    <div class="s5-grain" aria-hidden="true"></div>
+                    <button type="button" class="s5-seal" id="seal">
+                      <span class="rot" style="left:0;top:0;width:99.185px;height:99.185px"><img src="assets/modal/s5-seal.svg" width="91.697" height="91.697" alt=""><span class="s5-seal-gloss"></span></span>
+                      <span class="s5-seal-text">Open my brief</span>
+                    </button>
+                  </div>
+                </div></div>
+              </div>
+            </div>
+          </section>
+
+          <button type="button" class="next-btn" id="next">Next <img src="assets/modal/chevron-right.svg" width="12" height="12" alt=""></button>
+        </div>
+  </div>
+  <script src="intro.js"></script>
+</body>
+</html>
