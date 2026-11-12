@@ -120,11 +120,17 @@ struct DailyBriefReadingItem: Codable, Hashable, Sendable {
   var url: String
   /// One sentence on why it's for this person in particular.
   var reason: String?
+  /// A picture the model saw on the page. The app prefers the one it finds itself (`imageFile`).
   var imageUrl: String?
   /// The most interesting specific thing the piece says, shown in bold. Older briefs don't have it.
   var hook: String?
   /// Roughly how long it takes to read or watch.
   var minutes: Int?
+  /// Set by the app, not the model: the page's own picture, saved in the brief folder.
+  /// A path relative to DailyBriefStore.briefDirectory(for:).
+  var imageFile: String?
+  /// Set by the app: the saved picture is a headline set on a background, not a photo.
+  var imageIsTitleCard: Bool?
 }
 
 struct DailyBriefNewsItem: Codable, Hashable, Sendable {
@@ -133,6 +139,11 @@ struct DailyBriefNewsItem: Codable, Hashable, Sendable {
   var url: String
   /// yyyy-MM-dd
   var published: String?
+  /// Set by the app, not the model: the article's own picture, saved in the brief folder.
+  /// A path relative to DailyBriefStore.briefDirectory(for:).
+  var imageFile: String?
+  /// Set by the app: the saved picture is a headline set on a background, not a photo.
+  var imageIsTitleCard: Bool?
 }
 
 struct DailyBriefSiteSeeingItem: Codable, Hashable, Sendable {

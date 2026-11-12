@@ -1147,7 +1147,8 @@ enum DailyBriefGenerator {
   // MARK: - Clean up the model's answer
 
   /// Trims text, drops empty or unlinkable items, keeps only real screenshots, and
-  /// copies the images the brief shows into `<day>/images/`.
+  /// puts the images the brief shows into `<day>/images/`: the screenshots it uses, and
+  /// each reading and news link's own picture, fetched from the web.
   private static func cleaned(
     _ content: DailyBriefContent, candidates: [Candidate], candidatesDirectory: URL, day: String
   ) -> DailyBriefContent {
@@ -1239,24 +1240,40 @@ enum DailyBriefGenerator {
           place: clean(item.place), app: cleanApp(item.app), url: webURL(item.url))
       })
 
-    result.relatedReading = nonEmpty(
-      (content.relatedReading ?? []).compactMap { item -> DailyBriefReadingItem? in
-        guard let title = clean(item.title), let url = webURL(item.url) else { return nil }
-        return DailyBriefReadingItem(
-          title: title, source: clean(item.source), url: url, reason: clean(item.reason),
-          imageUrl: webURL(item.imageUrl), hook: clean(item.hook),
-          minutes: item.minutes.flatMap { $0 > 0 ? $0 : nil })
-      })
+    var reading = (content.relatedReading ?? []).compactMap { item -> DailyBriefReadingItem? in
+      guard let title = clean(item.title), let url = webURL(item.url) else { return nil }
+      return DailyBriefReadingItem(
+        title: title, source: clean(item.source), url: url, reason: clean(item.reason),
+        imageUrl: webURL(item.imageUrl), hook: clean(item.hook),
+        minutes: item.minutes.flatMap { $0 > 0 ? $0 : nil })
+    }
+    var news = (content.industryNews ?? []).compactMap { item -> DailyBriefNewsItem? in
+      guard let headline = clean(item.headline), let url = webURL(item.url) else { return nil }
+      return DailyBriefNewsItem(
+        headline: headline, source: clean(item.source), url: url,
+        published: clean(item.published))
+    }
+
+    // Each link's own picture (the one the site shows when the page is shared), saved locally.
+    let links =
+      reading.map { DailyBriefLinkImages.Link(pageURL: $0.url, hintImageURL: $0.imageUrl) }
+      + news.map { DailyBriefLinkImages.Link(pageURL: $0.url, hintImageURL: nil) }
+    let linkPictures = DailyBriefLinkImages.save(links, into: imagesDirectory)
+    for index in reading.indices {
+      let picture = linkPictures[reading[index].url]
+      reading[index].imageFile = picture.map { "images/\($0.file)" }
+      reading[index].imageIsTitleCard = picture?.isTitleCard
+    }
+    for index in news.indices {
+      let picture = linkPictures[news[index].url]
+      news[index].imageFile = picture.map { "images/\($0.file)" }
+      news[index].imageIsTitleCard = picture?.isTitleCard
+    }
+
+    result.relatedReading = nonEmpty(reading)
     result.relatedReadingIntro =
       result.relatedReading == nil ? nil : clean(content.relatedReadingIntro)
-
-    result.industryNews = nonEmpty(
-      (content.industryNews ?? []).compactMap { item -> DailyBriefNewsItem? in
-        guard let headline = clean(item.headline), let url = webURL(item.url) else { return nil }
-        return DailyBriefNewsItem(
-          headline: headline, source: clean(item.source), url: url,
-          published: clean(item.published))
-      })
+    result.industryNews = nonEmpty(news)
 
     var order: [String] = []
     for name in content.order {
