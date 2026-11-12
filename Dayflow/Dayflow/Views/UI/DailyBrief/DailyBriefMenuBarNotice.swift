@@ -23,7 +23,27 @@ final class DailyBriefMenuBarNotice {
   private var panel: NSPanel?
   private var cancellables: Set<AnyCancellable> = []
 
+  /// When the card appeared, so every event says how long it had been up.
+  private var shownAt: Date?
+  /// Set once the card is opened or dismissed, so going away on its own (the brief
+  /// was opened from the Timeline instead) isn't counted as either.
+  private var wasActedOn = false
+
   private init() {}
+
+  /// What every event on this card carries: which wording the test showed, how many
+  /// tasks there were (the "tasks" wording falls back to the control's with none), and
+  /// how many seconds the card had been on screen.
+  private func noticeProperties(_ action: String) -> [String: Any] {
+    var properties: [String: Any] = [
+      "action": action, "copy": DailyBriefNoticeCopy.analyticsName,
+      "task_count": DailyBriefStore.shared.docketItems.count,
+    ]
+    if let shownAt {
+      properties["seconds_shown"] = Int(Date().timeIntervalSince(shownAt))
+    }
+    return properties
+  }
 
   /// Call once at app launch, after the status bar exists.
   func start() {
@@ -44,8 +64,12 @@ final class DailyBriefMenuBarNotice {
 
   // MARK: - Actions
 
-  private func open() {
-    AnalyticsService.shared.capture("daily_brief_menu_bar_notice", ["action": "open"])
+  /// `target` is what the click landed on: the "button" or the "card" behind it.
+  private func open(target: String) {
+    wasActedOn = true
+    var properties = noticeProperties("open")
+    properties["target"] = target
+    AnalyticsService.shared.capture("daily_brief_menu_bar_notice", properties)
 
     let showDockIcon = UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true
     if showDockIcon {
@@ -61,19 +85,24 @@ final class DailyBriefMenuBarNotice {
   }
 
   private func close() {
-    AnalyticsService.shared.capture("daily_brief_menu_bar_notice", ["action": "close"])
+    wasActedOn = true
+    AnalyticsService.shared.capture("daily_brief_menu_bar_notice", noticeProperties("close"))
     DailyBriefStore.shared.dismissReadyNotice()
   }
 
   // MARK: - Panel
 
   private func show() {
+    // Before the card draws, so it draws in its test wording from the first frame.
+    if panel?.isVisible != true { DailyBriefNoticeCopy.resolve() }
     let panel = self.panel ?? makePanel()
     self.panel = panel
     position(panel)
     guard !panel.isVisible else { return }
 
-    AnalyticsService.shared.capture("daily_brief_menu_bar_notice", ["action": "shown"])
+    shownAt = Date()
+    wasActedOn = false
+    AnalyticsService.shared.capture("daily_brief_menu_bar_notice", noticeProperties("shown"))
     panel.alphaValue = 0
     panel.orderFrontRegardless()
     NSAnimationContext.runAnimationGroup { context in
@@ -84,6 +113,12 @@ final class DailyBriefMenuBarNotice {
 
   private func hide() {
     guard let panel, panel.isVisible else { return }
+    // The card went away without being clicked or dismissed, so the brief was opened
+    // some other way (the Timeline's sun button) or the run was superseded.
+    if !wasActedOn {
+      AnalyticsService.shared.capture("daily_brief_menu_bar_notice", noticeProperties("passed_by"))
+    }
+    shownAt = nil
     NSAnimationContext.runAnimationGroup(
       { context in
         context.duration = 0.2
@@ -115,7 +150,7 @@ final class DailyBriefMenuBarNotice {
     panel.hidesOnDeactivate = false
 
     let card = DailyBriefMenuBarNoticeCard(
-      onOpen: { [weak self] in self?.open() },
+      onOpen: { [weak self] target in self?.open(target: target) },
       onClose: { [weak self] in self?.close() }
     )
     .padding(Self.margin)
@@ -162,6 +197,67 @@ final class DailyBriefMenuBarNotice {
   }
 }
 
+// MARK: - Wording test
+
+/// The A/B test on this card's wording. Each variant is one idea about what makes
+/// someone open the brief: `control` says it's ready, `morning` greets them with the
+/// date, and `tasks` leads with how many jobs their agents could take today.
+@MainActor
+enum DailyBriefNoticeCopy: String {
+  case control
+  case morning
+  case tasks
+
+  /// PostHog multivariate flag. Its variant keys are these raw values; anything
+  /// else, a missing flag, or analytics being off all show the control wording.
+  static let flagKey = "daily-brief-notice-copy"
+
+  /// nil until PostHog has answered.
+  private static var resolved: DailyBriefNoticeCopy?
+
+  /// Asks PostHog for this user's variant, once it has an answer. Called as the card
+  /// appears, so the wording can't change while it's on screen.
+  static func resolve() {
+    guard resolved == nil,
+      let name = AnalyticsService.shared.featureFlagValue(flagKey) as? String
+    else { return }
+    resolved = DailyBriefNoticeCopy(rawValue: name) ?? .control
+  }
+
+  /// The wording to show: the control's until PostHog has answered.
+  static var current: DailyBriefNoticeCopy { resolved ?? .control }
+
+  /// The variant name for analytics. "unassigned" means PostHog hadn't answered and the
+  /// control wording was shown; leave those out of the test's numbers.
+  static var analyticsName: String { resolved?.rawValue ?? "unassigned" }
+
+  /// The serif line. Two lines at most in the card's 123pt column, so about 29
+  /// characters; a task count that isn't there falls back to the control line.
+  func title(date: Date, taskCount: Int) -> String {
+    switch self {
+    case .control: return "Your brief is ready"
+    case .morning: return "Good morning"
+    case .tasks:
+      guard taskCount > 0 else { return Self.control.title(date: date, taskCount: 0) }
+      let noun = taskCount == 1 ? "thing" : "things"
+      return "Hand \(taskCount) \(noun) to your agents"
+    }
+  }
+
+  /// The grey line under it. Two lines at most, so about 40 characters.
+  func subtitle(date: Date, taskCount: Int) -> String {
+    switch self {
+    case .control: return "What you did, and what to read today."
+    case .morning:
+      let day = date.formatted(.dateTime.month(.abbreviated).day())
+      return "Your \(day) brief is ready."
+    case .tasks:
+      guard taskCount > 0 else { return Self.control.subtitle(date: date, taskCount: 0) }
+      return "They'll work while you read."
+    }
+  }
+}
+
 // MARK: - Card
 
 /// The tinted-glass card from Figma. The painted background (gradient, sleeve,
@@ -169,9 +265,13 @@ final class DailyBriefMenuBarNotice {
 struct DailyBriefMenuBarNoticeCard: View {
   static let size = CGSize(width: 266, height: 145)
 
-  let onOpen: () -> Void
+  /// Called with what the click landed on: "button" or "card".
+  let onOpen: (String) -> Void
   let onClose: () -> Void
 
+  /// The panel is built once and reused on later days, so the card watches the store
+  /// to keep its date and task count current.
+  @ObservedObject private var store = DailyBriefStore.shared
   @State private var isHovering = false
 
   var body: some View {
@@ -181,11 +281,12 @@ struct DailyBriefMenuBarNoticeCard: View {
         .frame(width: Self.size.width, height: Self.size.height)
 
       VStack(alignment: .leading, spacing: 2) {
-        Text("See what’s in stock today")
+        Text(copy.title(date: briefDate, taskCount: taskCount))
           .font(.custom("InstrumentSerif-Regular", size: 20))
           .foregroundStyle(Color(hex: "113111"))
           .lineSpacing(-3)
-        Text("Plan for your day and see new updates all in one place.")
+        // Two lines at most: the button starts right under this.
+        Text(copy.subtitle(date: briefDate, taskCount: taskCount))
           .font(.custom("Figtree", size: 13))
           .foregroundStyle(Color(hex: "888888"))
           .lineSpacing(0.5)
@@ -225,7 +326,7 @@ struct DailyBriefMenuBarNoticeCard: View {
       color: Color(red: 26 / 255, green: 31 / 255, blue: 31 / 255).opacity(0.25), radius: 8, y: 4
     )
     .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    .onTapGesture(perform: onOpen)
+    .onTapGesture { onOpen("card") }
     .onHover { hovering in
       withAnimation(.easeOut(duration: 0.15)) { isHovering = hovering }
     }
@@ -233,8 +334,10 @@ struct DailyBriefMenuBarNoticeCard: View {
   }
 
   private var rundownButton: some View {
-    Button(action: onOpen) {
-      Text("See my rundown")
+    Button {
+      onOpen("button")
+    } label: {
+      Text("Read it")
         .font(.custom("Figtree", size: 12).weight(.medium))
         .foregroundStyle(.white)
         .padding(.horizontal, 12)
@@ -263,9 +366,14 @@ struct DailyBriefMenuBarNoticeCard: View {
     .accessibilityLabel("Dismiss")
   }
 
+  private var copy: DailyBriefNoticeCopy { DailyBriefNoticeCopy.current }
+
+  /// Tasks waiting in the stack, for the wording that counts them.
+  private var taskCount: Int { store.docketItems.count }
+
   /// The brief's own day, so the calendar matches the brief even after midnight.
   private var briefDate: Date {
-    DailyBriefStore.shared.brief.flatMap { DateFormatter.yyyyMMdd.date(from: $0.day) } ?? Date()
+    store.brief.flatMap { DateFormatter.yyyyMMdd.date(from: $0.day) } ?? Date()
   }
 }
 
