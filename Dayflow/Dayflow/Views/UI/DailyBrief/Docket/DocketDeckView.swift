@@ -121,7 +121,8 @@ struct DocketDeckView: View {
       } else {
         cardArea
           .frame(
-            width: Self.width, height: showsSummary ? 400 : Self.height, alignment: .topLeading
+            width: Self.width, height: showsSummary ? DocketSummaryCard.height : Self.height,
+            alignment: .topLeading
           )
           .background(
             DocketEventMonitor(
@@ -149,7 +150,7 @@ struct DocketDeckView: View {
     ZStack(alignment: .topLeading) {
       if showsSummary {
         DocketSummaryCard(count: reviewedCount)
-          .frame(width: Self.width, height: 400)
+          .frame(width: Self.width, height: DocketSummaryCard.height)
           .transition(
             .asymmetric(
               insertion: .modifier(

@@ -975,6 +975,24 @@ final class DailyBriefStore: ObservableObject {
     AnalyticsService.shared.capture("daily_brief_docket_dismiss_undone")
   }
 
+  /// The 1 to 5 star rating on the card after the last task.
+  func rateDocket(_ stars: Int) {
+    guard brief != nil else { return }
+    brief!.userState.docketRating = stars
+    persistBrief()
+    let handoffs = brief!.userState.handoffs
+    AnalyticsService.shared.capture(
+      "daily_brief_docket_rated",
+      [
+        "stars": stars,
+        "task_count": docketItems.count,
+        "handed_off_count": docketItems.filter { item in
+          handoffs.last { $0.title == item.title }.map { !$0.dismissed } ?? false
+        }.count,
+        "model": brief!.stats?.model ?? "",
+      ])
+  }
+
   func setDocketDismissReason(_ reason: String, for title: String) {
     guard brief != nil,
       let index = brief!.userState.handoffs.lastIndex(where: { $0.title == title && $0.dismissed })

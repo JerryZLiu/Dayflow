@@ -259,6 +259,8 @@ struct DailyBriefUserState: Codable, Equatable, Sendable {
   var folders: [String: String] = [:]
   /// Every hand-off and dismissal, oldest first. The last entry for a title wins.
   var handoffs: [DailyBriefHandoff] = []
+  /// 1 to 5 stars from the card after the last task: how good today's tasks were.
+  var docketRating: Int?
 
   init() {}
 
@@ -278,6 +280,7 @@ struct DailyBriefUserState: Codable, Equatable, Sendable {
     folders = try container.decodeIfPresent([String: String].self, forKey: .folders) ?? [:]
     handoffs =
       try container.decodeIfPresent([DailyBriefHandoff].self, forKey: .handoffs) ?? []
+    docketRating = try container.decodeIfPresent(Int.self, forKey: .docketRating)
   }
 }
 
