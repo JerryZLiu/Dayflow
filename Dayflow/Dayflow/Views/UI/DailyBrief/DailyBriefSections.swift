@@ -120,12 +120,12 @@ struct DailyBriefSectionView: View {
     case .relatedReading:
       DailyBriefSectionRow(title: kind.title) {
         DailyBriefReadingGrid(
-          intro: brief.content.relatedReadingIntro,
+          day: brief.day,
           items: brief.content.relatedReading ?? [])
       }
     case .industryNews:
       DailyBriefSectionRow(title: kind.title) {
-        DailyBriefNewsList(items: brief.content.industryNews ?? [])
+        DailyBriefNewsList(day: brief.day, items: brief.content.industryNews ?? [])
       }
     case .siteSeeing:
       DailyBriefSectionRow(title: kind.title) {
@@ -623,88 +623,83 @@ private struct DailyBriefDecisionsSection: View {
 // MARK: - Related reading
 
 private struct DailyBriefReadingGrid: View {
-  let intro: String?
+  /// The brief whose folder holds each item's picture.
+  let day: String
   let items: [DailyBriefReadingItem]
 
   @ObservedObject private var store = DailyBriefStore.shared
-  @Environment(\.dayflowTheme) private var theme
 
-  /// Small tilts from the Figma cards, reused in order.
-  private static let tilts: [Double] = [-2.9, 2.2, -1.6, 2.3, 1.7, -2.4, 0.5, -2.7]
-
-  private let columns = Array(
-    repeating: GridItem(.fixed(180), spacing: 14, alignment: .top), count: 3)
+  private static let columns = [
+    GridItem(.flexible(), spacing: 28, alignment: .top),
+    GridItem(.flexible(), alignment: .top),
+  ]
 
   var body: some View {
     let visible = items.filter { !store.isDismissed(.relatedReading, $0.title) }
 
-    VStack(alignment: .leading, spacing: 16) {
-      if let intro, !intro.isEmpty {
-        Text(intro)
-          .font(DailyBriefFonts.sans(14))
-          .foregroundStyle(DailyBriefColors.body(theme))
-          .fixedSize(horizontal: false, vertical: true)
+    LazyVGrid(columns: Self.columns, alignment: .leading, spacing: 26) {
+      ForEach(visible, id: \.title) { item in
+        DailyBriefReadingCard(item: item, day: day)
+          .dailyBriefDismissable(inside: true) {
+            store.dismissItem(.relatedReading, item.title)
+          }
       }
-
-      LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
-        ForEach(Array(visible.enumerated()), id: \.element.title) { index, item in
-          DailyBriefReadingCard(item: item)
-            .rotationEffect(.degrees(Self.tilts[index % Self.tilts.count]))
-            .dailyBriefDismissable(inside: true) { store.dismissItem(.relatedReading, item.title) }
-        }
-      }
-      .padding(.leading, 4)
     }
   }
 }
 
+/// A wide card: the page's own picture, then one bold line, why it's for them, and
+/// the source with the reading time. A page with no usable picture gets a gradient
+/// poster with the bold line set large instead.
 private struct DailyBriefReadingCard: View {
   let item: DailyBriefReadingItem
+  let day: String
 
   @ObservedObject private var store = DailyBriefStore.shared
   @Environment(\.dayflowTheme) private var theme
   @State private var isHovering = false
 
+  /// The bold line under a picture. Under a poster, which already shows the hook,
+  /// it's the page's title.
+  private var heading: String? {
+    if item.imageFile != nil { return item.hook ?? item.title }
+    return item.hook == nil ? nil : item.title
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      VStack(alignment: .leading, spacing: 4) {
-        Text(item.title)
-          .font(DailyBriefFonts.sans(14, weight: .medium))
+      picture
+        .scaleEffect(isHovering ? 1.02 : 1)
+        .animation(.easeOut(duration: 0.15), value: isHovering)
+        .padding(.bottom, 12)
+
+      if let heading {
+        Text(heading)
+          .font(DailyBriefFonts.sans(15, weight: .semibold))
           .foregroundStyle(theme.textPrimary)
-          .lineLimit(3)
-        if let source = item.source ?? DailyBriefLinks.host(of: item.url) {
-          Text(source)
-            .font(DailyBriefFonts.sans(11))
-            .foregroundStyle(DailyBriefColors.muted(theme))
-            .lineLimit(1)
-        }
-        if let reason = item.reason, !reason.isEmpty {
-          Text(reason)
-            .font(DailyBriefFonts.sans(11))
-            .foregroundStyle(DailyBriefColors.muted(theme))
-            .lineLimit(2)
-        }
+          .lineLimit(2)
+          .fixedSize(horizontal: false, vertical: true)
       }
-      .padding(10)
-
-      Spacer(minLength: 6)
-
-      previewImage
-        .frame(height: 86)
-        .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .padding([.horizontal, .bottom], 8)
+      if let reason = item.reason {
+        Text(reason)
+          .font(DailyBriefFonts.sans(13))
+          .foregroundStyle(DailyBriefColors.body(theme))
+          .lineLimit(3)
+          .fixedSize(horizontal: false, vertical: true)
+          .padding(.top, 3)
+      }
+      if !sourceLine.isEmpty {
+        Text(sourceLine)
+          .font(DailyBriefFonts.sans(12))
+          .foregroundStyle(DailyBriefColors.muted(theme))
+          .lineLimit(1)
+          .padding(.top, 4)
+      }
     }
-    .frame(width: 172, height: 214, alignment: .topLeading)
-    .background(
-      RoundedRectangle(cornerRadius: 12, style: .continuous)
-        .fill(theme.isDark ? Color(hex: "3A3A4C") : Color.white)
-    )
-    .shadow(color: Color.black.opacity(isHovering ? 0.22 : 0.15), radius: isHovering ? 10 : 6, y: 4)
-    .scaleEffect(isHovering ? 1.03 : 1)
-    .animation(.easeOut(duration: 0.15), value: isHovering)
-    .onHover { isHovering = $0 }
+    .frame(maxWidth: .infinity, alignment: .leading)
     .contentShape(Rectangle())
+    .onHover { isHovering = $0 }
+    .help(item.title)
     .onTapGesture {
       if DailyBriefLinks.open(item.url) {
         store.recordFeedback(.relatedReading, item.title, .opened)
@@ -713,19 +708,47 @@ private struct DailyBriefReadingCard: View {
     .pointingHandCursor()
   }
 
-  @ViewBuilder
-  private var previewImage: some View {
-    let tint = DailyBriefPalette.documentTint(for: item.title).linear
-    if let imageUrl = item.imageUrl, let url = URL(string: imageUrl) {
-      AsyncImage(url: url) { phase in
-        if let image = phase.image {
-          image.resizable().aspectRatio(contentMode: .fill)
+  /// "iGeeksBlog · 4 min"
+  private var sourceLine: String {
+    [item.source ?? DailyBriefLinks.host(of: item.url), item.minutes.map { "\($0) min" }]
+      .compactMap { $0 }
+      .joined(separator: " · ")
+  }
+
+  /// The shape most sites make their share pictures in, so those show whole.
+  private static let pictureAspect: CGFloat = 1.91
+
+  private var picture: some View {
+    let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+    return Color.clear
+      .aspectRatio(Self.pictureAspect, contentMode: .fit)
+      .overlay {
+        if let file = item.imageFile {
+          DailyBriefFileImage(url: DailyBriefStore.briefImageURL(day: day, file: file))
         } else {
-          tint
+          poster
         }
       }
-    } else {
-      tint
+      .clipShape(shape)
+      // A thin edge keeps pale pictures from fading into the page.
+      .overlay(
+        shape.strokeBorder(
+          theme.isDark ? Color.white.opacity(0.12) : Color.black.opacity(0.08), lineWidth: 1)
+      )
+      .shadow(color: Color.black.opacity(0.08), radius: 4, y: 2)
+  }
+
+  /// Shown when the page has no usable picture: a soft gradient with the hook in large type.
+  private var poster: some View {
+    ZStack(alignment: .leading) {
+      DailyBriefPalette.documentTint(for: item.title).linear
+      Text(item.hook ?? item.title)
+        .font(DailyBriefFonts.serif(26))
+        .foregroundStyle(Color(hex: "22233A"))
+        .lineLimit(4)
+        .minimumScaleFactor(0.6)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
     }
   }
 }
@@ -733,39 +756,59 @@ private struct DailyBriefReadingCard: View {
 // MARK: - Industry news
 
 private struct DailyBriefNewsList: View {
+  /// The brief whose folder holds each item's picture.
+  let day: String
   let items: [DailyBriefNewsItem]
 
   @ObservedObject private var store = DailyBriefStore.shared
   @Environment(\.dayflowTheme) private var theme
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 11) {
-      ForEach(items.filter { !store.isDismissed(.industryNews, $0.headline) }, id: \.headline) {
-        item in
+    let visible = items.filter { !store.isDismissed(.industryNews, $0.headline) }
+
+    VStack(alignment: .leading, spacing: 0) {
+      ForEach(Array(visible.enumerated()), id: \.element.headline) { index, item in
+        if index > 0 {
+          Rectangle()
+            .fill(theme.isDark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+            .frame(height: 1)
+        }
         row(item)
+          .padding(.top, index == 0 ? 0 : 14)
+          .padding(.bottom, 14)
           .dailyBriefDismissable { store.dismissItem(.industryNews, item.headline) }
       }
     }
+    .frame(maxWidth: 640, alignment: .leading)
   }
 
+  /// The headline with its source and date, and the article's own picture on the right.
   private func row(_ item: DailyBriefNewsItem) -> some View {
-    HStack(spacing: 14) {
-      sourceTile(item)
-      VStack(alignment: .leading, spacing: 3) {
+    let meta = [
+      item.source ?? DailyBriefLinks.host(of: item.url),
+      DailyBriefDates.shortText(item.published),
+    ]
+    .compactMap { $0 }
+
+    return HStack(alignment: .center, spacing: 20) {
+      VStack(alignment: .leading, spacing: 5) {
         Text(item.headline)
-          .font(DailyBriefFonts.sans(16))
+          .font(DailyBriefFonts.serif(21))
           .foregroundStyle(theme.textPrimary)
           .fixedSize(horizontal: false, vertical: true)
-        let meta = [
-          item.source ?? DailyBriefLinks.host(of: item.url),
-          DailyBriefDates.shortText(item.published),
-        ]
-        .compactMap { $0 }
         if !meta.isEmpty {
           Text(meta.joined(separator: " · "))
             .font(DailyBriefFonts.sans(12))
             .foregroundStyle(DailyBriefColors.muted(theme))
         }
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      if let file = item.imageFile {
+        DailyBriefFileImage(url: DailyBriefStore.briefImageURL(day: day, file: file))
+          .frame(width: 120, height: 80)
+          .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+          .shadow(color: Color.black.opacity(0.14), radius: 3, y: 1)
       }
     }
     .contentShape(Rectangle())
@@ -775,32 +818,6 @@ private struct DailyBriefNewsList: View {
       }
     }
     .pointingHandCursor()
-  }
-
-  /// The tilted white tile with the site's icon.
-  private func sourceTile(_ item: DailyBriefNewsItem) -> some View {
-    RoundedRectangle(cornerRadius: 6, style: .continuous)
-      .fill(
-        LinearGradient(
-          colors: theme.isDark
-            ? [Color.white.opacity(0.18), Color.white.opacity(0.08)]
-            : [.white, Color(hex: "EFEFEF")],
-          startPoint: .top, endPoint: .bottom)
-      )
-      .frame(width: 38, height: 42)
-      .overlay(
-        FaviconImageView(
-          primaryRaw: nil,
-          secondaryRaw: nil,
-          primaryHost: DailyBriefLinks.host(of: item.url),
-          secondaryHost: nil,
-          size: 20,
-          cornerRadius: 3
-        )
-      )
-      .shadow(color: Color.black.opacity(0.12), radius: 1.5, y: 1)
-      .rotationEffect(.degrees(-14))
-      .frame(width: 48, height: 50)
   }
 }
 
