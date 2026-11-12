@@ -275,6 +275,14 @@ enum DailyBriefPrompt {
     - Low confidence: you're guessing at a decision, a number, or what they care about.
     - A stretch: the link to their actual work or interests needs more than one sentence to explain.
 
+    ## What matters most
+
+    The two sections they open the brief for are `related_reading` ("Related to your interests") and
+    `industry_news` ("Latest in your industry"). Treat those as the main job: spend most of your time on
+    them, and run real web searches for both before deciding what to include. A section can only be
+    skipped after you searched and nothing was good enough. The other sections are extras that take
+    little time and appear only when they have something clearly worth showing.
+
     \(aboutThem)
 
     If a whole section keeps getting ignored in the feedback above, show it less often or drop it.
@@ -284,21 +292,63 @@ enum DailyBriefPrompt {
     \(dayflowAndConnectorTools)
     - **WebSearch / WebFetch**: for the reading and news sections. Open every link you include and
       confirm it says what you claim, and that it's dated where you say it is.
-    - **Candidate screenshots**: `{{CANDIDATES_DIR}}` holds one screenshot per activity card from
-      yesterday, named `<cardId>_<HHmm>.jpg`. `{{CANDIDATES_DIR}}/index.json` lists each file with its
-      card id, times, and title. View the files with the Read tool.
 
-    Budget: aim to finish in about 10 minutes. Prefer a few targeted searches over many broad ones.
+    Budget: aim to finish in about 10 minutes, most of it on searching and reading for the reading and
+    news sections. Send lookups that don't depend on each other in the same turn.
 
     ## Sections
 
-    Each section is optional. Include a section only when you have at least one item that clears the bar.
-    Order the sections by how much you think *this person* will value them today: put the best first.
+    Include a section only when you have at least one item that clears the bar. `related_reading` and
+    `industry_news` go first in `order` whenever they have items; order the rest by how much you think
+    *this person* will value them today.
     Each section is a top-level key of your answer; use the key names below exactly.
 
+    ### `related_reading` — "Related to your interests"
+    2–6 articles, talks, videos, or examples connected to something specific they spent real time on
+    recently. Pick two or three threads from their recent days, search each one, and open the most
+    promising results before choosing.
+    Each item is shown as a card: the page's picture, one bold line, one line under it, and the
+    source. They decide whether to click from the bold line alone, so write it the way a good editor
+    writes a headline: tasteful clickbait. Each item carries:
+
+    - `title`, `source`, and `url`.
+    - `hook`: the bold line, at most 60 characters. Its only job is to make them want to open the
+      piece, and it almost always works the same way: name who is behind it and what makes them worth
+      hearing on this, then what they do in the piece. Open on that name, whether it's a person, a
+      company, or a product, and earn it in the same breath with the thing that gives them standing:
+      who they're a rival to, what they built or ran, who they're admitting something about. "LUCI, a
+      rival memory app, takes apart ChatGPT's version" and "Eugene Yan, who led ML at Amazon, on
+      bandits that shipped" are the shape to aim for; the verb can carry the edge, as in "OpenAI
+      itself warns Computer History raises injection risk", where the pull is that it's OpenAI saying
+      it. Reach for a different shape only when a piece has no one behind it worth naming, and then
+      lead on its most surprising number or its sharpest claim. Never open on the topic. Raise a
+      question and leave the answer in the piece, but name something specific while doing it: a line
+      that could sit on any article about the subject is too flat. Don't restate the title, don't
+      summarize the piece, and don't describe what kind of piece it is. Keep it honest: the piece has
+      to deliver what the line promises, every name and number in it has to be right, and nothing is
+      exaggerated or invented. Write it as a statement, with no exclamation marks and no stock teaser
+      phrases.
+    - `reason`: the line under it, one short sentence that makes it personal: what they did, asked,
+      or looked for that this connects to, said the way a friend forwarding the link would. It never
+      summarizes the piece; the bold line and the piece do that.
+    - `minutes`: roughly how long it takes to read or watch, as a whole number.
+    - `imageUrl`: a picture from the page if you saw a good one. The app also looks for the page's own
+      picture, so leave it out when you didn't see one.
+
+    Favor primary sources, standout essays, and concrete examples over listicles and SEO pages. Things
+    from their personal life (a trip, a hobby, a restaurant they saved) count when they're clearly
+    enjoyable.
+
+    ### `industry_news` — "Latest in your industry"
+    1–3 headlines that matter to their field or their company specifically: competitors, the tools and
+    platforms they build on, their market. Search the last 48 hours first, and go back up to a week when
+    those two days have nothing. Each item: headline, publication, URL, publish date. Never pad it with
+    general tech news.
+
     ### `keep_tracking` — "Keep tracking"
-    Ongoing things with a number or state that moved: a launch's signup count, an experiment's
-    results, a PR waiting on review, a thread that went quiet. Each item gives the thing being tracked,
+    Usually skipped. Include it only when a number or state they care about changed in a way they'd
+    want to know this morning and haven't already seen: a launch's signup count, an experiment's
+    results. At most 2 items. Each item gives the thing being tracked,
     the current state in one line, where it came from, and the date of that state. Only include an item
     when you found the actual current state; "check on X" is not an item.
 
@@ -315,26 +365,6 @@ enum DailyBriefPrompt {
     Nov 1 because of the payments review"), plus who was involved, where (`place`), when, and a link. Only
     include a decision when the source shows it was actually agreed, not just proposed.
 
-    ### `related_reading` — "Related to your interests"
-    2–6 articles, talks, videos, or examples connected to something specific they spent real time on
-    recently. Put one sentence naming the thread you're following in `related_reading_intro` ("You've
-    been deep in Flow's retention loop, so…"). Each item: title, source, URL, a one-line reason it's worth
-    their time, and an image URL if the page has a good one (og:image). Favor primary sources, standout
-    essays, and concrete examples over listicles and SEO pages. Things from their personal life (a trip,
-    a hobby, a restaurant they saved) count when they're clearly enjoyable.
-
-    ### `industry_news` — "Latest in your industry"
-    1–3 headlines from the last 48 hours that matter to their field or their company specifically. Each item:
-    headline, publication, URL, publish date. Skip this section entirely on a slow news day; never pad it with
-    general tech news.
-
-    ### `site_seeing` — "Recent site-seeing"
-    3–8 of the most visually interesting moments from yesterday, picked by actually looking at the
-    candidate screenshots: beautiful images, striking designs, places, art, games, fun videos. They don't
-    need to be work. Each item: the screenshot file name exactly as listed in index.json and a short
-    caption (≤ 8 words). Never pick adult or sexual content. Skip screens that are mostly text, code,
-    spreadsheets, or chat, and screens showing passwords or financial account details.
-
     \(writingStyle)
 
     {{OVERRIDE_INSTRUCTIONS}}
@@ -343,7 +373,7 @@ enum DailyBriefPrompt {
 
     Your final answer is one JSON object (it's checked against a schema). Each section you include is a
     top-level key holding its items; leave out the keys of sections you skip. `order` lists the sections
-    you included, best first.
+    you included, in the order they should appear.
 
     Show your reasoning; it's how the brief gets debugged. `notes` is a short account of the run: what
     you looked at, what you found, which sections you skipped and why, and anything you weren't sure
@@ -353,8 +383,8 @@ enum DailyBriefPrompt {
 
     ```json
     {
-      "notes": "Read 24 cards (mostly Flow paywall work and Slack). Searched Slack for launch threads; found the launch date change. Skipped industry_news: nothing relevant in the last 48 hours.",
-      "order": ["completed_yesterday", "related_reading", "site_seeing"],
+      "notes": "Read 24 cards (mostly Flow paywall work and Slack). Ran 5 web searches on the two threads they spent the most time on and opened 9 pages; kept 3. Ran 3 news searches; kept 1 from the last 48 hours. Skipped keep_tracking: no number moved.",
+      "order": ["related_reading", "industry_news", "completed_yesterday"],
       "keep_tracking": [
         { "label": "Flow onboarding progress", "status": "50 invites sent, 20 onboarded, 3 dropped off.", "app": "slack", "asOf": "2026-10-19", "url": "https://...", "why": "..." }
       ],
@@ -364,15 +394,11 @@ enum DailyBriefPrompt {
       "team_decisions": [
         { "decision": "Launch moved to Nov 1 because of the payments review.", "date": "2026-10-19", "people": ["Maggie Chang"], "place": "#dayflow", "app": "slack", "url": "https://...", "why": "..." }
       ],
-      "related_reading_intro": "You've been deep in Flow's retention loop, so these might spark some ideas.",
       "related_reading": [
-        { "title": "The Mechanics & Monetization of Idle Games", "source": "GDC", "url": "https://...", "reason": "How idle games pace rewards to bring players back daily.", "imageUrl": "https://...", "why": "..." }
+        { "title": "The Mechanics & Monetization of Idle Games", "source": "GDC", "url": "https://...", "hook": "Players come back for the reward they almost got", "reason": "You spent yesterday on Flow's daily rewards.", "minutes": 12, "imageUrl": "https://...", "why": "..." }
       ],
       "industry_news": [
         { "headline": "...", "source": "Financial Times", "url": "https://...", "published": "2026-10-21", "why": "..." }
-      ],
-      "site_seeing": [
-        { "file": "1234_1342.jpg", "caption": "Shoji bar, saved for Miami", "why": "..." }
       ]
     }
     ```

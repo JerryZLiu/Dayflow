@@ -31,7 +31,7 @@ enum DailyBriefGenerator {
   enum Part: String, CaseIterable, Sendable {
     /// "Your docket today" only.
     case docket
-    /// Every other section, using the candidate screenshots.
+    /// Every other section.
     case extras
 
     var displayName: String {
@@ -61,7 +61,9 @@ enum DailyBriefGenerator {
     var kinds: [DailyBriefSectionKind] {
       switch self {
       case .docket: return [.docket]
-      case .extras: return DailyBriefSectionKind.allCases.filter { $0 != .docket }
+      // Recent site-seeing is switched off for now.
+      case .extras:
+        return DailyBriefSectionKind.allCases.filter { $0 != .docket && $0 != .siteSeeing }
       }
     }
   }
@@ -586,7 +588,7 @@ enum DailyBriefGenerator {
             "- industry_news: \($0.headline) (\($0.url))"
           }
         case .siteSeeing:
-          lines += (content.siteSeeing ?? []).map { "- site_seeing: \($0.caption ?? $0.file)" }
+          break  // Not generated for now, so past picks aren't shown to the model either.
         }
       }
       guard !lines.isEmpty else { continue }
@@ -821,6 +823,8 @@ enum DailyBriefGenerator {
         "url": stringSchema,
         "reason": stringSchema,
         "imageUrl": stringSchema,
+        "hook": stringSchema,
+        "minutes": ["type": "integer"],
         "why": stringSchema,
       ], required: ["title", "url", "why"])
     let newsItem = objectSchema(
@@ -831,9 +835,6 @@ enum DailyBriefGenerator {
         "published": stringSchema,
         "why": stringSchema,
       ], required: ["headline", "url", "why"])
-    let siteSeeingItem = objectSchema(
-      ["file": stringSchema, "caption": stringSchema, "why": stringSchema],
-      required: ["file", "why"])
 
     if part == .docket {
       return objectSchema(
@@ -848,10 +849,8 @@ enum DailyBriefGenerator {
         "keep_tracking": arraySchema(trackingItem),
         "completed_yesterday": arraySchema(completedItem),
         "team_decisions": arraySchema(decisionItem),
-        "related_reading_intro": stringSchema,
         "related_reading": arraySchema(readingItem),
         "industry_news": arraySchema(newsItem),
-        "site_seeing": arraySchema(siteSeeingItem),
       ], required: ["notes", "order"])
   }
 
@@ -1154,7 +1153,6 @@ enum DailyBriefGenerator {
   ) -> DailyBriefContent {
     let imagesDirectory = DailyBriefStore.briefDirectory(for: day)
       .appendingPathComponent("images", isDirectory: true)
-    let candidateFiles = Set(candidates.map(\.file))
     var copiedFiles: Set<String> = []
 
     // Old images stay until replaced, so the brief on screen during a retry keeps its pictures.
@@ -1246,7 +1244,8 @@ enum DailyBriefGenerator {
         guard let title = clean(item.title), let url = webURL(item.url) else { return nil }
         return DailyBriefReadingItem(
           title: title, source: clean(item.source), url: url, reason: clean(item.reason),
-          imageUrl: webURL(item.imageUrl))
+          imageUrl: webURL(item.imageUrl), hook: clean(item.hook),
+          minutes: item.minutes.flatMap { $0 > 0 ? $0 : nil })
       })
     result.relatedReadingIntro =
       result.relatedReading == nil ? nil : clean(content.relatedReadingIntro)
@@ -1257,19 +1256,6 @@ enum DailyBriefGenerator {
         return DailyBriefNewsItem(
           headline: headline, source: clean(item.source), url: url,
           published: clean(item.published))
-      })
-
-    var seenSiteSeeingFiles: Set<String> = []
-    result.siteSeeing = nonEmpty(
-      (content.siteSeeing ?? []).compactMap { item -> DailyBriefSiteSeeingItem? in
-        // The model may echo a path; only the file name has to match a candidate.
-        guard let raw = clean(item.file) else { return nil }
-        let file = (raw as NSString).lastPathComponent
-        guard candidateFiles.contains(file), !seenSiteSeeingFiles.contains(file),
-          let copied = copyCandidate(file)
-        else { return nil }
-        seenSiteSeeingFiles.insert(file)
-        return DailyBriefSiteSeeingItem(file: copied, caption: clean(item.caption))
       })
 
     var order: [String] = []

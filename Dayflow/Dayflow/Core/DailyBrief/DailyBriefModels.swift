@@ -118,8 +118,13 @@ struct DailyBriefReadingItem: Codable, Hashable, Sendable {
   var title: String
   var source: String?
   var url: String
+  /// One sentence on why it's for this person in particular.
   var reason: String?
   var imageUrl: String?
+  /// The most interesting specific thing the piece says, shown in bold. Older briefs don't have it.
+  var hook: String?
+  /// Roughly how long it takes to read or watch.
+  var minutes: Int?
 }
 
 struct DailyBriefNewsItem: Codable, Hashable, Sendable {
@@ -192,7 +197,8 @@ struct DailyBriefContent: Codable, Equatable, Sendable {
   }
 
   func hasItems(_ kind: DailyBriefSectionKind) -> Bool {
-    itemCount(kind) > 0
+    // Recent site-seeing is switched off for now, so briefs that already have it don't show it.
+    kind != .siteSeeing && itemCount(kind) > 0
   }
 }
 
