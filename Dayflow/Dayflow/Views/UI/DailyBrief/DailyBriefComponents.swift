@@ -351,12 +351,68 @@ extension View {
 // MARK: - Links
 
 enum DailyBriefLinks {
-  /// Opens a link in the browser. Returns false when the string isn't a URL.
+  /// Opens a link in the browser, or a Slack message link in the Slack app when it can
+  /// (the browser usually isn't signed in to Slack, so it lands on a sign-in page).
+  /// Returns false when the string isn't a URL.
   @discardableResult
   static func open(_ string: String?) -> Bool {
     guard let string, let url = URL(string: string), url.scheme != nil else { return false }
-    NSWorkspace.shared.open(url)
+    NSWorkspace.shared.open(slackAppURL(for: url) ?? url)
     return true
+  }
+
+  /// https://teleport-labs.slack.com/archives/C0B1BC1TJNN/p1794427192743539
+  /// → slack://channel?team=T077AB269M4&id=C0B1BC1TJNN&message=1794427192.743539
+  ///
+  /// slack:// links need the workspace ID, which isn't in the web link, so it's looked
+  /// up in the Slack app's own list of signed-in workspaces. nil when the link isn't a
+  /// Slack message link or the Slack app isn't signed in to that workspace.
+  static func slackAppURL(for url: URL) -> URL? {
+    guard let host = url.host, host.hasSuffix(".slack.com") else { return nil }
+    let parts = url.pathComponents  // ["/", "archives", "C0B1BC1TJNN", "p1794427192743539"]
+    guard parts.count >= 3, parts[1] == "archives",
+      let teamID = slackWorkspaceIDs()[host]
+    else { return nil }
+
+    var components = URLComponents()
+    components.scheme = "slack"
+    components.host = "channel"
+    var query = [
+      URLQueryItem(name: "team", value: teamID),
+      URLQueryItem(name: "id", value: parts[2]),
+    ]
+    // "p1794427192743539" is the message timestamp 1794427192.743539 without the dot.
+    if parts.count >= 4, parts[3].hasPrefix("p"), parts[3].count > 7 {
+      let digits = String(parts[3].dropFirst())
+      let timestamp = "\(digits.dropLast(6)).\(digits.suffix(6))"
+      query.append(URLQueryItem(name: "message", value: timestamp))
+    }
+    if let threadTimestamp = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+      .queryItems?.first(where: { $0.name == "thread_ts" })?.value
+    {
+      query.append(URLQueryItem(name: "thread_ts", value: threadTimestamp))
+    }
+    components.queryItems = query
+    return components.url
+  }
+
+  /// Workspace web host ("teleport-labs.slack.com") → workspace ID ("T077AB269M4"),
+  /// read from the Slack desktop app's saved state.
+  private static func slackWorkspaceIDs() -> [String: String] {
+    let stateURL = URL(fileURLWithPath: NSHomeDirectory())
+      .appendingPathComponent("Library/Application Support/Slack/storage/root-state.json")
+    guard let data = try? Data(contentsOf: stateURL),
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let workspaces = json["workspaces"] as? [String: [String: Any]]
+    else { return [:] }
+
+    var result: [String: String] = [:]
+    for (id, workspace) in workspaces {
+      if let link = workspace["url"] as? String, let host = URL(string: link)?.host {
+        result[host] = workspace["id"] as? String ?? id
+      }
+    }
+    return result
   }
 
   static func host(of string: String?) -> String? {
