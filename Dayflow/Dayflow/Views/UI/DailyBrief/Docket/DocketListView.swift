@@ -3,8 +3,8 @@
 //  Dayflow
 //
 //  The docket as a list: every task today with its prompt and where it stands (New,
-//  Dismissed, In progress, Ready for review, Reviewed). Hovering a row shows its counts;
-//  clicking its title opens it to show the full, editable prompt and the count panels.
+//  Dismissed, In progress, Ready for review, Reviewed). Clicking a row's title opens it to
+//  show its counts, the full, editable prompt and the count panels.
 //
 
 import SwiftUI
@@ -70,7 +70,9 @@ private struct DocketListRow: View {
   @State private var draft = ""
   @FocusState private var isFocused: Bool
 
-  private var showsCounts: Bool { isHovered || isOpen }
+  /// Hovering only shows the chevron and the hand-off button, so rows don't change
+  /// height as the pointer moves over the list.
+  private var showsChevron: Bool { isHovered || isOpen }
 
   var body: some View {
     HStack(alignment: .top, spacing: 0) {
@@ -90,7 +92,6 @@ private struct DocketListRow: View {
     }
     .contentShape(Rectangle())
     .onHover { isHovered = $0 }
-    .animation(DocketMotion.ease(0.28), value: showsCounts)
     .onChange(of: isOpen) { _, open in
       if !open {
         panel = nil
@@ -125,12 +126,12 @@ private struct DocketListRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .opacity(showsCounts ? 1 : 0)
-        .animation(.easeOut(duration: 0.15), value: showsCounts)
+        .opacity(showsChevron ? 1 : 0)
+        .animation(.easeOut(duration: 0.15), value: showsChevron)
         .offset(x: -19, y: -1)
       }
 
-      if showsCounts {
+      if isOpen {
         DocketCountsRow(
           item: item, panel: $panel,
           openFill: Color(red: 150 / 255, green: 100 / 255, blue: 90 / 255).opacity(0.03)
@@ -139,10 +140,6 @@ private struct DocketListRow: View {
         .padding(.top, 8)
         .padding(.leading, 6)
         .transition(.opacity.combined(with: .offset(y: -4)))
-        .onChange(of: panel) { _, newPanel in
-          // Opening a count opens the row.
-          if newPanel != nil && !isOpen { toggle() }
-        }
       }
 
       if isOpen, let panel {
@@ -206,13 +203,13 @@ private struct DocketListRow: View {
         .help("Click to edit")
       } else {
         promptText
-          .lineLimit(isHovered ? 2 : 1)
+          .lineLimit(1)
           .onTapGesture(perform: toggle)
       }
     }
     .padding(.top, 10.75)
     .padding(.horizontal, 7)
-    .padding(.bottom, isHovered || isOpen ? 5 : 0)
+    .padding(.bottom, isOpen ? 5 : 0)
     .frame(width: 266, alignment: .topLeading)
     .background(
       RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Color.white.opacity(0.1))
@@ -282,7 +279,9 @@ struct DocketStatusTag: View {
     }
   }
 
-  private func tag<Icon: View>(_ label: String, fill: String, spacing: CGFloat = 6, @ViewBuilder icon: () -> Icon)
+  private func tag<Icon: View>(
+    _ label: String, fill: String, spacing: CGFloat = 6, @ViewBuilder icon: () -> Icon
+  )
     -> some View
   {
     HStack(spacing: spacing) {
@@ -320,7 +319,9 @@ struct DocketStatusTag: View {
   }
 
   private func openHelp(_ agent: DailyBriefAgent) -> String {
-    if store.handoff(for: title)?.outputFile != nil { return "Open what \(agent.displayName) wrote" }
+    if store.handoff(for: title)?.outputFile != nil {
+      return "Open what \(agent.displayName) wrote"
+    }
     return "Open in \(agent.displayName)"
   }
 }
@@ -349,7 +350,9 @@ private struct DocketListHandOffButton: View {
         .fixedSize()
         .padding(.vertical, 4)
         .padding(.horizontal, 8)
-        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color(hex: "3A3A3A")))
+        .background(
+          RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color(hex: "3A3A3A"))
+        )
         .offset(y: -29)
         .opacity(isHovered ? 1 : 0)
         .animation(.easeOut(duration: 0.15), value: isHovered)
