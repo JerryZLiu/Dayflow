@@ -471,8 +471,10 @@ private struct DailyBriefSavedRow: View {
 private struct DailyBriefFooter: View {
   @ObservedObject private var store = DailyBriefStore.shared
   @Environment(\.dayflowTheme) private var theme
-  @State private var isEditingInstructions = false
-  @State private var isEditingPrompt = false
+  #if DEBUG
+    @State private var isEditingInstructions = false
+    @State private var isEditingPrompt = false
+  #endif
 
   var body: some View {
     VStack(spacing: 10) {
@@ -494,39 +496,43 @@ private struct DailyBriefFooter: View {
         }
         .disabled(store.isRunning)
 
-        Button {
-          isEditingInstructions = true
-        } label: {
-          HStack(spacing: 5) {
-            Image(systemName: "slider.horizontal.3")
-              .font(.system(size: 10, weight: .medium))
-            Text("Override instructions")
-          }
-        }
-        .popover(isPresented: $isEditingInstructions, arrowEdge: .top) {
-          DailyBriefOverrideEditor(isPresented: $isEditingInstructions)
-        }
-
-        Button {
-          isEditingPrompt = true
-        } label: {
-          HStack(spacing: 5) {
-            Image(systemName: "text.alignleft")
-              .font(.system(size: 10, weight: .medium))
-            Text("Edit prompt")
-            if store.hasAnyPromptOverride {
-              Text("Custom prompt")
-                .font(DailyBriefFonts.sans(10, weight: .semibold))
-                .foregroundStyle(theme.accent)
-                .padding(.vertical, 1)
-                .padding(.horizontal, 5)
-                .background(Capsule().fill(theme.accent.opacity(0.15)))
+        // The instruction override and the raw prompt editor are development
+        // tools: they expose the internal prompts, so they stay out of release.
+        #if DEBUG
+          Button {
+            isEditingInstructions = true
+          } label: {
+            HStack(spacing: 5) {
+              Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 10, weight: .medium))
+              Text("Override instructions")
             }
           }
-        }
-        .sheet(isPresented: $isEditingPrompt) {
-          DailyBriefPromptEditor(isPresented: $isEditingPrompt)
-        }
+          .popover(isPresented: $isEditingInstructions, arrowEdge: .top) {
+            DailyBriefOverrideEditor(isPresented: $isEditingInstructions)
+          }
+
+          Button {
+            isEditingPrompt = true
+          } label: {
+            HStack(spacing: 5) {
+              Image(systemName: "text.alignleft")
+                .font(.system(size: 10, weight: .medium))
+              Text("Edit prompt")
+              if store.hasAnyPromptOverride {
+                Text("Custom prompt")
+                  .font(DailyBriefFonts.sans(10, weight: .semibold))
+                  .foregroundStyle(theme.accent)
+                  .padding(.vertical, 1)
+                  .padding(.horizontal, 5)
+                  .background(Capsule().fill(theme.accent.opacity(0.15)))
+              }
+            }
+          }
+          .sheet(isPresented: $isEditingPrompt) {
+            DailyBriefPromptEditor(isPresented: $isEditingPrompt)
+          }
+        #endif
       }
       .buttonStyle(.plain)
       .font(DailyBriefFonts.sans(12, weight: .medium))
@@ -540,71 +546,99 @@ private struct DailyBriefFooter: View {
           .frame(maxWidth: 420)
       }
 
-      DailyBriefDebugStats()
-        .padding(.top, 6)
+      // Run numbers and transcripts are for development only.
+      #if DEBUG
+        DailyBriefDebugStats()
+          .padding(.top, 6)
+      #endif
     }
   }
 }
 
 /// Small monospaced numbers about the last run (or the live elapsed time while
 /// one is going), plus a "Copy stats" button that copies them as JSON.
-private struct DailyBriefDebugStats: View {
-  @ObservedObject private var store = DailyBriefStore.shared
-  @Environment(\.dayflowTheme) private var theme
+/// Debug builds only.
+#if DEBUG
+  private struct DailyBriefDebugStats: View {
+    @ObservedObject private var store = DailyBriefStore.shared
+    @Environment(\.dayflowTheme) private var theme
 
-  private var isFailed: Bool {
-    if case .failed = store.runState { return true }
-    return false
-  }
+    private var isFailed: Bool {
+      if case .failed = store.runState { return true }
+      return false
+    }
 
-  /// The failed run's stats when the last run failed, else the brief's.
-  private var stats: DailyBriefRunStats? {
-    isFailed ? store.lastFailedRunStats : store.brief?.stats
-  }
+    /// The failed run's stats when the last run failed, else the brief's.
+    private var stats: DailyBriefRunStats? {
+      isFailed ? store.lastFailedRunStats : store.brief?.stats
+    }
 
-  /// One part's saved Claude transcript from the last run, when there is one. Runs are
-  /// always for today, so a failed retry's transcripts live in the same folder.
-  private func transcriptURL(_ part: DailyBriefGenerator.Part) -> URL? {
-    let day = store.brief?.day ?? Date().getDayInfoFor4AMBoundary().dayString
-    let url = DailyBriefStore.transcriptURL(for: day, part: part)
-    return FileManager.default.fileExists(atPath: url.path) ? url : nil
-  }
+    /// One part's saved Claude transcript from the last run, when there is one. Runs are
+    /// always for today, so a failed retry's transcripts live in the same folder.
+    private func transcriptURL(_ part: DailyBriefGenerator.Part) -> URL? {
+      let day = store.brief?.day ?? Date().getDayInfoFor4AMBoundary().dayString
+      let url = DailyBriefStore.transcriptURL(for: day, part: part)
+      return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
 
-  /// Only meaningful when the stats belong to the brief on screen.
-  private var generatedAt: Date? {
-    isFailed ? nil : store.brief?.generatedAt
-  }
+    /// Only meaningful when the stats belong to the brief on screen.
+    private var generatedAt: Date? {
+      isFailed ? nil : store.brief?.generatedAt
+    }
 
-  var body: some View {
-    VStack(spacing: 4) {
-      if case .running(let startedAt) = store.runState {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-          statLine("running for \(Self.duration(context.date.timeIntervalSince(startedAt)))")
-        }
-      }
-
-      if let stats {
-        ForEach(Self.lines(stats, generatedAt: generatedAt, failed: isFailed), id: \.self) { line in
-          statLine(line)
+    var body: some View {
+      VStack(spacing: 4) {
+        if case .running(let startedAt) = store.runState {
+          TimelineView(.periodic(from: .now, by: 1)) { context in
+            statLine("running for \(Self.duration(context.date.timeIntervalSince(startedAt)))")
+          }
         }
 
-        HStack(spacing: 14) {
-          Button("Copy stats") {
-            Self.copyJSON(stats, generatedAt: generatedAt)
+        if let stats {
+          ForEach(Self.lines(stats, generatedAt: generatedAt, failed: isFailed), id: \.self) {
+            line in
+            statLine(line)
           }
-          Button("Reset tasks") {
-            DocketUIState.shared.askTitle = nil
-            DocketUIState.shared.isPromptOpen = false
-            store.resetDocket()
-          }
-          .help("Put every task back in the stack as new")
-          ForEach(DailyBriefGenerator.Part.allCases, id: \.self) { part in
-            if let url = transcriptURL(part) {
-              Button("\(part.displayName) transcript") {
-                NSWorkspace.shared.open(url)
+
+          HStack(spacing: 14) {
+            Button("Copy stats") {
+              Self.copyJSON(stats, generatedAt: generatedAt)
+            }
+            Button("Reset tasks") {
+              DocketUIState.shared.askTitle = nil
+              DocketUIState.shared.isPromptOpen = false
+              store.resetDocket()
+            }
+            .help("Put every task back in the stack as new")
+            ForEach(DailyBriefGenerator.Part.allCases, id: \.self) { part in
+              if let url = transcriptURL(part) {
+                Button("\(part.displayName) transcript") {
+                  NSWorkspace.shared.open(url)
+                }
               }
             }
           }
+          .buttonStyle(.plain)
+          .font(.system(size: 10, weight: .medium, design: .monospaced))
+          .foregroundStyle(DailyBriefColors.muted(theme))
+          .padding(.top, 2)
+          .pointingHandCursor()
+        }
+
+        // Always here, even before the first run has stats.
+        HStack(spacing: 14) {
+          Button("Replay intro") {
+            store.debugReplayIntro()
+          }
+          .help("Show the Introducing Daily Briefs walkthrough again")
+          Button("Show ready notice") {
+            store.debugShowReadyNotice()
+          }
+          .help("Close the brief and show the menu bar card that says it's ready")
+          Button("Layout: \(store.layoutVariant)") {
+            store.debugToggleReadingFirst()
+          }
+          .help("Switch between the two halves of the reading-first layout test")
         }
         .buttonStyle(.plain)
         .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -612,135 +646,114 @@ private struct DailyBriefDebugStats: View {
         .padding(.top, 2)
         .pointingHandCursor()
       }
+      .frame(maxWidth: 620)
+    }
 
-      // Always here, even before the first run has stats.
-      HStack(spacing: 14) {
-        Button("Replay intro") {
-          store.debugReplayIntro()
+    private func statLine(_ text: String) -> some View {
+      Text(text)
+        .font(.system(size: 10, design: .monospaced))
+        .foregroundStyle(DailyBriefColors.muted(theme))
+        .multilineTextAlignment(.center)
+        .textSelection(.enabled)
+    }
+
+    // MARK: Formatting
+
+    /// 462 → "7m 42s", 42 → "42s".
+    static func duration(_ seconds: Double) -> String {
+      let total = max(0, Int(seconds.rounded()))
+      let minutes = total / 60
+      let remainder = total % 60
+      return minutes > 0 ? "\(minutes)m \(remainder)s" : "\(remainder)s"
+    }
+
+    /// A few short lines; nil fields are skipped.
+    static func lines(_ stats: DailyBriefRunStats, generatedAt: Date?, failed: Bool) -> [String] {
+      // The clock time includes any time the Mac spent asleep; the API time doesn't.
+      var time = (failed ? "failed after " : "generated in ") + duration(stats.durationSeconds)
+      if let apiSeconds = stats.apiSeconds { time += " (\(duration(apiSeconds)) in API calls)" }
+      var run: [String] = [time]
+      if let model = stats.model { run.append(model) }
+      // The CLI's own estimate at list prices, not a charge. Per model when it reports that.
+      if let cost = stats.costUSD {
+        var text = String(format: "CLI estimate $%.2f", cost)
+        if let modelCosts = stats.modelCosts, modelCosts.count > 1 {
+          let parts = modelCosts.sorted { $0.value > $1.value }
+            .map { String(format: "%@ $%.2f", $0.key, $0.value) }
+          text += " (" + parts.joined(separator: ", ") + ")"
         }
-        .help("Show the Introducing Daily Briefs walkthrough again")
-        Button("Show ready notice") {
-          store.debugShowReadyNotice()
-        }
-        .help("Close the brief and show the menu bar card that says it's ready")
-        Button("Layout: \(store.layoutVariant)") {
-          store.debugToggleReadingFirst()
-        }
-        .help("Switch between the two halves of the reading-first layout test")
+        run.append(text)
       }
-      .buttonStyle(.plain)
-      .font(.system(size: 10, weight: .medium, design: .monospaced))
-      .foregroundStyle(DailyBriefColors.muted(theme))
-      .padding(.top, 2)
-      .pointingHandCursor()
-    }
-    .frame(maxWidth: 620)
-  }
-
-  private func statLine(_ text: String) -> some View {
-    Text(text)
-      .font(.system(size: 10, design: .monospaced))
-      .foregroundStyle(DailyBriefColors.muted(theme))
-      .multilineTextAlignment(.center)
-      .textSelection(.enabled)
-  }
-
-  // MARK: Formatting
-
-  /// 462 → "7m 42s", 42 → "42s".
-  static func duration(_ seconds: Double) -> String {
-    let total = max(0, Int(seconds.rounded()))
-    let minutes = total / 60
-    let remainder = total % 60
-    return minutes > 0 ? "\(minutes)m \(remainder)s" : "\(remainder)s"
-  }
-
-  /// A few short lines; nil fields are skipped.
-  static func lines(_ stats: DailyBriefRunStats, generatedAt: Date?, failed: Bool) -> [String] {
-    // The clock time includes any time the Mac spent asleep; the API time doesn't.
-    var time = (failed ? "failed after " : "generated in ") + duration(stats.durationSeconds)
-    if let apiSeconds = stats.apiSeconds { time += " (\(duration(apiSeconds)) in API calls)" }
-    var run: [String] = [time]
-    if let model = stats.model { run.append(model) }
-    // The CLI's own estimate at list prices, not a charge. Per model when it reports that.
-    if let cost = stats.costUSD {
-      var text = String(format: "CLI estimate $%.2f", cost)
-      if let modelCosts = stats.modelCosts, modelCosts.count > 1 {
-        let parts = modelCosts.sorted { $0.value > $1.value }
-          .map { String(format: "%@ $%.2f", $0.key, $0.value) }
-        text += " (" + parts.joined(separator: ", ") + ")"
+      if let trigger = stats.trigger { run.append("trigger: \(trigger)") }
+      if let generatedAt {
+        run.append(generatedAt.formatted(date: .abbreviated, time: .shortened))
       }
-      run.append(text)
-    }
-    if let trigger = stats.trigger { run.append("trigger: \(trigger)") }
-    if let generatedAt {
-      run.append(generatedAt.formatted(date: .abbreviated, time: .shortened))
+
+      var tokens: [String] = []
+      if let input = stats.inputTokens { tokens.append("in \(input.formatted())") }
+      if let output = stats.outputTokens { tokens.append("out \(output.formatted())") }
+      if let cacheRead = stats.cacheReadTokens {
+        tokens.append("cache read \(cacheRead.formatted())")
+      }
+      if let cacheWrite = stats.cacheWriteTokens {
+        tokens.append("cache write \(cacheWrite.formatted())")
+      }
+      if let turns = stats.numTurns { tokens.append("\(turns) turns") }
+
+      var work: [String] = []
+      if let toolCalls = stats.toolCalls, !toolCalls.isEmpty {
+        let total = toolCalls.values.reduce(0, +)
+        let top = toolCalls.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
+          .prefix(4)
+          .map { "\($0.key) \($0.value)" }
+          .joined(separator: ", ")
+        work.append("\(total) tool calls (\(top))")
+      }
+      if let cards = stats.cardCount { work.append("\(cards) cards") }
+      if let images = stats.candidateImageCount { work.append("\(images) candidate images") }
+      if let characters = stats.promptCharacters {
+        work.append("prompt \(characters.formatted()) chars")
+      }
+      if let connectors = stats.connectors, !connectors.isEmpty {
+        let names = connectors.sorted { $0.key < $1.key }
+          .map { $0.value == "connected" ? $0.key : "\($0.key) (\($0.value))" }
+        work.append("connectors: " + names.joined(separator: ", "))
+      }
+
+      var flags: [String] = []
+      flags.append(stats.usedPromptOverride ? "custom prompt" : "default prompt")
+      if stats.usedOverrideInstructions { flags.append("override instructions") }
+
+      // A run that failed while the other one succeeded gets its own line.
+      let failures = (stats.failedParts ?? [:]).sorted { $0.key < $1.key }.map { part, message in
+        let name = DailyBriefGenerator.Part(rawValue: part)?.displayName ?? part
+        return ["\(name) run failed: \(message)"]
+      }
+
+      return ([run, tokens, work, flags] + failures)
+        .filter { !$0.isEmpty }
+        .map { $0.joined(separator: " · ") }
     }
 
-    var tokens: [String] = []
-    if let input = stats.inputTokens { tokens.append("in \(input.formatted())") }
-    if let output = stats.outputTokens { tokens.append("out \(output.formatted())") }
-    if let cacheRead = stats.cacheReadTokens {
-      tokens.append("cache read \(cacheRead.formatted())")
+    static func copyJSON(_ stats: DailyBriefRunStats, generatedAt: Date?) {
+      let encoder = JSONEncoder()
+      encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+      guard let data = try? encoder.encode(stats),
+        var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+      else { return }
+      if let generatedAt {
+        object["generatedAt"] = ISO8601DateFormatter().string(from: generatedAt)
+      }
+      guard
+        let output = try? JSONSerialization.data(
+          withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
+        let text = String(data: output, encoding: .utf8)
+      else { return }
+      NSPasteboard.general.clearContents()
+      NSPasteboard.general.setString(text, forType: .string)
     }
-    if let cacheWrite = stats.cacheWriteTokens {
-      tokens.append("cache write \(cacheWrite.formatted())")
-    }
-    if let turns = stats.numTurns { tokens.append("\(turns) turns") }
-
-    var work: [String] = []
-    if let toolCalls = stats.toolCalls, !toolCalls.isEmpty {
-      let total = toolCalls.values.reduce(0, +)
-      let top = toolCalls.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
-        .prefix(4)
-        .map { "\($0.key) \($0.value)" }
-        .joined(separator: ", ")
-      work.append("\(total) tool calls (\(top))")
-    }
-    if let cards = stats.cardCount { work.append("\(cards) cards") }
-    if let images = stats.candidateImageCount { work.append("\(images) candidate images") }
-    if let characters = stats.promptCharacters {
-      work.append("prompt \(characters.formatted()) chars")
-    }
-    if let connectors = stats.connectors, !connectors.isEmpty {
-      let names = connectors.sorted { $0.key < $1.key }
-        .map { $0.value == "connected" ? $0.key : "\($0.key) (\($0.value))" }
-      work.append("connectors: " + names.joined(separator: ", "))
-    }
-
-    var flags: [String] = []
-    flags.append(stats.usedPromptOverride ? "custom prompt" : "default prompt")
-    if stats.usedOverrideInstructions { flags.append("override instructions") }
-
-    // A run that failed while the other one succeeded gets its own line.
-    let failures = (stats.failedParts ?? [:]).sorted { $0.key < $1.key }.map { part, message in
-      let name = DailyBriefGenerator.Part(rawValue: part)?.displayName ?? part
-      return ["\(name) run failed: \(message)"]
-    }
-
-    return ([run, tokens, work, flags] + failures)
-      .filter { !$0.isEmpty }
-      .map { $0.joined(separator: " · ") }
   }
-
-  static func copyJSON(_ stats: DailyBriefRunStats, generatedAt: Date?) {
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    guard let data = try? encoder.encode(stats),
-      var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-    else { return }
-    if let generatedAt {
-      object["generatedAt"] = ISO8601DateFormatter().string(from: generatedAt)
-    }
-    guard
-      let output = try? JSONSerialization.data(
-        withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
-      let text = String(data: output, encoding: .utf8)
-    else { return }
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(text, forType: .string)
-  }
-}
+#endif
 
 /// Edits the two prompt templates (docket, and other sections). An empty override means
 /// that part uses its default.
