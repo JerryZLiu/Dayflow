@@ -192,6 +192,10 @@ extension MainView {
   }
 
   private func performMainLayoutOnDisappear() {
+    // Closing the window leaves the brief marked as open, which would make
+    // tomorrow's brief count as already seen: no menu bar card, no auto-present.
+    if dailyBrief.isPresented { dailyBrief.dismiss() }
+
     // Safety: stop timer if view disappears
     stopDayChangeTimer()
     reviewCountTask?.cancel()
