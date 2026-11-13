@@ -136,6 +136,17 @@ final class DailyBriefStore: ObservableObject {
     case saved
     case completedHistory
     case rangeSummary(DailyBriefSummaryRange)
+
+    /// The name analytics uses for the screen. Enlarging an image is already
+    /// recorded as an item action, so it has none.
+    var analyticsName: String? {
+      switch self {
+      case .enlargedImage: return nil
+      case .saved: return "saved"
+      case .completedHistory: return "completed_history"
+      case .rangeSummary: return "range_summary"
+      }
+    }
   }
 
   enum SummaryState: Equatable {
@@ -152,7 +163,12 @@ final class DailyBriefStore: ObservableObject {
 
   /// The brief overlay is on screen.
   @Published var isPresented = false
-  @Published var route: Route?
+  @Published var route: Route? {
+    didSet {
+      guard route != oldValue, let page = route?.analyticsName else { return }
+      AnalyticsService.shared.capture("daily_brief_subpage_opened", ["page": page])
+    }
+  }
   /// The top-right "your brief is ready" notice is on screen.
   @Published var showsReadyNotice = false
 
@@ -168,6 +184,7 @@ final class DailyBriefStore: ObservableObject {
     savedItems = Self.loadSavedItems()
     feedbackEvents = Self.loadFeedback()
     loadSummaries()
+    observeAppActivity()
   }
 
   // MARK: - Override instructions
@@ -466,19 +483,52 @@ final class DailyBriefStore: ObservableObject {
       if trigger != "retry" && !isPresented && isFeatureEnabled {
         showsReadyNotice = true
       }
-      AnalyticsService.shared.capture(
-        "daily_brief_run_succeeded",
-        [
-          "trigger": trigger,
-          "day": day,
-          "duration_seconds": durationSeconds,
-          "sections": content.orderedKinds.map(\.rawValue).joined(separator: ","),
-          "section_count": content.orderedKinds.count,
-          "cost_usd": stats.costUSD ?? 0,
-          "num_turns": stats.numTurns ?? 0,
-          "used_prompt_override": stats.usedPromptOverride,
-          "failed_parts": (stats.failedParts ?? [:]).keys.sorted().joined(separator: ","),
-        ])
+      var properties: [String: Any] = [
+        "trigger": trigger,
+        "day": day,
+        "duration_seconds": durationSeconds,
+        "sections": content.orderedKinds.map(\.rawValue).joined(separator: ","),
+        "section_count": content.orderedKinds.count,
+        "cost_usd": stats.costUSD ?? 0,
+        "num_turns": stats.numTurns ?? 0,
+        "model": stats.model ?? "",
+        "used_prompt_override": stats.usedPromptOverride,
+        "failed_parts": (stats.failedParts ?? [:]).keys.sorted().joined(separator: ","),
+        "api_seconds": Int(stats.apiSeconds ?? 0),
+        "input_tokens": stats.inputTokens ?? 0,
+        "output_tokens": stats.outputTokens ?? 0,
+        "cache_read_tokens": stats.cacheReadTokens ?? 0,
+        "cache_write_tokens": stats.cacheWriteTokens ?? 0,
+      ]
+      // What the run actually did: every tool it called and how often, which
+      // connectors it had, and whether each one came up.
+      let toolCalls = stats.toolCalls ?? [:]
+      properties["tool_call_count"] = toolCalls.values.reduce(0, +)
+      properties["tools_used"] = toolCalls.keys.sorted().joined(separator: ",")
+      for (tool, count) in toolCalls {
+        properties["tool_\(tool)"] = count
+      }
+      let connectors = stats.connectors ?? [:]
+      properties["connectors"] = connectors.keys.sorted().joined(separator: ",")
+      properties["connector_count"] = connectors.count
+      properties["connectors_failed"] =
+        connectors.filter { $0.value != "connected" }.keys.sorted().joined(separator: ",")
+      // How many items each section came out with, so clicks can be read against what was shown.
+      for kind in DailyBriefSectionKind.allCases {
+        properties["items_\(kind.rawValue)"] = content.itemCount(kind)
+      }
+      let readingPictures = (content.relatedReading ?? []).map {
+        Self.pictureKind($0.imageFile, $0.imageIsTitleCard)
+      }
+      let newsPictures = (content.industryNews ?? []).map {
+        Self.pictureKind($0.imageFile, $0.imageIsTitleCard)
+      }
+      for (name, pictures) in [("reading", readingPictures), ("news", newsPictures)] {
+        properties["\(name)_photos"] = pictures.filter { $0 == "photo" }.count
+        properties["\(name)_title_cards"] = pictures.filter { $0 == "title_card" }.count
+        properties["\(name)_without_picture"] = pictures.filter { $0 == "none" }.count
+      }
+      AnalyticsService.shared.capture("daily_brief_run_succeeded", properties)
     case .failure(let error):
       let message =
         (error as? DailyBriefGenerator.GenerationError)?.message ?? error.localizedDescription
@@ -488,7 +538,10 @@ final class DailyBriefStore: ObservableObject {
         usedOverrideInstructions: !overrideInstructions.isEmpty, trigger: trigger)
       AnalyticsService.shared.capture(
         "daily_brief_run_failed",
-        ["trigger": trigger, "day": day, "duration_seconds": durationSeconds])
+        [
+          "trigger": trigger, "day": day, "duration_seconds": durationSeconds,
+          "error_message": String(message.prefix(200)),
+        ])
     }
   }
 
@@ -545,17 +598,33 @@ final class DailyBriefStore: ObservableObject {
       showsIntro = true
       AnalyticsService.shared.capture("daily_brief_intro_shown", ["source": source])
     }
-    if brief != nil && brief?.userState.hasBeenShown == false {
+    let isFirstOpen = brief?.userState.hasBeenShown == false
+    if isFirstOpen {
       brief?.userState.hasBeenShown = true
       persistBrief()
     }
-    AnalyticsService.shared.capture(
-      "daily_brief_opened",
-      ["source": source, "has_brief": brief != nil])
+    var properties: [String: Any] = [
+      "source": source, "has_brief": brief != nil, "first_open_of_brief": isFirstOpen,
+      "layout": layoutVariant,
+    ]
+    if let brief {
+      properties["minutes_since_generated"] = Int(Date().timeIntervalSince(brief.generatedAt) / 60)
+      properties["section_count"] = brief.content.orderedKinds.count
+    }
+    AnalyticsService.shared.capture("daily_brief_opened", properties)
+    // The intro walkthrough covers the page, so time and sections seen start counting
+    // once it's out of the way.
+    if showsIntro {
+      pendingVisitSource = source
+    } else {
+      beginVisit(source: source)
+    }
   }
 
   func dismiss() {
     let wasPresented = isPresented
+    pendingVisitSource = nil
+    endVisit()
     route = nil
     isPresented = false
     showsIntro = false
@@ -616,6 +685,10 @@ final class DailyBriefStore: ObservableObject {
     showsIntro = false
     AnalyticsService.shared.capture(
       "daily_brief_intro_finished", ["outcome": outcome, "last_step": step + 1])
+    if let source = pendingVisitSource {
+      pendingVisitSource = nil
+      beginVisit(source: source)
+    }
   }
 
   /// Debug: flips this launch to the other half of the layout test, so both orders
@@ -630,6 +703,121 @@ final class DailyBriefStore: ObservableObject {
     UserDefaults.standard.set(false, forKey: Self.introSeenKey)
     dismiss()
     present(source: "debug")
+  }
+
+  // MARK: - Visit tracking
+
+  /// One stretch of the brief being open, from present() to dismiss(). It holds only
+  /// what the analytics events need; item titles never leave the Mac.
+  private struct Visit {
+    let source: String
+    /// Seconds the brief was open with Dayflow in front, not counting the stretch
+    /// since `activeSince`.
+    var activeSeconds: TimeInterval = 0
+    /// When Dayflow last came to the front; nil while it's in the background.
+    var activeSince: Date?
+    /// Sections that scrolled into view, in the order they did.
+    var seenSections: [String] = []
+    var actionCount = 0
+  }
+
+  private var visit: Visit?
+  /// Where the brief was opened from, held while the intro covers the page.
+  private var pendingVisitSource: String?
+  /// Goes up when a visit starts. The page's seen markers watch it, so parts already on
+  /// screen when the visit starts (under the intro, say) are reported then.
+  @Published private(set) var visitNumber = 0
+
+  /// Section names for the two parts of the page that aren't brief sections.
+  static let savedRowName = "saved"
+  static let pageBottomName = "bottom"
+
+  private func beginVisit(source: String) {
+    guard visit == nil else { return }
+    visit = Visit(source: source, activeSince: NSApp.isActive ? Date() : nil)
+    visitNumber += 1
+  }
+
+  /// Seconds the brief has been open with Dayflow in front.
+  private var visitSeconds: Int {
+    guard let visit else { return 0 }
+    let current = visit.activeSince.map { Date().timeIntervalSince($0) } ?? 0
+    return Int(visit.activeSeconds + current)
+  }
+
+  /// A section scrolled into view. Counted once per visit.
+  func markSectionSeen(_ section: String) {
+    guard visit != nil, !visit!.seenSections.contains(section) else { return }
+    visit!.seenSections.append(section)
+    var properties: [String: Any] = [
+      "section": section,
+      "seconds_since_open": visitSeconds,
+      "seen_order": visit!.seenSections.count,
+      "layout": layoutVariant,
+    ]
+    if let kind = DailyBriefSectionKind(rawValue: section), let brief {
+      properties["item_count"] = brief.content.itemCount(kind)
+      // Where it sits on the page as drawn, counting the task stack as one slot.
+      let sections = pageSections(brief)
+      let pageOrder = sections.aboveDocket + [.docket] + sections.belowDocket
+      if let index = pageOrder.firstIndex(of: kind) {
+        properties["position"] = index + 1
+      }
+    }
+    AnalyticsService.shared.capture("daily_brief_section_seen", properties)
+  }
+
+  private func endVisit() {
+    guard let visit else { return }
+    let seenKinds = visit.seenSections.filter { DailyBriefSectionKind(rawValue: $0) != nil }
+    AnalyticsService.shared.capture(
+      "daily_brief_closed",
+      [
+        "source": visit.source,
+        "has_brief": brief != nil,
+        "active_seconds": visitSeconds,
+        "sections_seen": visit.seenSections.joined(separator: ","),
+        "sections_seen_count": seenKinds.count,
+        "sections_shown_count": brief.map {
+          DailyBriefSectionItems.visibleKinds($0, store: self).count
+        } ?? 0,
+        "reached_bottom": visit.seenSections.contains(Self.pageBottomName),
+        "action_count": visit.actionCount,
+        "layout": layoutVariant,
+      ])
+    self.visit = nil
+  }
+
+  /// Time only counts while Dayflow is in front, so a brief left open behind other
+  /// windows doesn't look like an hour of reading.
+  private func appActivityChanged(isActive: Bool) {
+    guard visit != nil else { return }
+    if isActive {
+      if visit!.activeSince == nil { visit!.activeSince = Date() }
+    } else if let since = visit!.activeSince {
+      visit!.activeSeconds += Date().timeIntervalSince(since)
+      visit!.activeSince = nil
+    }
+  }
+
+  private func observeAppActivity() {
+    let center = NotificationCenter.default
+    center.addObserver(
+      forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+    ) { _ in
+      MainActor.assumeIsolated { DailyBriefStore.shared.appActivityChanged(isActive: true) }
+    }
+    center.addObserver(
+      forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+    ) { _ in
+      MainActor.assumeIsolated { DailyBriefStore.shared.appActivityChanged(isActive: false) }
+    }
+    // Quitting with the brief open still reports the visit.
+    center.addObserver(
+      forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+    ) { _ in
+      MainActor.assumeIsolated { DailyBriefStore.shared.endVisit() }
+    }
   }
 
   func dismissReadyNotice() {
@@ -702,8 +890,50 @@ final class DailyBriefStore: ObservableObject {
       feedbackEvents.removeFirst(feedbackEvents.count - 2000)
     }
     Self.write(feedbackEvents, to: Self.feedbackURL)
-    AnalyticsService.shared.capture(
-      "daily_brief_item_action", ["section": kind.rawValue, "action": action.rawValue])
+
+    var properties = itemProperties(kind, title)
+    properties["section"] = kind.rawValue
+    properties["action"] = action.rawValue
+    properties["layout"] = layoutVariant
+    if visit != nil {
+      visit!.actionCount += 1
+      properties["seconds_since_open"] = visitSeconds
+    }
+    AnalyticsService.shared.capture("daily_brief_item_action", properties)
+  }
+
+  /// What analytics may know about one item: where it sat in its section and, for
+  /// reading and news links, the site and the kind of picture it had. Never its title.
+  private func itemProperties(_ kind: DailyBriefSectionKind, _ title: String) -> [String: Any] {
+    guard let content = brief?.content else { return [:] }
+    let titles = DailyBriefSectionItems.titles(kind, in: content)
+    var properties: [String: Any] = ["item_count": titles.count]
+    if let index = titles.firstIndex(of: title) {
+      properties["position"] = index + 1
+    }
+
+    switch kind {
+    case .relatedReading:
+      guard let item = content.relatedReading?.first(where: { $0.title == title }) else { break }
+      properties["picture"] = Self.pictureKind(item.imageFile, item.imageIsTitleCard)
+      properties["has_hook"] = item.hook != nil
+      if let minutes = item.minutes { properties["minutes"] = minutes }
+      if let host = URL(string: item.url)?.host { properties["source_domain"] = host }
+    case .industryNews:
+      guard let item = content.industryNews?.first(where: { $0.headline == title }) else { break }
+      properties["picture"] = Self.pictureKind(item.imageFile, item.imageIsTitleCard)
+      if let host = URL(string: item.url)?.host { properties["source_domain"] = host }
+    default:
+      break
+    }
+    return properties
+  }
+
+  /// "photo" for a picture without words, "title_card" for a headline set on a
+  /// background, "none" when the page had no usable picture.
+  private static func pictureKind(_ file: String?, _ isTitleCard: Bool?) -> String {
+    guard file != nil else { return "none" }
+    return isTitleCard == true ? "title_card" : "photo"
   }
 
   // MARK: - Docket hand-off

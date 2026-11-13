@@ -51,6 +51,7 @@ struct DailyBriefPageView: View {
                   .padding(.top, 72)
                   .padding(.bottom, 48)
                   .modifier(DailyBriefRiseIn())
+                  .modifier(seenMarker(DailyBriefStore.pageBottomName, geometry.size.height))
               }
               .frame(maxWidth: DailyBriefLayout.pageMaxWidth)
               .frame(maxWidth: .infinity)
@@ -59,6 +60,7 @@ struct DailyBriefPageView: View {
             .background(alignment: .top) { DocketTwilightWash() }
           }
           .scrollIndicators(.hidden)
+          .coordinateSpace(.named(DailyBriefSeenMarker.scrollSpace))
           .onChange(of: ui.scrollToTopRequest) {
             // Opening a card's prompt scrolls the deck to where it sits under the header
             // in the usual layout, so the deck's centring math works the same in both
@@ -154,6 +156,7 @@ struct DailyBriefPageView: View {
       DocketDeckView(viewportHeight: viewportHeight, deckTop: DocketDaybreakHeader.height)
         .frame(maxWidth: .infinity)
         .zIndex(1)
+        .modifier(seenMarker(DailyBriefSectionKind.docket.rawValue, viewportHeight))
     } else {
       DailyBriefStateMessage(
         title: "Nothing to hand off today",
@@ -182,16 +185,19 @@ struct DailyBriefPageView: View {
 
   @ViewBuilder
   private func lowerSections(viewportHeight: CGFloat) -> some View {
+    let savedMarker = seenMarker(DailyBriefStore.savedRowName, viewportHeight)
     if let brief = store.brief {
       let kinds = store.pageSections(brief).belowDocket
       VStack(alignment: .leading, spacing: 64) {
         sectionStack(kinds: kinds, brief: brief, viewportHeight: viewportHeight)
         DailyBriefSavedRow(brief: brief)
           .modifier(DailyBriefRiseIn())
+          .modifier(savedMarker)
       }
     } else {
       DailyBriefSavedRow(brief: nil)
         .modifier(DailyBriefRiseIn())
+        .modifier(savedMarker)
     }
   }
 
@@ -202,8 +208,14 @@ struct DailyBriefPageView: View {
       ForEach(kinds, id: \.self) { kind in
         DailyBriefSectionView(kind: kind, brief: brief)
           .modifier(DailyBriefRiseIn())
+          .modifier(seenMarker(kind.rawValue, viewportHeight))
       }
     }
+  }
+
+  private func seenMarker(_ section: String, _ viewportHeight: CGFloat) -> DailyBriefSeenMarker {
+    DailyBriefSeenMarker(
+      section: section, viewportHeight: viewportHeight, visitNumber: store.visitNumber)
   }
 
   @ViewBuilder
@@ -234,6 +246,38 @@ private struct DailyBriefRiseIn: ViewModifier {
       view
         .opacity(phase == .bottomTrailing ? 0 : 1)
         .offset(y: phase == .bottomTrailing ? 16 : 0)
+    }
+  }
+}
+
+/// Tells the store the first time a part of the page scrolls into view, for analytics.
+/// A part counts as seen once its top is 120pt above the bottom of the window, enough
+/// to show its heading and first row. Parts with nothing to show have no height and
+/// are never counted. A new visit (`visitNumber`) re-reports parts already on screen,
+/// such as the ones that were under the intro walkthrough.
+private struct DailyBriefSeenMarker: ViewModifier {
+  static let scrollSpace = "dailyBriefScroll"
+
+  let section: String
+  let viewportHeight: CGFloat
+  let visitNumber: Int
+
+  private struct SeenState: Equatable {
+    let isSeen: Bool
+    let visitNumber: Int
+  }
+
+  func body(content: Content) -> some View {
+    content.background {
+      GeometryReader { proxy in
+        let frame = proxy.frame(in: .named(Self.scrollSpace))
+        let isSeen = frame.height > 0 && frame.minY < viewportHeight - min(120, frame.height)
+        Color.clear
+          .onChange(of: SeenState(isSeen: isSeen, visitNumber: visitNumber), initial: true) {
+            _, state in
+            if state.isSeen { DailyBriefStore.shared.markSectionSeen(section) }
+          }
+      }
     }
   }
 }
