@@ -97,16 +97,26 @@ enum WhatsNewConfiguration {
   private static let seenKey = "lastSeenWhatsNewVersion"
 
   /// Override with the specific release number you want to show.
-  private static let versionOverride: String? = "2.8.0"
+  private static let versionOverride: String? = "2.9.0"
 
   /// Update this content before shipping each release. Return nil to disable the modal entirely.
   static var configuredRelease: ReleaseNote? {
     ReleaseNote(
       version: targetVersion,
-      title: String(localized: "Flow is open to everyone"),
+      title: String(localized: "Big privacy advancements for Dayflow"),
       highlights: [
-        String(localized: "Flow is now available to everyone!"),
-        String(localized: "Minor cost improvements for Claude and Codex users."),
+        String(
+          localized:
+            "We custom trained a machine learning model that runs ultra efficiently on your Mac and hides passwords, API keys and card and bank details in your screenshots before anything is sent to your AI. Available on Pro and Plus: turn it on from the Privacy shield switch under your timeline."
+        ),
+        String(
+          localized:
+            "Dayflow can now leave out private browsing windows and automatically screen out banking, health, government and tax, dating and other sensitive sites, plus any sites you add. Set it up in Settings › Privacy."
+        ),
+        String(
+          localized:
+            "We're testing a new morning brief: each day it picks the few things that will move your goals forward the most and can hand them to your AI agents to get started. Want early access? Message us from the Support tab."
+        ),
       ],
       socialPreview: nil,
       previewIntro: nil,
