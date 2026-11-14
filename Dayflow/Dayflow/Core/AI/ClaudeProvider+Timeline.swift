@@ -265,7 +265,10 @@ extension ClaudeProvider {
     attempt: Int
   ) throws -> [ActivityCardData] {
     let parsedCards = try parseCards(from: run.stdout, stderr: run.stderr)
-    let normalizedCards = normalizeCards(parsedCards, descriptors: categories)
+    // An outer boundary a minute or two off the window is moved onto it, not sent back.
+    let normalizedCards = ClaudeOutputValidator.snappingOuterEdges(
+      normalizeCards(parsedCards, descriptors: categories),
+      existingCards: previousCards, observations: [window])
     let (isValid, validationError) = validateClaudeTimeCoverage(
       existingCards: previousCards,
       requiredObservations: [window],

@@ -85,8 +85,12 @@ extension CodexProvider {
               ])
           }
 
-          let cards = normalizeCards(
-            try parseCards(from: run.stdout, stderr: run.stderr), descriptors: context.categories)
+          // An outer boundary a minute or two off the window is moved onto it, not sent back.
+          let cards = ClaudeOutputValidator.snappingOuterEdges(
+            normalizeCards(
+              try parseCards(from: run.stdout, stderr: run.stderr),
+              descriptors: context.categories),
+            existingCards: previousCards, observations: [window])
           do {
             try ClaudeOutputValidator.validateActivityCards(
               cards, existingCards: previousCards, observations: [window])
