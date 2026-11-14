@@ -4,14 +4,60 @@ extension CodexProvider {
   func generateChatStreaming(prompt: String, sessionId: String? = nil) -> AsyncThrowingStream<
     ChatStreamEvent, Error
   > {
-    runner.runStreaming(
+    AsyncThrowingStream { continuation in
+      let task = Task {
+        var model = "gpt-6-luna"
+        while true {
+          let fallback = await self.forwardChatEvents(
+            model: model, prompt: prompt, sessionId: sessionId, continuation: continuation)
+          guard let fallback else { return }
+          Self.recordModelFallback(from: model, to: fallback, operation: "chat")
+          model = fallback
+        }
+      }
+      continuation.onTermination = { _ in task.cancel() }
+    }
+  }
+
+  /// Runs one chat attempt and forwards its events. Returns the older model to retry with when
+  /// the account can't use `model` and nothing has been shown yet; otherwise finishes the stream.
+  private func forwardChatEvents(
+    model: String, prompt: String, sessionId: String?,
+    continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation
+  ) async -> String? {
+    let stream = runner.runStreaming(
       tool: .codex,
       prompt: prompt,
       workingDirectory: config.workingDirectory,
-      model: "gpt-5.6-luna",
+      model: model,
       reasoningEffort: "low",
       sessionId: sessionId
     )
+    var hasShownText = false
+    do {
+      for try await event in stream {
+        switch event {
+        case .error(let message):
+          let error = NSError(
+            domain: "CodexProvider", code: -1, userInfo: [NSLocalizedDescriptionKey: message])
+          if !hasShownText, let fallback = Self.availabilityFallback(for: model, error: error) {
+            return fallback
+          }
+        case .textDelta, .complete:
+          hasShownText = true
+        default:
+          break
+        }
+        continuation.yield(event)
+      }
+      continuation.finish()
+    } catch {
+      if !hasShownText, let fallback = Self.availabilityFallback(for: model, error: error) {
+        return fallback
+      }
+      continuation.finish(throwing: error)
+    }
+    return nil
   }
 
   func generateTextStreaming(prompt: String) -> AsyncThrowingStream<String, Error> {
