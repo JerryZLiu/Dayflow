@@ -5,8 +5,7 @@
 //  Builds one day's Daily brief: gathers yesterday's cards and a screenshot per
 //  card, then runs two `claude -p` runs at the same time, each with web
 //  search, the user's own connectors (read-only), and Dayflow's MCP server. One
-//  run writes the docket (on Fable, falling back to Opus if that fails); the
-//  other (Opus) writes every other section and is the only
+//  run writes the docket; the other writes every other section and is the only
 //  one that sees the screenshots. The two answers are merged in code into one
 //  DailyBriefContent, checked, and the images it uses are copied into the brief
 //  folder. If one run fails, the brief keeps the other run's sections.
@@ -89,10 +88,9 @@ enum DailyBriefGenerator {
     var errorDescription: String? { message }
   }
 
+  /// Both runs use Opus. Spring used to try Fable first (it wrote slightly better lists in
+  /// testing), but at Fable's price that run was most of a brief's cost.
   static let model = "opus"
-  /// Spring tries this model first: on the takeover prompt it wrote better lists than Opus in
-  /// testing. If its run fails for any reason, Spring runs again on `model`.
-  static let springFirstModel = "fable"
   static let runTimeoutSeconds: TimeInterval = 20 * 60
   /// More candidates than this are evenly sampled down, to keep the run's reading sane.
   static let maxCandidates = 60
@@ -295,17 +293,7 @@ enum DailyBriefGenerator {
       )
     }
 
-    let run: StructuredClaudeResult
-    if part == .docket {
-      do {
-        run = try runClaude(model: springFirstModel)
-      } catch {
-        print("[DailyBrief] Spring failed on \(springFirstModel), trying \(model): \(error)")
-        run = try runClaude(model: model)
-      }
-    } else {
-      run = try runClaude(model: model)
-    }
+    let run = try runClaude(model: model)
 
     var stats = run.stats
     stats.promptCharacters = prompt.count
@@ -613,7 +601,7 @@ enum DailyBriefGenerator {
 
   /// The docket run can read the person's Claude Code and Codex transcripts, to check whether
   /// a task was already started; the other run can read its screenshots.
-  private static func commandOptions(part: Part, runDirectory: URL, candidatesDirectory: URL)
+  static func commandOptions(part: Part, runDirectory: URL, candidatesDirectory: URL)
     throws -> ClaudeCLIStructuredOutputOptions
   {
     // Each part writes its own files, since both runs start at the same time.
@@ -635,8 +623,13 @@ enum DailyBriefGenerator {
       settings["effortLevel"] = "medium"
     }
 
-    var tools = "WebSearch,WebFetch"
-    var allowedTools = ["WebSearch", "WebFetch"]
+    // ToolSearch lets Claude Code list the user's connector tools by name and load a
+    // tool's full definition only when the model needs it. Without it, every
+    // request carries every connector tool's definition: about 250k tokens for a
+    // user with many connectors, written to the 1-hour cache at double the input
+    // price on each run. That was most of a brief's cost.
+    var tools = "WebSearch,WebFetch,ToolSearch"
+    var allowedTools = ["WebSearch", "WebFetch", "ToolSearch"]
     // Claude permission rules use // for absolute paths; / is project-relative.
     switch part {
     case .docket:

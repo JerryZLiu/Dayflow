@@ -125,6 +125,8 @@ enum DailyBriefPrompt {
     - **Their connectors** (whatever tools are available besides Dayflow's, e.g. Slack, Linear, Gmail,
       Notion, Google Drive): read only. You can search and read; you cannot send, post, create, or edit
       anything, and those calls will be refused. If no connectors are available, work from the timeline.
+    - **Tool search**: Dayflow and connector tools may be listed by name only. Use tool search to load a
+      tool before calling it, and to find which connectors exist, before deciding there are none.
     """
 
   // MARK: - Spring prompt
