@@ -60,14 +60,108 @@ enum ClaudeTimelineTolerance {
   /// Source intervals one minute apart belong to the same connected rewrite span.
   static let sourceConnectionSeconds = 60
 
-  /// Generated cards may drift by less than a minute, but may not omit a whole minute.
-  static let outputCoverageSeconds = 59
+  /// The outer edges of the generated cards may be up to a full minute off. The new window ends
+  /// one minute after the last frame's label, so a card that ends on that label is exactly 60
+  /// seconds short. A hole between two cards still may not reach a whole minute.
+  static let outputCoverageSeconds = 60
+
+  /// An outer card edge this close to the edge of the source timeline is moved onto it rather
+  /// than sent back to the model.
+  static let edgeSnapSeconds = 120
 }
 
 /// Strict structural validation for Claude timeline output.
 ///
 /// Validation never rewrites timestamps, changes semantic fields, drops cards, or fills gaps.
+/// The only rewrite is `snappingOuterEdges`, which callers run before validating.
 enum ClaudeOutputValidator {
+  /// Moves the first card's start and the last card's end onto the edge of the source timeline
+  /// (the previous cards plus the observations) when they are at most two minutes off, so a
+  /// boundary that is a minute or two out is fixed quietly rather than costing a retry.
+  /// Anything further off, or unreadable, is returned untouched for validation to reject.
+  static func snappingOuterEdges(
+    _ cards: [ActivityCardData],
+    existingCards: [ActivityCardData],
+    observations: [Observation],
+    calendar: Calendar = .current
+  ) -> [ActivityCardData] {
+    let parsedSeeds = cards.compactMap { card -> CardSeed? in
+      guard let start = try? parseClockTimestamp(card.startTime),
+        let end = try? parseClockTimestamp(card.endTime)
+      else { return nil }
+      return CardSeed(card: card, start: start, end: end)
+    }
+    guard !cards.isEmpty, parsedSeeds.count == cards.count else { return cards }
+
+    let anchor = timelineAnchor(
+      observations: observations, existingCards: existingCards, cardSeeds: parsedSeeds)
+    let evidence = mergedEvidenceIntervals(
+      observations: observations,
+      existingCards: existingCards,
+      anchor: anchor,
+      calendar: calendar,
+      mergeTolerance: ClaudeTimelineTolerance.sourceConnectionSeconds
+    )
+    guard let evidenceStart = evidence.first?.start, let evidenceEnd = evidence.last?.end else {
+      return cards
+    }
+
+    func interval(_ seed: CardSeed) -> Range<Int>? {
+      let start = linearTime(secondsOfDay: seed.start, nearest: anchor, calendar: calendar)
+      let end = linearCardEnd(
+        start: start, startSecondsOfDay: seed.start, endSecondsOfDay: seed.end,
+        anchor: anchor, calendar: calendar)
+      return end > start ? start..<end : nil
+    }
+    guard let first = interval(parsedSeeds[0]),
+      let last = interval(parsedSeeds[parsedSeeds.count - 1])
+    else { return cards }
+
+    // Card times have no seconds, so the edges are compared on the minute.
+    let targetStart = evidenceStart - evidenceStart % 60
+    let targetEnd = evidenceEnd - evidenceEnd % 60
+    let snapsStart =
+      first.lowerBound != targetStart
+      && abs(first.lowerBound - targetStart) <= ClaudeTimelineTolerance.edgeSnapSeconds
+    let snapsEnd =
+      last.upperBound != targetEnd
+      && abs(last.upperBound - targetEnd) <= ClaudeTimelineTolerance.edgeSnapSeconds
+    guard snapsStart || snapsEnd else { return cards }
+
+    // Never snap a card down to nothing.
+    let newFirstStart = snapsStart ? targetStart : first.lowerBound
+    let newLastEnd = snapsEnd ? targetEnd : last.upperBound
+    let firstEnd = cards.count == 1 ? newLastEnd : first.upperBound
+    let lastStart = cards.count == 1 ? newFirstStart : last.lowerBound
+    guard newFirstStart < firstEnd, lastStart < newLastEnd else { return cards }
+
+    // Snapping must not turn a card the checks accept into one they reject: no card may end
+    // up over an hour, or drop under ten minutes when it wasn't already.
+    func staysValid(oldLength: Int, newLength: Int) -> Bool {
+      newLength <= 60 * 60 && (newLength >= 10 * 60 || newLength >= oldLength)
+    }
+    guard
+      staysValid(oldLength: first.count, newLength: firstEnd - newFirstStart),
+      staysValid(oldLength: last.count, newLength: newLastEnd - lastStart)
+    else { return cards }
+
+    var snapped = cards
+    if snapsStart {
+      snapped[0] = card(
+        snapped[0],
+        startTime: clockTimestamp(targetStart, anchor: anchor, calendar: calendar),
+        endTime: snapped[0].endTime)
+    }
+    if snapsEnd {
+      let lastIndex = snapped.count - 1
+      snapped[lastIndex] = card(
+        snapped[lastIndex],
+        startTime: snapped[lastIndex].startTime,
+        endTime: clockTimestamp(targetEnd, anchor: anchor, calendar: calendar))
+    }
+    return snapped
+  }
+
   static func resolveActivityCardInterval(
     _ card: ActivityCardData,
     nearest anchorEpoch: Int,
@@ -486,21 +580,66 @@ extension ClaudeOutputValidator {
     return merged
   }
 
+  /// The same card with new clock times.
+  fileprivate static func card(
+    _ card: ActivityCardData, startTime: String, endTime: String
+  ) -> ActivityCardData {
+    ActivityCardData(
+      startTime: startTime,
+      endTime: endTime,
+      category: card.category,
+      subcategory: card.subcategory,
+      title: card.title,
+      summary: card.summary,
+      detailedSummary: card.detailedSummary,
+      distractions: card.distractions,
+      appSites: card.appSites
+    )
+  }
+
+  /// A point on the validator's own time line written the way cards write times ("9:05 AM").
+  fileprivate static func clockTimestamp(
+    _ linearTime: Int, anchor: TimelineAnchor, calendar: Calendar
+  ) -> String {
+    let hour: Int
+    let minute: Int
+    switch anchor {
+    case .epoch:
+      let parts = calendar.dateComponents(
+        [.hour, .minute], from: Date(timeIntervalSince1970: TimeInterval(linearTime)))
+      hour = parts.hour ?? 0
+      minute = parts.minute ?? 0
+    case .clock:
+      let secondsOfDay = ((linearTime % 86_400) + 86_400) % 86_400
+      hour = secondsOfDay / 3600
+      minute = (secondsOfDay % 3600) / 60
+    }
+    let hour12 = hour % 12 == 0 ? 12 : hour % 12
+    return String(format: "%d:%02d %@", hour12, minute, hour < 12 ? "AM" : "PM")
+  }
+
   fileprivate static func intervalIsCovered(
     _ interval: Range<Int>,
     by coverage: [EvidenceInterval],
     tolerance: Int
   ) -> Bool {
     var coveredThrough = interval.lowerBound
+    // With a tolerance as long as the interval, "covered to within the tolerance" is true
+    // before any card is looked at, so at least one card has to overlap it.
+    var overlapsAnyCard = false
     for coveredInterval in coverage
     where coveredInterval.end > coveredThrough
       && coveredInterval.start < interval.upperBound
     {
-      if coveredInterval.start > coveredThrough + tolerance { return false }
+      overlapsAnyCard = true
+      // The leading edge gets the full tolerance; a hole in the middle must stay under it.
+      let isLeadingEdge = coveredThrough == interval.lowerBound
+      let allowedGap = isLeadingEdge ? tolerance : max(0, tolerance - 1)
+      if coveredInterval.start > coveredThrough + allowedGap { return false }
       coveredThrough = max(coveredThrough, coveredInterval.end)
       if coveredThrough >= interval.upperBound - tolerance { return true }
     }
-    return coveredThrough >= interval.upperBound - tolerance
+    return overlapsAnyCard && coveredThrough >= interval.upperBound - tolerance
   }
 
   fileprivate static func strictSegmentTimestamp(_ timestamp: String) -> Int? {

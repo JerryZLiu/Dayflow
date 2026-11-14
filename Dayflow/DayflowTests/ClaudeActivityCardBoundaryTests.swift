@@ -743,6 +743,59 @@ final class ClaudeActivityCardBoundaryTests: XCTestCase {
     XCTAssertTrue(result.error?.contains("through 9:30 AM") ?? false)
   }
 
+  func testClaudeCoverageAllowsLastCardExactlyOneMinuteShort() {
+    let requiredObservation = observation(
+      batchId: 1,
+      start: localTimestamp(hour: 9, minute: 0),
+      end: localTimestamp(hour: 9, minute: 16),
+      text: "Window that ends a minute after the last frame"
+    )
+
+    XCTAssertTrue(
+      provider.validateClaudeTimeCoverage(
+        existingCards: [],
+        requiredObservations: [requiredObservation],
+        newCards: [card(start: "9:00 AM", end: "9:15 AM", title: "Ends on the last frame")]
+      ).isValid
+    )
+  }
+
+  func testOuterEdgesWithinTwoMinutesSnapToSourceTimeline() {
+    let requiredObservation = observation(
+      batchId: 1,
+      start: localTimestamp(hour: 9, minute: 0),
+      end: localTimestamp(hour: 9, minute: 30),
+      text: "Continuous activity"
+    )
+    let cards = [
+      card(start: "9:01 AM", end: "9:15 AM", title: "First"),
+      card(start: "9:15 AM", end: "9:28 AM", title: "Second"),
+    ]
+
+    let snapped = ClaudeOutputValidator.snappingOuterEdges(
+      cards, existingCards: [], observations: [requiredObservation])
+
+    XCTAssertEqual(snapped.map(\.startTime), ["9:00 AM", "9:15 AM"])
+    XCTAssertEqual(snapped.map(\.endTime), ["9:15 AM", "9:30 AM"])
+    XCTAssertEqual(snapped.map(\.title), ["First", "Second"])
+  }
+
+  func testOuterEdgesFurtherThanTwoMinutesAreLeftForValidation() {
+    let requiredObservation = observation(
+      batchId: 1,
+      start: localTimestamp(hour: 9, minute: 0),
+      end: localTimestamp(hour: 9, minute: 30),
+      text: "Continuous activity"
+    )
+    let cards = [card(start: "9:03 AM", end: "9:27 AM", title: "Too far off")]
+
+    let snapped = ClaudeOutputValidator.snappingOuterEdges(
+      cards, existingCards: [], observations: [requiredObservation])
+
+    XCTAssertEqual(snapped.map(\.startTime), ["9:03 AM"])
+    XCTAssertEqual(snapped.map(\.endTime), ["9:27 AM"])
+  }
+
   func testClaudeCoverageRejectsOutputOutsideEvidence() {
     let requiredObservation = observation(
       batchId: 1,
