@@ -4,7 +4,7 @@ extension GeminiDirectProvider {
   // MARK: - Dashboard Chat (Gemini function calling)
 
   static let dashboardChatModels: [GeminiModel] = [
-    .flash38, .flash37, .flash36, .flash35, .flashLite35,
+    .hydrogen, .flash38, .flash37, .flash36, .flash35, .flashLite35,
   ]
   static let dashboardChatMaxToolRounds = 20
   static let dashboardChatTimelinePayloadSoftLimitBytes = 800_000

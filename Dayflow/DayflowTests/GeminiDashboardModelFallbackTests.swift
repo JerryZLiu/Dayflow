@@ -10,7 +10,7 @@ final class GeminiDashboardModelFallbackTests: XCTestCase {
       if model != .flash35 { throw NSError(domain: "Test", code: 503) }
       return .init(text: "OK", functionCalls: [], modelFunctionCallParts: [])
     }
-    XCTAssertEqual(attempted, [.flash38, .flash37, .flash36, .flash35])
+    XCTAssertEqual(attempted, [.hydrogen, .flash38, .flash37, .flash36, .flash35])
     XCTAssertEqual(result.text, "OK")
   }
 
@@ -25,7 +25,7 @@ final class GeminiDashboardModelFallbackTests: XCTestCase {
     } catch {
       XCTAssertEqual((error as NSError).domain, "gemini-3.5-flash-lite")
     }
-    XCTAssertEqual(attempted, [.flash38, .flash37, .flash36, .flash35, .flashLite35])
+    XCTAssertEqual(attempted, [.hydrogen, .flash38, .flash37, .flash36, .flash35, .flashLite35])
   }
 
   func testCancellationDoesNotTryAnotherModel() async {
@@ -39,6 +39,6 @@ final class GeminiDashboardModelFallbackTests: XCTestCase {
     } catch {
       XCTAssertTrue(error is CancellationError)
     }
-    XCTAssertEqual(attempted, [.flash38])
+    XCTAssertEqual(attempted, [.hydrogen])
   }
 }
