@@ -18,6 +18,7 @@ final class ProvidersSettingsViewModelTests: XCTestCase {
     "geminiSelectedModel_v3",
     "geminiSelectedModel_v4",
     "geminiSelectedModel_v5",
+    "geminiSelectedModel_v6",
     LLMProviderRoutingStore.storageKey,
   ]
 
@@ -76,6 +77,7 @@ final class ProvidersSettingsViewModelTests: XCTestCase {
   }
 
   func testGeminiModelPreferenceUsesTheNewFallbackChain() {
+    XCTAssertEqual(GeminiModel.hydrogen.rawValue, "gemini-4-hydrogen")
     XCTAssertEqual(GeminiModel.flash38.rawValue, "gemini-3.8-flash")
     XCTAssertEqual(GeminiModel.flash37.rawValue, "gemini-3.7-flash")
     XCTAssertEqual(
@@ -87,7 +89,7 @@ final class ProvidersSettingsViewModelTests: XCTestCase {
     XCTAssertEqual(GeminiModel.flashLite35.rawValue, "gemini-3.5-flash-lite")
     XCTAssertEqual(
       GeminiModelPreference.default.orderedModels,
-      [.flash38, .flash37, .flash36, .flash35, .flashLite35]
+      [.hydrogen, .flash38, .flash37, .flash36, .flash35, .flashLite35]
     )
     XCTAssertEqual(
       GeminiModelPreference(primary: .flash35).orderedModels,
@@ -95,12 +97,24 @@ final class ProvidersSettingsViewModelTests: XCTestCase {
     )
   }
 
-  func testGeminiPreferencePreservesSavedSelectionAndDefaultsToFlash38() {
-    XCTAssertEqual(GeminiModelPreference.load().primary, .flash38)
+  func testGeminiPreferencePreservesSavedSelectionAndDefaultsToHydrogen() {
+    XCTAssertEqual(GeminiModelPreference.load().primary, .hydrogen)
     GeminiModelPreference(primary: .flash36).save()
     XCTAssertEqual(GeminiModelPreference.load().orderedModels, [.flash36, .flash35, .flashLite35])
     GeminiModelPreference(primary: .flash38).save()
     XCTAssertEqual(GeminiModelPreference.load().primary, .flash38)
+  }
+
+  func testGeminiPreferenceResetsSelectionsSavedUnderOlderKeys() {
+    let oldSelection = try! JSONEncoder().encode(GeminiModelPreference(primary: .flash36))
+    UserDefaults.standard.set(oldSelection, forKey: "geminiSelectedModel_v5")
+
+    XCTAssertEqual(GeminiModelPreference.load().primary, .hydrogen)
+    XCTAssertNil(UserDefaults.standard.object(forKey: "geminiSelectedModel_v5"))
+  }
+
+  func testOnlyHydrogenWritesCardsInOneStep() {
+    XCTAssertEqual(GeminiModel.allCases.filter(\.supportsOneStepTimeline), [.hydrogen])
   }
 
   func testProviderSetupStateHydratesTheSavedLocalConfiguration() {

@@ -23,6 +23,8 @@ final class GeminiAPIHelperTests: XCTestCase {
     let recorder = RequestRecorder()
     let helper = makeHelper(recorder: recorder) { model in
       switch model {
+      case .hydrogen:
+        return (429, Self.errorBody("Rate limit exceeded"))
       case .flash38:
         return (404, Self.errorBody("Model unavailable"))
       case .flash36:
@@ -41,7 +43,8 @@ final class GeminiAPIHelperTests: XCTestCase {
 
     XCTAssertEqual(result.model, .flashLite35)
     let requestedModels = await recorder.models
-    XCTAssertEqual(requestedModels, [.flash38, .flash37, .flash36, .flash35, .flashLite35])
+    XCTAssertEqual(
+      requestedModels, [.hydrogen, .flash38, .flash37, .flash36, .flash35, .flashLite35])
   }
 
   func testConnectionReturnsRateLimitedAfterAllFallbacksAreTransient() async throws {
@@ -63,7 +66,8 @@ final class GeminiAPIHelperTests: XCTestCase {
     }
 
     let requestedModels = await recorder.models
-    XCTAssertEqual(requestedModels, [.flash38, .flash37, .flash36, .flash35, .flashLite35])
+    XCTAssertEqual(
+      requestedModels, [.hydrogen, .flash38, .flash37, .flash36, .flash35, .flashLite35])
   }
 
   func testConnectionDoesNotTreat425AsTransientOrFallback() async throws {
@@ -85,7 +89,7 @@ final class GeminiAPIHelperTests: XCTestCase {
     }
 
     let requestedModels = await recorder.models
-    XCTAssertEqual(requestedModels, [.flash38])
+    XCTAssertEqual(requestedModels, [.hydrogen])
   }
 
   private func makeHelper(

@@ -6,6 +6,7 @@
 import Foundation
 
 enum GeminiModel: String, Codable, CaseIterable {
+  case hydrogen = "gemini-4-hydrogen"
   case flash38 = "gemini-3.8-flash"
   case flash37 = "gemini-3.7-flash"
   case flash36 = "gemini-3.6-flash"
@@ -14,6 +15,7 @@ enum GeminiModel: String, Codable, CaseIterable {
 
   var displayName: String {
     switch self {
+    case .hydrogen: return String(localized: "Gemini 4 Hydrogen")
     case .flash38: return String(localized: "Gemini 3.8 Flash")
     case .flash37: return String(localized: "Gemini 3.7 Flash")
     case .flash36: return String(localized: "Gemini 3.6 Flash")
@@ -24,6 +26,7 @@ enum GeminiModel: String, Codable, CaseIterable {
 
   var shortLabel: String {
     switch self {
+    case .hydrogen: return String(localized: "4 Hydrogen")
     case .flash38: return String(localized: "3.8 Flash")
     case .flash37: return String(localized: "3.7 Flash")
     case .flash36: return String(localized: "3.6 Flash")
@@ -31,20 +34,27 @@ enum GeminiModel: String, Codable, CaseIterable {
     case .flashLite35: return String(localized: "3.5 Flash-Lite")
     }
   }
+
+  /// Whether the model reads a batch's video and writes its cards in one call. Older models
+  /// keep the transcribe-then-generate path.
+  var supportsOneStepTimeline: Bool {
+    self == .hydrogen
+  }
 }
 
 struct GeminiModelPreference: Codable {
-  // v5 resets everyone onto the 3.8 Flash cascade. Earlier keys kept users
-  // pinned on 3.6 Flash, which is now quota-starved on the free tier.
-  private static let storageKey = "geminiSelectedModel_v5"
-  private static let legacyStorageKey = "geminiSelectedModel_v4"
+  // v6 resets everyone onto 4 Hydrogen, which writes cards in one step. Earlier keys kept
+  // users pinned on Flash models that only run the two-step pipeline.
+  private static let storageKey = "geminiSelectedModel_v6"
+  private static let legacyStorageKeys = ["geminiSelectedModel_v5", "geminiSelectedModel_v4"]
 
   let primary: GeminiModel
 
-  static let `default` = GeminiModelPreference(primary: .flash38)
+  static let `default` = GeminiModelPreference(primary: .hydrogen)
 
   var orderedModels: [GeminiModel] {
     switch primary {
+    case .hydrogen: return [.hydrogen, .flash38, .flash37, .flash36, .flash35, .flashLite35]
     case .flash38: return [.flash38, .flash37, .flash36, .flash35, .flashLite35]
     case .flash37: return [.flash37, .flash36, .flash35, .flashLite35]
     case .flash36: return [.flash36, .flash35, .flashLite35]
@@ -55,6 +65,9 @@ struct GeminiModelPreference: Codable {
 
   var fallbackSummary: String {
     switch primary {
+    case .hydrogen:
+      return
+        "Falls back to 3.8 Flash, then 3.7 Flash, then 3.6 Flash, then 3.5 Flash, then 3.5 Flash-Lite if needed"
     case .flash38:
       return
         "Falls back to 3.7 Flash, then 3.6 Flash, then 3.5 Flash, then 3.5 Flash-Lite if needed"
@@ -78,7 +91,9 @@ struct GeminiModelPreference: Codable {
 
     let preference = GeminiModelPreference.default
     preference.save(to: defaults)
-    defaults.removeObject(forKey: legacyStorageKey)
+    for key in legacyStorageKeys {
+      defaults.removeObject(forKey: key)
+    }
     return preference
   }
 
