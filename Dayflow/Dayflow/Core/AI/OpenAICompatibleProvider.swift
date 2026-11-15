@@ -37,13 +37,124 @@ final class OpenAICompatibleProvider: ChatGPTTimelinePromptSupporting {
     return request
   }
 
-  private func complete(_ request: ChatRequest, operation: String, batchId: Int64?) async throws
-    -> String
-  {
-    if let completion { return try await completion(request, operation, batchId) }
-    let response = try await transport.callChatAPI(
-      request, operation: operation, batchId: batchId, maxRetries: 1)
-    return response.choices.first?.message.content ?? ""
+  /// Hosted models reading fifteen screenshots often need more than the transport's 60 seconds.
+  private static let requestTimeout: TimeInterval = 180
+  private static let maxAttempts = 3
+  private static let emptyReplyCode = 2
+
+  /// Only the reply text is read, and any level of it may be missing or null.
+  private struct ChatReply: Decodable {
+    struct Choice: Decodable {
+      struct Message: Decodable {
+        let content: String?
+      }
+      let message: Message?
+    }
+    let choices: [Choice]?
+  }
+
+  /// A reply with no text in it. The wording keeps "Failed to parse response" so failure
+  /// handling treats it like any other unusable reply.
+  private func emptyReply() -> NSError {
+    NSError(
+      domain: "OpenAICompatibleProvider", code: Self.emptyReplyCode,
+      userInfo: [
+        NSLocalizedDescriptionKey: "Failed to parse response: empty reply from the model."
+      ])
+  }
+
+  /// Sends one request and returns the reply text. Throws when the request fails, the server
+  /// answers with an error status (the error code is that status), or the reply is empty.
+  private func complete(
+    _ request: ChatRequest, operation: String, batchId: Int64?, callGroupId: String, attempt: Int
+  ) async throws -> String {
+    if let completion {
+      let output = try await completion(request, operation, batchId)
+      guard !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        throw emptyReply()
+      }
+      return output
+    }
+
+    let urlRequest = try transport.makeChatURLRequest(
+      request, timeoutInterval: Self.requestTimeout)
+    let ctx = LLMCallContext(
+      batchId: batchId,
+      callGroupId: callGroupId,
+      attempt: attempt,
+      provider: transport.localEngine,
+      providerID: transport.providerID.rawValue,
+      model: request.model,
+      operation: operation,
+      requestMethod: urlRequest.httpMethod,
+      requestURL: urlRequest.url,
+      requestHeaders: urlRequest.allHTTPHeaderFields,
+      // Screenshots stay out of the call log.
+      requestBody: operation == "transcribe_screenshots" ? nil : urlRequest.httpBody,
+      startedAt: Date()
+    )
+
+    let data: Data
+    let response: URLResponse
+    do {
+      (data, response) = try await URLSession.shared.data(for: urlRequest)
+    } catch {
+      let nsError = error as NSError
+      LLMLogger.logFailure(
+        ctx: ctx, http: nil, finishedAt: Date(), errorDomain: nsError.domain,
+        errorCode: nsError.code, errorMessage: nsError.localizedDescription)
+      throw error
+    }
+
+    let httpResponse = response as? HTTPURLResponse
+    let status = httpResponse?.statusCode
+    let responseHeaders: [String: String]? = httpResponse?.allHeaderFields.reduce(into: [:]) {
+      acc, kv in
+      if let k = kv.key as? String, let v = kv.value as? CustomStringConvertible {
+        acc[k] = v.description
+      }
+    }
+    let http = LLMHTTPInfo(httpStatus: status, responseHeaders: responseHeaders, responseBody: data)
+
+    if let status, status != 200 {
+      let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
+      LLMLogger.logFailure(
+        ctx: ctx, http: http, finishedAt: Date(), errorDomain: "OpenAICompatibleProvider",
+        errorCode: status, errorMessage: errorBody)
+      // Same wording as the shared transport, which failure handling matches by text.
+      throw NSError(
+        domain: "OpenAICompatibleProvider", code: status,
+        userInfo: [
+          NSLocalizedDescriptionKey: "Ollama API request failed with status \(status): \(errorBody)"
+        ])
+    }
+
+    let reply = try? JSONDecoder().decode(ChatReply.self, from: data)
+    guard let output = reply?.choices?.first?.message?.content,
+      !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else {
+      let error = emptyReply()
+      LLMLogger.logFailure(
+        ctx: ctx, http: http, finishedAt: Date(), errorDomain: error.domain,
+        errorCode: error.code, errorMessage: error.localizedDescription)
+      throw error
+    }
+    LLMLogger.logSuccess(ctx: ctx, http: http, finishedAt: Date())
+    return output
+  }
+
+  /// Whether sending the same request again could work. A 4xx answer (bad key, no credit,
+  /// unknown model) will not change; 408 and 429 are the two that ask the caller to retry.
+  private static func isWorthResending(_ error: Error) -> Bool {
+    let nsError = error as NSError
+    if nsError.domain == NSURLErrorDomain {
+      // A bad or unsupported address is a setup problem; it fails the same way every time.
+      return ![NSURLErrorCancelled, NSURLErrorBadURL, NSURLErrorUnsupportedURL]
+        .contains(nsError.code)
+    }
+    guard nsError.domain == "OpenAICompatibleProvider" else { return false }
+    return nsError.code == emptyReplyCode || nsError.code == 408 || nsError.code == 429
+      || (500...599).contains(nsError.code)
   }
 
   private func generate<Value>(
@@ -51,15 +162,34 @@ final class OpenAICompatibleProvider: ChatGPTTimelinePromptSupporting {
     decode: (String) throws -> Value
   ) async throws -> (Value, LLMCall) {
     let startedAt = Date()
+    let callGroupId = UUID().uuidString
     var currentPrompt = prompt
-    for attempt in 1...3 {
+    for attempt in 1...Self.maxAttempts {
       try Task.checkCancellation()
+      let request = makeRequest(
+        content: [
+          .init(type: "text", text: currentPrompt, image_url: nil)
+        ] + images)
+
+      let output: String
       do {
-        let request = makeRequest(
-          content: [
-            .init(type: "text", text: currentPrompt, image_url: nil)
-          ] + images)
-        let output = try await complete(request, operation: operation, batchId: batchId)
+        output = try await complete(
+          request, operation: operation, batchId: batchId, callGroupId: callGroupId,
+          attempt: attempt)
+      } catch {
+        try Task.checkCancellation()
+        if error is CancellationError || attempt == Self.maxAttempts
+          || !Self.isWorthResending(error)
+        {
+          throw error
+        }
+        // A timeout, network error or empty reply means the model never answered, so there
+        // is nothing to correct: send the same request again after a short wait.
+        try await Task.sleep(nanoseconds: UInt64(attempt) * 2_000_000_000)
+        continue
+      }
+
+      do {
         let value = try decode(output)
         return (
           value,
@@ -68,9 +198,9 @@ final class OpenAICompatibleProvider: ChatGPTTimelinePromptSupporting {
             input: currentPrompt, output: output)
         )
       } catch {
-        try Task.checkCancellation()
-        if error is CancellationError || attempt == 3 { throw error }
-        // Every HTTP call is independent, so keep the full input on correction attempts.
+        if attempt == Self.maxAttempts { throw error }
+        // The model answered, but with something unusable. Every HTTP call is independent,
+        // so keep the full input on correction attempts.
         currentPrompt =
           prompt + "\n\nPREVIOUS ATTEMPT FAILED. Fix: "
           + error.localizedDescription + "\nReturn the full corrected JSON only."

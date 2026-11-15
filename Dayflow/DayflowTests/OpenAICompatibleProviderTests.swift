@@ -85,4 +85,55 @@ final class OpenAICompatibleProviderTests: XCTestCase {
     XCTAssertEqual(requests, 2)
     XCTAssertEqual(result.cards.first?.detailedSummary, "Details")
   }
+
+  private func previousCard() -> ActivityCardData {
+    ActivityCardData(
+      startTime: "1:00 PM", endTime: "1:15 PM", category: "Work", subcategory: "",
+      title: "Release notes", summary: "Edited release notes.", detailedSummary: "Details",
+      distractions: nil, appSites: nil)
+  }
+
+  private func cardContext(_ previous: ActivityCardData) -> ActivityGenerationContext {
+    ActivityGenerationContext(
+      batchObservations: [], existingCards: [previous], currentTime: Date(), categories: [],
+      hasPreviousCardWithinFiveMinutes: true)
+  }
+
+  func testTimeoutAndEmptyReplyResendTheSameRequestWithoutACorrection() async throws {
+    let previous = previousCard()
+    for firstFailure in ["timeout", "empty"] {
+      var requests = 0
+      let provider = OpenAICompatibleProvider(configuration: configuration()) { request, _, _ in
+        requests += 1
+        let prompt = request.messages[1].content[0].text!
+        XCTAssertFalse(prompt.contains("PREVIOUS ATTEMPT FAILED"), firstFailure)
+        if requests == 1 {
+          if firstFailure == "timeout" { throw URLError(.timedOut) }
+          return "  "
+        }
+        return String(data: try JSONEncoder().encode([previous]), encoding: .utf8)!
+      }
+      let result = try await provider.generateActivityCards(
+        observations: [], context: cardContext(previous), batchId: 1)
+      XCTAssertEqual(requests, 2, firstFailure)
+      XCTAssertEqual(result.cards.count, 1, firstFailure)
+    }
+  }
+
+  func testRejectedKeyIsNotRetried() async {
+    let previous = previousCard()
+    var requests = 0
+    let provider = OpenAICompatibleProvider(configuration: configuration()) { _, _, _ in
+      requests += 1
+      throw NSError(domain: "OpenAICompatibleProvider", code: 401)
+    }
+    do {
+      _ = try await provider.generateActivityCards(
+        observations: [], context: cardContext(previous), batchId: 1)
+      XCTFail("Expected the 401 to be thrown")
+    } catch {
+      XCTAssertEqual((error as NSError).code, 401)
+    }
+    XCTAssertEqual(requests, 1)
+  }
 }
