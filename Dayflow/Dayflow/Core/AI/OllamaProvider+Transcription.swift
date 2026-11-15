@@ -12,7 +12,20 @@ extension OllamaProvider {
     let timestamp: TimeInterval  // Seconds from batch start
   }
 
-  private func getSimpleFrameDescription(_ frame: FrameData, batchId: Int64?) async -> String? {
+  /// True when nothing answered at the local endpoint, which is the only case where
+  /// "Ollama or LM Studio isn't running" is the right thing to tell the user.
+  private static func isConnectionFailure(_ error: Error) -> Bool {
+    let nsError = error as NSError
+    guard nsError.domain == NSURLErrorDomain else { return false }
+    return [
+      NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost, NSURLErrorNetworkConnectionLost,
+      NSURLErrorNotConnectedToInternet,
+    ].contains(nsError.code)
+  }
+
+  private func getSimpleFrameDescription(_ frame: FrameData, batchId: Int64?) async throws
+    -> String
+  {
     // Simple prompt focused on just describing what's happening
     let prompt = """
       Describe what you see on this computer screen in 1-2 sentences.
@@ -30,10 +43,11 @@ extension OllamaProvider {
       ✗ "Working on computer" (completely non-specific)
       """
 
-    // Convert base64 data back to string (return nil if we can't decode)
     guard let base64String = String(data: frame.image, encoding: .utf8) else {
       print("[OLLAMA] ⚠️ Failed to decode frame image — skipping frame")
-      return nil
+      throw NSError(
+        domain: "OllamaProvider", code: 14,
+        userInfo: [NSLocalizedDescriptionKey: "Failed to load a screenshot for the local model"])
     }
 
     // Build message content with image and text
@@ -55,13 +69,22 @@ extension OllamaProvider {
       let response = try await callChatAPI(
         request, operation: "describe_frame", batchId: batchId, maxRetries: 1)
       // Return the raw text response (no JSON parsing needed for simple descriptions)
-      return response.choices.first?.message.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        ?? ""
+      let description =
+        response.choices.first?.message.content?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      guard !description.isEmpty else {
+        throw NSError(
+          domain: "OllamaProvider", code: 16,
+          userInfo: [
+            NSLocalizedDescriptionKey: "Failed to parse response: empty reply from the local model"
+          ])
+      }
+      return description
     } catch {
       print(
         "[OLLAMA] ⚠️ describe_frame failed at \(frame.timestamp)s — skipping frame: \(error.localizedDescription)"
       )
-      return nil
+      throw error
     }
   }
 
@@ -479,6 +502,7 @@ extension OllamaProvider {
 
     // Describe each screenshot
     var frameDescriptions: [(timestamp: TimeInterval, description: String)] = []
+    var lastFrameError: Error?
 
     for screenshot in sampledScreenshots {
       guard let frameData = loadScreenshotAsFrameData(screenshot, relativeTo: firstTs) else {
@@ -486,20 +510,30 @@ extension OllamaProvider {
         continue
       }
 
-      if let description = await getSimpleFrameDescription(frameData, batchId: batchId) {
+      do {
+        let description = try await getSimpleFrameDescription(frameData, batchId: batchId)
         frameDescriptions.append((timestamp: frameData.timestamp, description: description))
+      } catch {
+        lastFrameError = error
+        // Nothing is listening, so the remaining frames would fail the same way.
+        if Self.isConnectionFailure(error) { break }
       }
     }
 
     guard !frameDescriptions.isEmpty else {
-      throw NSError(
-        domain: "OllamaProvider",
-        code: 11,
-        userInfo: [
-          NSLocalizedDescriptionKey:
-            "Failed to describe any screenshots. Please check that Ollama/LMStudio is running."
-        ]
-      )
+      // Only blame the engine being closed when the connection itself failed. A timeout, a
+      // missing model or an error reply means it is running, so pass the real error on.
+      if let lastFrameError, !Self.isConnectionFailure(lastFrameError) {
+        throw lastFrameError
+      }
+      var userInfo: [String: Any] = [
+        NSLocalizedDescriptionKey:
+          "Failed to describe any screenshots. Please check that Ollama/LMStudio is running."
+      ]
+      if let lastFrameError {
+        userInfo[NSUnderlyingErrorKey] = lastFrameError
+      }
+      throw NSError(domain: "OllamaProvider", code: 11, userInfo: userInfo)
     }
 
     // Merge frame descriptions into coherent observations
