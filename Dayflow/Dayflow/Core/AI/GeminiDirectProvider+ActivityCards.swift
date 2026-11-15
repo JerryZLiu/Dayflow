@@ -331,8 +331,20 @@ extension GeminiDirectProvider {
     return (finalCards, log)
   }
 
+  /// A video the request reads alongside the prompt, as an uploaded Files API reference.
+  struct GeminiVideoInput {
+    let fileURI: String
+    let mimeType: String
+  }
+
+  /// Requests timeline cards. The two-step path sends only `prompt`; the one-step timeline also
+  /// sends the batch video and puts its rules in `systemInstruction`.
   func geminiCardsRequest(
-    prompt: String, batchId: Int64?, groupId: String, model: GeminiModel, attempt: Int
+    prompt: String, batchId: Int64?, groupId: String, model: GeminiModel, attempt: Int,
+    video: GeminiVideoInput? = nil,
+    systemInstruction: String? = nil,
+    thinkingLevel: String = "high",
+    operation: String = "generate_activity_cards"
   ) async throws -> String {
     let distractionSchema: [String: Any] = [
       "type": "OBJECT",
@@ -377,17 +389,27 @@ extension GeminiDirectProvider {
       ],
     ]
 
-    let generationConfig: [String: Any] = [
+    var generationConfig: [String: Any] = [
       "maxOutputTokens": 65536,
       "responseMimeType": "application/json",
       "responseSchema": cardSchema,
-      "thinkingConfig": ["thinkingLevel": "high"],
+      "thinkingConfig": ["thinkingLevel": thinkingLevel],
     ]
 
-    let requestBody: [String: Any] = [
-      "contents": [["parts": [["text": prompt]]]],
+    var parts: [[String: Any]] = []
+    if let video {
+      parts.append(["file_data": ["mime_type": video.mimeType, "file_uri": video.fileURI]])
+      generationConfig["mediaResolution"] = "MEDIA_RESOLUTION_HIGH"
+    }
+    parts.append(["text": prompt])
+
+    var requestBody: [String: Any] = [
+      "contents": [["parts": parts]],
       "generationConfig": generationConfig,
     ]
+    if let systemInstruction {
+      requestBody["systemInstruction"] = ["parts": [["text": systemInstruction]]]
+    }
 
     // Single API call (retry logic handled by outer loop in generateActivityCards)
     let urlWithKey = endpointForModel(model) + "?key=\(apiKey)"
@@ -429,7 +451,7 @@ extension GeminiDirectProvider {
         provider: "gemini",
         providerID: LLMProviderID.gemini.rawValue,
         model: modelName,
-        operation: "generate_activity_cards",
+        operation: operation,
         requestMethod: request.httpMethod,
         requestURL: request.url,
         requestHeaders: request.allHTTPHeaderFields,
@@ -547,7 +569,7 @@ extension GeminiDirectProvider {
           provider: "gemini",
           providerID: LLMProviderID.gemini.rawValue,
           model: modelName,
-          operation: "generate_activity_cards",
+          operation: operation,
           requestMethod: request.httpMethod,
           requestURL: request.url,
           requestHeaders: request.allHTTPHeaderFields,
