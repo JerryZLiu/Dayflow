@@ -232,47 +232,95 @@ final class LLMService: LLMServicing {
       let gemmaProvider = makeGemmaBackupProvider()
       let fallbackState = GemmaFallbackState()
 
-      return (
-        actions: BatchProviderActions(
-          transcribeScreenshots: { [weak self] screenshots, batchStartTime, batchId in
-            if fallbackState.preferGemma, let gemmaProvider {
+      var actions = BatchProviderActions(
+        transcribeScreenshots: { [weak self] screenshots, batchStartTime, batchId in
+          if fallbackState.preferGemma, let gemmaProvider {
+            do {
               return try await gemmaProvider.transcribeScreenshots(
                 screenshots, batchStartTime: batchStartTime, batchId: batchId)
-            }
-
-            do {
-              return try await provider.transcribeScreenshots(
-                screenshots, batchStartTime: batchStartTime, batchId: batchId)
             } catch {
-              guard let gemmaProvider else { throw error }
-              fallbackState.preferGemma = true
-              self?.logGemmaFallback(operation: "transcribe", error: error, batchId: batchId)
-              return try await gemmaProvider.transcribeScreenshots(
-                screenshots, batchStartTime: batchStartTime, batchId: batchId)
-            }
-          },
-          generateActivityCards: Self.rewritingWholeWindow {
-            [weak self] observations, context, batchId in
-            if fallbackState.preferGemma, let gemmaProvider {
-              fallbackState.usedGemmaForCardGeneration = true
-              return try await gemmaProvider.generateActivityCards(
-                observations: observations, context: context, batchId: batchId)
-            }
-
-            do {
-              return try await provider.generateActivityCards(
-                observations: observations, context: context, batchId: batchId)
-            } catch {
-              guard let gemmaProvider else { throw error }
-              fallbackState.preferGemma = true
-              fallbackState.usedGemmaForCardGeneration = true
-              self?.logGemmaFallback(operation: "generate_cards", error: error, batchId: batchId)
-              return try await gemmaProvider.generateActivityCards(
-                observations: observations, context: context, batchId: batchId)
+              // Gemma only runs because Gemini failed, so Gemini's error is the one to report.
+              throw fallbackState.geminiFailure ?? error
             }
           }
-        ), fallbackState: fallbackState
+
+          do {
+            return try await provider.transcribeScreenshots(
+              screenshots, batchStartTime: batchStartTime, batchId: batchId)
+          } catch {
+            guard let gemmaProvider, Self.gemmaCanTakeOver(after: error) else { throw error }
+            fallbackState.preferGemma = true
+            fallbackState.geminiFailure = error
+            self?.logGemmaFallback(operation: "transcribe", error: error, batchId: batchId)
+            do {
+              return try await gemmaProvider.transcribeScreenshots(
+                screenshots, batchStartTime: batchStartTime, batchId: batchId)
+            } catch {
+              throw fallbackState.geminiFailure ?? error
+            }
+          }
+        },
+        generateActivityCards: Self.rewritingWholeWindow {
+          [weak self] observations, context, batchId in
+          if fallbackState.preferGemma, let gemmaProvider {
+            fallbackState.usedGemmaForCardGeneration = true
+            do {
+              return try await gemmaProvider.generateActivityCards(
+                observations: observations, context: context, batchId: batchId)
+            } catch {
+              throw fallbackState.geminiFailure ?? error
+            }
+          }
+
+          do {
+            return try await provider.generateActivityCards(
+              observations: observations, context: context, batchId: batchId)
+          } catch {
+            guard let gemmaProvider, Self.gemmaCanTakeOver(after: error) else { throw error }
+            fallbackState.preferGemma = true
+            fallbackState.usedGemmaForCardGeneration = true
+            fallbackState.geminiFailure = error
+            self?.logGemmaFallback(operation: "generate_cards", error: error, batchId: batchId)
+            do {
+              return try await gemmaProvider.generateActivityCards(
+                observations: observations, context: context, batchId: batchId)
+            } catch {
+              throw fallbackState.geminiFailure ?? error
+            }
+          }
+        }
       )
+      // Only models that handle the one-step prompt (4 Hydrogen) skip the transcript. If the
+      // call fails, the batch falls through to the two-step closures above.
+      if provider.supportsOneStepTimeline {
+        actions.generateTimeline = { screenshots, context, batchId in
+          do {
+            return try await provider.generateTimeline(
+              screenshots: screenshots, context: context, batchId: batchId)
+          } catch {
+            // An account error such as a usage limit would make LLMService skip Gemini's
+            // two-step path, but that path can still finish the batch on Gemma with the same
+            // key. Pass it on as a plain failure so the two-step path runs. A bad key or a
+            // billing problem stops Gemma too, so those are thrown as they are.
+            let kind = TimelineFailureClassifier.classify(error).kind
+            guard gemmaProvider != nil, kind.failsEveryRequestToProvider,
+              Self.gemmaCanTakeOver(after: error)
+            else { throw error }
+            fallbackState.geminiFailure = error
+            // Gemini's account is the problem, so the two-step path goes straight to Gemma.
+            fallbackState.preferGemma = true
+            let nsError = error as NSError
+            throw NSError(
+              domain: "GeminiOneStep", code: nsError.code,
+              userInfo: [
+                NSLocalizedDescriptionKey:
+                  "Gemini one-step timeline failed (\(nsError.domain) \(nsError.code))",
+                NSUnderlyingErrorKey: error,
+              ])
+          }
+        }
+      }
+      return (actions: actions, fallbackState: fallbackState)
     case .dayflow:
       let savedEndpoint = DayflowEndpointPreferences.load()
       guard let endpoint = resolvedDayflowEndpoint(savedEndpoint: savedEndpoint) else {
@@ -351,6 +399,30 @@ final class LLMService: LLMServicing {
   private final class GemmaFallbackState {
     var preferGemma = false
     var usedGemmaForCardGeneration = false
+    /// The Gemini error that sent the batch to Gemma. Reported if Gemma fails as well.
+    var geminiFailure: Error?
+  }
+
+  /// Gemma runs on the same API key as Gemini, so it can't help when the key or its billing is
+  /// the problem.
+  private static func gemmaCanTakeOver(after error: Error) -> Bool {
+    guard !wasInterrupted(error) else { return false }
+    switch TimelineFailureClassifier.classify(error).kind {
+    case .apiKeyProblem, .accountBlocked, .geoBlocked, .outOfCredits:
+      return false
+    default:
+      return true
+    }
+  }
+
+  /// True when the call stopped because the Mac is going to sleep or lost its connection, not
+  /// because of the provider. Another provider would be cut off the same way, so nothing else
+  /// is tried and the batch waits.
+  private static func wasInterrupted(_ error: Error) -> Bool {
+    if Task.isCancelled || error is CancellationError { return true }
+    let nsError = error as NSError
+    if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled { return true }
+    return !ConnectivityMonitor.shared.isOnline
   }
 
   private func logGemmaFallback(operation: String, error: Error, batchId: Int64?) {
