@@ -369,27 +369,132 @@ struct TimelineFailureClassification {
 enum TimelineFailureClassifier {
   static func classify(_ error: Error) -> TimelineFailureClassification {
     let lower = error.localizedDescription.lowercased()
+    // The error's type and code come first: macOS writes network errors in the user's language,
+    // and Dayflow's own reply checks are translated too, so their text can't be matched.
+    let failureKind: TimelineFailureKind
+    if let known = Self.kind(forTypeOf: error) {
+      failureKind = known
+    } else if Self.looksLikeRawModelOutput(lower) {
+      // Usually a jumbled reply from the model, whose words (a card about "OAuth", say) must
+      // not be read as an account problem. A provider's error page can start with "{" too,
+      // though, so an HTTP error is still classified by its status and wording.
+      let nsError = error as NSError
+      let isHTTPError =
+        httpStatusErrorDomains.contains(nsError.domain) && (400...599).contains(nsError.code)
+      failureKind =
+        Self.kind(forErrorsUnder: error) ?? Self.kind(forHTTPStatusOf: error)
+        ?? (isHTTPError ? Self.ruleKind(for: lower) : nil) ?? .modelFlaky
+    } else {
+      failureKind =
+        Self.ruleKind(for: lower) ?? Self.kind(forErrorsUnder: error)
+        ?? Self.kind(forHTTPStatusOf: error) ?? .unknown
+    }
     return TimelineFailureClassification(
-      kind: kind(for: lower),
+      kind: failureKind,
       providerName: providerName(in: lower)
     )
   }
 
-  private static func kind(for lower: String) -> TimelineFailureKind {
-    let trimmed = lower.trimmingCharacters(in: .whitespacesAndNewlines)
+  // MARK: - Classifying by type and code
 
-    // Raw model output sometimes ends up as the error message (truncated
-    // JSON, stray brackets, empty strings) — all symptoms of a flaky reply.
-    if trimmed.isEmpty || trimmed.hasPrefix("[") || trimmed.hasPrefix("{")
-      || trimmed.hasPrefix("]") || trimmed.hasPrefix("`")
-    {
-      return .modelFlaky
+  private static let transientURLErrorCodes: Set<Int> = [
+    NSURLErrorTimedOut, NSURLErrorCannotFindHost, NSURLErrorCannotConnectToHost,
+    NSURLErrorNetworkConnectionLost, NSURLErrorDNSLookupFailed,
+    NSURLErrorNotConnectedToInternet, NSURLErrorSecureConnectionFailed, NSURLErrorCancelled,
+    NSURLErrorInternationalRoamingOff, NSURLErrorDataNotAllowed, NSURLErrorCallIsActive,
+  ]
+
+  private static let transientPOSIXErrorCodes: Set<Int32> = [
+    ECONNREFUSED, ETIMEDOUT, ENETDOWN, ENETUNREACH, ECONNRESET, EHOSTUNREACH,
+  ]
+
+  /// Providers whose NSError code is the HTTP status of the failed request.
+  private static let httpStatusErrorDomains: Set<String> = [
+    "GeminiError", "GeminiProvider", "GeminiDirectProvider", "GemmaBackupProvider",
+    "DayflowBackend", "OpenAICompatibleProvider",
+  ]
+
+  /// Dayflow's own checks on a model's reply. Some of these types are private to their
+  /// provider, so they are matched by name.
+  private static let replyCheckTypeNames = [
+    "ClaudeOutputValidationError", "ClaudeStrictJSONParserError", "ClaudeCardGenerationError",
+    "CardParseError",
+  ]
+
+  private static func kind(forTypeOf error: Error) -> TimelineFailureKind? {
+    if error is CancellationError { return .transient }
+    if error is DecodingError { return .modelFlaky }
+    let typeName = String(describing: type(of: error))
+    if replyCheckTypeNames.contains(where: { typeName.contains($0) }) { return .modelFlaky }
+
+    let nsError = error as NSError
+    if nsError.domain == NSURLErrorDomain, transientURLErrorCodes.contains(nsError.code) {
+      // A refused connection to this Mac means the local model's app is closed.
+      if nsError.code == NSURLErrorCannotConnectToHost, isLocalHost(failingURL(of: nsError)) {
+        return .localEngineOffline
+      }
+      return .transient
     }
+    if nsError.domain == NSPOSIXErrorDomain,
+      transientPOSIXErrorCodes.contains(Int32(truncatingIfNeeded: nsError.code))
+    {
+      return .transient
+    }
+    return nil
+  }
 
+  /// Looks through the errors wrapped inside `error`, nearest first.
+  private static func kind(forErrorsUnder error: Error) -> TimelineFailureKind? {
+    var current = (error as NSError).userInfo[NSUnderlyingErrorKey] as? Error
+    for _ in 0..<5 {
+      guard let underlying = current else { return nil }
+      if let found = Self.kind(forTypeOf: underlying) { return found }
+      current = (underlying as NSError).userInfo[NSUnderlyingErrorKey] as? Error
+    }
+    return nil
+  }
+
+  private static func kind(forHTTPStatusOf error: Error) -> TimelineFailureKind? {
+    let nsError = error as NSError
+    guard httpStatusErrorDomains.contains(nsError.domain) else { return nil }
+    if nsError.domain == "DayflowBackend" {
+      if nsError.code == 402 { return .dayflowProRequired }
+      if nsError.code == 401 || nsError.code == 403 { return .providerLoginExpired }
+    } else {
+      if nsError.code == 401 { return .apiKeyProblem }
+      if nsError.code == 402 { return .outOfCredits }
+    }
+    if (500...599).contains(nsError.code) || nsError.code == 408 || nsError.code == 429 {
+      return .transient
+    }
+    return nil
+  }
+
+  private static func failingURL(of error: NSError) -> URL? {
+    if let url = error.userInfo[NSURLErrorFailingURLErrorKey] as? URL { return url }
+    return (error.userInfo[NSURLErrorFailingURLStringErrorKey] as? String).flatMap {
+      URL(string: $0)
+    }
+  }
+
+  private static func isLocalHost(_ url: URL?) -> Bool {
+    guard let host = url?.host?.lowercased() else { return false }
+    return ["localhost", "127.0.0.1", "::1", "0.0.0.0"].contains(host)
+  }
+
+  /// Raw model output sometimes ends up as the error message (truncated JSON, stray brackets,
+  /// empty strings), all symptoms of a flaky reply.
+  private static func looksLikeRawModelOutput(_ lower: String) -> Bool {
+    let trimmed = lower.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty || trimmed.hasPrefix("[") || trimmed.hasPrefix("{")
+      || trimmed.hasPrefix("]") || trimmed.hasPrefix("`")
+  }
+
+  private static func ruleKind(for lower: String) -> TimelineFailureKind? {
     for rule in rules where rule.patterns.contains(where: { lower.contains($0) }) {
       return rule.kind
     }
-    return .unknown
+    return nil
   }
 
   /// Ordered: first matching rule wins, so specific/actionable rules must
