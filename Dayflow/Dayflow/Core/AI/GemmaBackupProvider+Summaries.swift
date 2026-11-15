@@ -139,7 +139,8 @@ extension GemmaBackupProvider {
         return (result, response)
       } catch {
         lastError = error
-        if attempt == maxAttempts {
+        // Only a reply that came back unusable is worth asking for again with a stricter prompt.
+        if attempt == maxAttempts || Self.isRequestFailure(error) {
           throw error
         }
         prompt =
@@ -258,7 +259,8 @@ extension GemmaBackupProvider {
         return (result, response)
       } catch {
         lastError = error
-        if attempt == maxAttempts {
+        // Only a reply that came back unusable is worth asking for again with a stricter prompt.
+        if attempt == maxAttempts || Self.isRequestFailure(error) {
           throw error
         }
         prompt =
@@ -320,7 +322,8 @@ extension GemmaBackupProvider {
         return (shouldMerge, response)
       } catch {
         lastError = error
-        if attempt == maxAttempts {
+        // Only a reply that came back unusable is worth asking for again with a stricter prompt.
+        if attempt == maxAttempts || Self.isRequestFailure(error) {
           throw error
         }
         prompt =
@@ -387,7 +390,8 @@ extension GemmaBackupProvider {
         return (mergedCard, response)
       } catch {
         lastError = error
-        if attempt == maxAttempts {
+        // Only a reply that came back unusable is worth asking for again with a stricter prompt.
+        if attempt == maxAttempts || Self.isRequestFailure(error) {
           throw error
         }
         prompt =

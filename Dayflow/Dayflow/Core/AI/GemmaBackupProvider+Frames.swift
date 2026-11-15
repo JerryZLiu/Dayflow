@@ -38,6 +38,11 @@ extension GemmaBackupProvider {
     do {
       return try await describeFramesInSingleBatch(frames, batchId: batchId)
     } catch {
+      // A bad key, a used-up quota or a server that is down fails small batches too. Only a
+      // request that was too big (400 or 413), or a reply that couldn't be read, is worth
+      // sending again in smaller pieces.
+      let code = (error as NSError).code
+      if Self.isRequestFailure(error), code != 400, code != 413 { throw error }
       // Retry with smaller batches to avoid size limits.
       return try await describeFramesInBatches(frames, batchSize: 5, batchId: batchId)
     }
@@ -187,7 +192,8 @@ extension GemmaBackupProvider {
         }
       } catch {
         lastError = error
-        if attempt == maxAttempts {
+        // A failed request was already retried, so go straight to the local fallback.
+        if attempt == maxAttempts || Self.isRequestFailure(error) {
           return try observationsFromFrames(
             frameDescriptions, batchStartTime: batchStartTime, videoDuration: videoDuration,
             timeOffset: timeOffset)
