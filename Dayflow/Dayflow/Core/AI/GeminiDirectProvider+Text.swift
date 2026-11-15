@@ -21,7 +21,7 @@ extension GeminiDirectProvider {
     let maxRetries = 4
     var attempt = 0
     var lastError: Error?
-    var modelState = ModelRunState(models: modelPreference.orderedModels)
+    var modelState = ModelRunState(models: modelsToTry)
 
     while attempt < maxRetries {
       do {
@@ -48,6 +48,7 @@ extension GeminiDirectProvider {
           operation: "generateText", duration: requestDuration, status: httpResponse.statusCode)
 
         if httpResponse.statusCode >= 400 {
+          noteModelRefused(activeModel, status: httpResponse.statusCode, body: data)
           var errorMessage = "HTTP \(httpResponse.statusCode) error"
           if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let error = json["error"] as? [String: Any],

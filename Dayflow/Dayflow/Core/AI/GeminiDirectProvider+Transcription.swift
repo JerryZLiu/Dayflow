@@ -77,7 +77,7 @@ extension GeminiDirectProvider {
     var finalResponse = ""
     var finalObservations: [Observation] = []
 
-    var modelState = ModelRunState(models: modelPreference.orderedModels)
+    var modelState = ModelRunState(models: modelsToTry)
     let callGroupId = UUID().uuidString
 
     while attempt < maxRetries {
@@ -401,6 +401,7 @@ extension GeminiDirectProvider {
         logGeminiFailure(
           context: "transcribe.httpError", attempt: attempt, response: response, data: data,
           error: nil)
+        noteModelRefused(model, status: httpResponse.statusCode, body: data)
         throw NSError(
           domain: "GeminiError", code: httpResponse.statusCode,
           userInfo: [NSLocalizedDescriptionKey: errorMessage])
