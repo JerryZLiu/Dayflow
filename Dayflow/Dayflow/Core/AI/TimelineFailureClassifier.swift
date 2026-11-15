@@ -147,6 +147,13 @@ struct TimelineFailureClassification {
     }
   }
 
+  /// Title for the timeline card of a batch that is waiting for the provider to be fixed.
+  func waitingCardTitle(fallbackProviderLabel: String?) -> String {
+    if kind == .dayflowProRequired { return "Waiting for Dayflow Pro" }
+    if kind == .notConfigured { return "Waiting for an AI provider" }
+    return "Waiting for \(resolvedProvider(fallbackProviderLabel))"
+  }
+
   /// Copy for the bottom-right card, or nil when the failure isn't worth
   /// interrupting the user for (Dayflow retries those on its own).
   func toastContent(fallbackProviderLabel: String?) -> TimelineFailureToastContent? {
@@ -337,6 +344,17 @@ struct TimelineFailureClassification {
       )
     default:
       return nil
+    }
+  }
+
+  /// The provider Dayflow can sign back in to with its own Sign in button, when being signed
+  /// out is the problem. AWS sessions and API-key providers have no such button.
+  func signInProvider(fallbackProviderLabel: String?) -> LLMProviderID? {
+    guard kind == .providerLoginExpired else { return nil }
+    switch resolvedProvider(fallbackProviderLabel) {
+    case "Claude": return .claude
+    case "ChatGPT": return .chatGPT
+    default: return nil
     }
   }
 
