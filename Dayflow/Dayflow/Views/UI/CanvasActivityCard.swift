@@ -29,6 +29,8 @@ struct CanvasActivityCard: View {
   let faviconSecondaryHost: String?
   let statusLine: String?
   let failureCount: Int
+  /// Set when the batch is waiting rather than failed, e.g. "Waiting for Claude".
+  var waitingTitle: String? = nil
   let fontSize: CGFloat
   let fontWeight: TimelineCardTextWeight
   let iconLeadingInset: CGFloat
@@ -47,7 +49,7 @@ struct CanvasActivityCard: View {
 
   private var displayTitle: String {
     guard isFailedCard else { return title }
-    let failedTitle = String(localized: "Processing failed")
+    let failedTitle = waitingTitle ?? String(localized: "Processing failed")
     guard failureCount > 1 else { return failedTitle }
     return String(localized: "\(failedTitle) · \(failureCount) intervals")
   }

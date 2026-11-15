@@ -330,7 +330,9 @@ struct ActivityCard: View {
         }
     } else {
       HStack(alignment: .center, spacing: 6) {
-        Text(isFailedCard(activity) ? String(localized: "Processing failed") : activity.title)
+        Text(
+          isFailedCard(activity)
+            ? activity.waitingTitle ?? String(localized: "Processing failed") : activity.title)
           .font(
             Font.custom("Figtree", size: 16)
               .weight(.semibold)

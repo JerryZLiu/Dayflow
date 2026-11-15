@@ -355,6 +355,7 @@ struct CanvasTimelineDataView: View {
           faviconSecondaryHost: item.faviconSecondaryHost,
           statusLine: retryCoordinator.statusLine(for: item.batchIds),
           failureCount: item.failureCount,
+          waitingTitle: item.activity.waitingTitle,
           fontSize: cardTextFontSize,
           fontWeight: cardTextFontWeight,
           iconLeadingInset: cardIconLeadingInset,

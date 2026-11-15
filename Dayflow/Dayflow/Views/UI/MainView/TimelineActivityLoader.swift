@@ -199,6 +199,8 @@ enum TimelineActivityLoader {
       if activity.title == failedTitle,
         let lastIndex = segments.indices.last,
         segments[lastIndex].activity.title == failedTitle,
+        // Waiting and failed stretches look and read differently, so they stay apart.
+        segments[lastIndex].activity.waitingTitle == activity.waitingTitle,
         activity.startTime.timeIntervalSince(segments[lastIndex].end)
           <= failureGroupingGapTolerance
       {

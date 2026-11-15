@@ -400,6 +400,7 @@ struct WeekTimelineGridView: View {
           faviconSecondaryHost: item.faviconSecondaryHost,
           statusLine: retryCoordinator.statusLine(for: item.batchIds),
           failureCount: item.failureCount,
+          waitingTitle: item.activity.waitingTitle,
           isRetryActive: retryCoordinator.isActive(batchIds: item.batchIds),
           onHoverChanged: { hovering in
             scheduleHoverChange(cardID: item.id, hovering: hovering)
