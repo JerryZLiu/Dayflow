@@ -239,7 +239,7 @@ struct LocalLLMTestView: View {
         if http.statusCode == 200 {
           if requiresMeaningfulResponse {
             let decoded = try? JSONDecoder().decode(OllamaProvider.ChatResponse.self, from: data)
-            let content = decoded?.choices.first?.message.content.trimmingCharacters(
+            let content = decoded?.choices.first?.message.content?.trimmingCharacters(
               in: .whitespacesAndNewlines)
             guard let content, !content.isEmpty else {
               self.resultMessage = String(

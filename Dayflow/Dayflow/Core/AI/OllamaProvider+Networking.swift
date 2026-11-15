@@ -42,7 +42,8 @@ extension OllamaProvider {
     }
 
     struct ResponseMessage: Codable {
-      let content: String
+      // Thinking models can send a reply with no text at all.
+      let content: String?
     }
   }
 
@@ -277,7 +278,15 @@ extension OllamaProvider {
 
     let response = try await callChatAPI(
       request, operation: operation, batchId: batchId, maxRetries: maxRetries)
-    return response.choices.first?.message.content ?? ""
+    let text = response.choices.first?.message.content ?? ""
+    guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      throw NSError(
+        domain: "OllamaProvider", code: 16,
+        userInfo: [
+          NSLocalizedDescriptionKey: "Failed to parse response: empty reply from the local model"
+        ])
+    }
+    return text
   }
 
   private func applyAuthorizationHeader(to request: inout URLRequest) {
