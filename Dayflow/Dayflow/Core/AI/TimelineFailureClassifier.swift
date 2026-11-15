@@ -361,6 +361,7 @@ struct TimelineFailureClassification {
     case "claude": return "Claude"
     case "local", "ollama": return "Ollama/LM Studio"
     case "dayflow": return "Dayflow"
+    case "openai_compatible": return "your custom provider"
     default: return label
     }
   }
