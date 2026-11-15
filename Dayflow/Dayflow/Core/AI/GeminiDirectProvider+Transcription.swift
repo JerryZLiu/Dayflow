@@ -629,14 +629,22 @@ extension GeminiDirectProvider {
 
   // MARK: - Screenshot Transcription
 
-  /// Transcribe observations from screenshots by first compositing them into a video.
-  /// Gemini's API expects video files, so we composite screenshots → video → upload → transcribe.
-  ///
-  /// We use a compressed timeline: each screenshot = 1 second of video.
-  /// This reduces a 15-minute batch (90 screenshots) to a 90-second video.
-  /// Timestamps returned by Gemini are then expanded by the screenshot interval.
-  func transcribeScreenshots(_ screenshots: [Screenshot], batchStartTime: Date, batchId: Int64?)
-    async throws -> (observations: [Observation], log: LLMCall)
+  /// One batch's screenshots as a compressed video: each screenshot is one second.
+  struct CompressedBatchVideo {
+    let data: Data
+    let frameCount: Int
+    /// Seconds between the first and last screenshot.
+    let realDuration: TimeInterval
+    /// Average real seconds per frame, used to turn video time back into clock time.
+    let compressionFactor: TimeInterval
+    let firstCapturedAt: Int
+    let lastCapturedAt: Int
+  }
+
+  /// Composites screenshots into the 1 fps video Gemini reads. Each screenshot becomes one
+  /// second of video, so a 15-minute batch (90 screenshots) becomes a 90-second video.
+  func makeCompressedBatchVideo(_ screenshots: [Screenshot], batchId: Int64?) async throws
+    -> CompressedBatchVideo
   {
     guard !screenshots.isEmpty else {
       throw NSError(
@@ -651,9 +659,6 @@ extension GeminiDirectProvider {
     let lastTs = sortedScreenshots.last!.capturedAt
     let realDuration = TimeInterval(lastTs - firstTs)
 
-    // Compressed video duration: 1 second per screenshot
-    let compressedVideoDuration = TimeInterval(sortedScreenshots.count)
-
     // Compression factor = average real seconds per frame (each frame is 1s of video)
     let compressionFactor =
       sortedScreenshots.count > 1 && realDuration > 0
@@ -661,7 +666,7 @@ extension GeminiDirectProvider {
       : ScreenshotConfig.interval
 
     print(
-      "[Gemini] 📊 Timeline compression: \(Int(realDuration))s real → \(Int(compressedVideoDuration))s video (\(Int(compressionFactor))x)"
+      "[Gemini] 📊 Timeline compression: \(Int(realDuration))s real → \(sortedScreenshots.count)s video (\(Int(compressionFactor))x)"
     )
 
     // Create temp video file
@@ -703,17 +708,35 @@ extension GeminiDirectProvider {
     // Load video data
     let videoData = try Data(contentsOf: tempVideoURL)
     print(
-      "[Gemini] 📹 Composited \(screenshots.count) screenshots into compressed video (\(videoData.count / 1024)KB)"
+      "[Gemini] 📹 Composited \(sortedScreenshots.count) screenshots into compressed video (\(videoData.count / 1024)KB)"
     )
+
+    return CompressedBatchVideo(
+      data: videoData,
+      frameCount: sortedScreenshots.count,
+      realDuration: realDuration,
+      compressionFactor: compressionFactor,
+      firstCapturedAt: firstTs,
+      lastCapturedAt: lastTs
+    )
+  }
+
+  /// Transcribe observations from screenshots by first compositing them into a video.
+  /// Gemini's API expects video files, so we composite screenshots → video → upload → transcribe.
+  /// Timestamps returned by Gemini are then expanded by the screenshot interval.
+  func transcribeScreenshots(_ screenshots: [Screenshot], batchStartTime: Date, batchId: Int64?)
+    async throws -> (observations: [Observation], log: LLMCall)
+  {
+    let video = try await makeCompressedBatchVideo(screenshots, batchId: batchId)
 
     // Transcribe the composited video with compression info
     return try await transcribeVideoData(
-      videoData,
+      video.data,
       mimeType: "video/mp4",
       batchStartTime: batchStartTime,
-      videoDuration: compressedVideoDuration,
-      realDuration: realDuration,
-      compressionFactor: compressionFactor,
+      videoDuration: TimeInterval(video.frameCount),
+      realDuration: video.realDuration,
+      compressionFactor: video.compressionFactor,
       batchId: batchId
     )
   }
