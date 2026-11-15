@@ -4,6 +4,13 @@ import Foundation
 extension GemmaBackupProvider {
   // MARK: - Networking
 
+  /// Waits before the second and third try of a request that failed on Google's side.
+  private static var retryDelays: [TimeInterval] { [2, 5] }
+  private static var emptyReplyCode: Int { 15 }
+
+  /// Sends one request, trying again after a short wait when the failure is temporary: a
+  /// server error or overload, a network timeout, or an empty reply. Key, billing, quota and
+  /// other 4xx answers are thrown straight away, because asking again gets the same answer.
   func callGenerateContent(
     parts: [[String: Any]],
     operation: String,
@@ -11,6 +18,58 @@ extension GemmaBackupProvider {
     temperature: Double,
     maxOutputTokens: Int,
     logRequestBody: Bool
+  ) async throws -> String {
+    let callGroupId = UUID().uuidString
+    var attempt = 1
+    while true {
+      do {
+        return try await sendGenerateContent(
+          parts: parts, operation: operation, batchId: batchId, temperature: temperature,
+          maxOutputTokens: maxOutputTokens, logRequestBody: logRequestBody,
+          callGroupId: callGroupId, attempt: attempt)
+      } catch {
+        guard Self.isTemporaryFailure(error), attempt <= Self.retryDelays.count else {
+          throw error
+        }
+        let delay = Self.retryDelays[attempt - 1]
+        print("[Gemma] \(operation) attempt \(attempt) failed, retrying in \(Int(delay))s")
+        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        attempt += 1
+      }
+    }
+  }
+
+  /// A failure that a plain retry can fix.
+  static func isTemporaryFailure(_ error: Error) -> Bool {
+    let nsError = error as NSError
+    if nsError.domain == NSURLErrorDomain {
+      return [
+        NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost, NSURLErrorCannotConnectToHost,
+      ].contains(nsError.code)
+    }
+    guard nsError.domain == "GemmaBackupProvider" else { return false }
+    return (500...599).contains(nsError.code) || nsError.code == emptyReplyCode
+  }
+
+  /// A failure of the request itself, as opposed to a reply that came back but could not be
+  /// used. `callGenerateContent` has already retried the temporary ones, so callers that retry
+  /// with a stricter prompt should give up on these: a stricter prompt does not fix them.
+  static func isRequestFailure(_ error: Error) -> Bool {
+    let nsError = error as NSError
+    if nsError.domain == NSURLErrorDomain { return true }
+    guard nsError.domain == "GemmaBackupProvider" else { return false }
+    return nsError.code >= 400 || nsError.code == emptyReplyCode
+  }
+
+  private func sendGenerateContent(
+    parts: [[String: Any]],
+    operation: String,
+    batchId: Int64?,
+    temperature: Double,
+    maxOutputTokens: Int,
+    logRequestBody: Bool,
+    callGroupId: String,
+    attempt: Int
   ) async throws -> String {
     let url = URL(string: "\(baseURL)/\(model):generateContent?key=\(apiKey)")!
     var request = URLRequest(url: url)
@@ -34,8 +93,8 @@ extension GemmaBackupProvider {
 
     let ctx = LLMCallContext(
       batchId: batchId,
-      callGroupId: UUID().uuidString,
-      attempt: 1,
+      callGroupId: callGroupId,
+      attempt: attempt,
       provider: "gemma",
       model: model,
       operation: operation,
@@ -86,13 +145,7 @@ extension GemmaBackupProvider {
         userInfo: [NSLocalizedDescriptionKey: errorMessage])
     }
 
-    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let candidates = json["candidates"] as? [[String: Any]],
-      let firstCandidate = candidates.first,
-      let content = firstCandidate["content"] as? [String: Any],
-      let parts = content["parts"] as? [[String: Any]],
-      let text = parts.first?["text"] as? String
-    else {
+    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
       LLMLogger.logFailure(
         ctx: ctx,
         http: LLMHTTPInfo(httpStatus: status, responseHeaders: responseHeaders, responseBody: data),
@@ -104,6 +157,28 @@ extension GemmaBackupProvider {
       throw NSError(
         domain: "GemmaBackupProvider", code: 13,
         userInfo: [NSLocalizedDescriptionKey: "Failed to parse response"])
+    }
+
+    // A 200 with no candidates, no parts or blank text is an empty reply. It keeps the
+    // "Failed to parse response" wording that failure handling already recognises.
+    let candidates = json["candidates"] as? [[String: Any]]
+    let content = candidates?.first?["content"] as? [String: Any]
+    let replyParts = content?["parts"] as? [[String: Any]]
+    guard let text = replyParts?.first?["text"] as? String,
+      !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else {
+      let message = "Failed to parse response: empty reply from Gemma"
+      LLMLogger.logFailure(
+        ctx: ctx,
+        http: LLMHTTPInfo(httpStatus: status, responseHeaders: responseHeaders, responseBody: data),
+        finishedAt: Date(),
+        errorDomain: "GemmaBackupProvider",
+        errorCode: Self.emptyReplyCode,
+        errorMessage: message
+      )
+      throw NSError(
+        domain: "GemmaBackupProvider", code: Self.emptyReplyCode,
+        userInfo: [NSLocalizedDescriptionKey: message])
     }
 
     LLMLogger.logSuccess(
