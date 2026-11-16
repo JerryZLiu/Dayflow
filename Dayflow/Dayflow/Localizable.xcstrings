@@ -1537,6 +1537,9 @@
         }
       }
     },
+    "%@ isn't working" : {
+
+    },
     "%@ left" : {
       "comment" : "Break countdown; the argument is a m:ss clock such as 4:59.",
       "localizations" : {
@@ -1629,6 +1632,9 @@
           }
         }
       }
+    },
+    "%@ of recording is waiting." : {
+
     },
     "%@ pt" : {
       "localizations" : {
@@ -1777,6 +1783,9 @@
     "%@ until your break ends." : {
 
     },
+    "%@ waiting" : {
+
+    },
     "%@ waiting to process" : {
 
     },
@@ -1880,6 +1889,16 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "%1$@, %2$@"
+          }
+        }
+      }
+    },
+    "%@. %@ is already set up on this Mac, so Dayflow can use it whenever %@ isn't working. This uses your %@ plan." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@. %2$@ is already set up on this Mac, so Dayflow can use it whenever %3$@ isn't working. This uses your %4$@ plan."
           }
         }
       }
@@ -5621,6 +5640,9 @@
           }
         }
       }
+    },
+    "4 Hydrogen" : {
+
     },
     "4pm" : {
       "localizations" : {
@@ -11250,6 +11272,9 @@
         }
       }
     },
+    "Browser didn't open? Try again" : {
+
+    },
     "Browsing TripAdvisor" : {
       "localizations" : {
         "de" : {
@@ -12047,6 +12072,9 @@
           }
         }
       }
+    },
+    "Catches up after you sign in" : {
+
     },
     "Categories" : {
       "localizations" : {
@@ -13913,6 +13941,7 @@
       }
     },
     "Choose your Gemini model. We recommend 3.8 Flash, with 3.5 Flash-Lite available as a fallback." : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -13957,6 +13986,9 @@
           }
         }
       }
+    },
+    "Choose your Gemini model. We recommend 4 Hydrogen, with the Flash models available as fallbacks." : {
+
     },
     "Choose your local AI engine" : {
       "localizations" : {
@@ -15494,6 +15526,12 @@
       }
     },
     "Click to edit" : {
+
+    },
+    "Click to fix" : {
+
+    },
+    "Click to sign in" : {
 
     },
     "Close" : {
@@ -29611,6 +29649,9 @@
         }
       }
     },
+    "Finish signing in" : {
+
+    },
     "First cards on your timeline" : {
       "localizations" : {
         "de" : {
@@ -31477,6 +31518,9 @@
           }
         }
       }
+    },
+    "Gemini 4 Hydrogen" : {
+
     },
     "Gemini API" : {
       "localizations" : {
@@ -42518,6 +42562,9 @@
     "No summary for %@ yet" : {
 
     },
+    "No thanks" : {
+
+    },
     "No timeline activities were recorded for %@." : {
       "localizations" : {
         "de" : {
@@ -45205,6 +45252,9 @@
           }
         }
       }
+    },
+    "Or sign in from Terminal" : {
+
     },
     "Other" : {
       "localizations" : {
@@ -55112,6 +55162,9 @@
         }
       }
     },
+    "Sign in to %@" : {
+
+    },
     "Sign in to claim this referral code." : {
       "localizations" : {
         "de" : {
@@ -57430,6 +57483,9 @@
           }
         }
       }
+    },
+    "Starts right away" : {
+
     },
     "Stats" : {
       "extractionState" : "stale",
@@ -59912,6 +59968,9 @@
         }
       }
     },
+    "Thanks, we read every note." : {
+
+    },
     "That code is wrong or has expired. Check it, or send a new one." : {
 
     },
@@ -60703,6 +60762,9 @@
           }
         }
       }
+    },
+    "The sign-in didn't finish. Try again, or sign in from Terminal instead." : {
+
     },
     "The three timed options shown when you pause Dayflow." : {
 
@@ -65481,6 +65543,12 @@
     "Usage based on your own LLM account limits" : {
 
     },
+    "Use %@ as a backup?" : {
+
+    },
+    "Use %@ as backup" : {
+
+    },
     "Use any OpenAI-compatible VLM" : {
       "localizations" : {
         "de" : {
@@ -66731,6 +66799,9 @@
         }
       }
     },
+    "Waiting for sign-in…" : {
+
+    },
     "Watch the screen during sessions" : {
       "localizations" : {
         "de" : {
@@ -67947,6 +68018,9 @@
           }
         }
       }
+    },
+    "What would have made them better?" : {
+
     },
     "What you saved" : {
 
@@ -70313,6 +70387,9 @@
           }
         }
       }
+    },
+    "Your browser just opened. Sign in to %@ there and come back. Dayflow will pick up where it left off." : {
+
     },
     "Your daily recap for yesterday is ready" : {
       "localizations" : {

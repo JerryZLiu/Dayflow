@@ -3,14 +3,16 @@
 //  Dayflow
 //
 //  Shown in place of the stack once every task is dismissed or handed off: a peach to
-//  lavender card with a tilted sky-blue tile that reads "N Tasks Reviewed", and a
-//  1 to 5 star rating of how good the day's tasks were.
+//  lavender card with a tilted sky-blue tile that reads "N Tasks Reviewed", a
+//  1 to 5 star rating of how good the day's tasks were, and, once rated, a box for
+//  written feedback.
 //
 
 import SwiftUI
 
 struct DocketSummaryCard: View {
-  static let height: CGFloat = 470
+  /// Tall enough for the feedback box that appears under the stars after a rating.
+  static let height: CGFloat = 525
 
   let count: Int
 
@@ -81,9 +83,19 @@ struct DocketSummaryCard: View {
       tile(t: t)
         .offset(x: 242, y: 135.68)
 
-      DocketStarRating(rating: store.brief?.userState.docketRating) { stars in
-        store.rateDocket(stars)
+      VStack(spacing: 14) {
+        DocketStarRating(rating: store.brief?.userState.docketRating) { stars in
+          store.rateDocket(stars)
+        }
+        // Once they've rated, a box for saying why in their own words.
+        if store.brief?.userState.docketRating != nil {
+          DocketFeedbackBox(sent: store.brief?.userState.docketFeedback) { text in
+            store.sendDocketFeedback(text)
+          }
+          .transition(.opacity.combined(with: .offset(y: -6)))
+        }
       }
+      .animation(.easeOut(duration: 0.25), value: store.brief?.userState.docketRating != nil)
       .frame(width: 676)
       .offset(y: 380)
       .modifier(DocketRise(t: t, start: 1.4, duration: 0.6, distance: 8))
@@ -256,6 +268,74 @@ private struct DocketStarRating: View {
       .pointingHandCursor()
       .animation(.easeOut(duration: 0.12), value: shown)
     }
+  }
+}
+
+/// A one-line box under the stars for saying, in their own words, what would have made
+/// the tasks better. Return or Send submits it; after that it shows a thank-you.
+private struct DocketFeedbackBox: View {
+  /// What they already sent today, if anything.
+  let sent: String?
+  let onSend: (String) -> Void
+
+  @State private var draft = ""
+  @State private var isSendHovered = false
+  @FocusState private var isFocused: Bool
+
+  private var trimmed: String { draft.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+  var body: some View {
+    if sent != nil {
+      Text("Thanks, we read every note.")
+        .font(DailyBriefFonts.sans(13))
+        .foregroundStyle(DocketColors.countHover)
+        .frame(height: 36)
+    } else {
+      HStack(spacing: 8) {
+        TextField("What would have made them better?", text: $draft)
+          .textFieldStyle(.plain)
+          .font(DailyBriefFonts.sans(13))
+          .foregroundStyle(DocketColors.ink)
+          .focused($isFocused)
+          .onSubmit(send)
+          .padding(.horizontal, 12)
+          .frame(height: 36)
+          .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.75))
+          )
+          .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+              .strokeBorder(
+                isFocused ? Color(hex: "F4C8B1") : Color(hex: "F0E5E1"), lineWidth: 1)
+          )
+
+        Button(action: send) {
+          Text("Send")
+            .font(DailyBriefFonts.sans(13, weight: .medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18)
+            .frame(height: 36)
+            .background(Capsule().fill(Color(hex: "FF9F6F")))
+            .overlay(Capsule().strokeBorder(Color(hex: "F4C8B1"), lineWidth: 0.5))
+            .scaleEffect(isSendHovered && !trimmed.isEmpty ? 1.02 : 1)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(trimmed.isEmpty)
+        .opacity(trimmed.isEmpty ? 0.5 : 1)
+        .onHover { isSendHovered = $0 }
+        .animation(.easeOut(duration: 0.15), value: isSendHovered)
+        .pointingHandCursor(enabled: !trimmed.isEmpty)
+      }
+      .frame(width: 420)
+    }
+  }
+
+  private func send() {
+    guard !trimmed.isEmpty else { return }
+    onSend(trimmed)
+    draft = ""
+    isFocused = false
   }
 }
 
