@@ -8,6 +8,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
   private let menu = NSMenu()
   private var cancellable: AnyCancellable?
   private var flowCancellable: AnyCancellable?
+  private var problemCancellable: AnyCancellable?
+  /// Orange dot on the icon while a provider problem is waiting on the user.
+  private let problemDot = NSView(frame: NSRect(x: 0, y: 0, width: 6, height: 6))
   private var flowTimer: Timer?
   /// What the Flow pill last drew, so the once-a-second tick only re-renders
   /// when the label actually changes.
@@ -31,7 +34,20 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
       let isRecording = AppState.shared.isRecording
       button.image = menuBarIcon(isRecording: isRecording)
+
+      problemDot.wantsLayer = true
+      problemDot.layer?.backgroundColor = NSColor.systemOrange.cgColor
+      problemDot.layer?.cornerRadius = 3
+      problemDot.isHidden = true
+      button.addSubview(problemDot)
     }
+
+    problemCancellable = ProviderProblemCenter.shared.$problem
+      .map { $0 != nil }
+      .removeDuplicates()
+      .sink { [weak self] hasProblem in
+        self?.updateProblemDot(hasProblem: hasProblem)
+      }
 
     // Observe recording state changes and update icon
     cancellable = AppState.shared.$isRecording
@@ -55,6 +71,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
       return nil
     }
     return window.convertToScreen(button.convert(button.bounds, to: nil))
+  }
+
+  /// Puts the dot in the icon's top right corner. Hidden during a Flow session, when the icon
+  /// is replaced by the wide Flow pill.
+  private func updateProblemDot(hasProblem: Bool) {
+    guard let button = statusItem.button else { return }
+    let size = problemDot.frame.size
+    let y = button.isFlipped ? 3 : button.bounds.height - size.height - 3
+    problemDot.frame.origin = CGPoint(x: button.bounds.width - size.width - 2, y: y)
+    problemDot.isHidden = !hasProblem || FlowSessionMirror.shared.isSessionOn
   }
 
   private func updateIcon(isRecording: Bool) {
@@ -83,6 +109,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
       statusItem.length = NSStatusItem.squareLength
       statusItem.button?.image = menuBarIcon(isRecording: AppState.shared.isRecording)
     }
+    updateProblemDot(hasProblem: ProviderProblemCenter.shared.problem != nil)
   }
 
   private func renderFlowPill() {
@@ -162,6 +189,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
       menu.addItem(flowSessionHeroItem())
     }
 
+    if let problem = ProviderProblemCenter.shared.problem {
+      menu.addItem(problemItem(problem))
+      menu.addItem(.separator())
+    }
+
     switch RecordingControl.currentMode() {
     case .active:
       menu.addItem(.sectionHeader(title: String(localized: "Pause Dayflow")))
@@ -184,6 +216,20 @@ final class StatusBarController: NSObject, NSMenuDelegate {
       actionItem(
         String(localized: "Quit Completely"), #selector(quitDayflow), keyEquivalent: "q",
         symbol: "power", tint: .systemRed))
+  }
+
+  /// "Claude is signed out · 3 hrs waiting · Click to sign in"
+  private func problemItem(_ problem: TimelineFailureToastPayload) -> NSMenuItem {
+    var parts = [problem.title ?? String(localized: "Dayflow needs a hand")]
+    if let waiting = problem.waitingText {
+      parts.append(String(localized: "\(waiting) waiting"))
+    }
+    parts.append(
+      problem.signInProviderID == nil
+        ? String(localized: "Click to fix") : String(localized: "Click to sign in"))
+    return actionItem(
+      parts.joined(separator: " · "), #selector(fixProviderProblem),
+      symbol: "exclamationmark.triangle.fill", tint: .systemOrange)
   }
 
   private func resumeItem() -> NSMenuItem {
@@ -243,6 +289,19 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     } else {
       RecordingControl.start(reason: "user_menu_bar")
     }
+  }
+
+  /// Opens Dayflow on the fix-it card, starting the browser sign-in when that is the fix.
+  @objc private func fixProviderProblem() {
+    guard let problem = ProviderProblemCenter.shared.problem else { return }
+    AnalyticsService.shared.capture("provider_problem_menu_item_clicked", problem.analyticsProps)
+    openDayflow()
+    NotificationCenter.default.post(name: .navigateToTimeline, object: nil)
+    if let provider = problem.signInProviderID {
+      ProviderSignIn.shared.start(provider, source: "menu_bar")
+    }
+    // If the main window is still opening, it picks the request up when it appears.
+    ProviderProblemCenter.shared.showCardAgain()
   }
 
   @objc private func openDayflow() {
