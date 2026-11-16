@@ -186,7 +186,14 @@ extension CodexProvider {
         model: model,
         reasoningEffort: reasoningEffort
       )
-    }.value
+    }
+    // A detached task doesn't see its caller being cancelled (the batch stopping because the
+    // Mac is going to sleep), so pass the cancellation on and let the runner stop the CLI.
+    return try await withTaskCancellationHandler {
+      try await task.value
+    } onCancel: {
+      task.cancel()
+    }
   }
 
   // MARK: Prompt

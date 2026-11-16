@@ -33,7 +33,7 @@ final class ClaudeProvider: AgentCLISupporting {
   ) async throws -> ChatCLIRunResult {
     let runner = runner
     let workingDirectory = config.workingDirectory
-    return try await Task.detached(priority: .utility) {
+    let task = Task.detached(priority: .utility) {
       try runner.run(
         tool: .claude,
         prompt: prompt,
@@ -47,7 +47,14 @@ final class ClaudeProvider: AgentCLISupporting {
         claudeInlineImages: inlineImages,
         environmentOverrides: environmentOverrides
       )
-    }.value
+    }
+    // A detached task doesn't see its caller being cancelled (the batch stopping because the
+    // Mac is going to sleep), so pass the cancellation on and let the runner stop the CLI.
+    return try await withTaskCancellationHandler {
+      try await task.value
+    } onCancel: {
+      task.cancel()
+    }
   }
 
   static func combinedTokenUsage(_ first: TokenUsage?, _ second: TokenUsage?) -> TokenUsage? {
