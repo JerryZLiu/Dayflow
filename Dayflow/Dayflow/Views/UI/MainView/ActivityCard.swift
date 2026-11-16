@@ -334,13 +334,14 @@ struct ActivityCard: View {
       HStack(alignment: .center, spacing: 6) {
         Text(
           isFailedCard(activity)
-            ? activity.waitingTitle ?? String(localized: "Processing failed") : activity.title)
-          .font(
-            Font.custom("Figtree", size: 16)
-              .weight(.semibold)
-          )
-          .foregroundColor(stylePreviewAfter && theme.isDark ? .white : .black)
-          .onTapGesture { startTitleEdit(for: activity) }
+            ? activity.waitingTitle ?? String(localized: "Processing failed") : activity.title
+        )
+        .font(
+          Font.custom("Figtree", size: 16)
+            .weight(.semibold)
+        )
+        .foregroundColor(stylePreviewAfter && theme.isDark ? .white : .black)
+        .onTapGesture { startTitleEdit(for: activity) }
 
         if isHoveringTitle && !isFailedCard(activity) {
           CategoryEditCircleButton(

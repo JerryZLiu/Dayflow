@@ -231,7 +231,6 @@ final class ProviderProblemCenter: ObservableObject {
 
   @Published private(set) var problem: TimelineFailureToastPayload?
 
-
   /// Set when the user asked to see the card, so a main window that is still opening shows it.
   private var cardWasRequested = false
 

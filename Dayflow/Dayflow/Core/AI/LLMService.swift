@@ -170,7 +170,7 @@ final class LLMService: LLMServicing {
     /// Screenshots straight to cards in one call. Only providers that support it set this.
     var generateTimeline:
       (([Screenshot], ActivityGenerationContext, Int64?) async throws -> OneStepTimelineResult)? =
-      nil
+        nil
   }
 
   /// Claude and ChatGPT run their two-step path through a command-line tool, one frame group

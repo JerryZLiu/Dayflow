@@ -100,7 +100,8 @@ final class NotificationService: NSObject, ObservableObject {
 
   private static let providerProblemIdentifier = "provider.problem"
   private static let providerProblemSignInCategory = "provider_problem_sign_in"
-  private static let providerProblemLastSentDayByKindKey = "providerProblemNotificationLastDayByKind"
+  private static let providerProblemLastSentDayByKindKey =
+    "providerProblemNotificationLastDayByKind"
 
   /// Adds the Sign in and Later buttons to the signed-out notification.
   private func registerProviderProblemActions() {
@@ -500,7 +501,8 @@ extension NotificationService: UNUserNotificationCenterDelegate {
     let isGettingStartedNotification = identifier.hasPrefix("gettingStarted.")
     let isProviderProblemNotification = identifier.hasPrefix("provider.")
     let actionIdentifier = response.actionIdentifier
-    let signInProvider = (response.notification.request.content.userInfo["sign_in_provider"]
+    let signInProvider =
+      (response.notification.request.content.userInfo["sign_in_provider"]
       as? String).flatMap(LLMProviderID.init(rawValue:))
     guard
       isDailyRecapNotification || isWeeklyUnlockNotification || isSupportNotification
