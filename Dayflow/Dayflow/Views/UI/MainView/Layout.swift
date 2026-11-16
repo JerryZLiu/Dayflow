@@ -131,7 +131,18 @@ extension MainView {
           AnalyticsService.shared.capture(
             "llm_timeline_failure_toast_copied_command", payload.analyticsProps)
         },
-        onDismiss: { handleTimelineFailureToastDismiss(payload) }
+        onDismiss: { handleTimelineFailureToastDismiss(payload) },
+        onSignIn: { provider in
+          AnalyticsService.shared.capture(
+            "llm_timeline_failure_toast_clicked_sign_in", payload.analyticsProps)
+          ProviderSignIn.shared.start(provider, source: "failure_card")
+        },
+        onAcceptBackup: { provider in handleTimelineFailureToastAcceptBackup(payload, provider) },
+        onDeclineBackup: {
+          AnalyticsService.shared.capture(
+            "llm_timeline_failure_toast_declined_backup", payload.analyticsProps)
+          ProviderProblemCenter.shared.declineBackupOffer()
+        }
       )
       .padding(.trailing, 24)
       .padding(.bottom, 24)
@@ -183,6 +194,7 @@ extension MainView {
       performInitialScrollIfNeeded()
     }
     showScreenRecordingNoticeIfNeeded()
+    showWaitingProviderProblemIfNeeded()
     startDayChangeTimer()
     loadWeeklyTrackedMinutes()
     updateCardsToReviewCount()
@@ -322,8 +334,50 @@ extension MainView {
     else {
       return
     }
+    let wasForced = userInfo["force"] as? Bool ?? false
+    if wasForced { _ = ProviderProblemCenter.shared.takeCardRequest() }
+    showTimelineFailureToast(payload, force: wasForced)
+  }
+
+  /// Shows the card when it is already up (to refresh how much is waiting), when the user
+  /// asked for it, or when this kind of problem hasn't been shown yet today.
+  private func showTimelineFailureToast(_ payload: TimelineFailureToastPayload, force: Bool) {
+    let isAlreadyShowing = timelineFailureToastPayload?.failureKind == payload.failureKind
+    // While Dayflow is hidden nobody sees the card, so it waits (and keeps today's showing)
+    // until Dayflow is in front again.
+    guard
+      isAlreadyShowing || force
+        || (NSApp.isActive
+          && ProviderProblemCenter.shared.claimDailyCardSlot(failureKind: payload.failureKind))
+    else { return }
+
+    if !isAlreadyShowing {
+      AnalyticsService.shared.capture("llm_timeline_failure_toast_shown", payload.analyticsProps)
+    }
     withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
       timelineFailureToastPayload = payload
+    }
+  }
+
+  /// A problem reported while the main window was closed still gets its card.
+  private func showWaitingProviderProblemIfNeeded() {
+    guard let problem = ProviderProblemCenter.shared.problem else { return }
+    showTimelineFailureToast(problem, force: ProviderProblemCenter.shared.takeCardRequest())
+  }
+
+  private func handleTimelineFailureToastAcceptBackup(
+    _ payload: TimelineFailureToastPayload, _ provider: LLMProviderID
+  ) {
+    var props = payload.analyticsProps
+    let saved = ProviderProblemCenter.shared.acceptBackupOffer(provider)
+    props["saved"] = saved
+    AnalyticsService.shared.capture("llm_timeline_failure_toast_accepted_backup", props)
+    guard saved else {
+      handleTimelineFailureToastOpenSettings(payload)
+      return
+    }
+    withAnimation(.spring(response: 0.25, dampingFraction: 0.92)) {
+      timelineFailureToastPayload = nil
     }
   }
 
@@ -360,6 +414,8 @@ extension MainView {
       showScreenRecordingPermissionNotice = false
       didDismissScreenRecordingPermissionNoticeThisSession = false
     }
+
+    showWaitingProviderProblemIfNeeded()
 
     // Check if day changed while app was backgrounded
     handleMinuteTickForDayChange()
@@ -499,7 +555,30 @@ private struct TimelineFailureToastView: View {
   let onOpenSettings: () -> Void
   let onCopyCommand: () -> Void
   let onDismiss: () -> Void
+  let onSignIn: (LLMProviderID) -> Void
+  let onAcceptBackup: (LLMProviderID) -> Void
+  let onDeclineBackup: () -> Void
+  @ObservedObject private var signIn = ProviderSignIn.shared
   @State private var didCopy = false
+  @State private var didSkipSignIn = false
+  @State private var didDeclineBackup = false
+  @State private var showsTerminalSteps = false
+
+  /// The tool to offer as a backup, once signing in is not (or no longer) the thing to do.
+  private var backupOffer: LLMProviderID? {
+    guard !didDeclineBackup, payload.signInProviderID == nil || didSkipSignIn else { return nil }
+    return payload.backupOfferProviderID
+  }
+
+  private var isWaitingForSignIn: Bool {
+    guard let provider = payload.signInProviderID else { return false }
+    return signIn.state == .waiting(provider)
+  }
+
+  private var signInFailed: Bool {
+    guard let provider = payload.signInProviderID else { return false }
+    return signIn.state == .failed(provider)
+  }
 
   private var actionTitle: String {
     payload.destination == .account
@@ -510,12 +589,16 @@ private struct TimelineFailureToastView: View {
     VStack(alignment: .leading, spacing: 14) {
       header
 
-      Text(payload.message)
+      Text(message)
         .font(.custom("Figtree", size: 13))
         .foregroundStyle(theme.textSecondary)
         .fixedSize(horizontal: false, vertical: true)
 
-      if payload.steps.isEmpty {
+      if let backupOffer {
+        backupOfferButtons(backupOffer)
+      } else if let provider = payload.signInProviderID {
+        signInControls(provider)
+      } else if payload.steps.isEmpty {
         buttons
       } else {
         steps
@@ -526,6 +609,111 @@ private struct TimelineFailureToastView: View {
     .promptCardStyle(width: 360)
   }
 
+  private var title: String {
+    if let backupOffer {
+      return String(localized: "Use \(ProviderSignIn.displayName(for: backupOffer)) as a backup?")
+    }
+    if isWaitingForSignIn { return String(localized: "Finish signing in") }
+    return payload.title ?? String(localized: "Dayflow needs a hand")
+  }
+
+  private var message: String {
+    if let backupOffer {
+      let other = ProviderSignIn.displayName(for: backupOffer)
+      let problem = payload.title ?? String(localized: "\(payload.providerName) isn't working")
+      return String(
+        localized:
+          "\(problem). \(other) is already set up on this Mac, so Dayflow can use it whenever \(payload.providerName) isn't working. This uses your \(other) plan."
+      )
+    }
+    if isWaitingForSignIn {
+      return String(
+        localized:
+          "Your browser just opened. Sign in to \(payload.providerName) there and come back. Dayflow will pick up where it left off."
+      )
+    }
+    if signInFailed {
+      return String(
+        localized: "The sign-in didn't finish. Try again, or sign in from Terminal instead.")
+    }
+    return payload.message
+  }
+
+  // MARK: Sign in
+
+  @ViewBuilder
+  private func signInControls(_ provider: LLMProviderID) -> some View {
+    if isWaitingForSignIn {
+      HStack(spacing: 8) {
+        ProgressView()
+          .controlSize(.small)
+        Text("Waiting for sign-in…")
+          .font(.custom("Figtree", size: 13).weight(.medium))
+      }
+      .foregroundStyle(theme.primaryButtonText)
+      .frame(maxWidth: .infinity)
+      .frame(height: 34)
+      .background(Capsule().fill(theme.primaryButtonFill.opacity(0.75)))
+
+      linkButton(String(localized: "Browser didn't open? Try again")) { onSignIn(provider) }
+    } else {
+      pillButtons(
+        secondaryTitle: String(localized: "Not now"),
+        secondaryAction: {
+          if payload.backupOfferProviderID != nil {
+            withAnimation(.easeOut(duration: 0.2)) { didSkipSignIn = true }
+          } else {
+            onDismiss()
+          }
+        },
+        primaryTitle: String(localized: "Sign in to \(ProviderSignIn.displayName(for: provider))"),
+        primaryAction: { onSignIn(provider) }
+      )
+
+      if !payload.steps.isEmpty {
+        if showsTerminalSteps || signInFailed {
+          steps
+        } else {
+          linkButton(String(localized: "Or sign in from Terminal")) {
+            withAnimation(.easeOut(duration: 0.2)) { showsTerminalSteps = true }
+          }
+        }
+      }
+    }
+  }
+
+  private func linkButton(_ title: String, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      Text(title)
+        .font(.custom("Figtree", size: 12))
+        .underline()
+        .foregroundStyle(theme.textMuted)
+        .frame(maxWidth: .infinity)
+    }
+    .buttonStyle(.plain)
+    .pointingHandCursor()
+  }
+
+  // MARK: Backup offer
+
+  private func backupOfferButtons(_ provider: LLMProviderID) -> some View {
+    pillButtons(
+      secondaryTitle: String(localized: "No thanks"),
+      secondaryAction: {
+        onDeclineBackup()
+        // Saying no to the backup still leaves the fix itself, unless that was already skipped.
+        if didSkipSignIn {
+          onDismiss()
+        } else {
+          withAnimation(.easeOut(duration: 0.2)) { didDeclineBackup = true }
+        }
+      },
+      primaryTitle: String(
+        localized: "Use \(ProviderSignIn.displayName(for: provider)) as backup"),
+      primaryAction: { onAcceptBackup(provider) }
+    )
+  }
+
   // MARK: Header
 
   private var header: some View {
@@ -533,7 +721,7 @@ private struct TimelineFailureToastView: View {
       providerLogo
         .frame(width: 22, height: 22)
 
-      Text(payload.title ?? String(localized: "Dayflow needs a hand"))
+      Text(title)
         .font(.custom("Figtree", size: 15).weight(.semibold))
         .foregroundStyle(theme.textPrimary)
         .fixedSize(horizontal: false, vertical: true)
@@ -553,7 +741,8 @@ private struct TimelineFailureToastView: View {
 
   @ViewBuilder
   private var providerLogo: some View {
-    let name = payload.providerName.lowercased()
+    let name =
+      (backupOffer.map(ProviderSignIn.displayName(for:)) ?? payload.providerName).lowercased()
     if name.contains("claude") {
       Image("ClaudeLogo").resizable().scaledToFit()
     } else if name.contains("chatgpt") || name.contains("codex") {
@@ -671,9 +860,23 @@ private struct TimelineFailureToastView: View {
   // MARK: Buttons (no steps)
 
   private var buttons: some View {
+    pillButtons(
+      secondaryTitle: String(localized: "Not now"),
+      secondaryAction: onDismiss,
+      primaryTitle: actionTitle,
+      primaryAction: onOpenSettings
+    )
+  }
+
+  private func pillButtons(
+    secondaryTitle: String,
+    secondaryAction: @escaping () -> Void,
+    primaryTitle: String,
+    primaryAction: @escaping () -> Void
+  ) -> some View {
     HStack(spacing: 8) {
-      Button(action: onDismiss) {
-        Text("Not now")
+      Button(action: secondaryAction) {
+        Text(secondaryTitle)
           .font(.custom("Figtree", size: 13).weight(theme.isDark ? .medium : .regular))
           .foregroundStyle(theme.secondaryButtonText)
           .frame(maxWidth: .infinity)
@@ -685,11 +888,13 @@ private struct TimelineFailureToastView: View {
       .buttonStyle(.plain)
       .pointingHandCursor()
 
-      Button(action: onOpenSettings) {
-        Text(actionTitle)
+      Button(action: primaryAction) {
+        Text(primaryTitle)
           .font(.custom("Figtree", size: 13).weight(.medium))
           .foregroundStyle(theme.primaryButtonText)
           .lineLimit(1)
+          .minimumScaleFactor(0.85)
+          .padding(.horizontal, 6)
           .frame(maxWidth: .infinity)
           .frame(height: 34)
           .background(Capsule().fill(theme.primaryButtonFill))
@@ -710,12 +915,12 @@ private struct TimelineFailureToastView: View {
         .fill(theme.accent)
         .frame(width: 6, height: 6)
 
-      if let waiting = waitingText {
+      if let waiting = payload.waitingText {
         Text("\(waiting) waiting to process")
           .font(.custom("Figtree", size: 12))
           .foregroundStyle(theme.textSecondary)
         Spacer(minLength: 8)
-        Text("Retries on its own")
+        Text(footerNote)
           .font(.custom("Figtree", size: 12))
           .foregroundStyle(theme.textMuted)
       } else {
@@ -733,18 +938,10 @@ private struct TimelineFailureToastView: View {
     }
   }
 
-  /// "25 min", "3 hrs", "1 day". Nil when nothing is waiting.
-  private var waitingText: String? {
-    let minutes = payload.waitingSeconds / 60
-    guard minutes > 0 else { return nil }
-    if minutes < 60 {
-      return String(localized: "\(minutes) min")
-    }
-    let hours = minutes / 60
-    if hours < 24 {
-      return hours == 1 ? String(localized: "1 hr") : String(localized: "\(hours) hrs")
-    }
-    return String(localized: "1 day")
+  private var footerNote: String {
+    if backupOffer != nil { return String(localized: "Starts right away") }
+    if payload.signInProviderID != nil { return String(localized: "Catches up after you sign in") }
+    return String(localized: "Retries on its own")
   }
 }
 

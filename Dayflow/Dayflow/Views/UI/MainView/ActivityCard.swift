@@ -18,6 +18,8 @@ struct ActivityCard: View {
   @EnvironmentObject private var appState: AppState
   @EnvironmentObject private var categoryStore: CategoryStore
   @EnvironmentObject private var retryCoordinator: RetryCoordinator
+  @ObservedObject private var providerProblems = ProviderProblemCenter.shared
+  @ObservedObject private var providerSignIn = ProviderSignIn.shared
   @AppStorage(TimelapsePreferences.saveAllTimelapsesToDiskKey) private var saveAllTimelapsesToDisk =
     false
 
@@ -492,7 +494,12 @@ struct ActivityCard: View {
     let isProcessing = retryCoordinator.isActive(batchId: activity.batchId)
     let isDisabled = retryCoordinator.isRunning
 
-    if isProcessing {
+    if activity.waitingTitle != nil, !isProcessing,
+      let provider = providerProblems.problem?.signInProviderID
+    {
+      // Waiting on a signed-out provider: signing in is the fix, and Dayflow retries after.
+      signInButton(for: provider)
+    } else if isProcessing {
       // Processing state - beige pill with spinner
       HStack(alignment: .center, spacing: 4) {
         ProgressView()
@@ -538,6 +545,33 @@ struct ActivityCard: View {
       .hoverScaleEffect(enabled: !isDisabled, scale: 1.02)
       .pointingHandCursorOnHover(enabled: !isDisabled, reassertOnPressEnd: true)
     }
+  }
+
+  private func signInButton(for provider: LLMProviderID) -> some View {
+    let isWaiting = providerSignIn.state == .waiting(provider)
+    let name = ProviderSignIn.displayName(for: provider)
+    return Button(action: { providerSignIn.start(provider, source: "timeline_card") }) {
+      Text(
+        isWaiting
+          ? String(localized: "Waiting for sign-in…") : String(localized: "Sign in to \(name)")
+      )
+      .font(.custom("Figtree", size: 13).weight(.medium))
+      .lineLimit(1)
+      .foregroundColor(theme.primaryButtonText)
+      .padding(.horizontal, 12)
+      .padding(.vertical, 8)
+      .background(
+        Capsule(style: .continuous)
+          .fill(theme.primaryButtonFill)
+          .overlay(
+            Capsule(style: .continuous).strokeBorder(theme.primaryButtonBorder, lineWidth: 1)
+          )
+      )
+    }
+    .buttonStyle(PlainButtonStyle())
+    .disabled(isWaiting)
+    .opacity(isWaiting ? 0.7 : 1)
+    .pointingHandCursorOnHover(enabled: !isWaiting, reassertOnPressEnd: true)
   }
 
   private func handleRetry(for activity: TimelineActivity) {
