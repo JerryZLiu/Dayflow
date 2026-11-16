@@ -471,12 +471,28 @@ final class LLMService: LLMServicing {
 
   /// True when the call stopped because the Mac is going to sleep or lost its connection, not
   /// because of the provider. Another provider would be cut off the same way, so nothing else
-  /// is tried and the batch waits.
-  private static func wasInterrupted(_ error: Error) -> Bool {
+  /// is tried and the batch waits. Being offline doesn't stop a `nextProvider` that runs on
+  /// this Mac, so the batch can still go to it.
+  private static func wasInterrupted(_ error: Error, nextProvider: LLMProviderID? = nil) -> Bool {
     if Task.isCancelled || error is CancellationError { return true }
     let nsError = error as NSError
     if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled { return true }
+    if let nextProvider, !needsInternet(nextProvider) { return false }
     return !ConnectivityMonitor.shared.isOnline
+  }
+
+  /// False for providers that run on this Mac: a local model, or a custom provider whose
+  /// address is this Mac (LM Studio or a self-hosted server set up as a custom provider).
+  private static func needsInternet(_ provider: LLMProviderID) -> Bool {
+    switch provider {
+    case .local:
+      return false
+    case .openAICompatible:
+      let host = OpenAICompatiblePreferences.load()?.chatCompletionsURL?.host?.lowercased() ?? ""
+      return !["localhost", "127.0.0.1", "::1", "0.0.0.0"].contains(host)
+    default:
+      return true
+    }
   }
 
   /// Gemini's one-step call hides an account error inside a plain one so the two-step path
@@ -510,7 +526,7 @@ final class LLMService: LLMServicing {
 
   /// Why a batch should not be sent to `provider` right now, or nil when it can be.
   private func waitReason(for provider: LLMProviderID, label: String) async -> BatchHeldError? {
-    if provider != .local, !ConnectivityMonitor.shared.isOnline {
+    if Self.needsInternet(provider), !ConnectivityMonitor.shared.isOnline {
       return BatchHeldError(reason: .offline, providerFailureKind: nil, providerLabel: label)
     }
     guard let hold = ProviderHoldStore.shared.hold(for: provider) else { return nil }
@@ -602,7 +618,7 @@ final class LLMService: LLMServicing {
       return (value, activeContext, usingBackup)
     } catch {
       guard activeContext.id == primaryContext.id, let backupContext,
-        !Self.wasInterrupted(error)
+        !Self.wasInterrupted(error, nextProvider: backupContext.id)
       else {
         throw error
       }
@@ -1070,7 +1086,11 @@ final class LLMService: LLMServicing {
             oneStepResult = try await generateTimeline(
               screenshots, makeGenerationContext(batchObservations: []), batchId)
           } catch {
-            if Self.wasInterrupted(error) { throw error }
+            if Self.wasInterrupted(
+              error, nextProvider: usedProviderBackup ? nil : backupContext?.id)
+            {
+              throw error
+            }
             let nsError = error as NSError
             let failureKind = TimelineFailureClassifier.classify(error).kind
             let failedContext = activeContext
@@ -1387,10 +1407,14 @@ final class LLMService: LLMServicing {
         var heldError = error as? BatchHeldError
         let wasNeverSent = heldError != nil
         if heldError == nil {
-          // A local model doesn't need the internet, unless the batch had moved to the backup.
+          // Only a provider that needs the internet is stopped by being offline. A batch that
+          // started on such a primary also waits, even if a backup on this Mac failed too, so it
+          // keeps its retries for when the internet is back and the primary can take it.
+          let lastProvider =
+            primaryFailure != nil ? configuredBackup ?? primaryProviderID : primaryProviderID
           let isOffline =
             !ConnectivityMonitor.shared.isOnline
-            && (primaryProviderID != .local || primaryFailure != nil)
+            && (Self.needsInternet(primaryProviderID) || Self.needsInternet(lastProvider))
           if isOffline {
             heldError = BatchHeldError(
               reason: .offline, providerFailureKind: nil, providerLabel: primaryProviderLabel)
