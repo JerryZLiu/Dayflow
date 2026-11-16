@@ -1223,6 +1223,22 @@ final class DailyBriefStore: ObservableObject {
       ])
   }
 
+  /// Written feedback from the box under the star rating. It's sent with the rating so
+  /// the two can be read together.
+  func sendDocketFeedback(_ text: String) {
+    guard brief != nil else { return }
+    brief!.userState.docketFeedback = text
+    persistBrief()
+    AnalyticsService.shared.capture(
+      "daily_brief_docket_feedback",
+      [
+        "feedback": String(text.prefix(1000)),
+        "stars": brief!.userState.docketRating ?? 0,
+        "task_count": docketItems.count,
+        "model": brief!.stats?.model ?? "",
+      ])
+  }
+
   func setDocketDismissReason(_ reason: String, for title: String) {
     guard brief != nil,
       let index = brief!.userState.handoffs.lastIndex(where: { $0.title == title && $0.dismissed })

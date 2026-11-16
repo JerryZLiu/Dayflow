@@ -261,6 +261,8 @@ struct DailyBriefUserState: Codable, Equatable, Sendable {
   var handoffs: [DailyBriefHandoff] = []
   /// 1 to 5 stars from the card after the last task: how good today's tasks were.
   var docketRating: Int?
+  /// What they wrote in the box under the rating, if they sent anything.
+  var docketFeedback: String?
 
   init() {}
 
@@ -281,6 +283,7 @@ struct DailyBriefUserState: Codable, Equatable, Sendable {
     handoffs =
       try container.decodeIfPresent([DailyBriefHandoff].self, forKey: .handoffs) ?? []
     docketRating = try container.decodeIfPresent(Int.self, forKey: .docketRating)
+    docketFeedback = try container.decodeIfPresent(String.self, forKey: .docketFeedback)
   }
 }
 
