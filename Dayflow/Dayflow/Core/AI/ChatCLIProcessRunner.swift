@@ -665,7 +665,7 @@ struct ChatCLIProcessRunner {
     onProcessStart: (@Sendable (String, [String: String]) -> Void)? = nil
   ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
     AsyncThrowingStream { continuation in
-      Task.detached {
+      let task = Task.detached {
         do {
           try await self.executeStreaming(
             tool: tool,
@@ -684,6 +684,9 @@ struct ChatCLIProcessRunner {
           continuation.finish(throwing: error)
         }
       }
+      // When the reader stops listening (a batch cancelled because the Mac is going to sleep),
+      // cancel the run so waitForExit stops the CLI instead of waiting out its timeout.
+      continuation.onTermination = { _ in task.cancel() }
     }
   }
 
