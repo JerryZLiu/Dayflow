@@ -138,7 +138,8 @@ extension CodexProvider {
             start: callStart, end: run.finishedAt, input: currentPrompt, output: run.stdout)
           return (cards, observations, plan.rewriteSpan, llmCall)
         } catch {
-          if error is CancellationError { throw error }
+          // A batch stopped for sleep sees the runner's timeout error, not CancellationError.
+          if error is CancellationError || Task.isCancelled { throw error }
           if currentAttempt < Self.timelineMaxAttempts,
             let fallback = Self.availabilityFallback(
               for: model, error: error, stderr: lastRun?.stderr)
@@ -177,7 +178,7 @@ extension CodexProvider {
     let workingDirectory = config.workingDirectory
     // The frames go to the CLI as written; the shared image preparation would shrink them to
     // 720 pixels, which loses small on-screen text.
-    return try await Task.detached(priority: .utility) {
+    let task = Task.detached(priority: .utility) {
       try runner.run(
         tool: .codex,
         prompt: prompt,

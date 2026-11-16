@@ -191,7 +191,8 @@ extension CodexProvider {
           }
         }
       } catch {
-        if error is CancellationError { throw error }
+        // A batch stopped for sleep sees the runner's timeout error, not CancellationError.
+        if error is CancellationError || Task.isCancelled { throw error }
         if attempt < 3,
           let fallback = Self.availabilityFallback(
             for: model, error: error, stderr: lastRun?.stderr)
