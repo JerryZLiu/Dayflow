@@ -22,6 +22,29 @@ struct TimelineFailureToastPayload {
   let errorDomain: String
   let errorCode: Int
   let batchId: Int64?
+  /// Raw `LLMProviderID` Dayflow can sign back in to with its own button, when that is the fix.
+  let signInProvider: String?
+  /// Raw `LLMProviderID` of another tool on this Mac that is ready to be the backup provider.
+  let backupOfferProvider: String?
+
+  var signInProviderID: LLMProviderID? { signInProvider.flatMap(LLMProviderID.init(rawValue:)) }
+  var backupOfferProviderID: LLMProviderID? {
+    backupOfferProvider.flatMap(LLMProviderID.init(rawValue:))
+  }
+
+  /// "25 min", "3 hrs", "1 day". Nil when nothing is waiting.
+  var waitingText: String? {
+    let minutes = waitingSeconds / 60
+    guard minutes > 0 else { return nil }
+    if minutes < 60 {
+      return String(localized: "\(minutes) min")
+    }
+    let hours = minutes / 60
+    if hours < 24 {
+      return hours == 1 ? String(localized: "1 hr") : String(localized: "\(hours) hrs")
+    }
+    return String(localized: "1 day")
+  }
 
   var notificationUserInfo: [String: Any] {
     var userInfo: [String: Any] = [
@@ -54,6 +77,12 @@ struct TimelineFailureToastPayload {
     if let batchId {
       userInfo["batch_id"] = batchId
     }
+    if let signInProvider {
+      userInfo["sign_in_provider"] = signInProvider
+    }
+    if let backupOfferProvider {
+      userInfo["backup_offer_provider"] = backupOfferProvider
+    }
     return userInfo
   }
 
@@ -79,7 +108,9 @@ struct TimelineFailureToastPayload {
     rateLimitDetected: Bool,
     errorDomain: String,
     errorCode: Int,
-    batchId: Int64?
+    batchId: Int64?,
+    signInProvider: String? = nil,
+    backupOfferProvider: String? = nil
   ) {
     self.message = message
     self.title = title
@@ -99,6 +130,8 @@ struct TimelineFailureToastPayload {
     self.errorDomain = errorDomain
     self.errorCode = errorCode
     self.batchId = batchId
+    self.signInProvider = signInProvider
+    self.backupOfferProvider = backupOfferProvider
   }
 
   init?(userInfo: [AnyHashable: Any]) {
@@ -163,26 +196,126 @@ struct TimelineFailureToastPayload {
       rateLimitDetected: rateLimitDetected,
       errorDomain: errorDomain,
       errorCode: errorCode,
-      batchId: batchId
+      batchId: batchId,
+      signInProvider: userInfo["sign_in_provider"] as? String,
+      backupOfferProvider: userInfo["backup_offer_provider"] as? String
     )
   }
 }
 
 enum TimelineFailureToastCenter {
+  /// Reports a problem the user has to fix. Safe to call for every failed or waiting batch:
+  /// the card, the Mac notification and the menu bar warning each decide how often to show.
   static func post(_ payload: TimelineFailureToastPayload) {
-    DispatchQueue.main.async {
-      NotificationCenter.default.post(
-        name: .showTimelineFailureToast,
-        object: nil,
-        userInfo: payload.notificationUserInfo
-      )
+    Task { @MainActor in
+      ProviderProblemCenter.shared.report(payload)
     }
   }
 
   /// A batch just succeeded, so whatever the card asked the user to fix is fixed.
   static func hide() {
-    DispatchQueue.main.async {
-      NotificationCenter.default.post(name: .hideTimelineFailureToast, object: nil)
+    Task { @MainActor in
+      ProviderProblemCenter.shared.resolve()
     }
+  }
+}
+
+private let cardLastShownDayByKindKey = "timelineFailureToastLastShownDayByKind"
+private let backupOfferDeclinedKey = "providerBackupOfferDeclined"
+
+/// The provider problem that currently needs the user, if any. The card in the main window,
+/// the Mac notification, the menu bar warning and the timeline's sign-in button all read it.
+@MainActor
+final class ProviderProblemCenter: ObservableObject {
+  static let shared = ProviderProblemCenter()
+
+  @Published private(set) var problem: TimelineFailureToastPayload?
+
+
+  /// Set when the user asked to see the card, so a main window that is still opening shows it.
+  private var cardWasRequested = false
+
+  func report(_ payload: TimelineFailureToastPayload) {
+    if problem == nil { ProviderSignIn.shared.clearFailure() }
+    problem = payload
+    NotificationService.shared.notifyProviderProblem(payload)
+    NotificationCenter.default.post(
+      name: .showTimelineFailureToast, object: nil, userInfo: payload.notificationUserInfo)
+  }
+
+  func resolve() {
+    guard problem != nil else { return }
+    problem = nil
+    cardWasRequested = false
+    ProviderSignIn.shared.cancel()
+    NotificationService.shared.clearProviderProblemNotification()
+    NotificationCenter.default.post(name: .hideTimelineFailureToast, object: nil)
+  }
+
+  /// Brings the card back in the main window even if it was already shown or dismissed today,
+  /// because the user asked for it from the menu bar or a notification.
+  func showCardAgain() {
+    guard let problem else { return }
+    cardWasRequested = true
+    var userInfo = problem.notificationUserInfo
+    userInfo["force"] = true
+    NotificationCenter.default.post(
+      name: .showTimelineFailureToast, object: nil, userInfo: userInfo)
+  }
+
+  /// True once after the user asked to see the card.
+  func takeCardRequest() -> Bool {
+    defer { cardWasRequested = false }
+    return cardWasRequested
+  }
+
+  /// The card interrupts once a day per kind of problem. The slot is only used up when the
+  /// card is actually put on screen, so a closed window doesn't count as having shown it.
+  func claimDailyCardSlot(failureKind: String, now: Date = Date()) -> Bool {
+    let logicalDay = now.getDayInfoFor4AMBoundary().dayString
+    let defaults = UserDefaults.standard
+    var lastShownDayByKind =
+      defaults.dictionary(forKey: cardLastShownDayByKindKey) as? [String: String] ?? [:]
+    guard lastShownDayByKind[failureKind] != logicalDay else { return false }
+    lastShownDayByKind[failureKind] = logicalDay
+    defaults.set(lastShownDayByKind, forKey: cardLastShownDayByKindKey)
+    return true
+  }
+
+  // MARK: Backup offer
+
+  nonisolated static var backupOfferWasDeclined: Bool {
+    UserDefaults.standard.bool(forKey: backupOfferDeclinedKey)
+  }
+
+  func declineBackupOffer() {
+    UserDefaults.standard.set(true, forKey: backupOfferDeclinedKey)
+  }
+
+  /// Makes `provider` the backup, then retries what is waiting. Returns false if saving failed.
+  func acceptBackupOffer(_ provider: LLMProviderID) -> Bool {
+    do {
+      let routing = try LLMProviderRoutingStore.load()
+      guard routing.primary != provider else { return false }
+      try LLMProviderRoutingStore.save(
+        LLMProviderRouting(primary: routing.primary, secondary: provider))
+      try LLMProviderSetupPreferences.markComplete(provider, in: .standard)
+      AnalyticsService.shared.capture(
+        "provider_backup_updated",
+        [
+          "backup_provider": provider.rawValue,
+          "provider_id": provider.rawValue,
+          "primary_provider": routing.primary.rawValue,
+          "source": "failure_card_offer",
+        ])
+    } catch {
+      print("[ProviderProblemCenter] Could not save backup provider: \(error)")
+      return false
+    }
+    // The backup takes over from here, so nothing is waiting on the user any more.
+    ProviderHoldStore.shared.clear(provider)
+    resolve()
+    AnalysisManager.shared.catchUpFailedBatches(reason: "backup_offer_accepted")
+    return true
   }
 }

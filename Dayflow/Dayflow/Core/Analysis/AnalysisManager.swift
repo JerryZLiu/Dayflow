@@ -413,6 +413,11 @@ final class AnalysisManager: AnalysisManaging {
   /// The Retry button's queue calls this so the automatic catch-up never
   /// reprocesses batches at the same time as a manual retry.
   func setManualRetryRunning(_ isRunning: Bool) {
+    // Pressing Retry means "try now", so a provider that was being left alone gets a real
+    // request again.
+    if isRunning {
+      ProviderHoldStore.shared.clearAll()
+    }
     queue.async { [weak self] in
       self?.isManualRetryRunning = isRunning
     }
@@ -425,6 +430,13 @@ final class AnalysisManager: AnalysisManaging {
   /// A batch just succeeded, so the provider works again. Retry what failed
   /// earlier so the user doesn't have to press Retry.
   private func catchUpFailedBatchesAfterSuccess() {
+    catchUpFailedBatches(reason: "batch_succeeded")
+  }
+
+  /// Retries failed and waiting batches from the last 24 hours. Called after a success, and
+  /// when something that was in the way is gone: the Mac woke up, the internet came back, or
+  /// the user signed back in to their provider.
+  func catchUpFailedBatches(reason: String) {
     queue.async { [weak self] in
       guard let self else { return }
       guard !self.isCatchingUpFailedBatches, !self.isManualRetryRunning else { return }
@@ -433,7 +445,9 @@ final class AnalysisManager: AnalysisManaging {
       guard !batchIds.isEmpty else { return }
 
       self.isCatchingUpFailedBatches = true
-      print("🔁 [AnalysisManager] Catching up \(batchIds.count) failed batches: \(batchIds)")
+      print(
+        "🔁 [AnalysisManager] Catching up \(batchIds.count) failed batches (\(reason)): \(batchIds)"
+      )
       self.retryFailedBatch(at: 0, in: batchIds)
     }
   }
@@ -461,21 +475,34 @@ final class AnalysisManager: AnalysisManaging {
     reprocessBatch(batchId, stepHandler: { _ in }) { [weak self] result in
       guard let self else { return }
       let succeeded: Bool
-      if case .success = result { succeeded = true } else { succeeded = false }
+      var isStillWaiting = false
+      switch result {
+      case .success:
+        succeeded = true
+      case .failure(let error):
+        succeeded = false
+        // The batch wasn't sent, or sleep cut it short. That doesn't use up one of its tries.
+        isStillWaiting = error is BatchHeldError
+      }
 
-      AnalyticsService.shared.capture(
-        "analysis_batch_auto_retried",
-        [
-          "batch_id": batchId,
-          "attempt": attempt,
-          "succeeded": succeeded,
-        ])
+      if !isStillWaiting {
+        AnalyticsService.shared.capture(
+          "analysis_batch_auto_retried",
+          [
+            "batch_id": batchId,
+            "attempt": attempt,
+            "succeeded": succeeded,
+          ])
+      }
 
       self.queue.async {
         if succeeded {
           self.automaticRetryCounts[batchId] = nil
           self.retryFailedBatch(at: index + 1, in: batchIds)
         } else {
+          if isStillWaiting {
+            self.automaticRetryCounts[batchId] = max(0, attempt - 1)
+          }
           self.isCatchingUpFailedBatches = false
         }
       }
