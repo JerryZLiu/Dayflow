@@ -7,6 +7,7 @@
 //  • Still handles batching logic + DB status updates.
 //  • Keeps the public `AnalysisManaging` contract unchanged.
 //
+import AppKit
 import Foundation
 import GRDB
 import Sentry
@@ -56,6 +57,7 @@ final class AnalysisManager: AnalysisManaging {
   private var automaticRetryCounts: [Int64: Int] = [:]
   private var isCatchingUpFailedBatches = false
   private var isManualRetryRunning = false
+  private var appActiveObserver: NSObjectProtocol?
 
   // Batches the LLM is working on right now. The saved "processing" status
   // can't answer that: it is left behind when the app quits mid-run.
@@ -80,6 +82,7 @@ final class AnalysisManager: AnalysisManaging {
 
   func startAnalysisJob() {
     stopAnalysisJob()  // ensure single timer
+    startWatchingForInterruptions()
     DispatchQueue.main.async { [weak self] in
       guard let self else { return }
       self.analysisTimer = Timer.scheduledTimer(
@@ -89,6 +92,26 @@ final class AnalysisManager: AnalysisManaging {
         userInfo: nil,
         repeats: true)
       self.triggerAnalysisNow()  // immediate run
+    }
+  }
+
+  /// Batches can't finish while the Mac sleeps or is offline. Stop them cleanly as it goes to
+  /// sleep, and retry what is waiting once it wakes or the internet is back.
+  private func startWatchingForInterruptions() {
+    ConnectivityMonitor.shared.start(
+      onWillSleep: { LLMService.cancelBatchesForSleep() },
+      onResume: { [weak self] reason in
+        self?.catchUpFailedBatches(reason: reason)
+      }
+    )
+
+    guard appActiveObserver == nil else { return }
+    // Coming back to Dayflow often means the user just fixed a provider somewhere else, so
+    // let the next batch try a held provider for real.
+    appActiveObserver = NotificationCenter.default.addObserver(
+      forName: NSApplication.didBecomeActiveNotification, object: nil, queue: nil
+    ) { _ in
+      ProviderHoldStore.shared.allowNextAttemptNow()
     }
   }
 

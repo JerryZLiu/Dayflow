@@ -37,6 +37,51 @@ private final class TimelineCardGenerationGate: @unchecked Sendable {
   }
 }
 
+/// Batches being worked on right now, and which of them already had a failed one-step call.
+private final class BatchRunRegistry: @unchecked Sendable {
+  private let lock = NSLock()
+  private var tasks: [UUID: Task<Void, Never>] = [:]
+  /// Runs that ended before their task could be added, so `add` doesn't keep them forever.
+  private var endedBeforeAdded = Set<UUID>()
+  private var batchesWithFailedOneStep = Set<Int64>()
+
+  func add(_ task: Task<Void, Never>, for run: UUID) {
+    lock.lock()
+    if endedBeforeAdded.remove(run) == nil {
+      tasks[run] = task
+    }
+    lock.unlock()
+  }
+
+  func remove(_ run: UUID) {
+    lock.lock()
+    if tasks.removeValue(forKey: run) == nil {
+      endedBeforeAdded.insert(run)
+    }
+    lock.unlock()
+  }
+
+  func cancelAll() {
+    lock.lock()
+    let running = Array(tasks.values)
+    lock.unlock()
+    running.forEach { $0.cancel() }
+  }
+
+  /// True the first time a batch's one-step call fails, false on later failures.
+  func markOneStepFailed(_ batchId: Int64) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return batchesWithFailedOneStep.insert(batchId).inserted
+  }
+
+  func clearOneStepFailure(_ batchId: Int64) {
+    lock.lock()
+    batchesWithFailedOneStep.remove(batchId)
+    lock.unlock()
+  }
+}
+
 struct ProcessedBatchResult {
   let cards: [ActivityCardData]
   let cardIds: [Int64]
@@ -97,11 +142,13 @@ protocol LLMServicing {
 final class LLMService: LLMServicing {
   static let shared: LLMServicing = LLMService()
   private static let timelineCardGenerationGate = TimelineCardGenerationGate()
-  private static let timelineFailureToastLastShownDayByKindDefaultsKey =
-    "timelineFailureToastLastShownDayByKind"
-  private static let timelineFailureToastThrottleQueue = DispatchQueue(
-    label: "com.dayflow.timelineFailureToastThrottle"
-  )
+  private static let batchRuns = BatchRunRegistry()
+
+  /// Stops the batches being worked on, so they wait for the Mac to wake instead of failing
+  /// when their requests time out during sleep.
+  static func cancelBatchesForSleep() {
+    batchRuns.cancelAll()
+  }
 
   /// Card generators report `rewriteSpan`, the stretch of timeline (Unix seconds) their cards
   /// replace. nil means the whole lookback window is replaced, as for providers that are shown
@@ -111,18 +158,25 @@ final class LLMService: LLMServicing {
       cards: [ActivityCardData], rewriteSpan: Range<Int>?, log: LLMCall
     )
 
+  private typealias OneStepTimelineResult = (
+    cards: [ActivityCardData], observations: [Observation], rewriteSpan: Range<Int>?,
+    log: LLMCall
+  )
+
   private struct BatchProviderActions {
     let transcribeScreenshots:
       ([Screenshot], Date, Int64?) async throws -> (observations: [Observation], log: LLMCall)
     let generateActivityCards: ActivityCardsGenerator
     /// Screenshots straight to cards in one call. Only providers that support it set this.
     var generateTimeline:
-      (
-        ([Screenshot], ActivityGenerationContext, Int64?) async throws -> (
-          cards: [ActivityCardData], observations: [Observation], rewriteSpan: Range<Int>?,
-          log: LLMCall
-        )
-      )? = nil
+      (([Screenshot], ActivityGenerationContext, Int64?) async throws -> OneStepTimelineResult)? =
+      nil
+  }
+
+  /// Claude and ChatGPT run their two-step path through a command-line tool, one frame group
+  /// at a time, which takes many minutes per batch.
+  private static func hasSlowTwoStepPath(_ provider: LLMProviderID) -> Bool {
+    provider == .claude || provider == .chatGPT
   }
 
   /// Adapts a provider whose cards rewrite the whole lookback window.
@@ -425,6 +479,73 @@ final class LLMService: LLMServicing {
     return !ConnectivityMonitor.shared.isOnline
   }
 
+  /// Gemini's one-step call hides an account error inside a plain one so the two-step path
+  /// still runs on Gemma. This gets the real error back for reporting and for the hold.
+  private static func realProviderError(_ error: Error) -> Error {
+    let nsError = error as NSError
+    guard nsError.domain == "GeminiOneStep",
+      let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error
+    else { return error }
+    return underlying
+  }
+
+  /// Changes when the user changes how a provider is set up, which lifts a hold on it.
+  private func setupSignature(for provider: LLMProviderID) -> String {
+    switch provider {
+    case .gemini:
+      return String((KeychainManager.shared.retrieve(for: "gemini") ?? "").hashValue)
+    case .dayflow:
+      return String((DayflowAuthManager.storedSessionToken() ?? "").hashValue)
+    case .local:
+      let model = UserDefaults.standard.string(forKey: "llmLocalModelId") ?? ""
+      return "\(localProviderEndpoint())|\(model)"
+    case .openAICompatible:
+      let key =
+        KeychainManager.shared.retrieve(for: OpenAICompatiblePreferences.keychainProvider) ?? ""
+      return "\(String(describing: OpenAICompatiblePreferences.load()))|\(key.hashValue)"
+    case .claude, .chatGPT:
+      return ""
+    }
+  }
+
+  /// Why a batch should not be sent to `provider` right now, or nil when it can be.
+  private func waitReason(for provider: LLMProviderID, label: String) async -> BatchHeldError? {
+    if provider != .local, !ConnectivityMonitor.shared.isOnline {
+      return BatchHeldError(reason: .offline, providerFailureKind: nil, providerLabel: label)
+    }
+    guard let hold = ProviderHoldStore.shared.hold(for: provider) else { return nil }
+    let isReady = await ProviderHoldStore.shared.isReadyForAttempt(
+      provider, setupSignature: setupSignature(for: provider))
+    guard !isReady else { return nil }
+    return BatchHeldError(
+      reason: .providerDown, providerFailureKind: hold.kind, providerLabel: label,
+      providerName: hold.providerName)
+  }
+
+  /// Starts or extends a hold when `error` means every request to `provider` will fail.
+  private func holdProviderIfDown(_ provider: LLMProviderID, after error: Error) async {
+    let classification = TimelineFailureClassifier.classify(error)
+    let kind = classification.kind
+    guard kind.failsEveryRequestToProvider else { return }
+    let health = await ProviderHealthCheck.check(provider, failureKind: kind)
+    let isNewHold = ProviderHoldStore.shared.recordFailure(
+      provider: provider,
+      kind: kind,
+      health: health,
+      setupSignature: setupSignature(for: provider),
+      providerName: classification.providerName
+    )
+    guard isNewHold else { return }
+    AnalyticsService.shared.capture(
+      "provider_hold_started",
+      [
+        "provider": provider.analyticsName,
+        "provider_id": provider.rawValue,
+        "failure_kind": kind.rawValue,
+        "health_check": health.rawValue,
+      ])
+  }
+
   private func logGemmaFallback(operation: String, error: Error, batchId: Int64?) {
     let nsError = error as NSError
     AnalyticsService.shared.capture(
@@ -472,6 +593,7 @@ final class LLMService: LLMServicing {
     primaryContext: TimelineProviderContext,
     activeContext: TimelineProviderContext,
     backupContext: TimelineProviderContext?,
+    onPrimaryFailure: (Error) -> Void,
     work: (TimelineProviderContext) async throws -> T
   ) async throws -> (value: T, activeContext: TimelineProviderContext, usedProviderBackup: Bool) {
     do {
@@ -479,9 +601,12 @@ final class LLMService: LLMServicing {
       let usingBackup = activeContext.id != primaryContext.id
       return (value, activeContext, usingBackup)
     } catch {
-      guard activeContext.id == primaryContext.id, let backupContext else {
+      guard activeContext.id == primaryContext.id, let backupContext,
+        !Self.wasInterrupted(error)
+      else {
         throw error
       }
+      onPrimaryFailure(error)
 
       let attemptProps = fallbackProps(
         operation: operation,
@@ -555,13 +680,14 @@ final class LLMService: LLMServicing {
     backupProviderLabel: String?,
     backupConfigured: Bool,
     batchId: Int64?
-  ) {
+  ) async {
     // Only interrupt the user for problems they have to fix themselves.
     // Everything else is retried automatically after the next success.
     guard let content = classification.toastContent(fallbackProviderLabel: primaryProviderLabel)
     else { return }
 
-    guard shouldEmitTimelineFailureToast(kind: classification.kind) else { return }
+    let backupOffer = await backupProviderToOffer(
+      classification: classification, backupConfigured: backupConfigured)
 
     let nsError = error as NSError
     let payload = TimelineFailureToastPayload(
@@ -582,10 +708,34 @@ final class LLMService: LLMServicing {
       rateLimitDetected: isRateLimitError(error),
       errorDomain: nsError.domain,
       errorCode: nsError.code,
-      batchId: batchId
+      batchId: batchId,
+      signInProvider: classification.signInProvider(
+        fallbackProviderLabel: primaryProviderLabel)?.rawValue,
+      backupOfferProvider: backupOffer?.rawValue
     )
-    AnalyticsService.shared.capture("llm_timeline_failure_toast_shown", payload.analyticsProps)
+    // How often the card, the notification and the menu bar warning show is decided where
+    // they are shown, so a card nobody saw doesn't use up the day's one showing.
     TimelineFailureToastCenter.post(payload)
+  }
+
+  /// The other command-line tool (Claude or ChatGPT), when the main one is down, no backup is
+  /// set, and the other is installed and signed in on this Mac. The user is asked before it is
+  /// used, and is not asked again after saying no.
+  private func backupProviderToOffer(
+    classification: TimelineFailureClassification, backupConfigured: Bool
+  ) async -> LLMProviderID? {
+    guard !backupConfigured, classification.kind.failsEveryRequestToProvider,
+      !ProviderProblemCenter.backupOfferWasDeclined,
+      let primary = try? LLMProviderRoutingStore.load().primary
+    else { return nil }
+
+    let other: LLMProviderID
+    switch primary {
+    case .claude: other = .chatGPT
+    case .chatGPT: other = .claude
+    default: return nil
+    }
+    return await ProviderHealthCheck.isReadyToUse(other) ? other : nil
   }
 
   /// Recorded time from the last 24 hours that failed and is waiting to be retried.
@@ -594,25 +744,6 @@ final class LLMService: LLMServicing {
     return StorageManager.shared.allBatches()
       .filter { $0.status == "failed" && $0.start >= cutoff }
       .reduce(0) { total, batch in total + max(0, batch.end - batch.start) }
-  }
-
-  private func shouldEmitTimelineFailureToast(
-    kind: TimelineFailureKind, now: Date = Date()
-  ) -> Bool {
-    let logicalDay = now.getDayInfoFor4AMBoundary().dayString
-    return Self.timelineFailureToastThrottleQueue.sync {
-      let defaults = UserDefaults.standard
-      var lastShownDayByKind =
-        defaults.dictionary(forKey: Self.timelineFailureToastLastShownDayByKindDefaultsKey)
-        as? [String: String] ?? [:]
-      guard lastShownDayByKind[kind.rawValue] != logicalDay else {
-        return false
-      }
-      lastShownDayByKind[kind.rawValue] = logicalDay
-      defaults.set(
-        lastShownDayByKind, forKey: Self.timelineFailureToastLastShownDayByKindDefaultsKey)
-      return true
-    }
   }
 
   private func makeTextProvider() throws -> TextProviderActions {
@@ -723,12 +854,14 @@ final class LLMService: LLMServicing {
     _ batchId: Int64, progressHandler: ((LLMProcessingStep) -> Void)? = nil,
     completion: @escaping (Result<ProcessedBatchResult, Error>) -> Void
   ) {
-    Task {
+    let run = UUID()
+    let task: Task<Void, Never> = Task {
       var holdsTimelineCardGenerationGate = false
       defer {
         if holdsTimelineCardGenerationGate {
           Self.timelineCardGenerationGate.release()
         }
+        Self.batchRuns.remove(run)
       }
 
       // Get batch info first (outside do-catch so it's available in catch block)
@@ -761,6 +894,11 @@ final class LLMService: LLMServicing {
       let configuredBackupProviderLabel = configuredBackup.map { providerLabel(for: $0) }
       var backupConfigured = false
       var lastProcessingStep: LLMProcessingStep?
+      // The primary provider's error once the batch has moved to the backup provider. If the
+      // backup fails too, this is the error the user is told about.
+      var primaryFailure: Error?
+      // A switch to the backup whose outcome hasn't been reported to analytics yet.
+      var pendingFallbackProps: [String: Any]?
       print(
         "🧭 [LLMService] processBatch selected primary=\(primaryProviderID.analyticsName) "
           + "label=\(primaryProviderLabel) backup=\(configuredBackup?.analyticsName ?? "none")"
@@ -772,20 +910,6 @@ final class LLMService: LLMServicing {
           "   Batch time: \(Date(timeIntervalSince1970: TimeInterval(batchStartTs))) to \(Date(timeIntervalSince1970: TimeInterval(batchEndTs)))"
         )
 
-        // Track analysis batch started
-        AnalyticsService.shared.capture(
-          "analysis_batch_started",
-          [
-            "batch_id": batchId,
-            "total_duration_seconds": batchEndTs - batchStartTs,
-            "llm_provider": primaryProviderID.analyticsName,
-            "llm_provider_label": primaryProviderLabel,
-            "provider_id": primaryProviderID.rawValue,
-          ])
-
-        let primaryResult: Result<TimelineProviderContext, Error> = Result {
-          try makeTimelineProviderContext(for: primaryProviderID)
-        }
         let configuredBackupContext: TimelineProviderContext? = {
           guard let configuredBackup else { return nil }
           return try? makeTimelineProviderContext(for: configuredBackup)
@@ -804,26 +928,58 @@ final class LLMService: LLMServicing {
               "batch_id": batchId,
             ])
         }
+
+        // A backup that is itself down or unreachable can't take the batch.
+        var usableBackupContext = configuredBackupContext
+        if let backup = configuredBackupContext,
+          await waitReason(for: backup.id, label: backup.providerLabel) != nil
+        {
+          usableBackupContext = nil
+        }
+
+        // Keep the batch away from a primary provider that is known to be down, and from the
+        // network while this Mac is offline. The batch starts on the backup when it can run;
+        // otherwise it waits, which is not a failure.
+        let primaryResult: Result<TimelineProviderContext, Error>
+        if let waitError = await waitReason(for: primaryProviderID, label: primaryProviderLabel) {
+          guard usableBackupContext != nil else { throw waitError }
+          primaryResult = .failure(waitError)
+        } else {
+          primaryResult = Result { try makeTimelineProviderContext(for: primaryProviderID) }
+        }
+
+        // Track analysis batch started
+        AnalyticsService.shared.capture(
+          "analysis_batch_started",
+          [
+            "batch_id": batchId,
+            "total_duration_seconds": batchEndTs - batchStartTs,
+            "llm_provider": primaryProviderID.analyticsName,
+            "llm_provider_label": primaryProviderLabel,
+            "provider_id": primaryProviderID.rawValue,
+          ])
+
         let startup = try selectTimelineProviderStartup(
           primary: primaryResult,
-          backup: configuredBackupContext
+          backup: usableBackupContext
         )
         if startup.usedProviderBackup,
           let configuredBackup,
-          let configuredBackupContext,
+          let usableBackupContext,
           let primaryError = startup.primaryInitializationError
         {
+          primaryFailure = primaryError
           let props = fallbackProps(
-            operation: "initialize_provider",
+            operation: primaryError is BatchHeldError ? "primary_on_hold" : "initialize_provider",
             batchId: batchId,
             primaryProviderID: primaryProviderID,
             primaryProviderLabel: primaryProviderLabel,
             backupProviderID: configuredBackup,
-            backupProviderLabel: configuredBackupContext.providerLabel,
+            backupProviderLabel: usableBackupContext.providerLabel,
             error: primaryError
           )
           AnalyticsService.shared.capture("llm_timeline_fallback_attempted", props)
-          AnalyticsService.shared.capture("llm_timeline_fallback_succeeded", props)
+          pendingFallbackProps = props
         }
 
         // If the routed primary could not initialize, the backup becomes the batch baseline.
@@ -891,12 +1047,13 @@ final class LLMService: LLMServicing {
           )
         }
 
-        // One-step generation: the primary provider reads the screenshots and writes the cards
-        // in a single call. If it fails, the batch falls through to transcribe-then-generate
-        // below, which keeps its own backup-provider handling.
+        // One-step generation: the provider reads the screenshots and writes the cards in a
+        // single call. When the primary's call fails the batch goes to the backup provider,
+        // which gets its own one-step call. The slower transcribe-then-generate path below is
+        // only used when it is worth the wait.
         var oneStepCards: [ActivityCardData]?
         var rewriteSpan: Range<Int>?
-        if !usedProviderBackup, let generateTimeline = activeContext.actions.generateTimeline {
+        if let generateTimeline = activeContext.actions.generateTimeline {
           lastProcessingStep = .generatingCards
           await MainActor.run {
             progressHandler?(.generatingCards)
@@ -908,63 +1065,101 @@ final class LLMService: LLMServicing {
           holdsTimelineCardGenerationGate = true
 
           let oneStepStartedAt = Date()
+          var oneStepResult: OneStepTimelineResult?
           do {
-            let result = try await generateTimeline(
+            oneStepResult = try await generateTimeline(
               screenshots, makeGenerationContext(batchObservations: []), batchId)
-            observations = result.observations
-            StorageManager.shared.saveObservations(batchId: batchId, observations: observations)
-            oneStepCards = result.cards
-            rewriteSpan = result.rewriteSpan
-            print(
-              "🧩 [LLMService] One-step timeline → \(result.cards.count) cards, "
-                + "\(observations.count) observations")
           } catch {
+            if Self.wasInterrupted(error) { throw error }
             let nsError = error as NSError
-            // Sign-in and subscription rejections would fail the same way on the two-step
-            // endpoints, so surface them instead of sending a second doomed request.
-            if nsError.domain == "DayflowBackend", [401, 402, 403].contains(nsError.code) {
-              throw error
-            }
-            // A usage limit, sign-out or similar account problem fails the two-step calls to the
-            // same provider too, so skip them: go to the backup provider, or fail the batch now.
             let failureKind = TimelineFailureClassifier.classify(error).kind
-            let skipsPrimaryTwoStep = failureKind.failsEveryRequestToProvider
+            let failedContext = activeContext
+            let handsToBackup = !usedProviderBackup && backupContext != nil
+            // A usage limit, sign-out or similar account problem fails the two-step calls to
+            // the same provider too. Dayflow's sign-in and subscription rejections do as well.
+            let isAccountProblem =
+              failureKind.failsEveryRequestToProvider
+              || (nsError.domain == "DayflowBackend" && [401, 402, 403].contains(nsError.code))
+            // Claude's and ChatGPT's two-step path takes many minutes and holds up every batch
+            // behind it, so the first failure sets the batch aside to be retried later. The
+            // two-step path is only used if the one-step call fails again on that retry.
+            let setsBatchAside =
+              !handsToBackup && !isAccountProblem
+              && Self.hasSlowTwoStepPath(failedContext.id)
+              && Self.batchRuns.markOneStepFailed(batchId)
+            let nextStep =
+              handsToBackup
+              ? "backup" : isAccountProblem ? "fail" : setsBatchAside ? "set_aside" : "two_step"
             AnalyticsService.shared.capture(
               "timeline_one_step_fallback",
               [
                 "batch_id": batchId,
-                "provider": activeContext.id.analyticsName,
-                "provider_id": activeContext.id.rawValue,
+                "provider": failedContext.id.analyticsName,
+                "provider_id": failedContext.id.rawValue,
                 "error_domain": nsError.domain,
                 "error_code": nsError.code,
                 "failure_kind": failureKind.rawValue,
-                "skipped_primary_two_step": skipsPrimaryTwoStep,
+                "skipped_primary_two_step": nextStep != "two_step",
+                "next_step": nextStep,
                 "latency_ms": Int(Date().timeIntervalSince(oneStepStartedAt) * 1000),
               ])
-            if skipsPrimaryTwoStep {
-              guard let backupContext else { throw error }
-              AnalyticsService.shared.capture(
-                "llm_timeline_fallback_attempted",
-                fallbackProps(
-                  operation: "generate_timeline",
-                  batchId: batchId,
-                  primaryProviderID: primaryContext.id,
-                  primaryProviderLabel: primaryContext.providerLabel,
-                  backupProviderID: backupContext.id,
-                  backupProviderLabel: backupContext.providerLabel,
-                  error: error
-                ))
+
+            if handsToBackup, let backupContext {
+              primaryFailure = Self.realProviderError(error)
+              let props = fallbackProps(
+                operation: "generate_timeline",
+                batchId: batchId,
+                primaryProviderID: primaryContext.id,
+                primaryProviderLabel: primaryContext.providerLabel,
+                backupProviderID: backupContext.id,
+                backupProviderLabel: backupContext.providerLabel,
+                error: error
+              )
+              AnalyticsService.shared.capture("llm_timeline_fallback_attempted", props)
+              pendingFallbackProps = props
               activeContext = backupContext
               usedProviderBackup = true
               print(
-                "⚠️ [LLMService] One-step timeline failed for batch \(batchId) with an account "
-                  + "problem; skipping \(primaryContext.providerLabel)'s two-step path and using "
-                  + "\(backupContext.providerLabel): \(nsError.localizedDescription)")
+                "⚠️ [LLMService] One-step timeline failed for batch \(batchId) on "
+                  + "\(primaryContext.providerLabel); using \(backupContext.providerLabel): "
+                  + nsError.localizedDescription)
+
+              if let backupTimeline = backupContext.actions.generateTimeline {
+                do {
+                  oneStepResult = try await backupTimeline(
+                    screenshots, makeGenerationContext(batchObservations: []), batchId)
+                } catch {
+                  // The backup's two-step path is only worth trying when its account works and
+                  // the path is quick.
+                  let backupKind = TimelineFailureClassifier.classify(error).kind
+                  if backupKind.failsEveryRequestToProvider
+                    || Self.hasSlowTwoStepPath(backupContext.id)
+                  {
+                    throw error
+                  }
+                  print(
+                    "⚠️ [LLMService] One-step timeline also failed on "
+                      + "\(backupContext.providerLabel) for batch \(batchId), falling back to "
+                      + "transcribe + generate: \(error.localizedDescription)")
+                }
+              }
+            } else if isAccountProblem || setsBatchAside {
+              throw error
             } else {
               print(
                 "⚠️ [LLMService] One-step timeline failed for batch \(batchId), "
                   + "falling back to transcribe + generate: \(nsError.localizedDescription)")
             }
+          }
+
+          if let oneStepResult {
+            observations = oneStepResult.observations
+            StorageManager.shared.saveObservations(batchId: batchId, observations: observations)
+            oneStepCards = oneStepResult.cards
+            rewriteSpan = oneStepResult.rewriteSpan
+            print(
+              "🧩 [LLMService] One-step timeline → \(oneStepResult.cards.count) cards, "
+                + "\(observations.count) observations")
           }
         }
 
@@ -985,7 +1180,8 @@ final class LLMService: LLMServicing {
             batchId: batchId,
             primaryContext: primaryContext,
             activeContext: activeContext,
-            backupContext: backupContext
+            backupContext: backupContext,
+            onPrimaryFailure: { primaryFailure = $0 }
           ) { context in
             try await context.actions.transcribeScreenshots(screenshots, batchStartDate, batchId)
           }
@@ -1050,7 +1246,8 @@ final class LLMService: LLMServicing {
             batchId: batchId,
             primaryContext: primaryContext,
             activeContext: activeContext,
-            backupContext: backupContext
+            backupContext: backupContext,
+            onPrimaryFailure: { primaryFailure = $0 }
           ) { providerContext in
             try await providerContext.actions.generateActivityCards(
               recentObservations, context, batchId)
@@ -1130,8 +1327,33 @@ final class LLMService: LLMServicing {
             "one_step": oneStepCards != nil,
           ])
 
-        // Whatever the failure card asked the user to fix is working again.
-        TimelineFailureToastCenter.hide()
+        Self.batchRuns.clearOneStepFailure(batchId)
+        if let pendingFallbackProps {
+          AnalyticsService.shared.capture("llm_timeline_fallback_succeeded", pendingFallbackProps)
+        }
+
+        // Remember which providers work and which don't, so the next batches go straight to
+        // the one that does.
+        if usedProviderBackup {
+          ProviderHoldStore.shared.clear(activeContext.id)
+          if let primaryFailure, !(primaryFailure is BatchHeldError) {
+            await holdProviderIfDown(primaryProviderID, after: primaryFailure)
+          }
+        } else if ProviderHoldStore.shared.clear(primaryProviderID) {
+          AnalyticsService.shared.capture(
+            "provider_hold_cleared",
+            [
+              "provider": primaryProviderID.analyticsName,
+              "provider_id": primaryProviderID.rawValue,
+              "reason": "batch_succeeded",
+            ])
+        }
+
+        // Whatever the failure card asked the user to fix is working again, unless the backup
+        // provider did the work and the primary still needs fixing.
+        if !usedProviderBackup {
+          TimelineFailureToastCenter.hide()
+        }
 
         let analyzedCardCount = cards.count
         Task { @MainActor in
@@ -1151,84 +1373,273 @@ final class LLMService: LLMServicing {
           print("🔎 GEMINI DEBUG: NSError.userInfo=\(ns.userInfo)")
         }
 
-        let failureClassification = TimelineFailureClassifier.classify(error)
+        let batchStartDate = Date(timeIntervalSince1970: TimeInterval(batchStartTs))
+        let batchEndDate = Date(timeIntervalSince1970: TimeInterval(batchEndTs))
+        let backupProps: [String: Any] = [
+          "backup_provider": configuredBackupProviderName as Any,
+          "backup_provider_label": configuredBackupProviderLabel as Any,
+          "backup_provider_id": configuredBackup?.rawValue as Any,
+          "backup_configured": backupConfigured,
+        ]
 
-        // Track analysis batch failed
-        AnalyticsService.shared.capture(
-          "analysis_batch_failed",
-          [
+        // A batch that was never sent, or was cut short by sleep or a lost connection, is
+        // waiting rather than failed: nothing is wrong that Dayflow can't retry on its own.
+        var heldError = error as? BatchHeldError
+        let wasNeverSent = heldError != nil
+        if heldError == nil {
+          // A local model doesn't need the internet, unless the batch had moved to the backup.
+          let isOffline =
+            !ConnectivityMonitor.shared.isOnline
+            && (primaryProviderID != .local || primaryFailure != nil)
+          if isOffline {
+            heldError = BatchHeldError(
+              reason: .offline, providerFailureKind: nil, providerLabel: primaryProviderLabel)
+          } else if Task.isCancelled
+            || ConnectivityMonitor.shared.wasAsleep(since: processingStartTime)
+          {
+            heldError = BatchHeldError(
+              reason: .interrupted, providerFailureKind: nil, providerLabel: primaryProviderLabel)
+          }
+        }
+
+        if let heldError {
+          var props: [String: Any] = [
             "batch_id": batchId,
-            "failure_kind": failureClassification.kind.rawValue,
+            "reason": heldError.reason.rawValue,
+            "failure_kind": heldError.providerFailureKind?.rawValue as Any,
             "processing_duration_seconds": Int(Date().timeIntervalSince(processingStartTime)),
             "llm_provider": primaryProviderID.analyticsName,
             "llm_provider_label": primaryProviderLabel,
             "provider_id": primaryProviderID.rawValue,
-            "backup_provider": configuredBackupProviderName as Any,
-            "backup_provider_label": configuredBackupProviderLabel as Any,
-            "backup_provider_id": configuredBackup?.rawValue as Any,
-            "backup_configured": backupConfigured,
-          ])
+          ]
+          props.merge(backupProps) { current, _ in current }
+          AnalyticsService.shared.capture(
+            wasNeverSent ? "analysis_batch_held" : "analysis_batch_interrupted", props)
+
+          if heldError.reason == .interrupted {
+            // The retry that runs when the Mac wakes can come while this batch is still
+            // stopping and skip it, so ask for another one once it has stopped.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 20) {
+              AnalysisManager.shared.catchUpFailedBatches(reason: "interrupted_batch_ended")
+            }
+          }
+
+          // The row stays "failed" so the retry and catch-up code keeps finding it. The reason
+          // and the timeline card are what mark it as waiting.
+          StorageManager.shared.updateBatch(
+            batchId, status: "failed", reason: heldError.localizedDescription)
+
+          var cardTitle = heldError.cardTitle(providerDisplayName: primaryProviderLabel)
+          var cardSummary = heldError.cardSummary
+          if let kind = heldError.providerFailureKind {
+            let classification = TimelineFailureClassification(
+              kind: kind, providerName: heldError.providerName)
+            cardTitle = classification.waitingCardTitle(
+              fallbackProviderLabel: primaryProviderLabel)
+            cardSummary =
+              classification.cardMessage(fallbackProviderLabel: primaryProviderLabel)
+              + " Your recording is saved."
+            // Keep the fix-it card up to date with how much is waiting.
+            await emitTimelineFailureToast(
+              classification: classification,
+              operation: lastProcessingStep,
+              error: heldError,
+              primaryProvider: primaryProviderID.analyticsName,
+              primaryProviderLabel: primaryProviderLabel,
+              backupProvider: configuredBackupProviderName,
+              backupProviderLabel: configuredBackupProviderLabel,
+              backupConfigured: backupConfigured,
+              batchId: batchId
+            )
+          }
+
+          replaceBatchCards(
+            with: createStatusCard(
+              batchStartTime: batchStartDate,
+              batchEndTime: batchEndDate,
+              subcategory: cardTitle,
+              summary: cardSummary
+            ),
+            batchId: batchId,
+            from: batchStartDate,
+            to: batchEndDate
+          )
+          completion(.failure(heldError))
+          return
+        }
+
+        // When the backup failed too, the primary provider's error is the one that matters:
+        // fixing it is what gets the timeline going again. The backup's error is only used
+        // when the primary's needs nothing from the user and the backup's does.
+        let backupError: Error? = primaryFailure == nil ? nil : error
+        var reportedError = primaryFailure ?? error
+        var reportedProviderLabel = primaryProviderLabel
+        var failureClassification: TimelineFailureClassification
+        if let heldPrimary = primaryFailure as? BatchHeldError {
+          if let kind = heldPrimary.providerFailureKind {
+            failureClassification = TimelineFailureClassification(
+              kind: kind, providerName: heldPrimary.providerName)
+          } else {
+            failureClassification = TimelineFailureClassifier.classify(error)
+            reportedError = error
+            reportedProviderLabel = configuredBackupProviderLabel ?? primaryProviderLabel
+          }
+        } else {
+          failureClassification = TimelineFailureClassifier.classify(reportedError)
+        }
+        if let backupError,
+          failureClassification.toastContent(fallbackProviderLabel: reportedProviderLabel) == nil
+        {
+          let backupClassification = TimelineFailureClassifier.classify(backupError)
+          let backupLabel = configuredBackupProviderLabel ?? primaryProviderLabel
+          if backupClassification.toastContent(fallbackProviderLabel: backupLabel) != nil {
+            failureClassification = backupClassification
+            reportedError = backupError
+            reportedProviderLabel = backupLabel
+          }
+        }
+
+        // Track analysis batch failed
+        var failedProps: [String: Any] = [
+          "batch_id": batchId,
+          "failure_kind": failureClassification.kind.rawValue,
+          "processing_duration_seconds": Int(Date().timeIntervalSince(processingStartTime)),
+          "llm_provider": primaryProviderID.analyticsName,
+          "llm_provider_label": primaryProviderLabel,
+          "provider_id": primaryProviderID.rawValue,
+          "used_provider_backup": backupError != nil,
+        ]
+        failedProps.merge(backupProps) { current, _ in current }
+        if let backupError {
+          let backupNSError = backupError as NSError
+          failedProps["backup_failure_kind"] =
+            TimelineFailureClassifier.classify(backupError).kind.rawValue
+          failedProps["backup_error_domain"] = backupNSError.domain
+          failedProps["backup_error_code"] = backupNSError.code
+        }
+        AnalyticsService.shared.capture("analysis_batch_failed", failedProps)
+
+        if var props = pendingFallbackProps {
+          let backupNSError = error as NSError
+          props["backup_error_domain"] = backupNSError.domain
+          props["backup_error_code"] = backupNSError.code
+          AnalyticsService.shared.capture("llm_timeline_fallback_failed", props)
+        }
+
+        // Stop sending batches to a provider whose account or setup is the problem.
+        if let primaryFailure {
+          if !(primaryFailure is BatchHeldError) {
+            await holdProviderIfDown(primaryProviderID, after: primaryFailure)
+          }
+          if let configuredBackup {
+            await holdProviderIfDown(configuredBackup, after: error)
+          }
+        } else {
+          await holdProviderIfDown(primaryProviderID, after: error)
+        }
 
         // Mark batch as failed. The raw error stays in the batch row for debugging;
         // the user only ever sees the classifier's plain-language copy.
-        StorageManager.shared.updateBatch(
-          batchId, status: "failed", reason: error.localizedDescription)
+        var failureReason = reportedError.localizedDescription
+        if let backupError, (backupError as NSError) != (reportedError as NSError) {
+          failureReason += " | backup: \(backupError.localizedDescription)"
+        }
+        StorageManager.shared.updateBatch(batchId, status: "failed", reason: failureReason)
 
-        emitTimelineFailureToast(
+        await emitTimelineFailureToast(
           classification: failureClassification,
           operation: lastProcessingStep,
-          error: error,
+          error: reportedError,
           primaryProvider: primaryProviderID.analyticsName,
-          primaryProviderLabel: primaryProviderLabel,
+          primaryProviderLabel: reportedProviderLabel,
           backupProvider: configuredBackupProviderName,
           backupProviderLabel: configuredBackupProviderLabel,
           backupConfigured: backupConfigured,
           batchId: batchId
         )
 
-        // Create an error card for the failed time period
-        let batchStartDate = Date(timeIntervalSince1970: TimeInterval(batchStartTs))
-        let batchEndDate = Date(timeIntervalSince1970: TimeInterval(batchEndTs))
-
-        let errorCard = createErrorCard(
-          batchStartTime: batchStartDate,
-          batchEndTime: batchEndDate,
-          message: failureClassification.cardMessage(fallbackProviderLabel: primaryProviderLabel)
-        )
-
-        // Replace any existing cards in this time range with the error card
-        // This matches the happy path behavior and prevents duplicates. A retry can fail after
-        // newer batches succeeded, so their cards stay.
-        let (insertedCardIds, deletedVideoPaths) = StorageManager.shared
-          .replaceTimelineCardsInRange(
-            from: batchStartDate,
-            to: batchEndDate,
-            with: [errorCard],
-            batchId: batchId,
-            keepingNewerBatchesCardsStartingAfter: batchStartDate
+        // Put a card over the failed time period. A provider that is down gets a waiting card,
+        // since the recording is fine and cards appear once the provider is fixed.
+        let cardMessage = failureClassification.cardMessage(
+          fallbackProviderLabel: reportedProviderLabel)
+        let statusCard: TimelineCardShell
+        if failureClassification.kind.failsEveryRequestToProvider {
+          statusCard = createStatusCard(
+            batchStartTime: batchStartDate,
+            batchEndTime: batchEndDate,
+            subcategory: failureClassification.waitingCardTitle(
+              fallbackProviderLabel: reportedProviderLabel),
+            summary: "\(cardMessage) Your recording is saved."
           )
-
-        // Clean up any deleted video files (if there were existing cards)
-        for path in deletedVideoPaths {
-          let url = URL(fileURLWithPath: path)
-          do {
-            try FileManager.default.removeItem(at: url)
-            print("🗑️ Deleted timelapse for replaced card: \(path)")
-          } catch {
-            print("❌ Failed to delete timelapse: \(path) - \(error)")
-          }
-        }
-
-        if !insertedCardIds.isEmpty {
-          print(
-            "✅ Created error card (ID: \(insertedCardIds.first ?? -1)) for failed batch \(batchId), replacing \(deletedVideoPaths.count) existing cards"
+        } else {
+          statusCard = createErrorCard(
+            batchStartTime: batchStartDate,
+            batchEndTime: batchEndDate,
+            message: cardMessage
           )
         }
+        replaceBatchCards(
+          with: statusCard, batchId: batchId, from: batchStartDate, to: batchEndDate)
 
         // Still return failure but with the error card created
-        completion(.failure(error))
+        completion(.failure(reportedError))
       }
     }
+    Self.batchRuns.add(task, for: run)
+  }
+
+  /// Replaces the cards in a batch's time range with one status card. This matches the happy
+  /// path and prevents duplicates. A retry can fail after newer batches succeeded, so their
+  /// cards stay.
+  private func replaceBatchCards(
+    with card: TimelineCardShell, batchId: Int64, from start: Date, to end: Date
+  ) {
+    let (insertedCardIds, deletedVideoPaths) = StorageManager.shared
+      .replaceTimelineCardsInRange(
+        from: start,
+        to: end,
+        with: [card],
+        batchId: batchId,
+        keepingNewerBatchesCardsStartingAfter: start
+      )
+
+    // Clean up any deleted video files (if there were existing cards)
+    for path in deletedVideoPaths {
+      let url = URL(fileURLWithPath: path)
+      do {
+        try FileManager.default.removeItem(at: url)
+        print("🗑️ Deleted timelapse for replaced card: \(path)")
+      } catch {
+        print("❌ Failed to delete timelapse: \(path) - \(error)")
+      }
+    }
+
+    if !insertedCardIds.isEmpty {
+      print(
+        "✅ Created status card (ID: \(insertedCardIds.first ?? -1)) for batch \(batchId), replacing \(deletedVideoPaths.count) existing cards"
+      )
+    }
+  }
+
+  /// A card for a batch that is waiting rather than failed. The title stays the sentinel the
+  /// timeline uses to find cards it can retry; `subcategory` carries what the card shows as
+  /// its title, such as "Waiting for Claude".
+  private func createStatusCard(
+    batchStartTime: Date, batchEndTime: Date, subcategory: String, summary: String
+  ) -> TimelineCardShell {
+    let failedCard = createErrorCard(
+      batchStartTime: batchStartTime, batchEndTime: batchEndTime, message: "")
+    return TimelineCardShell(
+      startTimestamp: failedCard.startTimestamp,
+      endTimestamp: failedCard.endTimestamp,
+      category: failedCard.category,
+      subcategory: subcategory,
+      title: failedCard.title,
+      summary: summary,
+      detailedSummary: "",
+      distractions: nil,
+      appSites: nil
+    )
   }
 
   private func createErrorCard(
