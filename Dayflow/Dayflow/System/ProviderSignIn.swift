@@ -21,6 +21,10 @@ final class ProviderSignIn: ObservableObject {
 
   @Published private(set) var state: State = .idle
 
+  /// True when the last attempt failed because Dayflow couldn't find the provider's
+  /// command-line tool on this Mac, so trying again or using Terminal won't help.
+  @Published private(set) var toolIsMissing = false
+
   private var process: Process?
   private var input: Pipe?
   private var watchTask: Task<Void, Never>?
@@ -35,11 +39,20 @@ final class ProviderSignIn: ObservableObject {
   /// Opens the browser sign-in for `provider`. Calling it again restarts the sign-in, which is
   /// what "Browser didn't open? Try again" does.
   func start(_ provider: LLMProviderID, source: String) {
+    AnalyticsService.shared.capture(
+      "provider_sign_in_started", ["provider_id": provider.rawValue, "source": source])
+
     guard let command = Self.loginCommand(for: provider) else {
+      stopProcess()
+      toolIsMissing = true
+      AnalyticsService.shared.capture(
+        "provider_sign_in_finished",
+        ["provider_id": provider.rawValue, "succeeded": false, "reason": "tool_not_found"])
       state = .failed(provider)
       return
     }
     stopProcess()
+    toolIsMissing = false
 
     let process = ShellEnvironment.shared.makeProcess(command: command)
     // The tool only needs to open the browser and wait. An open, silent input keeps it from
@@ -48,9 +61,6 @@ final class ProviderSignIn: ObservableObject {
     process.standardInput = input
     process.standardOutput = FileHandle.nullDevice
     process.standardError = FileHandle.nullDevice
-
-    AnalyticsService.shared.capture(
-      "provider_sign_in_started", ["provider_id": provider.rawValue, "source": source])
 
     do {
       try process.run()
@@ -69,6 +79,7 @@ final class ProviderSignIn: ObservableObject {
 
   func cancel() {
     stopProcess()
+    toolIsMissing = false
     state = .idle
   }
 
@@ -89,6 +100,12 @@ final class ProviderSignIn: ObservableObject {
 
       if signedIn == true, !lookedSignedInBefore {
         finish(provider, succeeded: true, reason: "signed_in")
+        return
+      }
+      if processEnded, process.terminationStatus == 127 {
+        // The shell's "command not found": the tool isn't installed where Dayflow can run it.
+        toolIsMissing = true
+        finish(provider, succeeded: false, reason: "tool_not_found")
         return
       }
       if processEnded {
@@ -138,7 +155,10 @@ final class ProviderSignIn: ObservableObject {
 
   /// Forgets a failed attempt, so the next problem's card starts with its Sign in button.
   func clearFailure() {
-    if case .failed = state { state = .idle }
+    if case .failed = state {
+      toolIsMissing = false
+      state = .idle
+    }
   }
 
   private static func isSignedIn(_ provider: LLMProviderID) async -> Bool? {
