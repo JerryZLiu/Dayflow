@@ -82,7 +82,7 @@ struct TimelineFailureClassification {
     switch kind {
     case .dayflowProRequired:
       return
-        "Your Dayflow Pro plan has ended. Renew it or switch to another provider in Settings. \(catchUp)"
+        "Dayflow's own AI needs an active Pro plan. Subscribe, or switch to another provider in Settings. \(catchUp)"
 
     case .providerLoginExpired:
       if let fix = signInFix(for: provider) {
@@ -166,8 +166,9 @@ struct TimelineFailureClassification {
     switch kind {
     case .dayflowProRequired:
       return TimelineFailureToastContent(
-        title: "Your Dayflow Pro plan ended",
-        body: "Renew to keep your timeline going, or switch to a free provider like Gemini.",
+        title: "Dayflow's AI needs a Pro plan",
+        body:
+          "Your account doesn't have an active Pro plan, so recent activity hasn't been turned into cards. Subscribe, or switch to a free provider like Gemini.",
         steps: [],
         command: nil,
         destination: .account
