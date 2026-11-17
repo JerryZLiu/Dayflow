@@ -5,6 +5,9 @@ import SwiftUI
 class ProviderSetupState: ObservableObject {
   @Published var steps: [SetupStep] = []
   @Published var currentStepIndex: Int = 0
+  /// The furthest step the user has reached. The sidebar only lets them jump back to steps up to
+  /// this one, so they can't skip ahead past a test that hasn't passed.
+  @Published private(set) var furthestStepIndex: Int = 0
   @Published var apiKey: String = ""
   @Published private(set) var hasStoredGeminiAPIKey = false
   @Published var geminiAPIKeySaveError: String?
@@ -81,18 +84,16 @@ class ProviderSetupState: ObservableObject {
 
   var canContinue: Bool {
     switch currentStep.contentType {
-    case .apiKeyInput:
-      let cleanedKey = apiKey.components(separatedBy: .whitespacesAndNewlines).joined()
-      return cleanedKey.count > 20 || (cleanedKey.isEmpty && hasStoredGeminiAPIKey)
     case .cliDetection:
       return isSelectedCLIToolReady
+    case .geminiKeySetup:
+      return testSuccessful
     case .information(_, _):
       if currentStep.id == "verify" || currentStep.id == "test" {
         return testSuccessful
       }
       return true
-    case .terminalCommand(_), .modelDownload(_), .localChoice, .localModelInstall,
-      .apiKeyInstructions:
+    case .terminalCommand(_), .modelDownload(_), .localChoice, .localModelInstall:
       return true
     }
   }
@@ -103,6 +104,8 @@ class ProviderSetupState: ObservableObject {
 
   func configureSteps(for provider: LLMProviderID) {
     configuredProviderID = provider
+    currentStepIndex = 0
+    furthestStepIndex = 0
     switch provider {
     case .local:
       steps = [
@@ -130,11 +133,6 @@ class ProviderSetupState: ObservableObject {
                 "Click the button below to verify your local server responds to a simple chat completion."
             )
           )),
-        SetupStep(
-          id: "complete", title: String(localized: "Complete"),
-          contentType: .information(
-            String(localized: "All set!"),
-            String(localized: "Local AI is configured and ready to use with Dayflow."))),
       ]
     case .chatGPT, .claude:
       preferredCLITool = provider == .claude ? .claude : .codex
@@ -168,37 +166,19 @@ class ProviderSetupState: ObservableObject {
                 "Enter the endpoint, model, and API key, then verify a multimodal response.")
           )
         ),
-        SetupStep(
-          id: "complete",
-          title: String(localized: "Complete"),
-          contentType: .information(
-            String(localized: "All set!"),
-            String(localized: "Your OpenAI-compatible provider is ready to use with Dayflow.")
-          )
-        ),
       ]
     case .gemini, .dayflow:
       let storedGeminiKey =
         KeychainManager.shared.retrieve(for: "gemini")?
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       hasStoredGeminiAPIKey = !storedGeminiKey.isEmpty
+      // One screen: where to get a key, the key field, and a check that runs on its own once a
+      // key is pasted. The check only asks Google whether the key is valid, so it takes well
+      // under a second.
       steps = [
         SetupStep(
-          id: "getkey", title: String(localized: "Get API key"),
-          contentType: .apiKeyInstructions),
-        SetupStep(
-          id: "enterkey", title: String(localized: "Enter API key"),
-          contentType: .apiKeyInput),
-        SetupStep(
-          id: "verify", title: String(localized: "Test connection"),
-          contentType: .information(
-            String(localized: "Test Connection"),
-            String(localized: "Click the button below to verify your API key works with Gemini"))),
-        SetupStep(
-          id: "complete", title: String(localized: "Complete"),
-          contentType: .information(
-            String(localized: "All set!"),
-            String(localized: "Gemini is now configured and ready to use with Dayflow."))),
+          id: "verify", title: String(localized: "Add API key"),
+          contentType: .geminiKeySetup)
       ]
     }
   }
@@ -232,14 +212,6 @@ class ProviderSetupState: ObservableObject {
           String(localized: "Run a quick test to verify your CLI is working and signed in.")
         )
       ),
-      SetupStep(
-        id: "complete",
-        title: String(localized: "Complete"),
-        contentType: .information(
-          String(localized: "All set!"),
-          String(localized: "\(providerName) is configured and ready to use with Dayflow.")
-        )
-      ),
     ]
   }
 
@@ -268,7 +240,13 @@ class ProviderSetupState: ObservableObject {
   func goNext() {
     if currentStepIndex < steps.count - 1 {
       currentStepIndex += 1
+      furthestStepIndex = max(furthestStepIndex, currentStepIndex)
     }
+  }
+
+  func isStepReachable(_ stepId: String) -> Bool {
+    guard let index = steps.firstIndex(where: { $0.id == stepId }) else { return false }
+    return index <= furthestStepIndex
   }
 
   func goBack() {
@@ -278,15 +256,16 @@ class ProviderSetupState: ObservableObject {
   }
 
   func navigateToStep(_ stepId: String) {
-    if let index = steps.firstIndex(where: { $0.id == stepId }) {
-      // Reset test state when navigating to test step
-      if stepId == "verify" || stepId == "test" {
-        hasTestedConnection = false
-        testSuccessful = false
-      }
-      // Allow free navigation between all steps
-      currentStepIndex = index
+    // Only steps the user has already reached; later ones open through Next.
+    guard let index = steps.firstIndex(where: { $0.id == stepId }), index <= furthestStepIndex,
+      index != currentStepIndex
+    else { return }
+    // Reset test state when navigating to test step
+    if stepId == "verify" || stepId == "test" {
+      hasTestedConnection = false
+      testSuccessful = false
     }
+    currentStepIndex = index
   }
 
   func markCurrentStepCompleted() {
@@ -352,6 +331,16 @@ class ProviderSetupState: ObservableObject {
         self.captureChatCLIDetectionChecked(source: source)
       }
     }
+  }
+
+  /// Called when Dayflow comes back to the front on the detection step. Only checks while the
+  /// chosen CLI is still missing, and not while Dayflow is installing Claude itself.
+  @MainActor
+  func recheckCLIsAfterReturningToDayflow() {
+    guard hasStartedCLICheck, !isCheckingCLIStatus, !isSelectedCLIToolReady,
+      ClaudeInstaller.shared.state != .installing
+    else { return }
+    refreshCLIStatuses(source: "app_became_active")
   }
 
   @MainActor
@@ -492,20 +481,13 @@ struct SetupStep: Identifiable {
 
 enum StepContentType {
   case terminalCommand(String)
-  case apiKeyInput
-  case apiKeyInstructions
   case modelDownload(String)
   case information(String, String)
   case localChoice
   case localModelInstall
   case cliDetection
-
-  var isApiKeyInput: Bool {
-    if case .apiKeyInput = self {
-      return true
-    }
-    return false
-  }
+  /// Gemini on one screen: where to get a key, the key field, and the key check.
+  case geminiKeySetup
 
   var informationTitle: String? {
     if case .information(let title, _) = self {

@@ -86,11 +86,15 @@ struct LLMProviderSetupView: View {
       HStack(alignment: .top, spacing: contentGap) {
         // Sidebar - fixed width 250px
         VStack(alignment: .leading, spacing: 0) {
-          SetupSidebarView(
-            steps: setupState.steps,
-            currentStepId: setupState.currentStep.id,
-            onStepSelected: { setupState.navigateToStep($0) }
-          )
+          // A single step needs no list of steps.
+          if setupState.steps.count > 1 {
+            SetupSidebarView(
+              steps: setupState.steps,
+              currentStepId: setupState.currentStep.id,
+              onStepSelected: { setupState.navigateToStep($0) },
+              isStepReachable: { setupState.isStepReachable($0) }
+            )
+          }
           Spacer()
         }
         .frame(width: sidebarWidth)
@@ -167,6 +171,8 @@ struct LLMProviderSetupView: View {
         showOverlayStroke: false,
         innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)
       )
+      .disabled(!setupState.canContinue)
+      .opacity(!setupState.canContinue ? 0.5 : 1.0)
     } else {
       DayflowSurfaceButton(
         action: handleContinue,
@@ -347,68 +353,25 @@ struct LLMProviderSetupView: View {
 
       }
 
-    case .apiKeyInput:
-      VStack(alignment: .leading, spacing: 24) {
-        APIKeyInputView(
-          apiKey: $setupState.apiKey,
-          title: String(localized: "Enter your API key:"),
-          subtitle: String(localized: "Paste your Gemini API key below"),
-          placeholder: "AQ...",
-          onValidate: { key in
-            key.components(separatedBy: .whitespacesAndNewlines).joined().count > 10
-          }
-        )
-        .onChange(of: setupState.apiKey) { _, _ in
-          setupState.clearGeminiAPIKeySaveError()
-          setupState.hasTestedConnection = false
-          setupState.testSuccessful = false
-        }
-
-        if let message = setupState.geminiAPIKeySaveError {
-          HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-              .font(.system(size: 12))
-              .foregroundColor(Color(hex: "E91515"))
-
-            Text(message)
-              .font(.custom("Figtree", size: 13))
-              .foregroundColor(Color(hex: "E91515"))
-          }
-          .padding(.horizontal, 16)
-          .padding(.vertical, 10)
-          .background(
-            RoundedRectangle(cornerRadius: 4)
-              .fill(Color(hex: "E91515").opacity(0.1))
-          )
-          .overlay(
-            RoundedRectangle(cornerRadius: 4)
-              .stroke(Color(hex: "E91515").opacity(0.3), lineWidth: 1)
+    case .geminiKeySetup:
+      ScrollView(.vertical, showsIndicators: true) {
+        VStack(alignment: .leading, spacing: 28) {
+          geminiKeyInstructions
+          geminiKeyInput
+          TestConnectionView(
+            apiKey: setupState.apiKey,
+            model: setupState.geminiModel,
+            onTestComplete: { success in
+              setupState.hasTestedConnection = true
+              setupState.testSuccessful = success
+            },
+            checksAutomatically: true
           )
         }
-
-        VStack(alignment: .leading, spacing: 12) {
-          Text(
-            "Choose your Gemini model. We recommend 4 Hydrogen, with the Flash models available as fallbacks."
-          )
-          .font(.custom("Figtree", size: 16))
-          .fontWeight(.semibold)
-          .foregroundColor(Color(hex: "333333"))
-
-          Picker("Gemini model", selection: $setupState.geminiModel) {
-            ForEach(GeminiModel.allCases, id: \.self) { model in
-              Text(model.shortLabel).tag(model)
-            }
-          }
-          .pickerStyle(.segmented)
-
-          Text(GeminiModelPreference(primary: setupState.geminiModel).fallbackSummary)
-            .font(.custom("Figtree", size: 13))
-            .foregroundColor(Color(hex: "727272"))
-        }
-        .onChange(of: setupState.geminiModel) {
-          setupState.persistGeminiModelSelection(source: "onboarding_picker")
-        }
-
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.trailing, 6)
+        // Room above the pinned Next button.
+        .padding(.bottom, 90)
       }
 
     case .modelDownload(let command):
@@ -471,16 +434,7 @@ struct LLMProviderSetupView: View {
         ScrollView(.vertical, showsIndicators: true) {
           VStack(alignment: .leading, spacing: 16) {
             if ["verify", "test"].contains(step.id) {
-              if providerType == .gemini {
-                TestConnectionView(
-                  apiKey: setupState.apiKey,
-                  model: setupState.geminiModel,
-                  onTestComplete: { success in
-                    setupState.hasTestedConnection = true
-                    setupState.testSuccessful = success
-                  }
-                )
-              } else if providerType == .chatGPT || providerType == .claude {
+              if providerType == .chatGPT || providerType == .claude {
                 ChatCLITestView(
                   selectedTool: setupState.preferredCLITool,
                   onTestComplete: { success in
@@ -579,6 +533,10 @@ struct LLMProviderSetupView: View {
                   setupState.hasTestedConnection = false
                   setupState.testSuccessful = false
                 }
+
+                if !setupState.testSuccessful {
+                  finishLocalSetupLaterOption
+                }
               }
             }
           }
@@ -604,88 +562,184 @@ struct LLMProviderSetupView: View {
       .onAppear {
         setupState.ensureCLICheckStarted()
       }
+      // People install the CLI in Terminal or a browser, then come back. Check again then, so
+      // they don't have to press Check themselves.
+      .onReceive(
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+      ) { _ in
+        setupState.recheckCLIsAfterReturningToDayflow()
+      }
+    }
+  }
 
-    case .apiKeyInstructions:
-      VStack(alignment: .leading, spacing: 24) {
-        VStack(alignment: .leading, spacing: 8) {
-          Text("Get your Gemini API key")
-            .font(.custom("Figtree", size: 24))
-            .fontWeight(.semibold)
+  /// The model is a multi-gigabyte download, and people who sat waiting for it often left. This
+  /// lets them finish now: Dayflow records in the meantime, holds those recordings while the
+  /// local server can't be reached, and makes the timeline once it's up.
+  var finishLocalSetupLaterOption: some View {
+    let engineName =
+      setupState.localEngine == .lmstudio
+      ? String(localized: "LM Studio") : String(localized: "your local server")
+    return VStack(alignment: .leading, spacing: 8) {
+      Text("Model still downloading?")
+        .font(.custom("Figtree", size: 14))
+        .fontWeight(.semibold)
+        .foregroundColor(Color(hex: "333333"))
+      Text(
+        "You can finish setup now. Dayflow starts recording right away and makes your timeline once \(engineName) is running with the model."
+      )
+      .font(.custom("Figtree", size: 13))
+      .foregroundColor(Color(hex: "727272"))
+      .fixedSize(horizontal: false, vertical: true)
+      Button(action: finishLocalSetupBeforeTest) {
+        Text("Finish setup and connect later")
+          .font(.custom("Figtree", size: 13))
+          .fontWeight(.semibold)
+          .foregroundColor(Color(red: 1, green: 0.42, blue: 0.02))
+          .underline()
+      }
+      .buttonStyle(.plain)
+      .pointingHandCursor()
+    }
+    .padding(.top, 8)
+  }
+
+  func finishLocalSetupBeforeTest() {
+    AnalyticsService.shared.capture(
+      "local_setup_finished_before_test",
+      [
+        "engine": setupState.localEngine.rawValue,
+        "model": setupState.localModelId,
+        "had_tested": setupState.hasTestedConnection,
+      ])
+    completeSetup(allowUntested: true)
+  }
+
+  /// Where to get a Gemini key, shown above the key field.
+  var geminiKeyInstructions: some View {
+    VStack(alignment: .leading, spacing: 24) {
+      VStack(alignment: .leading, spacing: 8) {
+        Text("Get your Gemini API key")
+          .font(.custom("Figtree", size: 24))
+          .fontWeight(.semibold)
+          .foregroundColor(Color(hex: "333333"))
+
+        Text(
+          "Gemini's free tier lets you run Dayflow for free. All you need is a Google account, no credit card required."
+        )
+        .font(.custom("Figtree", size: 14))
+        .foregroundColor(Color(hex: "333333"))
+      }
+
+      VStack(alignment: .leading, spacing: 16) {
+        HStack(alignment: .top, spacing: 12) {
+          Text("1.")
+            .font(.custom("Figtree", size: 14))
             .foregroundColor(Color(hex: "333333"))
+            .frame(width: 20, alignment: .leading)
+
+          Button(action: openGoogleAIStudio) {
+            Text("Open Google AI Studio ")
+              .font(.custom("Figtree", size: 14))
+              .foregroundColor(Color(hex: "333333"))
+              + Text("(aistudio.google.com/apikey)")
+              .font(.custom("Figtree", size: 14))
+              .foregroundColor(Color(red: 1, green: 0.42, blue: 0.02))
+              .underline()
+          }
+          .buttonStyle(.plain)
+          .pointingHandCursor()
+        }
+
+        HStack(alignment: .top, spacing: 12) {
+          Text("2.")
+            .font(.custom("Figtree", size: 14))
+            .foregroundColor(Color(hex: "333333"))
+            .frame(width: 20, alignment: .leading)
 
           Text(
-            "allows you to run Dayflow for free. All you need is a Google account - no credit card required."
+            "Sign in with your Google account and click \"Create API key\". If it's your first time in AI Studio, accept the terms and it makes a key for you."
           )
+          .fixedSize(horizontal: false, vertical: true)
           .font(.custom("Figtree", size: 14))
           .foregroundColor(Color(hex: "333333"))
         }
 
-        VStack(alignment: .leading, spacing: 16) {
-          HStack(alignment: .top, spacing: 12) {
-            Text("1.")
-              .font(.custom("Figtree", size: 14))
-              .foregroundColor(Color(hex: "333333"))
-              .frame(width: 20, alignment: .leading)
+        HStack(alignment: .top, spacing: 12) {
+          Text("3.")
+            .font(.custom("Figtree", size: 14))
+            .foregroundColor(Color(hex: "333333"))
+            .frame(width: 20, alignment: .leading)
 
-            Button(action: openGoogleAIStudio) {
-              Text("Visit Google AI Studio ")
-                .font(.custom("Figtree", size: 14))
-                .foregroundColor(Color(hex: "333333"))
-                + Text("(aistudio.google.com)")
-                .font(.custom("Figtree", size: 14))
-                .foregroundColor(Color(red: 1, green: 0.42, blue: 0.02))
-                .underline()
-            }
-            .buttonStyle(.plain)
-            .pointingHandCursor()
-          }
-
-          HStack(alignment: .top, spacing: 12) {
-            Text("2.")
-              .font(.custom("Figtree", size: 14))
-              .foregroundColor(Color(hex: "333333"))
-              .frame(width: 20, alignment: .leading)
-
-            Text("Click \"Create API key\" in the top right")
-              .font(.custom("Figtree", size: 14))
-              .foregroundColor(Color(hex: "333333"))
-          }
-
-          HStack(alignment: .top, spacing: 12) {
-            Text("3.")
-              .font(.custom("Figtree", size: 14))
-              .foregroundColor(Color(hex: "333333"))
-              .frame(width: 20, alignment: .leading)
-
-            Text("Create a new API key and copy it")
-              .font(.custom("Figtree", size: 14))
-              .foregroundColor(Color(hex: "333333"))
-          }
-        }
-        .padding(.vertical, 12)
-
-        HStack {
-          DayflowSurfaceButton(
-            action: openGoogleAIStudio,
-            content: {
-              HStack(spacing: 8) {
-                Image(systemName: "safari").font(.system(size: 14))
-                Text("Open Google AI Studio").font(.custom("Figtree", size: 14)).fontWeight(
-                  .semibold)
-              }
-            },
-            background: Color(hex: "FF9F6F"),
-            foreground: .white,
-            borderColor: Color(hex: "F4C8B1"),
-            cornerRadius: 200,
-            horizontalPadding: 24,
-            verticalPadding: 12,
-            showOverlayStroke: false,
-            innerGlowColor: Color(hex: "FFDCCB").opacity(0.9)
-          )
-          Spacer()
+          Text("Copy the key and paste it below")
+            .font(.custom("Figtree", size: 14))
+            .foregroundColor(Color(hex: "333333"))
         }
       }
+    }
+  }
+
+  var geminiKeyInput: some View {
+    VStack(alignment: .leading, spacing: 24) {
+      APIKeyInputView(
+        apiKey: $setupState.apiKey,
+        title: String(localized: "Enter your API key:"),
+        subtitle: String(localized: "Paste your Gemini API key below"),
+        placeholder: "AQ...",
+        onValidate: { key in
+          key.components(separatedBy: .whitespacesAndNewlines).joined().count > 10
+        }
+      )
+      .onChange(of: setupState.apiKey) { _, _ in
+        setupState.clearGeminiAPIKeySaveError()
+        setupState.hasTestedConnection = false
+        setupState.testSuccessful = false
+      }
+
+      if let message = setupState.geminiAPIKeySaveError {
+        HStack(spacing: 8) {
+          Image(systemName: "exclamationmark.triangle.fill")
+            .font(.system(size: 12))
+            .foregroundColor(Color(hex: "E91515"))
+
+          Text(message)
+            .font(.custom("Figtree", size: 13))
+            .foregroundColor(Color(hex: "E91515"))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+          RoundedRectangle(cornerRadius: 4)
+            .fill(Color(hex: "E91515").opacity(0.1))
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: 4)
+            .stroke(Color(hex: "E91515").opacity(0.3), lineWidth: 1)
+        )
+      }
+
+      VStack(alignment: .leading, spacing: 12) {
+        Text(
+          "Choose your Gemini model. We recommend 4 Hydrogen, with the Flash models available as fallbacks."
+        )
+        .font(.custom("Figtree", size: 16))
+        .fontWeight(.semibold)
+        .foregroundColor(Color(hex: "333333"))
+
+        Picker("Gemini model", selection: $setupState.geminiModel) {
+          ForEach(GeminiModel.allCases, id: \.self) { model in
+            Text(model.shortLabel).tag(model)
+          }
+        }
+        .pickerStyle(.segmented)
+
+        Text(GeminiModelPreference(primary: setupState.geminiModel).fallbackSummary)
+          .font(.custom("Figtree", size: 13))
+          .foregroundColor(Color(hex: "727272"))
+      }
+      .onChange(of: setupState.geminiModel) {
+        setupState.persistGeminiModelSelection(source: "onboarding_picker")
+      }
+
     }
   }
 
@@ -707,9 +761,10 @@ struct LLMProviderSetupView: View {
   }
 
   @discardableResult
-  func saveConfiguration() -> Bool {
+  func saveConfiguration(allowUntested: Bool = false) -> Bool {
     setupState.saveErrorMessage = nil
-    guard setupState.testSuccessful else {
+    // Only Local AI can be saved before its test passes, while the model downloads.
+    guard setupState.testSuccessful || (allowUntested && providerType == .local) else {
       setupState.saveErrorMessage = String(
         localized: "Test this provider successfully before completing setup.")
       return false
@@ -759,7 +814,11 @@ struct LLMProviderSetupView: View {
   }
 
   func completeSetup() {
-    guard saveConfiguration() else { return }
+    completeSetup(allowUntested: false)
+  }
+
+  func completeSetup(allowUntested: Bool) {
+    guard saveConfiguration(allowUntested: allowUntested) else { return }
     guard onComplete(effectiveProviderType) else {
       setupState.saveErrorMessage =
         String(
@@ -827,7 +886,7 @@ struct LLMProviderSetupView: View {
   }
 
   func openGoogleAIStudio() {
-    if let url = URL(string: "https://aistudio.google.com/app/apikey") {
+    if let url = URL(string: "https://aistudio.google.com/apikey") {
       NSWorkspace.shared.open(url)
     }
   }
