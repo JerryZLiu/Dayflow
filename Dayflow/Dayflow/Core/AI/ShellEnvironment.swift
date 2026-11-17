@@ -386,8 +386,14 @@ final class ShellEnvironment: @unchecked Sendable {
       .appendingPathComponent(".claude/local").path
     let claudeLocalEntry =
       FileManager.default.isExecutableFile(atPath: claudeLocal + "/claude") ? claudeLocal : nil
+    // Claude's current installer puts `claude` in ~/.local/bin but doesn't add that folder to
+    // the shell's PATH, so a fresh install (including Dayflow's own) would look missing.
+    let userBin = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(".local/bin").path
+    let userBinEntry =
+      FileManager.default.isExecutableFile(atPath: userBin + "/claude") ? userBin : nil
     if let path = mergedPath([
-      shellValues["PATH"] ?? launchctlPath, appEnvironment["PATH"], claudeLocalEntry,
+      shellValues["PATH"] ?? launchctlPath, appEnvironment["PATH"], claudeLocalEntry, userBinEntry,
     ]) {
       environment["PATH"] = path
     }
