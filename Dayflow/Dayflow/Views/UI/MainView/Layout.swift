@@ -144,6 +144,9 @@ extension MainView {
           ProviderProblemCenter.shared.declineBackupOffer()
         }
       )
+      // A different problem starts the card fresh, so choices made on the old one (skipping
+      // sign-in, declining the backup) don't carry over.
+      .id("\(payload.failureKind)|\(payload.providerName)")
       .padding(.trailing, 24)
       .padding(.bottom, 24)
       .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -342,7 +345,9 @@ extension MainView {
   /// Shows the card when it is already up (to refresh how much is waiting), when the user
   /// asked for it, or when this kind of problem hasn't been shown yet today.
   private func showTimelineFailureToast(_ payload: TimelineFailureToastPayload, force: Bool) {
-    let isAlreadyShowing = timelineFailureToastPayload?.failureKind == payload.failureKind
+    // A card that is already up always shows the latest problem, even when its kind changed,
+    // so it never describes a problem that has since been replaced.
+    let isAlreadyShowing = timelineFailureToastPayload != nil
     // While Dayflow is hidden nobody sees the card, so it waits (and keeps today's showing)
     // until Dayflow is in front again.
     guard
@@ -351,7 +356,12 @@ extension MainView {
           && ProviderProblemCenter.shared.claimDailyCardSlot(failureKind: payload.failureKind))
     else { return }
 
-    if !isAlreadyShowing {
+    if timelineFailureToastPayload?.failureKind != payload.failureKind {
+      // A new kind of problem shown in the open card uses up its showing for today too, so
+      // "Not now" keeps it away instead of it popping back up on the next batch.
+      if isAlreadyShowing {
+        _ = ProviderProblemCenter.shared.claimDailyCardSlot(failureKind: payload.failureKind)
+      }
       AnalyticsService.shared.capture("llm_timeline_failure_toast_shown", payload.analyticsProps)
     }
     withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
