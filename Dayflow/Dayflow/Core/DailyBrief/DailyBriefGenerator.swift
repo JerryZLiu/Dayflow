@@ -1153,7 +1153,7 @@ enum DailyBriefGenerator {
       return "Claude isn't signed in. Open Terminal, run `claude`, then type /login."
     case .cliNotInstalled:
       return "Dayflow couldn't find Claude Code on this Mac."
-    case .outOfCredits, .apiKeyProblem, .accountBlocked:
+    case .outOfCredits, .paymentPastDue, .apiKeyProblem, .accountBlocked:
       return "Claude's account has a billing or API key problem, so the brief couldn't run."
     case .modelMisconfigured:
       return "Your Claude account can't use the Opus model the brief needs."

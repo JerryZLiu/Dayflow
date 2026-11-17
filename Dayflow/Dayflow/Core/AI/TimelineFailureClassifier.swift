@@ -22,6 +22,7 @@ enum TimelineFailureKind: String {
   case apiKeyProblem = "api_key_problem"
   case usageLimitHit = "usage_limit_hit"
   case outOfCredits = "out_of_credits"
+  case paymentPastDue = "payment_past_due"
   case geoBlocked = "geo_blocked"
   case accountBlocked = "account_blocked"
   case modelMisconfigured = "model_misconfigured"
@@ -37,8 +38,8 @@ enum TimelineFailureKind: String {
   var failsEveryRequestToProvider: Bool {
     switch self {
     case .dayflowProRequired, .providerLoginExpired, .cliNotInstalled, .cliOutdated,
-      .localEngineOffline, .apiKeyProblem, .usageLimitHit, .outOfCredits, .geoBlocked,
-      .accountBlocked, .notConfigured:
+      .localEngineOffline, .apiKeyProblem, .usageLimitHit, .outOfCredits, .paymentPastDue,
+      .geoBlocked, .accountBlocked, .notConfigured:
       return true
     // A missing or unsupported model can work with the other step's model.
     case .modelMisconfigured, .localModelMissing, .transient, .modelFlaky, .unknown:
@@ -117,11 +118,19 @@ struct TimelineFailureClassification {
       return
         "Your \(provider) account is out of credits. Top it up, or switch providers in Settings. \(catchUp)"
 
+    case .paymentPastDue:
+      return
+        "\(provider) paused your plan, usually because a payment is past due. Pay or renew in your \(provider) account. \(catchUp)"
+
     case .geoBlocked:
       return
         "\(provider) isn't available in your region. Switch to another provider in Settings. \(catchUp)"
 
     case .accountBlocked:
+      if signsInThroughItsOwnApp(provider) {
+        return
+          "\(provider) blocked access for this account. Check your \(provider) account for what it needs from you, or switch providers in Settings. \(catchUp)"
+      }
       return
         "\(provider) blocked access for this account. A new API key or a different provider in Settings usually fixes it. \(catchUp)"
 
@@ -268,6 +277,16 @@ struct TimelineFailureClassification {
         destination: .providers
       )
 
+    case .paymentPastDue:
+      return TimelineFailureToastContent(
+        title: "Your \(provider) payment is past due",
+        body:
+          "\(provider) paused your plan until the payment goes through. Pay or renew in your \(provider) account, or switch providers.",
+        steps: [],
+        command: nil,
+        destination: .providers
+      )
+
     case .geoBlocked:
       return TimelineFailureToastContent(
         title: "\(provider) isn't available in your region",
@@ -280,7 +299,9 @@ struct TimelineFailureClassification {
     case .accountBlocked:
       return TimelineFailureToastContent(
         title: "\(provider) blocked this account",
-        body: "Creating a new API key or switching providers usually fixes this.",
+        body: signsInThroughItsOwnApp(provider)
+          ? "Check your \(provider) account for what it needs from you, or switch providers."
+          : "Creating a new API key or switching providers usually fixes this.",
         steps: [],
         command: nil,
         destination: .providers
@@ -554,13 +575,15 @@ enum TimelineFailureClassifier {
         "sso session", "aws sso login",
       ]
     ),
-    (.cliNotInstalled, ["cli not found", "enoent"]),
+    (.cliNotInstalled, ["cli not found", "enoent", "native binary not installed"]),
     (.cliOutdated, ["requires a newer version of codex", "newer version of codex"]),
     (
       .modelMisconfigured,
       [
         "is not supported when using codex with a chatgpt account",
         "is not found for api version", "not_found_error",
+        // A gateway in front of Claude that doesn't know the model Dayflow asks for.
+        "is not a valid llm model",
       ]
     ),
     (.localEngineOffline, ["ollama/lmstudio is running"]),
@@ -580,6 +603,8 @@ enum TimelineFailureClassifier {
         "you've hit your", "you’ve hit your",
       ]
     ),
+    // "Claude Code can't use your Claude subscription, usually because a payment is past due".
+    (.paymentPastDue, ["payment is past due", "use your claude subscription"]),
     (
       .outOfCredits,
       [
@@ -595,7 +620,15 @@ enum TimelineFailureClassifier {
       ]
     ),
     (.geoBlocked, ["location is not supported"]),
-    (.accountBlocked, ["denied access", "organization has disabled", "account is on hold"]),
+    (
+      .accountBlocked,
+      [
+        "denied access", "organization has disabled", "account is on hold",
+        // "Your account can't receive replies from Claude right now. You can find the next
+        // step in the Anthropic Verification Portal".
+        "verification portal", "receive replies from claude",
+      ]
+    ),
     (.notConfigured, ["no llm provider configured"]),
     (
       .transient,
