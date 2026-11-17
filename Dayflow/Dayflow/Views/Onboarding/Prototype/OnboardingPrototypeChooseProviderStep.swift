@@ -60,6 +60,21 @@ struct OnboardingPrototypeChooseProviderStep: View {
   @State private var dayflowProInitialReferralCode = ""
   @State private var isCodexCLIInstalled = false
   @State private var isClaudeCLIInstalled = false
+  @State private var hasCheckedCLIs = false
+  @State private var isShowingAllProviders = false
+  /// Skips the check and uses these instead, for screenshots of the flow.
+  var forcedCLIsInstalled: (codex: Bool, claude: Bool)? = nil
+  /// Opens with every option showing, for screenshots of the flow.
+  var forcedShowsAllProviders = false
+
+  /// The options most people should pick. Gemini, OpenRouter and Local AI are behind "Show more
+  /// options", since their setup is where most people drop out of onboarding.
+  private static let primaryProviderIDs: Set<LLMProviderID> = [.dayflow, .chatGPT, .claude]
+
+  private var visibleProviders: [ComparisonProvider] {
+    if isShowingAllProviders { return Self.providers }
+    return Self.providers.filter { Self.primaryProviderIDs.contains($0.providerID) }
+  }
 
   private static let providers: [ComparisonProvider] = [
     ComparisonProvider(
@@ -148,15 +163,25 @@ struct OnboardingPrototypeChooseProviderStep: View {
         .padding(.horizontal, 112)
         .transition(.opacity)
       } else {
-        comparisonTable
-          .padding(.horizontal, 40)
-          .transition(.opacity)
+        VStack(spacing: 20) {
+          comparisonTable
+          showMoreButton
+        }
+        .padding(.horizontal, 40)
+        .transition(.opacity)
       }
 
       ForEach(0..<4) { _ in Spacer(minLength: 0) }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     .task {
+      if forcedShowsAllProviders { isShowingAllProviders = true }
+      if let forcedCLIsInstalled {
+        isCodexCLIInstalled = forcedCLIsInstalled.codex
+        isClaudeCLIInstalled = forcedCLIsInstalled.claude
+        hasCheckedCLIs = true
+        return
+      }
       let installed = await Task.detached(priority: .utility) {
         (
           codex: CLIDetector.isInstalled(.codex),
@@ -166,6 +191,7 @@ struct OnboardingPrototypeChooseProviderStep: View {
       guard !Task.isCancelled else { return }
       isCodexCLIInstalled = installed.codex
       isClaudeCLIInstalled = installed.claude
+      withAnimation(.easeOut(duration: 0.25)) { hasCheckedCLIs = true }
     }
   }
 
@@ -192,14 +218,14 @@ struct OnboardingPrototypeChooseProviderStep: View {
     Grid(horizontalSpacing: 8, verticalSpacing: 16) {
       GridRow(alignment: .top) {
         emptyLabelCell
-        ForEach(Self.providers) { provider in
+        ForEach(visibleProviders) { provider in
           providerHeader(provider)
         }
       }
 
       GridRow {
         rowLabel(String(localized: "Model accuracy"))
-        ForEach(Self.providers) { provider in
+        ForEach(visibleProviders) { provider in
           ratedCell(provider.accuracy)
         }
       }
@@ -208,7 +234,7 @@ struct OnboardingPrototypeChooseProviderStep: View {
 
       GridRow {
         rowLabel(String(localized: "Subscription requirements"))
-        ForEach(Self.providers) { provider in
+        ForEach(visibleProviders) { provider in
           subscriptionCell(provider.subscription)
         }
       }
@@ -217,7 +243,7 @@ struct OnboardingPrototypeChooseProviderStep: View {
 
       GridRow {
         rowLabel(String(localized: "Ease of set up"))
-        ForEach(Self.providers) { provider in
+        ForEach(visibleProviders) { provider in
           ratedCell(easeValue(for: provider))
         }
       }
@@ -226,20 +252,40 @@ struct OnboardingPrototypeChooseProviderStep: View {
 
       GridRow(alignment: .top) {
         rowLabel(String(localized: "Additional notes"))
-        ForEach(Self.providers) { provider in
+        ForEach(visibleProviders) { provider in
           notesCell(provider.notes)
         }
       }
 
       GridRow {
         emptyLabelCell
-        ForEach(Self.providers) { provider in
+        ForEach(visibleProviders) { provider in
           selectButton(for: provider)
             .padding(.top, 8)
         }
       }
     }
-    .frame(maxWidth: 1120)
+    .frame(maxWidth: isShowingAllProviders ? 1120 : 820)
+  }
+
+  private var showMoreButton: some View {
+    Button {
+      withAnimation(.easeInOut(duration: 0.25)) { isShowingAllProviders.toggle() }
+    } label: {
+      HStack(spacing: 6) {
+        Text(
+          isShowingAllProviders
+            ? String(localized: "Show fewer options")
+            : String(localized: "Show more options: Gemini, OpenRouter, Local AI"))
+        Image(systemName: isShowingAllProviders ? "chevron.up" : "chevron.down")
+          .font(.system(size: 11, weight: .semibold))
+      }
+      .font(.custom("Figtree", size: 14))
+      .fontWeight(.medium)
+      .foregroundColor(Color(hex: "926244"))
+    }
+    .buttonStyle(.plain)
+    .pointingHandCursor()
   }
 
   private var emptyLabelCell: some View {
@@ -262,8 +308,28 @@ struct OnboardingPrototypeChooseProviderStep: View {
       .gridColumnAlignment(.leading)
   }
 
+  /// People who already have Claude or Codex finish onboarding fastest, so point them at it.
+  /// Everyone else gets Dayflow Pro, since installing a CLI or a local model is where people
+  /// give up.
+  private var recommendedProvider: LLMProviderID? {
+    guard hasCheckedCLIs else { return nil }
+    if isClaudeCLIInstalled { return .claude }
+    if isCodexCLIInstalled { return .chatGPT }
+    return .dayflow
+  }
+
   private func providerHeader(_ provider: ComparisonProvider) -> some View {
     VStack(spacing: 7) {
+      // Every column keeps room for the badge, so the table doesn't shift when it appears.
+      Text("Recommended")
+        .font(.custom("Figtree", size: 11))
+        .fontWeight(.semibold)
+        .foregroundColor(Color(hex: "B85A1E"))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(Color(hex: "FFE3D1")))
+        .fixedSize()
+        .opacity(recommendedProvider == provider.providerID ? 1 : 0)
       headerIcon(for: provider.providerID)
       Text(provider.title)
         .font(.custom("Figtree", size: 16))
