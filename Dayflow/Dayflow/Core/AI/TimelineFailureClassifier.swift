@@ -69,9 +69,8 @@ struct TimelineFailureToastContent {
 struct TimelineFailureClassification {
   let kind: TimelineFailureKind
 
-  /// Provider named by the error text itself, when it identifies one.
-  /// More reliable than the configured provider: after a backup fallback,
-  /// the failing provider isn't the primary one.
+  /// Provider named by the error text itself, when it identifies one. Only a guess from the
+  /// wording, so for Claude and ChatGPT the provider that actually failed wins over it.
   let providerName: String?
 
   /// One or two plain sentences for the failed timeline card. Written for
@@ -366,8 +365,23 @@ struct TimelineFailureClassification {
     }
   }
 
-  private func resolvedProvider(_ fallbackProviderLabel: String?) -> String {
-    providerName ?? displayName(forProviderLabel: fallbackProviderLabel) ?? "your AI provider"
+  /// The name to show for the provider that failed. `failingProviderLabel` is the provider
+  /// the request was sent to. For Claude and ChatGPT it wins over the name guessed from the
+  /// error text, because both tools word some errors the same way ("could not be refreshed")
+  /// and the wrong guess would send the user to sign in to the other one.
+  private func resolvedProvider(_ failingProviderLabel: String?) -> String {
+    let failingProvider = displayName(forProviderLabel: failingProviderLabel)
+    // Claude through Bedrock is the exception: the expired session is AWS's, which only the
+    // error text says.
+    if providerName != "AWS", let failingProvider, signsInThroughItsOwnApp(failingProvider) {
+      return failingProvider
+    }
+    return providerName ?? failingProvider ?? "your AI provider"
+  }
+
+  /// Claude and ChatGPT run through their own command-line tools and accounts, not an API key.
+  private func signsInThroughItsOwnApp(_ provider: String) -> Bool {
+    provider == "Claude" || provider == "ChatGPT"
   }
 
   /// Provider labels arrive as lowercase analytics names ("gemini",
@@ -603,15 +617,13 @@ enum TimelineFailureClassifier {
   ]
 
   private static func providerName(in lower: String) -> String? {
-    if lower.contains("codex") || lower.contains("chatgpt")
-      || lower.contains("could not be refreshed")
-    {
-      return "ChatGPT"
-    }
-    // Claude via Bedrock: the expired session is AWS's, and the fix is
-    // 'aws sso login' — not Claude's own login. Must be checked before Claude.
+    // Claude via Bedrock: the expired session is AWS's, and the fix is 'aws sso login', not
+    // Claude's own login. Checked first, so no other provider's name in the text hides it.
     if lower.contains("aws sso") || lower.contains("sso session") {
       return "AWS"
+    }
+    if lower.contains("codex") || lower.contains("chatgpt") {
+      return "ChatGPT"
     }
     if lower.contains("claude") || lower.contains("/login") || lower.contains("anthropic") {
       return "Claude"
