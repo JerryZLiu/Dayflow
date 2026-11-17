@@ -191,6 +191,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     if let problem = ProviderProblemCenter.shared.problem {
       menu.addItem(problemItem(problem))
+      if let backup = problem.backupOfferProviderID {
+        menu.addItem(
+          actionItem(
+            String(localized: "Use \(ProviderSignIn.displayName(for: backup)) as backup instead"),
+            #selector(useBackupProvider), symbol: "arrow.triangle.branch"))
+      }
       menu.addItem(.separator())
     }
 
@@ -302,6 +308,24 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
     // If the main window is still opening, it picks the request up when it appears.
     ProviderProblemCenter.shared.showCardAgain()
+  }
+
+  /// Makes the other tool on this Mac the backup provider, so the waiting recordings get
+  /// processed without the user fixing the first provider.
+  @objc private func useBackupProvider() {
+    guard let problem = ProviderProblemCenter.shared.problem,
+      let backup = problem.backupOfferProviderID
+    else { return }
+    let saved = ProviderProblemCenter.shared.acceptBackupOffer(backup, source: "menu_bar_offer")
+    var props = problem.analyticsProps
+    props["saved"] = saved
+    AnalyticsService.shared.capture("provider_problem_menu_backup_clicked", props)
+    // Saving failed, so show the card, which can take the user to Settings.
+    if !saved {
+      openDayflow()
+      NotificationCenter.default.post(name: .navigateToTimeline, object: nil)
+      ProviderProblemCenter.shared.showCardAgain()
+    }
   }
 
   @objc private func openDayflow() {

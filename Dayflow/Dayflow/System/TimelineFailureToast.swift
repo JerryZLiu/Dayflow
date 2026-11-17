@@ -292,7 +292,7 @@ final class ProviderProblemCenter: ObservableObject {
   }
 
   /// Makes `provider` the backup, then retries what is waiting. Returns false if saving failed.
-  func acceptBackupOffer(_ provider: LLMProviderID) -> Bool {
+  func acceptBackupOffer(_ provider: LLMProviderID, source: String = "failure_card_offer") -> Bool {
     do {
       let routing = try LLMProviderRoutingStore.load()
       guard routing.primary != provider else { return false }
@@ -305,7 +305,7 @@ final class ProviderProblemCenter: ObservableObject {
           "backup_provider": provider.rawValue,
           "provider_id": provider.rawValue,
           "primary_provider": routing.primary.rawValue,
-          "source": "failure_card_offer",
+          "source": source,
         ])
     } catch {
       print("[ProviderProblemCenter] Could not save backup provider: \(error)")
