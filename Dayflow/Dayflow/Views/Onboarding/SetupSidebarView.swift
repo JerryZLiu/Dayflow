@@ -11,6 +11,8 @@ struct SetupSidebarView: View {
   let steps: [SetupStep]
   let currentStepId: String
   let onStepSelected: (String) -> Void
+  /// Steps the user can jump to. Later steps open through Next, so a test can't be skipped.
+  var isStepReachable: (String) -> Bool = { _ in true }
 
   @Namespace private var selectionNamespace
 
@@ -23,6 +25,7 @@ struct SetupSidebarView: View {
           isSelected: step.id == currentStepId,
           isCompleted: isStepCompleted(step: step, currentId: currentStepId, in: steps),
           namespace: selectionNamespace,
+          isEnabled: isStepReachable(step.id),
           onTap: {
             onStepSelected(step.id)
           }
@@ -47,6 +50,7 @@ struct SetupSidebarItem: View {
   let isSelected: Bool
   let isCompleted: Bool
   let namespace: Namespace.ID
+  var isEnabled = true
   let onTap: () -> Void
 
   @State private var isHovered = false
@@ -92,8 +96,9 @@ struct SetupSidebarItem: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(DayflowPressScaleButtonStyle(pressedScale: 0.97))
-    .pointingHandCursor()
-    .scaleEffect(isHovered && !isSelected ? 1.02 : 1.0)
+    .disabled(!isEnabled)
+    .pointingHandCursor(enabled: isEnabled && !isSelected)
+    .scaleEffect(isHovered && isEnabled && !isSelected ? 1.02 : 1.0)
     .animation(.spring(response: 0.3, dampingFraction: 0.9), value: isSelected)
     .animation(.easeOut(duration: 0.2), value: isHovered)
     .onHover { hovering in
