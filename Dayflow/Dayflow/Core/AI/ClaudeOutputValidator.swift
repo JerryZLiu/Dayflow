@@ -43,7 +43,7 @@ struct ClaudeOutputValidationOptions {
 
   init(
     minimumNonFinalCardDurationSeconds: Int = 10 * 60,
-    maximumCardDurationSeconds: Int = 60 * 60,
+    maximumCardDurationSeconds: Int = ClaudeTimelineTolerance.maximumCardSeconds,
     sourceConnectionToleranceSeconds: Int = ClaudeTimelineTolerance.sourceConnectionSeconds,
     outputCoverageToleranceSeconds: Int = ClaudeTimelineTolerance.outputCoverageSeconds,
     calendar: Calendar = .current
@@ -57,6 +57,10 @@ struct ClaudeOutputValidationOptions {
 }
 
 enum ClaudeTimelineTolerance {
+  /// The prompt asks for cards of at most 60 minutes. A card a minute or two over is still a
+  /// good card, so it is kept rather than sent back to the model.
+  static let maximumCardSeconds = 62 * 60
+
   /// Source intervals one minute apart belong to the same connected rewrite span.
   static let sourceConnectionSeconds = 60
 
@@ -136,9 +140,10 @@ enum ClaudeOutputValidator {
     guard newFirstStart < firstEnd, lastStart < newLastEnd else { return cards }
 
     // Snapping must not turn a card the checks accept into one they reject: no card may end
-    // up over an hour, or drop under ten minutes when it wasn't already.
+    // up over the longest allowed length, or drop under ten minutes when it wasn't already.
     func staysValid(oldLength: Int, newLength: Int) -> Bool {
-      newLength <= 60 * 60 && (newLength >= 10 * 60 || newLength >= oldLength)
+      newLength <= ClaudeTimelineTolerance.maximumCardSeconds
+        && (newLength >= 10 * 60 || newLength >= oldLength)
     }
     guard
       staysValid(oldLength: first.count, newLength: firstEnd - newFirstStart),

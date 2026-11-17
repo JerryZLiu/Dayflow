@@ -397,7 +397,7 @@ extension ClaudeProvider {
             duration
           )
         )
-      } else if duration > 60 {
+      } else if duration > Double(ClaudeTimelineTolerance.maximumCardSeconds) / 60 {
         issues.append(
           String(
             format: "Card %d '%@' is %.1f minutes long; cards may not exceed 60 minutes.",
