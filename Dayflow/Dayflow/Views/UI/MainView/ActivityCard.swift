@@ -495,10 +495,11 @@ struct ActivityCard: View {
     let isProcessing = retryCoordinator.isActive(batchId: activity.batchId)
     let isDisabled = retryCoordinator.isRunning
 
-    if activity.waitingTitle != nil, !isProcessing,
-      let provider = providerProblems.problem?.signInProviderID
+    if !isProcessing, let provider = providerProblems.problem?.signInProviderID,
+      activity.waitingTitle == "Waiting for \(ProviderSignIn.displayName(for: provider))"
     {
       // Waiting on a signed-out provider: signing in is the fix, and Dayflow retries after.
+      // Cards waiting for the internet or a retry after sleep keep their Retry button.
       signInButton(for: provider)
     } else if isProcessing {
       // Processing state - beige pill with spinner
