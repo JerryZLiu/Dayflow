@@ -2,7 +2,7 @@
 //  GeminiAPIHelper.swift
 //  Dayflow
 //
-//  Helper for testing Gemini API connection
+//  Checks that a Gemini API key works
 //
 
 import Foundation
@@ -11,7 +11,6 @@ final class GeminiAPIHelper {
   typealias RequestData = (URLRequest) async throws -> (Data, URLResponse)
 
   struct ConnectionResult {
-    let responseText: String
     let model: GeminiModel
   }
 
@@ -55,71 +54,31 @@ final class GeminiAPIHelper {
     }
   }
 
-  private struct HTTPFailure: Error {
-    let statusCode: Int
-    let apiError: APIError
-  }
-
-  // Test the selected model first, then use the same fallback order as normal Gemini requests.
+  /// Checks that the key is valid by listing the models it can use. This only asks Google
+  /// whether it accepts the key, so it answers in well under a second and doesn't fail when a
+  /// model is overloaded. Asking a model to reply used to hang for a minute and fail when
+  /// Gemini was busy, even though the key was fine.
   func testConnection(apiKey: String, preference: GeminiModelPreference) async throws
     -> ConnectionResult
   {
     let cleanedAPIKey = apiKey.components(separatedBy: .whitespacesAndNewlines).joined()
-    guard !cleanedAPIKey.isEmpty else {
+    guard !cleanedAPIKey.isEmpty,
+      let url = URL(
+        string:
+          "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1&key=\(cleanedAPIKey)"
+      )
+    else {
       throw APIError.invalidAPIKey
     }
-
-    let models = preference.orderedModels
-    for (index, model) in models.enumerated() {
-      do {
-        return try await testConnection(
-          apiKey: cleanedAPIKey,
-          model: model,
-          attempt: index + 1
-        )
-      } catch let failure as HTTPFailure {
-        let hasFallback = index < models.count - 1
-        if hasFallback, GeminiDirectProvider.capacityErrorCodes.contains(failure.statusCode) {
-          continue
-        }
-        throw failure.apiError
-      }
-    }
-
-    throw APIError.invalidResponse
-  }
-
-  private func testConnection(apiKey: String, model: GeminiModel, attempt: Int) async throws
-    -> ConnectionResult
-  {
-    let url = URL(
-      string:
-        "https://generativelanguage.googleapis.com/v1beta/models/\(model.rawValue):generateContent?key=\(apiKey)"
-    )!
+    let model = preference.primary
     var request = URLRequest(url: url)
-    request.httpMethod = "POST"
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpMethod = "GET"
+    request.timeoutInterval = Self.timeout
 
-    let requestBody: [String: Any] = [
-      "contents": [
-        [
-          "parts": [
-            ["text": "Please respond with exactly: Hi from Gemini!"]
-          ]
-        ]
-      ],
-      "generationConfig": [
-        "maxOutputTokens": 4096,
-        "thinkingConfig": ["thinkingLevel": "high"],
-      ],
-    ]
-    request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-
-    let startedAt = Date()
     let context = LLMCallContext(
       batchId: nil,
       callGroupId: UUID().uuidString,
-      attempt: attempt,
+      attempt: 1,
       provider: "gemini",
       providerID: LLMProviderID.gemini.rawValue,
       model: model.rawValue,
@@ -127,8 +86,8 @@ final class GeminiAPIHelper {
       requestMethod: request.httpMethod,
       requestURL: request.url,
       requestHeaders: request.allHTTPHeaderFields,
-      requestBody: request.httpBody,
-      startedAt: startedAt
+      requestBody: nil,
+      startedAt: Date()
     )
 
     let data: Data
@@ -170,11 +129,7 @@ final class GeminiAPIHelper {
     )
 
     guard httpResponse.statusCode == 200 else {
-      let error = apiError(
-        statusCode: httpResponse.statusCode,
-        data: data,
-        model: model
-      )
+      let error = apiError(statusCode: httpResponse.statusCode, data: data, model: model)
       if logsRequests {
         LLMLogger.logFailure(
           ctx: context,
@@ -185,22 +140,16 @@ final class GeminiAPIHelper {
           errorMessage: error.localizedDescription
         )
       }
-      throw HTTPFailure(statusCode: httpResponse.statusCode, apiError: error)
+      throw error
     }
 
     if logsRequests {
-      LLMLogger.logSuccess(
-        ctx: context,
-        http: httpInfo,
-        finishedAt: Date()
-      )
+      LLMLogger.logSuccess(ctx: context, http: httpInfo, finishedAt: Date())
     }
-
-    return ConnectionResult(
-      responseText: extractResponseText(from: data) ?? "",
-      model: model
-    )
+    return ConnectionResult(model: model)
   }
+
+  private static let timeout: TimeInterval = 15
 
   private func apiError(statusCode: Int, data: Data, model: GeminiModel) -> APIError {
     let message = extractErrorMessage(from: data) ?? "Status code: \(statusCode)"
@@ -209,25 +158,13 @@ final class GeminiAPIHelper {
       return .rateLimited(message, model: model)
     }
 
-    if statusCode == 401 || statusCode == 403 {
+    // Google answers a key it doesn't accept with 400 (API_KEY_INVALID) or 401, and a key it
+    // has blocked or restricted with 403.
+    if statusCode == 400 || statusCode == 401 || statusCode == 403 {
       return extractErrorMessage(from: data) == nil ? .invalidAPIKey : .apiError(message)
     }
 
     return .networkError(message)
-  }
-
-  private func extractResponseText(from data: Data) -> String? {
-    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let candidates = json["candidates"] as? [[String: Any]],
-      let firstCandidate = candidates.first,
-      let content = firstCandidate["content"] as? [String: Any],
-      let parts = content["parts"] as? [[String: Any]],
-      let firstPart = parts.first
-    else {
-      return nil
-    }
-
-    return firstPart["text"] as? String
   }
 
   private func extractErrorMessage(from data: Data) -> String? {

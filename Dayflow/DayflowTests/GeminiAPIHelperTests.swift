@@ -3,104 +3,78 @@ import XCTest
 @testable import Dayflow
 
 final class GeminiAPIHelperTests: XCTestCase {
-  func testConnectionStartsWithSelectedModel() async throws {
+  func testConnectionChecksTheKeyWithOneModelListRequest() async throws {
     let recorder = RequestRecorder()
-    let helper = makeHelper(recorder: recorder) { _ in
-      (200, Data("{}".utf8))
-    }
+    let helper = makeHelper(recorder: recorder) { (200, Data(#"{"models":[]}"#.utf8)) }
 
     let result = try await helper.testConnection(
-      apiKey: "test-key",
+      apiKey: " test-key ",
       preference: GeminiModelPreference(primary: .flash35)
     )
 
     XCTAssertEqual(result.model, .flash35)
-    let requestedModels = await recorder.models
-    XCTAssertEqual(requestedModels, [.flash35])
+    let requests = await recorder.requests
+    XCTAssertEqual(requests.count, 1)
+    XCTAssertEqual(requests.first?.httpMethod, "GET")
+    XCTAssertEqual(requests.first?.url?.path, "/v1beta/models")
+    XCTAssertTrue(requests.first?.url?.query?.contains("key=test-key") == true)
   }
 
-  func testConnectionUsesRuntimeFallbackOrderForTransientFailures() async throws {
-    let recorder = RequestRecorder()
-    let helper = makeHelper(recorder: recorder) { model in
-      switch model {
-      case .hydrogen:
-        return (429, Self.errorBody("Rate limit exceeded"))
-      case .flash38:
-        return (404, Self.errorBody("Model unavailable"))
-      case .flash36:
-        return (429, Self.errorBody("Rate limit exceeded"))
-      case .flash37, .flash35:
-        return (503, Self.errorBody("Temporarily unavailable"))
-      case .flashLite35:
-        return (200, Data("{}".utf8))
+  func testConnectionReportsAnInvalidKey() async throws {
+    for status in [400, 401, 403] {
+      let helper = makeHelper(recorder: RequestRecorder()) {
+        (status, Self.errorBody("API key not valid. Please pass a valid API key."))
+      }
+      do {
+        _ = try await helper.testConnection(apiKey: "bad-key", preference: .default)
+        XCTFail("Expected status \(status) to fail")
+      } catch GeminiAPIHelper.APIError.apiError(let message) {
+        XCTAssertEqual(message, "API key not valid. Please pass a valid API key.")
+      } catch {
+        XCTFail("Unexpected error for status \(status): \(error)")
       }
     }
-
-    let result = try await helper.testConnection(
-      apiKey: "test-key",
-      preference: .default
-    )
-
-    XCTAssertEqual(result.model, .flashLite35)
-    let requestedModels = await recorder.models
-    XCTAssertEqual(
-      requestedModels, [.hydrogen, .flash38, .flash37, .flash36, .flash35, .flashLite35])
   }
 
-  func testConnectionReturnsRateLimitedAfterAllFallbacksAreTransient() async throws {
-    let recorder = RequestRecorder()
-    let helper = makeHelper(recorder: recorder) { _ in
-      (503, Self.errorBody("Service temporarily unavailable"))
+  func testConnectionTreatsRateLimitAsRateLimited() async throws {
+    let helper = makeHelper(recorder: RequestRecorder()) {
+      (429, Self.errorBody("Resource has been exhausted (e.g. check quota)."))
     }
 
     do {
-      _ = try await helper.testConnection(
-        apiKey: "test-key",
-        preference: .default
-      )
+      _ = try await helper.testConnection(apiKey: "test-key", preference: .default)
       XCTFail("Expected a rate-limited result")
     } catch GeminiAPIHelper.APIError.rateLimited(_, let model) {
-      XCTAssertEqual(model, .flashLite35)
+      XCTAssertEqual(model, GeminiModelPreference.default.primary)
     } catch {
       XCTFail("Unexpected error: \(error)")
     }
-
-    let requestedModels = await recorder.models
-    XCTAssertEqual(
-      requestedModels, [.hydrogen, .flash38, .flash37, .flash36, .flash35, .flashLite35])
   }
 
-  func testConnectionDoesNotTreat425AsTransientOrFallback() async throws {
+  func testConnectionRejectsAnEmptyKeyWithoutARequest() async throws {
     let recorder = RequestRecorder()
-    let helper = makeHelper(recorder: recorder) { _ in
-      (425, Self.errorBody("Too Early"))
-    }
+    let helper = makeHelper(recorder: recorder) { (200, Data()) }
 
     do {
-      _ = try await helper.testConnection(
-        apiKey: "test-key",
-        preference: .default
-      )
-      XCTFail("Expected the request to fail")
-    } catch GeminiAPIHelper.APIError.networkError(let message) {
-      XCTAssertEqual(message, "Too Early")
+      _ = try await helper.testConnection(apiKey: "  \n", preference: .default)
+      XCTFail("Expected an invalid key error")
+    } catch GeminiAPIHelper.APIError.invalidAPIKey {
     } catch {
       XCTFail("Unexpected error: \(error)")
     }
 
-    let requestedModels = await recorder.models
-    XCTAssertEqual(requestedModels, [.hydrogen])
+    let requests = await recorder.requests
+    XCTAssertTrue(requests.isEmpty)
   }
 
   private func makeHelper(
     recorder: RequestRecorder,
-    response: @escaping (GeminiModel) -> (status: Int, body: Data)
+    response: @escaping () -> (status: Int, body: Data)
   ) -> GeminiAPIHelper {
     GeminiAPIHelper(
       requestData: { request in
-        let model = try XCTUnwrap(Self.model(from: request))
-        await recorder.record(model)
-        let result = response(model)
+        await recorder.record(request)
+        let result = response()
         let httpResponse = try XCTUnwrap(
           HTTPURLResponse(
             url: try XCTUnwrap(request.url),
@@ -115,20 +89,15 @@ final class GeminiAPIHelperTests: XCTestCase {
     )
   }
 
-  private static func model(from request: URLRequest) -> GeminiModel? {
-    guard let path = request.url?.path else { return nil }
-    return GeminiModel.allCases.first { path.contains("/models/\($0.rawValue):generateContent") }
-  }
-
   private static func errorBody(_ message: String) -> Data {
     try! JSONSerialization.data(withJSONObject: ["error": ["message": message]])
   }
 }
 
 private actor RequestRecorder {
-  private(set) var models: [GeminiModel] = []
+  private(set) var requests: [URLRequest] = []
 
-  func record(_ model: GeminiModel) {
-    models.append(model)
+  func record(_ request: URLRequest) {
+    requests.append(request)
   }
 }
