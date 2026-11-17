@@ -552,7 +552,11 @@ struct ActivityCard: View {
   private func signInButton(for provider: LLMProviderID) -> some View {
     let isWaiting = providerSignIn.state == .waiting(provider)
     let name = ProviderSignIn.displayName(for: provider)
-    return Button(action: { providerSignIn.start(provider, source: "timeline_card") }) {
+    return Button(action: {
+      providerSignIn.start(provider, source: "timeline_card")
+      // Nothing opened because the tool isn't on this Mac, so show the card that says so.
+      if providerSignIn.toolIsMissing { providerProblems.showCardAgain() }
+    }) {
       Text(
         isWaiting
           ? String(localized: "Waiting for sign-in…") : String(localized: "Sign in to \(name)")

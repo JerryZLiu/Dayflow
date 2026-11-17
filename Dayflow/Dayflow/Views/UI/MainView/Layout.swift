@@ -127,6 +127,11 @@ extension MainView {
       TimelineFailureToastView(
         payload: payload,
         onOpenSettings: { handleTimelineFailureToastOpenSettings(payload) },
+        onSwitchProvider: {
+          AnalyticsService.shared.capture(
+            "llm_timeline_failure_toast_clicked_switch_provider", payload.analyticsProps)
+          openSettingsFromTimelineFailureToast(.openProvidersSettings)
+        },
         onCopyCommand: {
           AnalyticsService.shared.capture(
             "llm_timeline_failure_toast_copied_command", payload.analyticsProps)
@@ -482,12 +487,15 @@ extension MainView {
   private func handleTimelineFailureToastOpenSettings(_ payload: TimelineFailureToastPayload) {
     AnalyticsService.shared.capture(
       "llm_timeline_failure_toast_clicked_settings", payload.analyticsProps)
+    openSettingsFromTimelineFailureToast(
+      payload.destination == .account ? .openAccountSettings : .openProvidersSettings)
+  }
+
+  private func openSettingsFromTimelineFailureToast(_ settingsTab: Notification.Name) {
     withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
       selectedIcon = .settings
       timelineFailureToastPayload = nil
     }
-    let settingsTab: Notification.Name =
-      payload.destination == .account ? .openAccountSettings : .openProvidersSettings
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
       NotificationCenter.default.post(name: settingsTab, object: nil)
     }
@@ -563,6 +571,7 @@ private struct TimelineFailureToastView: View {
   @Environment(\.dayflowTheme) private var theme
   let payload: TimelineFailureToastPayload
   let onOpenSettings: () -> Void
+  let onSwitchProvider: () -> Void
   let onCopyCommand: () -> Void
   let onDismiss: () -> Void
   let onSignIn: (LLMProviderID) -> Void
@@ -590,6 +599,14 @@ private struct TimelineFailureToastView: View {
     return signIn.state == .failed(provider)
   }
 
+  /// The sign-in button did nothing because the provider's command-line tool isn't on this Mac.
+  private var signInToolIsMissing: Bool { signInFailed && signIn.toolIsMissing }
+
+  /// Dayflow's own AI stopped because the account has no active Pro plan.
+  private var needsProPlan: Bool {
+    payload.failureKind == TimelineFailureKind.dayflowProRequired.rawValue
+  }
+
   private var actionTitle: String {
     payload.destination == .account
       ? String(localized: "Open Account") : String(localized: "Open Provider Settings")
@@ -606,8 +623,17 @@ private struct TimelineFailureToastView: View {
 
       if let backupOffer {
         backupOfferButtons(backupOffer)
+      } else if signInToolIsMissing {
+        buttons
       } else if let provider = payload.signInProviderID {
         signInControls(provider)
+      } else if needsProPlan {
+        pillButtons(
+          secondaryTitle: String(localized: "Switch provider"),
+          secondaryAction: onSwitchProvider,
+          primaryTitle: String(localized: "See plans"),
+          primaryAction: onOpenSettings
+        )
       } else if payload.steps.isEmpty {
         buttons
       } else {
@@ -640,6 +666,12 @@ private struct TimelineFailureToastView: View {
       return String(
         localized:
           "Your browser just opened. Sign in to \(payload.providerName) there and come back. Dayflow will pick up where it left off."
+      )
+    }
+    if signInToolIsMissing {
+      return String(
+        localized:
+          "Dayflow couldn't find the \(payload.providerName) command-line tool on this Mac, so it can't sign you in. Install it again or pick another provider in Settings."
       )
     }
     if signInFailed {
