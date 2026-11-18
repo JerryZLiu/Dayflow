@@ -30,6 +30,7 @@ enum WeeklyDashboardBuilder {
       categories: categoryLookup,
       weekRange: weekRange.shifted(byWeeks: -1)
     )
+    let clockFacts = calendarDayFacts(previousFacts + facts, weekRange: weekRange)
 
     return WeeklyDashboardSnapshot(
       donut: WeeklyDonutBuilder.build(cards: cards, categories: categories, weekRange: weekRange),
@@ -37,8 +38,8 @@ enum WeeklyDashboardBuilder {
         cards: cards, categories: categories, weekRange: weekRange),
       treemap: buildTreemap(from: facts, previousFacts: previousFacts),
       sankey: buildSankey(from: facts, weekRange: weekRange),
-      workflow: buildWorkflow(from: facts, weekRange: weekRange),
-      heatmap: buildHeatmap(from: facts, weekRange: weekRange),
+      workflow: buildWorkflow(from: clockFacts, weekRange: weekRange),
+      heatmap: buildHeatmap(from: clockFacts, weekRange: weekRange),
       contextCharts: buildContextCharts(from: facts, weekRange: weekRange),
       applicationInteractions: buildApplicationInteractions(from: facts)
     )
