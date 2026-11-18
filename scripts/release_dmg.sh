@@ -138,6 +138,13 @@ if [[ -d "${SPARKLE_DIR}" ]]; then
       "${SPARKLE_DIR}/XPCServices/Downloader.xpc"
   fi
   if [[ -f "${SPARKLE_DIR}/Autoupdate" ]]; then
+    # Sparkle ships Autoupdate as a universal (arm64+x86_64) binary even in
+    # its latest release. Dayflow itself is arm64-only, so the leftover
+    # x86_64 slice serves no purpose here and triggers macOS's "Support
+    # Ending for Intel-based Apps" deprecation warning on Apple Silicon.
+    if lipo -info "${SPARKLE_DIR}/Autoupdate" 2>/dev/null | grep -q x86_64; then
+      lipo -thin arm64 "${SPARKLE_DIR}/Autoupdate" -output "${SPARKLE_DIR}/Autoupdate"
+    fi
     codesign -vvv --force -o runtime --sign "${SIGN_ID}" \
       "${SPARKLE_DIR}/Autoupdate"
   fi
