@@ -148,7 +148,7 @@ struct FlowDebugPanel: View {
         Toggle("Watch the screen during sessions", isOn: $settings.agentEnabled)
           .font(.system(size: 11))
         row("Model") {
-          TextField("gpt-6-astra", text: $settings.model)
+          TextField("gpt-6-luna", text: $settings.model)
             .textFieldStyle(.roundedBorder)
             .font(.system(size: 11, design: .monospaced))
         }

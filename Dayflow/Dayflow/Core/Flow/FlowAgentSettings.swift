@@ -71,11 +71,11 @@ final class FlowAgentSettings: ObservableObject {
   private init() {
     let d = UserDefaults.standard
     agentEnabled = d.object(forKey: "flowAgentEnabled") as? Bool ?? true
-    model = d.string(forKey: "flowAgentModel").flatMap { $0.isEmpty ? nil : $0 } ?? "gpt-6-astra"
+    model = d.string(forKey: "flowAgentModel").flatMap { $0.isEmpty ? nil : $0 } ?? "gpt-6-luna"
     let effort = d.string(forKey: "flowAgentReasoning") ?? "low"
     reasoningEffort = Self.reasoningEfforts.contains(effort) ? effort : "low"
     let tick = d.double(forKey: "flowAgentTickSeconds")
-    tickSeconds = tick >= 5 ? tick : 15
+    tickSeconds = tick >= 5 ? tick : 60
     let height = d.integer(forKey: "flowAgentShotHeight")
     screenshotHeight = height >= 240 ? height : 1080
     let quality = d.double(forKey: "flowAgentJpegQuality")
@@ -130,9 +130,9 @@ final class FlowAgentSettings: ObservableObject {
   /// Back to the built-in values (keeps the nudge variant).
   func resetToDefaults() {
     agentEnabled = true
-    model = "gpt-6-astra"
+    model = "gpt-6-luna"
     reasoningEffort = "low"
-    tickSeconds = 15
+    tickSeconds = 60
     screenshotHeight = 1080
     jpegQuality = 0.6
     maxFailures = 3
