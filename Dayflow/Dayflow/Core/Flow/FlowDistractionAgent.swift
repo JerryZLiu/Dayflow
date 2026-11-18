@@ -4,7 +4,7 @@
 //
 //  Real distraction detection for Flow sessions. Each session gets one
 //  conversation with the model: an initial briefing with the user's
-//  goals, session length, and alert style, then a screenshot every ~15 seconds
+//  goals, session length, and alert style, then a screenshot every ~60 seconds
 //  with the current time and time remaining. The model replies with a strict
 //  one-object JSON verdict; nudges drive the desktop overlay and
 //  on-task/off-task flips drive the session's distraction log (via
@@ -144,6 +144,16 @@ final class FlowDistractionAgent: ObservableObject {
   private var captureFailureCount = 0
   private var captureBackoffUntil: Date?
   private static let captureBackoffDelays: [TimeInterval] = [30, 60, 120, 300]
+  /// After `maxFailures` failed checks in a row the agent waits until this
+  /// time and tries again (see FlowWatchRetry), instead of stopping for the
+  /// rest of the session.
+  private var turnBackoffUntil: Date?
+  /// Runs of `maxFailures` in a row since the last check that worked.
+  private var turnBackoffRounds = 0
+  private var firstFailureAt: Date?
+  /// Stretches of this session the agent couldn't watch. Kept after the
+  /// session stops, for the summary's getTimeline, until the next one starts.
+  private(set) var outages: [FlowWatchOutage] = []
   /// One-shot context lines (snooze, back-to-work, break) folded into the
   /// next tick's message.
   private var pendingNotes: [String] = []
@@ -159,6 +169,8 @@ final class FlowDistractionAgent: ObservableObject {
     var skippedCaptureBlocked = 0
     var skippedCaptureBackoff = 0
     var skippedNoPermission = 0
+    var skippedTurnBackoff = 0
+    var turnBackoffs = 0
     var captureFailures = 0
     var turnFailures = 0
     var unparseableReplies = 0
@@ -175,7 +187,7 @@ final class FlowDistractionAgent: ObservableObject {
 
     var isEmpty: Bool {
       checks == 0 && skippedInFlight == 0 && skippedCaptureBlocked == 0
-        && skippedCaptureBackoff == 0 && skippedNoPermission == 0
+        && skippedCaptureBackoff == 0 && skippedNoPermission == 0 && skippedTurnBackoff == 0
     }
   }
   private var stats = SessionStats()
@@ -253,7 +265,7 @@ final class FlowDistractionAgent: ObservableObject {
   private func start(with snapshot: FlowNativeSnapshot, rebrief: Bool) {
     // A re-brief is the same session: its checks keep counting.
     stop(sendSummary: !rebrief)
-    if rebrief { stats.rebriefs += 1 }
+    if rebrief { stats.rebriefs += 1 } else { outages = [] }
     lastSnapshot = snapshot
     sessionStartedAt =
       snapshot.sessionStartedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) } ?? Date()
@@ -457,6 +469,10 @@ final class FlowDistractionAgent: ObservableObject {
     cachedCaptureDisplay = nil
     captureFailureCount = 0
     captureBackoffUntil = nil
+    turnBackoffUntil = nil
+    turnBackoffRounds = 0
+    firstFailureAt = nil
+    consecutiveFailures = 0
     cleanupWorkDirectory()
     statusLine = "Not running"
   }
@@ -474,6 +490,8 @@ final class FlowDistractionAgent: ObservableObject {
       "skipped_capture_blocked": stats.skippedCaptureBlocked,
       "skipped_capture_backoff": stats.skippedCaptureBackoff,
       "skipped_no_permission": stats.skippedNoPermission,
+      "skipped_turn_backoff": stats.skippedTurnBackoff,
+      "turn_backoffs": stats.turnBackoffs,
       "capture_failures": stats.captureFailures,
       "turn_failures": stats.turnFailures,
       "unparseable_replies": stats.unparseableReplies,
@@ -598,6 +616,10 @@ final class FlowDistractionAgent: ObservableObject {
     }
     if let until = captureBackoffUntil, Date() < until {
       stats.skippedCaptureBackoff += 1
+      return
+    }
+    if let until = turnBackoffUntil, Date() < until {
+      stats.skippedTurnBackoff += 1
       return
     }
     // Without the grant every capture attempt would show the real system prompt.
@@ -744,6 +766,7 @@ final class FlowDistractionAgent: ObservableObject {
 
     guard let reply else {
       stats.turnFailures += 1
+      if consecutiveFailures == 0 { firstFailureAt = Date().addingTimeInterval(-seconds) }
       consecutiveFailures += 1
       print("[FlowAgent] Tick failed (\(consecutiveFailures)): \(error ?? "unknown")")
       appendTranscript("Turn failed: \(error ?? "unknown")")
@@ -759,15 +782,24 @@ final class FlowDistractionAgent: ObservableObject {
         return
       }
       if consecutiveFailures >= settings.maxFailures {
-        print("[FlowAgent] Stopping after \(consecutiveFailures) consecutive failures")
-        appendTranscript("Agent stopped after \(consecutiveFailures) consecutive failures.")
-        AnalyticsService.shared.capture("flow_agent_gave_up")
-        stop()
-        statusLine = "Stopped after \(consecutiveFailures) failures"
+        backOffAfterFailures(error: error ?? "")
       }
       return
     }
     consecutiveFailures = 0
+    firstFailureAt = nil
+    if turnBackoffRounds > 0 || turnBackoffUntil != nil {
+      turnBackoffRounds = 0
+      turnBackoffUntil = nil
+      if let open = outages.indices.last, outages[open].endedAt == nil {
+        outages[open].endedAt = Date().addingTimeInterval(-seconds)
+        pendingNotes.append(
+          "(Your checks failed from \(Self.noteTime(outages[open].startedAt)) until now, so you saw nothing in between.)"
+        )
+      }
+      statusLine = "Watching (\(modelLabel))"
+      appendTranscript("Checks are working again.")
+    }
     stats.checkSeconds += seconds
     appendTranscript(reply)
     if engine == .dayflow {
@@ -824,22 +856,24 @@ final class FlowDistractionAgent: ObservableObject {
     return (try? decoder.decode(TimelineReply.self, from: data))?.timeline
   }
 
-  /// When the creature may speak. Friendly waits one minute into a drift,
-  /// then backs off instead of nagging: a nudge that doesn't bring them back
-  /// is followed 5 minutes later, then every 10 minutes. Feisty starts after two
-  /// checks and repeats every two minutes.
+  /// When the creature may speak. Both styles nudge on the first off-task
+  /// check. Friendly then backs off instead of nagging: a nudge that doesn't
+  /// bring them back is followed 5 minutes later, then every 10 minutes.
+  /// Feisty repeats every two minutes. Asked before the verdict (does the tick
+  /// message tell the model a nudge is allowed?) and after it, once
+  /// `offTaskSince` is set for this check.
   private func nudgeDue(at now: Date) -> Bool {
-    guard let since = offTaskSince, backOnTaskSince == nil else { return false }
-    let drift = now.timeIntervalSince(since)
+    // Just back at work: give them the minute before a new drift can nudge.
+    guard backOnTaskSince == nil else { return false }
     let sinceLast = lastNudgeAt.map { now.timeIntervalSince($0) } ?? .infinity
     switch alertStyle {
     case .quiet:
       return false
     case .friendly:
       let waits: [TimeInterval] = [240, 300, 600]
-      return drift >= 60 && sinceLast >= waits[min(unansweredNudges, waits.count - 1)]
+      return sinceLast >= waits[min(unansweredNudges, waits.count - 1)]
     case .feisty:
-      return drift >= Double(settings.tickSeconds) && sinceLast >= 120
+      return sinceLast >= 120
     }
   }
 
@@ -912,6 +946,75 @@ final class FlowDistractionAgent: ObservableObject {
     }
   }
 
+  // MARK: - Failed checks
+
+  /// Called after `maxFailures` failed checks in a row. Keeps the conversation
+  /// and waits before checking again: until the usage limit resets when that's
+  /// the problem (three checks failing a minute apart would otherwise use up
+  /// the retries in three minutes), on a growing delay otherwise.
+  private func backOffAfterFailures(error: String) {
+    let now = Date()
+    let kind = TimelineFailureClassifier.classify(
+      NSError(domain: "FlowAgent", code: 1, userInfo: [NSLocalizedDescriptionKey: error])
+    ).kind
+    let resetsAt = kind == .usageLimitHit ? FlowWatchRetry.resetTime(in: error, now: now) : nil
+    if outages.last.map({ $0.endedAt != nil }) ?? true {
+      outages.append(
+        FlowWatchOutage(
+          kind: kind, providerName: providerName, startedAt: firstFailureAt ?? now,
+          resetsAt: resetsAt))
+    } else if let open = outages.indices.last {
+      outages[open].resetsAt = resetsAt ?? outages[open].resetsAt
+    }
+    turnBackoffRounds += 1
+    stats.turnBackoffs += 1
+    let retryAt = FlowWatchRetry.nextAttempt(
+      kind: kind, resetsAt: resetsAt, round: turnBackoffRounds, now: now)
+    turnBackoffUntil = retryAt
+    consecutiveFailures = 0
+    let retryText = Self.noteTime(retryAt)
+    print(
+      "[FlowAgent] \(settings.maxFailures) checks failed (\(kind.rawValue)); next try at \(retryText)"
+    )
+    appendTranscript(
+      "\(settings.maxFailures) checks failed in a row. Trying again at \(retryText).")
+    statusLine = "Paused until \(retryText) (\(kind.rawValue))"
+    AnalyticsService.shared.capture(
+      "flow_agent_paused_after_failures",
+      [
+        "engine": engineKey,
+        "failure_kind": kind.rawValue,
+        "round": turnBackoffRounds,
+        "retry_in_seconds": Int(retryAt.timeIntervalSince(now)),
+        "reset_time_found": resetsAt != nil,
+        "error_message": TelemetryErrorSanitizer.sanitize(error) ?? "",
+      ])
+  }
+
+  /// Why Flow couldn't watch part of the session that just ran, for its summary.
+  func watchProblem(sessionEnd: Date = Date()) -> String? {
+    FlowWatchRetry.mainOutage(outages, sessionEnd: sessionEnd).map {
+      FlowWatchRetry.problemSentence($0)
+    }
+  }
+
+  /// A few words for the session timeline's "Not watched" rows.
+  func awayReason(sessionEnd: Date = Date()) -> String? {
+    FlowWatchRetry.mainOutage(outages, sessionEnd: sessionEnd).map(FlowWatchRetry.awayReason)
+  }
+
+  private var providerName: String {
+    switch engine {
+    case .codex: return "ChatGPT"
+    case .claude: return "Claude"
+    case .dayflow: return "Dayflow Pro"
+    }
+  }
+
+  private static func noteTime(_ date: Date) -> String {
+    FlowWatchRetry.timeFormatter().string(from: date)
+  }
+
   // MARK: - Prompts
 
   private func initialPrompt() -> String {
@@ -932,7 +1035,7 @@ final class FlowDistractionAgent: ObservableObject {
     if goals.isEmpty {
       goalsBlock = """
         The user didn't list specific goals. Judge by continuity instead: sustained work in \
-        one arena (coding, writing, design, research...) is on task; entertainment, social \
+        one arena (coding, writing, design, research, studying...) is on task; entertainment, social \
         feeds, and aimless browsing are off task.
         """
     } else {
@@ -949,13 +1052,13 @@ final class FlowDistractionAgent: ObservableObject {
         """
     case .friendly:
       styleBlock = """
-        Friendly. They get slack: a nudge only comes due after about a minute of drift, \
-        with follow-ups spaced further apart. Tone: warm and light, like a friend at the next desk. \
+        Friendly. A nudge can come on the first off-task check, with follow-ups spaced \
+        further apart. Tone: warm and light, like a friend at the next desk. \
         The follow-up can be a little more direct. Never guilt-trippy.
         """
     case .feisty:
       styleBlock = """
-        Feisty. Nudges come due quickly and keep coming while they stay off task. Tone: \
+        Feisty. Nudges come on the first off-task check and keep coming while they stay off task. Tone: \
         stern and no-nonsense, a coach who won't let it slide, each one more direct than \
         the last. Blunt is fine; insulting is not.
         """
@@ -1002,15 +1105,20 @@ final class FlowDistractionAgent: ObservableObject {
     {{goals}}
 
     HOW TO JUDGE
-    - Work that plausibly serves the goals is on task, including the docs, searches, \
-    terminal work and Slack or email replies that go with it.
-    - Other real work that isn't on their list (a different project, helping a \
+    - Work that serves the goals is on task, including the docs, searches, terminal \
+    work and Slack or email replies that go with it.
+    - Other real work for their job or studies (a different project, helping a \
     colleague) is on task too. You guard against distraction, not against a change of plan.
-    - Off task means leisure: social feeds, YouTube, shopping, personal chats, news \
-    rabbit holes. One glance at those is not a distraction; a pattern across \
-    consecutive checks is.
-    - The screenshot is your only evidence.
-    - If you're unsure, assume on task.
+    - Studying is work: articles, textbooks, papers, lectures and reference pages on an \
+    academic or professional subject, and notes on them. Reading about games, celebrities, \
+    sports or other pastimes is not.
+    - Anything that isn't work is off task, judged on this screenshot alone: social \
+    feeds, YouTube and other video, shopping, games, personal chats and messages, news, \
+    and browsing that has nothing to do with their work. You don't need to see a \
+    pattern first; Dayflow decides how often they hear about it.
+    - The screenshot is your only evidence. If it shows leisure, call it off task even \
+    if it might be brief. Assume on task only when you can't tell what's on screen \
+    (a bare desktop, a work app with nothing readable).
 
     HOW TO REPLY
     Reply to every message with exactly one JSON object and nothing else — no prose, no \
@@ -1159,11 +1267,14 @@ final class FlowDistractionAgent: ObservableObject {
       line += " Elapsed: \(Self.formatMinutes(elapsed)) (open-ended session)."
     }
 
-    if nudgeDue(at: now), let since = offTaskSince {
-      let minutes = max(1, Int(now.timeIntervalSince(since) / 60))
+    if nudgeDue(at: now) {
+      let drift =
+        offTaskSince.map {
+          " They have been off task for about \(max(1, Int(now.timeIntervalSince($0) / 60)))m."
+        } ?? ""
       line +=
-        " NUDGE DUE: they have been off task for about \(minutes)m. If this screenshot is "
-        + "still off task, set action to \"nudge\" and write the message."
+        " NUDGE DUE:\(drift) If this screenshot is off task, set action to \"nudge\" and "
+        + "write the message."
     }
 
     var parts = [line]
