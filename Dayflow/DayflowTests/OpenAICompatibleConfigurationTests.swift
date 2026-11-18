@@ -26,6 +26,20 @@ final class OpenAICompatibleConfigurationTests: XCTestCase {
     XCTAssertTrue(configuration.isComplete)
   }
 
+  func testRequestyPresetBuildsChatCompletionsURL() {
+    let configuration = OpenAICompatibleConfiguration.requesty(
+      modelID: "  openai/gpt-4o-mini  ")
+
+    XCTAssertEqual(configuration.preset, .requesty)
+    XCTAssertEqual(configuration.baseURL, "https://router.requesty.ai/v1")
+    XCTAssertEqual(configuration.modelID, "openai/gpt-4o-mini")
+    XCTAssertEqual(
+      configuration.chatCompletionsURL?.absoluteString,
+      "https://router.requesty.ai/v1/chat/completions"
+    )
+    XCTAssertTrue(configuration.isComplete)
+  }
+
   func testConfigurationPreferencesRoundTripInIsolatedDefaults() throws {
     let suiteName = "OpenAICompatibleConfigurationTests.\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
