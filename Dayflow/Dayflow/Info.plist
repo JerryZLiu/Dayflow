@@ -5,7 +5,7 @@
 	<key>ATSApplicationFontsPath</key>
 	<string>.</string>
 	<key>CFBundleShortVersionString</key>
-	<string>2.9.4</string>
+	<string>2.9.5</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -18,7 +18,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>145</string>
+	<string>146</string>
 	<key>DayflowBackendURL</key>
 	<string>$(DAYFLOW_BACKEND_URL)</string>
 	<key>NSAppleEventsUsageDescription</key>
