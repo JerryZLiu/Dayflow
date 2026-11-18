@@ -130,6 +130,12 @@ open Dayflow/Dayflow.xcodeproj
 
 Select the Dayflow scheme in Xcode and run it.
 
+## Community Ports
+
+Unofficial ports maintained by the community, not by the Dayflow team:
+
+- **Windows** — [dayflow-windows](https://github.com/shawkatdidar/dayflow-windows): an Electron port with multi-monitor capture and the same provider philosophy (Claude Code CLI, OpenAI-compatible endpoints, local models via Ollama/LM Studio).
+
 ## Contributing
 
 Issues and pull requests are welcome. If you are planning a larger change, open an issue first so the scope is clear.
