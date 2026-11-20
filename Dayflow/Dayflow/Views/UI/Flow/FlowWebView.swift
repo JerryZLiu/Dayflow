@@ -180,12 +180,17 @@ struct FlowWebView: NSViewRepresentable {
         // waiting on an in-flight tick).
         let timeline = FlowSessionTimeline.shared
         timeline.finish()
-        reply(
-          id: id,
-          payload: [
-            "activities": timeline.bridgePayload,
-            "file": timeline.fileURL.path,
-          ])
+        var payload: [String: Any] = [
+          "activities": timeline.bridgePayload,
+          "file": timeline.fileURL.path,
+        ]
+        // Why part of the session went unwatched, when the agent's checks
+        // failed: a sentence for a session it never saw, a few words for the
+        // "Not watched" rows of one it saw part of.
+        let agent = FlowDistractionAgent.shared
+        if let problem = agent.watchProblem() { payload["problem"] = problem }
+        if let reason = agent.awayReason() { payload["away_reason"] = reason }
+        reply(id: id, payload: payload)
 
       case "getWeeklyFocus":
         // The paywall shows last week's focus heat map. The page draws it
