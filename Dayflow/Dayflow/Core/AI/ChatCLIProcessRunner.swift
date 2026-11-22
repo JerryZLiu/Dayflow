@@ -343,26 +343,36 @@ struct ChatCLIProcessRunner {
     processEnvironment["CODEX_HOME"] == nil
   }
 
-  /// Whether `codex exec [resume] --help` lists `--ignore-user-config`.
-  /// Cached per executable + subcommand: this is asked on every tick.
-  private nonisolated(unsafe) static var ignoreUserConfigSupport: [String: Bool] = [:]
-  private static let ignoreUserConfigSupportLock = NSLock()
+  /// `codex exec [resume] --help` output, cached per executable + subcommand: this is asked
+  /// on every tick. Optional flags are only passed when the help lists them, because an
+  /// unknown flag makes an older Codex reject the whole call.
+  private nonisolated(unsafe) static var codexExecHelpCache: [String: String] = [:]
+  private static let codexExecHelpCacheLock = NSLock()
 
-  static func codexSupportsIgnoringUserConfig(executableCommand: String, resuming: Bool) -> Bool {
-    let key = "\(executableCommand)\(resuming ? " resume" : "")"
-    ignoreUserConfigSupportLock.lock()
-    if let cached = ignoreUserConfigSupport[key] {
-      ignoreUserConfigSupportLock.unlock()
+  private static func codexExecHelpText(executableCommand: String, resuming: Bool) -> String {
+    let helpCommand = "\(executableCommand) exec\(resuming ? " resume" : "") --help"
+    codexExecHelpCacheLock.lock()
+    if let cached = codexExecHelpCache[helpCommand] {
+      codexExecHelpCacheLock.unlock()
       return cached
     }
-    ignoreUserConfigSupportLock.unlock()
-    let helpCommand = "\(executableCommand) exec\(resuming ? " resume" : "") --help"
-    let supported = LoginShellRunner.run(helpCommand, timeout: 10)
-      .stdout.contains("--ignore-user-config")
-    ignoreUserConfigSupportLock.lock()
-    ignoreUserConfigSupport[key] = supported
-    ignoreUserConfigSupportLock.unlock()
-    return supported
+    codexExecHelpCacheLock.unlock()
+    let helpText = LoginShellRunner.run(helpCommand, timeout: 10).stdout
+    codexExecHelpCacheLock.lock()
+    codexExecHelpCache[helpCommand] = helpText
+    codexExecHelpCacheLock.unlock()
+    return helpText
+  }
+
+  static func codexSupportsIgnoringUserConfig(executableCommand: String, resuming: Bool) -> Bool {
+    codexExecHelpText(executableCommand: executableCommand, resuming: resuming)
+      .contains("--ignore-user-config")
+  }
+
+  /// Whether `codex exec` can run without saving a session file (`--ephemeral`).
+  static func codexSupportsEphemeral(executableCommand: String) -> Bool {
+    codexExecHelpText(executableCommand: executableCommand, resuming: false)
+      .contains("--ephemeral")
   }
 
   /// Claude flags Dayflow can safely leave off when the installed Claude CLI is too old to
@@ -714,6 +724,11 @@ struct ChatCLIProcessRunner {
     var cmdParts: [String] = [executableCommand]
     switch tool {
     case .codex:
+      // Streaming runs are saved as Codex sessions because callers resume them (chat, card
+      // corrections, Flow). Codex keeps every saved session in ~/.codex/sessions forever,
+      // attached images included, so a caller whose session holds screenshots must delete
+      // it with CodexSessionCleanup once nothing will resume it, as Flow does when it stops.
+      // One-off runs go through `run`, which doesn't save them at all (see `--ephemeral`).
       if let sessionId = sessionId {
         cmdParts.append(contentsOf: [
           "exec", "resume", sessionId, "--skip-git-repo-check", "--json",
@@ -1585,6 +1600,17 @@ struct ChatCLIProcessRunner {
       } else {
         // JSON events are the only place Codex reports input and output tokens separately.
         cmdParts.append(contentsOf: ["exec", "--skip-git-repo-check", "--json"])
+        // Don't let Codex save this run. Codex writes every session it runs to
+        // ~/.codex/sessions with each attached image stored inline as base64, and never
+        // deletes them. Without this flag every timeline batch left a file of several MB
+        // there, and users found gigabytes of their screenshots that outlived Dayflow's own
+        // recordings (reported against 2.9.5: 247 files, 1.4 GB in five days). Nothing
+        // resumes these runs (this function doesn't return the thread id), so nothing is
+        // lost. Any Codex run that does get resumed must delete its session file once it's
+        // done instead, with CodexSessionCleanup.
+        if Self.codexSupportsEphemeral(executableCommand: executableCommand) {
+          cmdParts.append("--ephemeral")
+        }
       }
       if let model = model { cmdParts.append(contentsOf: ["-m", model]) }
       if let effort = reasoningEffort {
