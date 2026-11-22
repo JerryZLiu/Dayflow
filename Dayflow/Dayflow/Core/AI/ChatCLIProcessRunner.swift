@@ -652,14 +652,19 @@ struct ChatCLIProcessRunner {
   /// Run a streaming command, yielding events as JSONL lines arrive
   /// Waits for the process to exit. Gives up early, reporting a timeout so the caller stops
   /// the process, when the batch was cancelled because the Mac is going to sleep.
+  ///
+  /// The timeout counts awake time only. DispatchTime stops while the Mac sleeps, so a run
+  /// started just before the lid closes isn't killed the moment the Mac wakes. A wall-clock
+  /// deadline did that to most Daily brief "took longer than 20 minutes" failures.
   private static func waitForExit(
     _ semaphore: DispatchSemaphore, timeoutSeconds: TimeInterval
   ) -> DispatchTimeoutResult {
-    let deadline = Date().addingTimeInterval(timeoutSeconds)
+    let deadline = DispatchTime.now() + timeoutSeconds
     while true {
-      let remaining = deadline.timeIntervalSinceNow
-      guard remaining > 0, !Task.isCancelled else { return .timedOut }
-      if semaphore.wait(timeout: .now() + min(1, remaining)) == .success { return .success }
+      let now = DispatchTime.now()
+      guard now < deadline, !Task.isCancelled else { return .timedOut }
+      let remaining = Double(deadline.uptimeNanoseconds - now.uptimeNanoseconds) / 1_000_000_000
+      if semaphore.wait(timeout: now + min(1, remaining)) == .success { return .success }
     }
   }
 
