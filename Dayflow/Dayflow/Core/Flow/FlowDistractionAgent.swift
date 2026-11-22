@@ -455,10 +455,10 @@ final class FlowDistractionAgent: ObservableObject {
     tickTimer?.invalidate()
     tickTimer = nil
     tickInFlight = false
-    // Claude keeps the conversation (screenshots included) in its own session
-    // file; nothing of a Flow session should outlive it.
-    if engine == .claude, let id = conversationId {
-      Task.detached(priority: .utility) { ClaudeSessionCleanup(sessionID: id).cleanup() }
+    // Codex and Claude keep the conversation (screenshots included) in their own
+    // session file; nothing of a Flow session should outlive it.
+    if let id = conversationId {
+      Self.removeSessionFile(engine: engine, sessionId: id)
     }
     conversationId = nil
     backendBriefing = ""
@@ -730,11 +730,9 @@ final class FlowDistractionAgent: ObservableObject {
           captureDisplay: capturedDisplay)
       }
       // The session ended (or was re-briefed) while this turn ran, after its
-      // Claude session file was already removed: the turn wrote it back.
-      if engine == .claude {
-        let stale = await MainActor.run { FlowDistractionAgent.shared.generation != gen }
-        if stale { ClaudeSessionCleanup(sessionID: sessionId).cleanup() }
-      }
+      // session file was already removed: the turn may have written it back.
+      let stale = await MainActor.run { FlowDistractionAgent.shared.generation != gen }
+      if stale { Self.removeSessionFile(engine: engine, sessionId: sessionId) }
     }
   }
 
@@ -1496,6 +1494,19 @@ final class FlowDistractionAgent: ObservableObject {
   }
 
   // MARK: - Cleanup
+
+  /// Deletes the CLI's saved conversation, which holds every screenshot sent this
+  /// session. Dayflow Pro keeps nothing, so there's nothing to delete for it.
+  private nonisolated static func removeSessionFile(engine: Engine, sessionId: String) {
+    switch engine {
+    case .codex:
+      Task.detached(priority: .utility) { CodexSessionCleanup(threadID: sessionId).cleanup() }
+    case .claude:
+      Task.detached(priority: .utility) { ClaudeSessionCleanup(sessionID: sessionId).cleanup() }
+    case .dayflow:
+      break
+    }
+  }
 
   private func cleanupWorkDirectory() {
     if let directory = workDirectory {
