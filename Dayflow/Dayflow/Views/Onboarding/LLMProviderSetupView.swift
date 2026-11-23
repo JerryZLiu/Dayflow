@@ -447,6 +447,7 @@ struct LLMProviderSetupView: View {
                 VStack(alignment: .leading, spacing: 12) {
                   Picker("Endpoint", selection: $setupState.openAICompatiblePreset) {
                     Text("OpenRouter").tag(OpenAICompatiblePreset.openRouter)
+                    Text("Requesty").tag(OpenAICompatiblePreset.requesty)
                     Text("Custom").tag(OpenAICompatiblePreset.custom)
                   }
                   .pickerStyle(.segmented)
@@ -455,6 +456,9 @@ struct LLMProviderSetupView: View {
                     if preset == .openRouter {
                       setupState.openAICompatibleBaseURL =
                         OpenAICompatibleConfiguration.openRouterBaseURL
+                    } else if preset == .requesty {
+                      setupState.openAICompatibleBaseURL =
+                        OpenAICompatibleConfiguration.requestyBaseURL
                     }
                     setupState.hasTestedConnection = false
                     setupState.testSuccessful = false
@@ -467,7 +471,8 @@ struct LLMProviderSetupView: View {
                     engine: .custom,
                     buttonLabel: String(localized: "Test endpoint"),
                     basePlaceholder: OpenAICompatibleConfiguration.openRouterBaseURL,
-                    modelPlaceholder: "openai/gpt-5.6-sol",
+                    modelPlaceholder: setupState.openAICompatiblePreset == .requesty
+                      ? "google/gemini-3.5-flash" : "openai/gpt-5.6-sol",
                     credentialStorageDescription:
                       String(
                         localized:
