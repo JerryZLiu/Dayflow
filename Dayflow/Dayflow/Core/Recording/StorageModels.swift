@@ -78,6 +78,11 @@ struct TimelineCard: Codable, Sendable, Identifiable {
   let otherVideoSummaryURLs: [String]?  // For merged cards, subsequent video URLs
   let appSites: AppSites?
   let isBackupGenerated: Bool?
+  /// The real start and end moments. Nil only for cards built outside the database.
+  var startTs: Int? = nil
+  var endTs: Int? = nil
+  /// Seconds east of UTC in the zone the card was recorded in. Nil when unknown.
+  var utcOffset: Int? = nil
 
   init(
     id: UUID = UUID(),
@@ -95,8 +100,14 @@ struct TimelineCard: Codable, Sendable, Identifiable {
     videoSummaryURL: String?,
     otherVideoSummaryURLs: [String]?,
     appSites: AppSites?,
-    isBackupGenerated: Bool? = nil
+    isBackupGenerated: Bool? = nil,
+    startTs: Int? = nil,
+    endTs: Int? = nil,
+    utcOffset: Int? = nil
   ) {
+    self.startTs = startTs
+    self.endTs = endTs
+    self.utcOffset = utcOffset
     self.id = id
     self.recordId = recordId
     self.batchId = batchId

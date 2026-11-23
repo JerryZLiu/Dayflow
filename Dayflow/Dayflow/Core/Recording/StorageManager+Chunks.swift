@@ -79,8 +79,9 @@ extension StorageManager {
     var batchID: Int64 = 0
     try? timedWrite("saveBatch(\(chunkIds.count)_chunks)") { db in
       try db.execute(
-        sql: "INSERT INTO analysis_batches(batch_start_ts, batch_end_ts) VALUES (?, ?)",
-        arguments: [startTs, endTs])
+        sql:
+          "INSERT INTO analysis_batches(batch_start_ts, batch_end_ts, time_zone) VALUES (?, ?, ?)",
+        arguments: [startTs, endTs, Calendar.current.timeZone.identifier])
       batchID = db.lastInsertedRowID
       for id in chunkIds {
         try db.execute(

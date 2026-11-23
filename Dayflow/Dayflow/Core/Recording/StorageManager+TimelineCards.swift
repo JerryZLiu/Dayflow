@@ -322,9 +322,9 @@ extension StorageManager {
         sql: """
               INSERT INTO timeline_cards(
                   batch_id, start, end, start_ts, end_ts, day, title,
-                  summary, category, subcategory, detailed_summary, metadata
+                  summary, category, subcategory, detailed_summary, metadata, utc_offset
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           """,
         arguments: [
           nil,  // batch_id is NULL for onboarding card
@@ -339,6 +339,7 @@ extension StorageManager {
           "Setup",
           "",  // detailed_summary - empty string (not NULL, as GRDB decode expects non-optional)
           metadataString,
+          Calendar.current.timeZone.secondsFromGMT(for: startTime),
         ])
     }
   }
@@ -573,47 +574,79 @@ extension StorageManager {
               ORDER BY start_ts ASC
           """, arguments: [toTs, fromTs, fromTs, toTs]
       )
-      .map { row in
-        // Decode metadata JSON (supports object or legacy array)
-        var distractions: [Distraction]? = nil
-        var appSites: AppSites? = nil
-        var isBackupGenerated: Bool? = nil
-        if let metadataString: String = row["metadata"],
-          let jsonData = metadataString.data(using: .utf8)
-        {
-          if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
-            distractions = meta.distractions
-            appSites = meta.appSites
-            isBackupGenerated = meta.isBackupGenerated
-          } else if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
-            distractions = legacy
-          }
-        }
+      .map { timelineCard(from: $0, decoder: decoder) }
+    }
+    return cards ?? []
+  }
 
-        // Create TimelineCard instance using renamed columns.
-        // subcategory/summary/detailed_summary are nullable in the schema —
-        // decode NULL as "" because the model fields are non-optional and would trap.
-        return TimelineCard(
-          recordId: row["id"],
-          batchId: row["batch_id"],
-          startTimestamp: row["start"] ?? "",
-          endTimestamp: row["end"] ?? "",
-          category: row["category"],
-          subcategory: row["subcategory"] ?? "",
-          title: row["title"],
-          summary: row["summary"] ?? "",
-          detailedSummary: row["detailed_summary"] ?? "",
-          day: row["day"],
-          distractions: distractions,
-          videoSummaryURL: row["video_summary_url"],
-          otherVideoSummaryURLs: nil,
-          appSites: appSites,
-          isBackupGenerated: isBackupGenerated
-        )
+  /// Builds a card from a `timeline_cards` row.
+  private func timelineCard(from row: Row, decoder: JSONDecoder) -> TimelineCard {
+    // Decode metadata JSON (supports object or legacy array)
+    var distractions: [Distraction]? = nil
+    var appSites: AppSites? = nil
+    var isBackupGenerated: Bool? = nil
+    if let metadataString: String = row["metadata"],
+      let jsonData = metadataString.data(using: .utf8)
+    {
+      if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
+        distractions = meta.distractions
+        appSites = meta.appSites
+        isBackupGenerated = meta.isBackupGenerated
+      } else if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
+        distractions = legacy
       }
     }
-    let result = cards ?? []
-    return result
+
+    // subcategory/summary/detailed_summary are nullable in the schema —
+    // decode NULL as "" because the model fields are non-optional and would trap.
+    return TimelineCard(
+      recordId: row["id"],
+      batchId: row["batch_id"],
+      startTimestamp: row["start"] ?? "",
+      endTimestamp: row["end"] ?? "",
+      category: row["category"],
+      subcategory: row["subcategory"] ?? "",
+      title: row["title"],
+      summary: row["summary"] ?? "",
+      detailedSummary: row["detailed_summary"] ?? "",
+      day: row["day"],
+      distractions: distractions,
+      videoSummaryURL: row["video_summary_url"],
+      otherVideoSummaryURLs: nil,
+      appSites: appSites,
+      isBackupGenerated: isBackupGenerated,
+      startTs: row["start_ts"],
+      endTs: row["end_ts"],
+      utcOffset: row["utc_offset"]
+    )
+  }
+
+  /// The zone a batch was recorded in. Batches saved before zones were stored fall back to the
+  /// offset of their own earlier cards, then to the Mac's current zone.
+  private func recordedTimeZone(forBatch batchId: Int64?, db: Database) throws -> TimeZone {
+    let currentZone = Calendar.current.timeZone
+    guard let batchId else { return currentZone }
+
+    if let identifier = try String.fetchOne(
+      db, sql: "SELECT time_zone FROM analysis_batches WHERE id = ?", arguments: [batchId]),
+      let zone = TimeZone(identifier: identifier)
+    {
+      return zone
+    }
+
+    if let offset = try Int.fetchOne(
+      db,
+      sql: """
+            SELECT utc_offset FROM timeline_cards
+            WHERE batch_id = ? AND utc_offset IS NOT NULL
+            ORDER BY id DESC LIMIT 1
+        """, arguments: [batchId]),
+      let zone = TimeZone(secondsFromGMT: offset)
+    {
+      return zone
+    }
+
+    return currentZone
   }
 
   func hasTimelineCardConnected(
@@ -917,11 +950,15 @@ extension StorageManager {
       String(data: $0, encoding: .utf8)
     }
     let startDate = Date(timeIntervalSince1970: TimeInterval(startTs))
-    let (dayString, _, _) = startDate.getDayInfoFor4AMBoundary()
+    let endDate = Date(timeIntervalSince1970: TimeInterval(endTs))
 
     var cardId: Int64?
     var videoPaths: [String] = []
     try? timedWrite("saveIdleBatchCard") { db in
+      let recordedZone = try recordedTimeZone(forBatch: batchId, db: db)
+      let (dayString, _, _) = startDate.getDayInfoFor4AMBoundary(
+        in: ClockTime.calendar(in: recordedZone))
+
       videoPaths = try String.fetchAll(
         db,
         sql: """
@@ -933,26 +970,40 @@ extension StorageManager {
         arguments: [batchId])
 
       if let extendingCardId {
+        // Label the new end in the zone the extended card was recorded in.
+        let extendedBatchId = try Int64.fetchOne(
+          db, sql: "SELECT batch_id FROM timeline_cards WHERE id = ?",
+          arguments: [extendingCardId])
+        let extendedZone =
+          extendedBatchId == nil
+          ? recordedZone : try recordedTimeZone(forBatch: extendedBatchId, db: db)
         try db.execute(
           sql: """
                 UPDATE timeline_cards
                 SET end = ?, end_ts = ?, metadata = ?
                 WHERE id = ? AND is_deleted = 0
             """,
-          arguments: [card.endTimestamp, endTs, metadataString, extendingCardId])
+          arguments: [
+            ClockTime.label(for: endDate, in: extendedZone), endTs, metadataString,
+            extendingCardId,
+          ])
         cardId = db.changesCount > 0 ? extendingCardId : nil
       } else {
         try db.execute(
           sql: """
                 INSERT INTO timeline_cards(
                     batch_id, start, end, start_ts, end_ts, day, title,
-                    summary, category, subcategory, detailed_summary, metadata
+                    summary, category, subcategory, detailed_summary, metadata, utc_offset
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
           arguments: [
-            batchId, card.startTimestamp, card.endTimestamp, startTs, endTs, dayString, card.title,
+            batchId,
+            ClockTime.label(for: startDate, in: recordedZone),
+            ClockTime.label(for: endDate, in: recordedZone),
+            startTs, endTs, dayString, card.title,
             card.summary, card.category, card.subcategory, card.detailedSummary, metadataString,
+            recordedZone.secondsFromGMT(for: startDate),
           ])
         cardId = db.lastInsertedRowID
       }
@@ -986,11 +1037,6 @@ extension StorageManager {
     let encoder = JSONEncoder()
     var insertedIds: [Int64] = []
     var videoPaths: [String] = []
-
-    // Setup date formatter for parsing clock times
-    let timeFormatter = DateFormatter()
-    timeFormatter.dateFormat = "h:mm a"
-    timeFormatter.locale = Locale(identifier: "en_US_POSIX")
 
     try? timedWrite("replaceTimelineCardsInRange(\(newCards.count)_cards)") { db in
       // First, fetch the video paths that will be soft-deleted
@@ -1056,6 +1102,13 @@ extension StorageManager {
       } else {
       }
 
+      // The model was given clock times in the Mac's current zone, so its answer is read in that
+      // zone. What's stored (labels, day, offset) uses the zone the batch was recorded in.
+      let processingCalendar = Calendar.current
+      let anchor = from.addingTimeInterval(to.timeIntervalSince(from) / 2.0)
+      let recordedZone = try recordedTimeZone(forBatch: batchId, db: db)
+      let recordedCalendar = ClockTime.calendar(in: recordedZone)
+
       // Insert new cards
       for card in newCards {
         // Encode metadata object with distractions and appSites
@@ -1069,68 +1122,40 @@ extension StorageManager {
           String(data: $0, encoding: .utf8)
         }
 
-        // Resolve clock-only timestamps by picking the nearest day to the window midpoint
-        let calendar = Calendar.current
-        let anchor = from.addingTimeInterval(to.timeIntervalSince(from) / 2.0)
-
-        let resolveClock: (Int, Int) -> Date = { hour, minute in
-          guard
-            let sameDay = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: anchor)
-          else {
-            return anchor
-          }
-          let previousDay = calendar.date(byAdding: .day, value: -1, to: sameDay) ?? sameDay
-          let nextDay = calendar.date(byAdding: .day, value: 1, to: sameDay) ?? sameDay
-
-          let candidates = [previousDay, sameDay, nextDay]
-          return candidates.min { lhs, rhs in
-            abs(lhs.timeIntervalSince(anchor)) < abs(rhs.timeIntervalSince(anchor))
-          } ?? sameDay
-        }
-
-        guard let startTime = timeFormatter.date(from: card.startTimestamp),
-          let endTime = timeFormatter.date(from: card.endTimestamp)
+        // Resolve clock-only times to the moment nearest the window midpoint
+        guard let start = ClockTime.hourAndMinute(of: card.startTimestamp),
+          let end = ClockTime.hourAndMinute(of: card.endTimestamp),
+          let startDate = ClockTime.resolve(
+            hour: start.hour, minute: start.minute, nearest: anchor, calendar: processingCalendar),
+          // The end is the first moment at or after the start with that clock time, which also
+          // handles midnight and the repeated hour on the night clocks fall back.
+          let endDate = ClockTime.resolve(
+            hour: end.hour, minute: end.minute, onOrAfter: startDate, calendar: processingCalendar)
         else {
           continue
         }
 
-        let startComponents = calendar.dateComponents([.hour, .minute], from: startTime)
-        guard let startHour = startComponents.hour, let startMinute = startComponents.minute else {
-          continue
-        }
-
-        let startDate = resolveClock(startHour, startMinute)
-
         let startTs = Int(startDate.timeIntervalSince1970)
-
-        let endComponents = calendar.dateComponents([.hour, .minute], from: endTime)
-        guard let endHour = endComponents.hour, let endMinute = endComponents.minute else {
-          continue
-        }
-
-        var endDate = resolveClock(endHour, endMinute)
-
-        // Handle midnight crossing: if end time is before start time, it must be the next day
-        if endDate < startDate {
-          endDate = calendar.date(byAdding: .day, value: 1, to: endDate) ?? endDate
-        }
-
         let endTs = Int(endDate.timeIntervalSince1970)
 
         // Calculate the day string using 4 AM boundary rules
-        let (dayString, _, _) = startDate.getDayInfoFor4AMBoundary()
+        let (dayString, _, _) = startDate.getDayInfoFor4AMBoundary(in: recordedCalendar)
 
         try db.execute(
           sql: """
                 INSERT INTO timeline_cards(
                     batch_id, start, end, start_ts, end_ts, day, title,
-                    summary, category, subcategory, detailed_summary, metadata
+                    summary, category, subcategory, detailed_summary, metadata, utc_offset
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
           arguments: [
-            batchId, card.startTimestamp, card.endTimestamp, startTs, endTs, dayString, card.title,
+            batchId,
+            ClockTime.label(for: startDate, in: recordedZone),
+            ClockTime.label(for: endDate, in: recordedZone),
+            startTs, endTs, dayString, card.title,
             card.summary, card.category, card.subcategory, card.detailedSummary, metadataString,
+            recordedZone.secondsFromGMT(for: startDate),
           ])
 
         // Capture the ID of the inserted card

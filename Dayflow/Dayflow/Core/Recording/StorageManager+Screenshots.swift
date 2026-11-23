@@ -123,9 +123,9 @@ extension StorageManager {
     try? timedWrite("saveBatchWithScreenshots(\(screenshotIds.count))") { db in
       try db.execute(
         sql: """
-              INSERT INTO analysis_batches(batch_start_ts, batch_end_ts)
-              VALUES (?, ?)
-          """, arguments: [startTs, endTs])
+              INSERT INTO analysis_batches(batch_start_ts, batch_end_ts, time_zone)
+              VALUES (?, ?, ?)
+          """, arguments: [startTs, endTs, Calendar.current.timeZone.identifier])
       batchId = db.lastInsertedRowID
 
       for id in screenshotIds {
