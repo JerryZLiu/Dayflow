@@ -121,7 +121,7 @@ struct WeeklyWorkflowSection: View {
   @ViewBuilder
   private var gridViewport: some View {
     if usesScrollContainers {
-      ScrollView(.horizontal, showsIndicators: false) {
+      ScrollView(.horizontal, showsIndicators: true) {
         gridAndAxis
       }
       .scrollBounceBehavior(.basedOnSize, axes: .horizontal)

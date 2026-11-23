@@ -96,7 +96,7 @@ struct DailyWorkflowGrid: View {
           }
           .padding(.top, topInset)
 
-          ScrollView(.horizontal, showsIndicators: false) {
+          ScrollView(.horizontal, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 0) {
               VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: rowSpacing) {
@@ -250,8 +250,12 @@ struct DailyWorkflowGrid: View {
     let axisLabelSpacing: CGFloat = 5 * layoutScale
     let axisLabelHeight: CGFloat = 14 * layoutScale
     let bottomBuffer: CGFloat = 6 * layoutScale
+    // Overlay scroll bars float over the grid; always-visible ones need their own room.
+    let scrollBarHeight =
+      NSScroller.preferredScrollerStyle == .legacy
+      ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
     return topInset + rowsHeight + distractionHeight + axisTopSpacing + axisLineHeight
-      + axisLabelSpacing + axisLabelHeight + bottomBuffer
+      + axisLabelSpacing + axisLabelHeight + bottomBuffer + scrollBarHeight
   }
 
   private func fillColor(for row: DailyWorkflowGridRow, slotIndex: Int) -> Color {
