@@ -184,6 +184,7 @@ final class AgentPlaybackHost: NSObject, ObservableObject, WKNavigationDelegate,
   private var attemptStartedAt = ProcessInfo.processInfo.systemUptime
   private var requestedVersion = "latest"
   private var fallbackFromAttempt: String?
+  private var launchDay: String?
 
   /// How long the server and WebView stay loaded once the dashboard is off screen
   /// (another tab is selected, or the window is closed, minimized or fully covered).
@@ -269,10 +270,18 @@ final class AgentPlaybackHost: NSObject, ObservableObject, WKNavigationDelegate,
   var hasStarted: Bool { process != nil || error != nil }
 
   func startIfNeeded() {
-    if process == nil && error == nil { start() }
+    if process == nil && error == nil {
+      start()
+    } else if process != nil && launchDay != Date().getDayInfoFor4AMBoundary().dayString {
+      // Dayflow can run for days, but the server scans today only at startup and the
+      // page keeps the day it loaded. Relaunch after the 4 AM rollover so today is
+      // rescanned and a newer AgentPlayback release is picked up.
+      start()
+    }
   }
 
   func start() {
+    launchDay = Date().getDayInfoFor4AMBoundary().dayString
     fallbackFromAttempt = nil
     launch(version: "latest", offline: false)
   }
