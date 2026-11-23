@@ -3,29 +3,9 @@ import GRDB
 import Sentry
 
 extension StorageManager {
-  /// Check whether a day meets the requested timeline activity threshold.
+  /// Check whether a day meets the requested timeline activity threshold. Uses the stored day,
+  /// like `fetchTimelineCards(forDay:)`, so a day recorded in another zone counts its own cards.
   func hasMinimumTimelineActivity(forDay day: String, minimumMinutes: Int = 60) -> Bool {
-    guard let dayDate = dateFormatter.date(from: day) else { return false }
-
-    let calendar = Calendar.current
-
-    // Get 4 AM boundaries
-    var startComponents = calendar.dateComponents([.year, .month, .day], from: dayDate)
-    startComponents.hour = 4
-    startComponents.minute = 0
-    startComponents.second = 0
-    guard let dayStart = calendar.date(from: startComponents) else { return false }
-
-    guard let nextDay = calendar.date(byAdding: .day, value: 1, to: dayDate) else { return false }
-    var endComponents = calendar.dateComponents([.year, .month, .day], from: nextDay)
-    endComponents.hour = 4
-    endComponents.minute = 0
-    endComponents.second = 0
-    guard let dayEnd = calendar.date(from: endComponents) else { return false }
-
-    let startTs = Int(dayStart.timeIntervalSince1970)
-    let endTs = Int(dayEnd.timeIntervalSince1970)
-
     // Sum total duration of timeline cards for the day
     let totalMinutes: Int? = try? timedRead("hasMinimumTimelineActivity") { db in
       // Calculate sum of (end_ts - start_ts) for all cards, converted to minutes
@@ -34,9 +14,9 @@ extension StorageManager {
         sql: """
               SELECT COALESCE(SUM(end_ts - start_ts), 0) / 60 as total_minutes
               FROM timeline_cards
-              WHERE start_ts >= ? AND start_ts < ?
+              WHERE day = ?
                 AND is_deleted = 0
-          """, arguments: [startTs, endTs])
+          """, arguments: [day])
       return result
     }
 
@@ -397,41 +377,7 @@ extension StorageManager {
                   AND is_deleted = 0
                 ORDER BY start ASC
             """, arguments: [batchId]
-        ).map { row in
-          var distractions: [Distraction]? = nil
-          var appSites: AppSites? = nil
-          var isBackupGenerated: Bool? = nil
-          if let metadataString: String = row["metadata"],
-            let jsonData = metadataString.data(using: .utf8)
-          {
-            if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
-              distractions = meta.distractions
-              appSites = meta.appSites
-              isBackupGenerated = meta.isBackupGenerated
-            } else if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
-              distractions = legacy
-            }
-          }
-          // subcategory/summary/detailed_summary are nullable in the schema —
-          // decode NULL as "" because the model fields are non-optional and would trap.
-          return TimelineCard(
-            recordId: row["id"],
-            batchId: batchId,
-            startTimestamp: row["start"] ?? "",
-            endTimestamp: row["end"] ?? "",
-            category: row["category"],
-            subcategory: row["subcategory"] ?? "",
-            title: row["title"],
-            summary: row["summary"] ?? "",
-            detailedSummary: row["detailed_summary"] ?? "",
-            day: row["day"],
-            distractions: distractions,
-            videoSummaryURL: row["video_summary_url"],
-            otherVideoSummaryURLs: nil,
-            appSites: appSites,
-            isBackupGenerated: isBackupGenerated
-          )
-        }
+        ).map { timelineCard(from: $0, decoder: decoder) }
       }) ?? []
   }
 
@@ -474,81 +420,28 @@ extension StorageManager {
       }) ?? []
   }
 
+  /// Cards whose stored day is `day`. Each card's day was set in the zone it was recorded in,
+  /// so a day recorded in Tokyo stays together when viewed from San Francisco.
   func fetchTimelineCards(forDay day: String) -> [TimelineCard] {
+    fetchTimelineCards(fromDay: day, throughDay: day)
+  }
+
+  /// Cards whose stored day falls between the two day keys, both included.
+  func fetchTimelineCards(fromDay firstDay: String, throughDay lastDay: String) -> [TimelineCard] {
     let decoder = JSONDecoder()
-
-    guard let dayDate = dateFormatter.date(from: day) else {
-      return []
-    }
-
-    let calendar = Calendar.current
-
-    // Get 4 AM of the given day as the start
-    var startComponents = calendar.dateComponents([.year, .month, .day], from: dayDate)
-    startComponents.hour = 4
-    startComponents.minute = 0
-    startComponents.second = 0
-    guard let dayStart = calendar.date(from: startComponents) else { return [] }
-
-    // Get 4 AM of the next day as the end
-    guard let nextDay = calendar.date(byAdding: .day, value: 1, to: dayDate) else { return [] }
-    var endComponents = calendar.dateComponents([.year, .month, .day], from: nextDay)
-    endComponents.hour = 4
-    endComponents.minute = 0
-    endComponents.second = 0
-    guard let dayEnd = calendar.date(from: endComponents) else { return [] }
-
-    let startTs = Int(dayStart.timeIntervalSince1970)
-    let endTs = Int(dayEnd.timeIntervalSince1970)
-
-    let cards: [TimelineCard]? = try? timedRead("fetchTimelineCards(forDay:\(day))") { db in
+    let cards: [TimelineCard]? = try? timedRead(
+      "fetchTimelineCards(fromDay:\(firstDay),throughDay:\(lastDay))"
+    ) { db in
       try Row.fetchAll(
         db,
         sql: """
               SELECT * FROM timeline_cards
-              WHERE start_ts >= ? AND start_ts < ?
+              WHERE day >= ? AND day <= ?
                 AND is_deleted = 0
               ORDER BY start_ts ASC, start ASC
-          """, arguments: [startTs, endTs]
+          """, arguments: [firstDay, lastDay]
       )
-      .map { row in
-        // Decode metadata JSON (supports object or legacy array)
-        var distractions: [Distraction]? = nil
-        var appSites: AppSites? = nil
-        var isBackupGenerated: Bool? = nil
-        if let metadataString: String = row["metadata"],
-          let jsonData = metadataString.data(using: .utf8)
-        {
-          if let meta = try? decoder.decode(TimelineMetadata.self, from: jsonData) {
-            distractions = meta.distractions
-            appSites = meta.appSites
-            isBackupGenerated = meta.isBackupGenerated
-          } else if let legacy = try? decoder.decode([Distraction].self, from: jsonData) {
-            distractions = legacy
-          }
-        }
-
-        // Create TimelineCard instance using renamed columns.
-        // subcategory/summary/detailed_summary are nullable in the schema —
-        // decode NULL as "" because the model fields are non-optional and would trap.
-        return TimelineCard(
-          recordId: row["id"],
-          batchId: row["batch_id"],
-          startTimestamp: row["start"] ?? "",  // Use row["start"]
-          endTimestamp: row["end"] ?? "",  // Use row["end"]
-          category: row["category"],
-          subcategory: row["subcategory"] ?? "",
-          title: row["title"],
-          summary: row["summary"] ?? "",
-          detailedSummary: row["detailed_summary"] ?? "",
-          day: row["day"],
-          distractions: distractions,
-          videoSummaryURL: row["video_summary_url"],
-          otherVideoSummaryURLs: nil,
-          appSites: appSites,
-          isBackupGenerated: isBackupGenerated
-        )
-      }
+      .map { timelineCard(from: $0, decoder: decoder) }
     }
     return cards ?? []
   }
@@ -690,6 +583,25 @@ extension StorageManager {
               AND category != 'System'
           """,
         arguments: [startTs, endTs]
+      )
+    }
+
+    return (totalSeconds ?? 0) / 60.0
+  }
+
+  /// Minutes of tracked activity on a stored day, counted the same way as the time-range version.
+  func fetchTotalMinutesTracked(forDay day: String) -> Double {
+    let totalSeconds: Double? = try? timedRead("fetchTotalMinutesTracked(forDay:)") { db in
+      try Double.fetchOne(
+        db,
+        sql: """
+              SELECT COALESCE(SUM(end_ts - start_ts), 0)
+              FROM timeline_cards
+              WHERE day = ?
+              AND is_deleted = 0
+              AND category != 'System'
+          """,
+        arguments: [day]
       )
     }
 

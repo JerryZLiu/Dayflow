@@ -245,8 +245,8 @@ final class DailyBriefStore: ObservableObject {
   private static func latestSourceDay(before startOfDay: Date) -> String? {
     var day = previousDay(before: startOfDay)
     for _ in 0..<maxSourceDaysBack {
-      let recordedMinutes = StorageManager.shared.fetchTotalMinutesTracked(
-        from: day.startOfDay, to: day.endOfDay)
+      // By stored day, the same way the brief then fetches that day's cards.
+      let recordedMinutes = StorageManager.shared.fetchTotalMinutesTracked(forDay: day.dayString)
       if recordedMinutes >= minimumSourceMinutes { return day.dayString }
       day = previousDay(before: day.startOfDay)
     }

@@ -40,13 +40,6 @@ enum TimelineActivityLoader {
   private static let failedTitle = "Processing failed"
   private static let failureGroupingGapTolerance: TimeInterval = 60
 
-  private static let timeFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateFormat = "h:mm a"
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    return formatter
-  }()
-
   static func dayPayload(
     for selectedDate: Date,
     storageManager: StorageManaging = StorageManager.shared,
@@ -63,8 +56,11 @@ enum TimelineActivityLoader {
     in weekRange: TimelineWeekRange,
     storageManager: StorageManaging = StorageManager.shared
   ) -> [TimelineActivity] {
-    let cards = storageManager.fetchTimelineCardsByTimeRange(
-      from: weekRange.weekStart, to: weekRange.weekEnd)
+    // Fetch by stored day so each card lands in the column for the day it was recorded on.
+    guard let firstDay = weekRange.days.first?.dayString,
+      let lastDay = weekRange.days.last?.dayString
+    else { return [] }
+    let cards = storageManager.fetchTimelineCards(fromDay: firstDay, throughDay: lastDay)
     return buildActivities(from: displayableCards(cards, storageManager: storageManager))
   }
 
@@ -94,6 +90,7 @@ enum TimelineActivityLoader {
 
   static func buildActivities(from cards: [TimelineCard]) -> [TimelineActivity] {
     let calendar = Calendar.current
+    let dayOffsets = displayOffsetsByDay(cards)
     var results: [TimelineActivity] = []
     var idCounts: [String: Int] = [:]
     results.reserveCapacity(cards.count)
@@ -101,42 +98,33 @@ enum TimelineActivityLoader {
     for card in cards {
       guard
         let baseDay = DateFormatter.yyyyMMdd.date(from: card.day),
-        let parsedStart = timeFormatter.date(from: card.startTimestamp),
-        let parsedEnd = timeFormatter.date(from: card.endTimestamp)
+        let clocks = clockTimes(for: card, dayOffset: dayOffsets[card.day])
       else {
         continue
       }
 
       let baseDate = calendar.startOfDay(for: baseDay)
-      let startComponents = calendar.dateComponents([.hour, .minute], from: parsedStart)
-      let endComponents = calendar.dateComponents([.hour, .minute], from: parsedEnd)
+      // Times before 4 AM belong to the next calendar date. The date is picked before setting
+      // the time, so a 2:30 AM card isn't placed in the hour skipped on spring-forward day.
+      let nextDate = calendar.date(byAdding: .day, value: 1, to: baseDate) ?? baseDate
+      let startBase = clocks.start.hour < 4 ? nextDate : baseDate
+      let endBase = clocks.end.hour < 4 ? nextDate : baseDate
 
       guard
-        let startDate = calendar.date(
-          bySettingHour: startComponents.hour ?? 0,
-          minute: startComponents.minute ?? 0,
+        let adjustedStartDate = calendar.date(
+          bySettingHour: clocks.start.hour,
+          minute: clocks.start.minute,
           second: 0,
-          of: baseDate
+          of: startBase
         ),
-        let endDate = calendar.date(
-          bySettingHour: endComponents.hour ?? 0,
-          minute: endComponents.minute ?? 0,
+        var adjustedEndDate = calendar.date(
+          bySettingHour: clocks.end.hour,
+          minute: clocks.end.minute,
           second: 0,
-          of: baseDate
+          of: endBase
         )
       else {
         continue
-      }
-
-      var adjustedStartDate = startDate
-      var adjustedEndDate = endDate
-
-      if calendar.component(.hour, from: startDate) < 4 {
-        adjustedStartDate = calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
-      }
-
-      if calendar.component(.hour, from: endDate) < 4 {
-        adjustedEndDate = calendar.date(byAdding: .day, value: 1, to: endDate) ?? endDate
       }
 
       if adjustedEndDate < adjustedStartDate {
@@ -180,6 +168,50 @@ enum TimelineActivityLoader {
     }
 
     return results
+  }
+
+  /// The clock times a card is drawn at. Cards are drawn in the zone they were recorded in. On a
+  /// day recorded in more than one zone, cards more than an hour away from the day's main zone
+  /// are drawn in that main zone instead, so travel days don't overlap, as long as that keeps
+  /// them on the same day. A one-hour difference is a daylight saving change, which keeps its
+  /// own clock times.
+  static func clockTimes(for card: TimelineCard, dayOffset: Int?) -> (
+    start: (hour: Int, minute: Int), end: (hour: Int, minute: Int)
+  )? {
+    if let startTs = card.startTs, let endTs = card.endTs, let ownOffset = card.utcOffset,
+      let dayOffset, abs(ownOffset - dayOffset) > 3600,
+      ClockTime.logicalDay(of: startTs, offset: dayOffset) == card.day
+    {
+      return (clockTime(at: startTs, offset: dayOffset), clockTime(at: endTs, offset: dayOffset))
+    }
+
+    // Otherwise the stored labels, which are the clock times in the zone the card was recorded
+    // in, including across a daylight saving change inside the card.
+    guard let start = ClockTime.hourAndMinute(of: card.startTimestamp),
+      let end = ClockTime.hourAndMinute(of: card.endTimestamp)
+    else { return nil }
+    return (start, end)
+  }
+
+  /// For each day, the UTC offset that covers the most of that day's cards.
+  static func displayOffsetsByDay(_ cards: [TimelineCard]) -> [String: Int] {
+    var secondsByDayAndOffset: [String: [Int: Int]] = [:]
+    for card in cards {
+      guard let startTs = card.startTs, let endTs = card.endTs, let offset = card.utcOffset
+      else { continue }
+      secondsByDayAndOffset[card.day, default: [:]][offset, default: 0] += max(60, endTs - startTs)
+    }
+    return secondsByDayAndOffset.compactMapValues { seconds in
+      seconds.max { lhs, rhs in
+        lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value < rhs.value
+      }?.key
+    }
+  }
+
+  /// The hour and minute a clock shows at `timestamp` in a zone `offset` seconds east of UTC.
+  private static func clockTime(at timestamp: Int, offset: Int) -> (hour: Int, minute: Int) {
+    let secondsOfDay = ((timestamp + offset) % 86_400 + 86_400) % 86_400
+    return (secondsOfDay / 3600, secondsOfDay % 3600 / 60)
   }
 
   static func resolveDisplaySegments(from activities: [TimelineActivity])
