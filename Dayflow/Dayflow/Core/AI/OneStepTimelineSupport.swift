@@ -165,27 +165,17 @@ enum OneStepTimelineObservations {
     return (String(line[start]), String(line[end]), String(line[text]))
   }
 
-  /// Resolves an "h:mm AM" label to the epoch second nearest the batch, across midnight if needed.
+  /// Resolves an "h:mm AM" label to the epoch second nearest the batch, across midnight and
+  /// daylight saving changes if needed.
   static func timelineEpoch(
     forClock clock: String, nearest anchor: Int, calendar: Calendar = .current
   ) -> Int? {
-    let compact = clock.uppercased().filter { !$0.isWhitespace }
-    guard compact.count >= 5 else { return nil }
-    let meridiem = compact.suffix(2)
-    let parts = compact.dropLast(2).split(separator: ":")
-    guard parts.count == 2, let hour = Int(parts[0]), let minute = Int(parts[1]),
-      (1...12).contains(hour), (0...59).contains(minute), meridiem == "AM" || meridiem == "PM"
+    guard let clockTime = ClockTime.hourAndMinute(of: clock),
+      let date = ClockTime.resolve(
+        hour: clockTime.hour, minute: clockTime.minute,
+        nearest: Date(timeIntervalSince1970: TimeInterval(anchor)),
+        calendar: calendar)
     else { return nil }
-    let minutesOfDay = (hour % 12 + (meridiem == "PM" ? 12 : 0)) * 60 + minute
-
-    let anchorDate = Date(timeIntervalSince1970: TimeInterval(anchor))
-    let midnight = calendar.startOfDay(for: anchorDate)
-    let candidates = [-1, 0, 1].compactMap { dayOffset -> Int? in
-      guard let day = calendar.date(byAdding: .day, value: dayOffset, to: midnight),
-        let date = calendar.date(byAdding: .minute, value: minutesOfDay, to: day)
-      else { return nil }
-      return Int(date.timeIntervalSince1970)
-    }
-    return candidates.min { abs($0 - anchor) < abs($1 - anchor) }
+    return Int(date.timeIntervalSince1970)
   }
 }
