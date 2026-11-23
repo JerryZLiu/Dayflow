@@ -1,0 +1,75 @@
+name: Build Intel DMG
+
+on:
+  push:
+    branches:
+      - codex/intel-x86_64-macos14
+  workflow_dispatch:
+
+jobs:
+  build-intel:
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Confirm Xcode toolchain
+        run: |
+          uname -m
+          xcodebuild -version
+
+      - name: Build Intel app
+        run: |
+          xcodebuild \
+            -project Dayflow/Dayflow.xcodeproj \
+            -scheme Dayflow \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            ARCHS=x86_64 \
+            ONLY_ACTIVE_ARCH=YES \
+            build
+
+      - name: Verify, sign, and package
+        run: |
+          set -euo pipefail
+          APP="build/Build/Products/Release/Dayflow.app"
+          MAIN="$APP/Contents/MacOS/Dayflow"
+          test -d "$APP"
+          lipo "$MAIN" -verify_arch x86_64
+
+          while IFS= read -r -d '' binary; do
+            if file "$binary" | grep -q 'Mach-O'; then
+              echo "Checking $binary"
+              lipo "$binary" -verify_arch x86_64
+            fi
+          done < <(find "$APP/Contents" -type f -perm -111 -print0)
+
+          codesign --force --deep --sign - \
+            --entitlements Dayflow/Dayflow/Dayflow.entitlements \
+            "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          mkdir -p dist/dmg-root
+          ditto "$APP" "dist/dmg-root/Dayflow.app"
+          ln -s /Applications "dist/dmg-root/Applications"
+          hdiutil create \
+            -volname "Dayflow Intel" \
+            -srcfolder "dist/dmg-root" \
+            -ov \
+            -format UDZO \
+            "dist/Dayflow-2.1.1-Intel.dmg"
+          shasum -a 256 "dist/Dayflow-2.1.1-Intel.dmg" \
+            > "dist/Dayflow-2.1.1-Intel.dmg.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dayflow-2.1.1-Intel
+          path: |
+            dist/Dayflow-2.1.1-Intel.dmg
+            dist/Dayflow-2.1.1-Intel.dmg.sha256
+          if-no-files-found: error
+          retention-days: 30
