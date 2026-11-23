@@ -255,7 +255,6 @@ struct AppRootView: View {
   }
 }
 
-@main
 struct DayflowApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
   @AppStorage("didOnboard") private var didOnboard = false

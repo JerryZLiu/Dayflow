@@ -660,7 +660,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
       )
 
       // 4. Privacy Shield (Pro and Plus): pixelate secrets before the frame is stored anywhere.
-      let storedImage = await maskSecrets(in: image)
+      let storedImage = maskSecrets(in: image)
 
       // 5. Encode into the current HEVC segment and register in the database
       try appendFrame(
@@ -689,11 +689,12 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
   private var lastPrivacyShieldFailureReport: Date?
 
   /// Runs the Privacy Shield over a captured frame when it's on. If the shield can't check a frame, the
-  /// frame is replaced by the privacy card rather than stored with secrets possibly showing.
-  private func maskSecrets(in image: CGImage) async -> CGImage {
+  /// frame is stored as captured: a blank card in its place hid whole afternoons when Vision got stuck. The
+  /// helper restarts itself after repeated failures (see `PrivacyShieldHelper`).
+  private func maskSecrets(in image: CGImage) -> CGImage {
     guard let masker = PrivacyShieldMaskerBox.shared.current() else { return image }
     do {
-      return try masker.mask(image).image
+      return try masker.mask(image)
     } catch {
       dbg("🔒 Privacy Shield could not check a frame: \(error)")
       let now = Date()
@@ -702,20 +703,13 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         let nsError = error as NSError
         AnalyticsService.shared.capture(
           "privacy_shield_frame_failed",
-          ["error_domain": nsError.domain, "error_code": nsError.code])
+          [
+            "error_domain": nsError.domain,
+            "error_code": nsError.code,
+            "helper_restarts": masker.restartCount,
+          ])
       }
-      let placeholder = await MainActor.run {
-        RecordingPrivacyPlaceholder.image(
-          width: image.width,
-          height: image.height,
-          applicationName: String(localized: "This screen"),
-          detail: String(
-            localized:
-              "Privacy Shield couldn't check this screenshot, so it was saved without its contents."
-          )
-        )
-      }
-      return placeholder ?? image
+      return image
     }
   }
 

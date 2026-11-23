@@ -8,19 +8,22 @@ final class PrivacyShieldMaskerBox: @unchecked Sendable {
   static let shared = PrivacyShieldMaskerBox()
 
   private let lock = NSLock()
-  private var masker: PrivacyShieldFrameMasker?
+  private var masker: PrivacyShieldHelper?
 
   /// The masker to run on a captured frame, or nil when the shield shouldn't touch frames right now.
-  func current() -> PrivacyShieldFrameMasker? {
+  func current() -> PrivacyShieldHelper? {
     lock.lock()
     defer { lock.unlock() }
     return masker
   }
 
-  func set(_ newValue: PrivacyShieldFrameMasker?) {
+  /// Replacing or clearing the masker stops the old one's helper process.
+  func set(_ newValue: PrivacyShieldHelper?) {
     lock.lock()
+    let old = masker
     masker = newValue
     lock.unlock()
+    if old !== newValue { old?.stop() }
   }
 }
 
@@ -248,23 +251,25 @@ final class PrivacyShield: ObservableObject {
   private func prepare(id: UUID) async {
     let started = Date()
     do {
-      var masker: PrivacyShieldFrameMasker?
+      var masker: PrivacyShieldHelper?
       for attempt in 0..<2 where masker == nil {
         let version = try await installCurrentVersion(started: started)
         do {
+          // The helper process loads and warms up the models; this waits until it's ready.
           masker = try await Task.detached(priority: .utility) {
-            let loaded = try PrivacyShieldModelStore.loadMasker(version: version)
-            loaded.warmUp()
-            return loaded
+            try PrivacyShieldHelper.start(version: version)
           }.value
-        } catch {
+        } catch PrivacyShieldHelperError.modelLoadFailed {
           // A damaged install (or one that no longer loads after an OS update): start over once.
           PrivacyShieldModelStore.removeAll()
-          if attempt == 1 { throw error }
+          if attempt == 1 { throw PrivacyShieldHelperError.modelLoadFailed }
         }
         try Task.checkCancellation()
       }
-      guard id == prepareID, isEnabled, effectivelyEntitled, let masker else { return }
+      guard id == prepareID, isEnabled, effectivelyEntitled, let masker else {
+        masker?.stop()
+        return
+      }
       PrivacyShieldMaskerBox.shared.set(masker)
       status = .on
       prepareTask = nil

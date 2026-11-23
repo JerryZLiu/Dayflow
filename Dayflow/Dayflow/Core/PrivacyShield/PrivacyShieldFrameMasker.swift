@@ -3,44 +3,20 @@ import CryptoKit
 import Foundation
 import Vision
 
-/// Hides secrets in one captured frame: reads its text with Apple Vision, runs the privacy model and its rules,
-/// and pixelates every masked character range before the frame is stored. Everything stays on this Mac.
+/// Finds the secrets in one captured frame: reads its text with Apple Vision and runs the privacy model and its
+/// rules. It runs inside the Privacy Shield helper process (`PrivacyShieldHelper`), which the app restarts when
+/// Vision gets stuck; the app pixelates the boxes it returns. Everything stays on this Mac.
 ///
 /// The text reading matches `ocr_vision.py` in the Python lab (the same Vision settings as the rest of the app,
 /// boxes in pixels from the top-left, lines sorted top to bottom then left to right), because that is how the
 /// golden frames r38 was scored on were read.
 final class PrivacyShieldFrameMasker: @unchecked Sendable {
-  struct Result {
-    let image: CGImage
-    let maskedRegions: Int
-  }
-
   private let runner: PIIModelRunner
   private let rules: PIIMaskRules
-
-  /// The last frame's fingerprint and the boxes masked on it. About half of all captures are pixel-identical
-  /// to the one before, and those reuse the boxes instead of reading the text again.
-  private var lastFingerprint: Data?
-  private var lastRects: [CGRect] = []
 
   init(runner: PIIModelRunner, rules: PIIMaskRules) {
     self.runner = runner
     self.rules = rules
-  }
-
-  /// Not thread-safe: the recorder captures one frame at a time.
-  func mask(_ image: CGImage) throws -> Result {
-    let fingerprint = Self.fingerprint(of: image)
-    let rects: [CGRect]
-    if let fingerprint, fingerprint == lastFingerprint {
-      rects = lastRects
-    } else {
-      rects = try maskedRects(in: image)
-      lastFingerprint = fingerprint
-      lastRects = rects
-    }
-    guard !rects.isEmpty else { return Result(image: image, maskedRegions: 0) }
-    return Result(image: Self.pixelate(image, rects: rects) ?? image, maskedRegions: rects.count)
   }
 
   /// Loads Vision's text model and each Core ML model onto the Neural Engine before the first real frame.
@@ -71,7 +47,7 @@ final class PrivacyShieldFrameMasker: @unchecked Sendable {
   }
 
   /// Pixel rects (top-left origin) of every masked character run on the frame.
-  private func maskedRects(in image: CGImage) throws -> [CGRect] {
+  func maskedRects(in image: CGImage) throws -> [CGRect] {
     let recognized = try recognizeLines(in: image)
     guard !recognized.isEmpty else { return [] }
     let lines = recognized.map(\.line)
@@ -170,12 +146,13 @@ final class PrivacyShieldFrameMasker: @unchecked Sendable {
       width: (endShare - startShare) * lineBox.width / imageSize.0,
       height: lineBox.height / imageSize.1)
   }
+}
 
-  // MARK: - Pixelating
-
+/// Pixelating the boxes the helper found, in the app.
+enum PrivacyShieldPixelator {
   /// Pixelates each rect with blocks at least as tall as the text, so no character survives inside a block
   /// (fine pixelation of text can be partly undone by matching tools; blocks bigger than a glyph can't).
-  private static func pixelate(_ image: CGImage, rects: [CGRect]) -> CGImage? {
+  static func pixelate(_ image: CGImage, rects: [CGRect]) -> CGImage? {
     let width = image.width
     let height = image.height
     guard
@@ -215,7 +192,7 @@ final class PrivacyShieldFrameMasker: @unchecked Sendable {
 
   /// A SHA-256 of every pixel, to spot a frame identical to the last one. It has to be exact: a few typed
   /// characters change too few pixels for any thumbnail comparison to notice.
-  private static func fingerprint(of image: CGImage) -> Data? {
+  static func fingerprint(of image: CGImage) -> Data? {
     guard let data = image.dataProvider?.data as Data? else { return nil }
     return Data(SHA256.hash(data: data))
   }
