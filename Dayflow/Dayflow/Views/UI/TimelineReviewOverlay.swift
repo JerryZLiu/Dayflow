@@ -236,12 +236,6 @@ struct TimelineReviewOverlay: View {
         Text("All caught up!")
           .font(.custom("InstrumentSerif-Regular", size: 40))
           .foregroundColor(Color(hex: "333333"))
-        Text(
-          "You've reviewed all your activities so far.\nThe Timeline right panel will be updated with your rating."
-        )
-        .font(.custom("Figtree", size: 16).weight(.medium))
-        .foregroundColor(Color(hex: "333333"))
-        .multilineTextAlignment(.center)
       }
 
       TimelineReviewSummaryBars(summary: summary)
@@ -279,9 +273,6 @@ struct TimelineReviewOverlay: View {
       Text("Nothing to review yet")
         .font(.custom("InstrumentSerif-Regular", size: 28))
         .foregroundColor(Color(hex: "333333"))
-      Text("Come back after a few timeline cards appear.")
-        .font(.custom("Figtree", size: 14).weight(.medium))
-        .foregroundColor(Color(hex: "707070"))
     }
   }
 
@@ -544,30 +535,18 @@ struct TimelineReviewOverlay: View {
     isLoading = true
     let timelineDate = timelineDisplayDate(from: selectedDate)
     let dayInfo = timelineDate.getDayInfoFor4AMBoundary()
-    let dayString = dayInfo.dayString
     let dayStartTs = Int(dayInfo.startOfDay.timeIntervalSince1970)
     let dayEndTs = Int(dayInfo.endOfDay.timeIntervalSince1970)
     Task.detached(priority: .userInitiated) {
-      let cards = StorageManager.shared.fetchTimelineCards(forDay: dayString)
-      let activities = makeTimelineActivities(from: cards, for: timelineDate)
-        .filter {
-          $0.category.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(
-            "System") != .orderedSame
-        }
-        .sorted { $0.startTime < $1.startTime }
-      let ratingSegments = StorageManager.shared.fetchReviewRatingSegments(
-        overlapping: dayStartTs, endTs: dayEndTs)
+      let queue = TimelineReviewQueue.load(for: timelineDate)
       let summary = Self.makeRatingSummary(
-        segments: ratingSegments, dayStartTs: dayStartTs, dayEndTs: dayEndTs)
-      let reviewActivities = Self.filterUnreviewedActivities(
-        activities: activities, ratingSegments: ratingSegments, dayStartTs: dayStartTs,
-        dayEndTs: dayEndTs)
+        segments: queue.ratingSegments, dayStartTs: dayStartTs, dayEndTs: dayEndTs)
       await MainActor.run {
-        self.activities = reviewActivities
+        self.activities = queue.pendingActivities
         self.currentIndex = 0
         self.ratings = [:]
         self.isPointerOverSummary = false
-        self.hasAnyActivities = activities.isEmpty == false
+        self.hasAnyActivities = queue.hasEligibleActivities
         self.resetDragState()
         self.dayRatingSummary = summary
         self.isLoading = false
@@ -606,89 +585,6 @@ struct TimelineReviewOverlay: View {
       durationByRating[rating, default: 0] += TimeInterval(end - start)
     }
     return TimelineReviewSummary(durationByRating: durationByRating)
-  }
-
-  private struct CoverageSegment {
-    var start: Int
-    var end: Int
-  }
-
-  nonisolated private static func filterUnreviewedActivities(
-    activities: [TimelineActivity], ratingSegments: [TimelineReviewRatingSegment], dayStartTs: Int,
-    dayEndTs: Int
-  ) -> [TimelineActivity] {
-    guard ratingSegments.isEmpty == false else { return activities }
-    let mergedSegments = mergedCoverageSegments(
-      segments: ratingSegments, dayStartTs: dayStartTs, dayEndTs: dayEndTs)
-    guard mergedSegments.isEmpty == false else { return activities }
-
-    var unreviewed: [TimelineActivity] = []
-    var segmentIndex = 0
-
-    for activity in activities {
-      let start = Int(activity.startTime.timeIntervalSince1970)
-      let end = Int(activity.endTime.timeIntervalSince1970)
-      let duration = max(end - start, 1)
-      let covered = overlapSeconds(
-        start: start, end: end, segments: mergedSegments, segmentIndex: &segmentIndex)
-      let coverageRatio = Double(covered) / Double(duration)
-      if coverageRatio < 0.8 {
-        unreviewed.append(activity)
-      }
-    }
-    return unreviewed
-  }
-
-  nonisolated private static func mergedCoverageSegments(
-    segments: [TimelineReviewRatingSegment], dayStartTs: Int, dayEndTs: Int
-  ) -> [CoverageSegment] {
-    var clipped: [CoverageSegment] = []
-    clipped.reserveCapacity(segments.count)
-
-    for segment in segments {
-      let start = max(segment.startTs, dayStartTs)
-      let end = min(segment.endTs, dayEndTs)
-      if end > start { clipped.append(CoverageSegment(start: start, end: end)) }
-    }
-
-    guard clipped.isEmpty == false else { return [] }
-    clipped.sort { $0.start < $1.start }
-
-    var merged: [CoverageSegment] = [clipped[0]]
-    for segment in clipped.dropFirst() {
-      var last = merged[merged.count - 1]
-      if segment.start <= last.end {
-        last.end = max(last.end, segment.end)
-        merged[merged.count - 1] = last
-      } else {
-        merged.append(segment)
-      }
-    }
-    return merged
-  }
-
-  nonisolated private static func overlapSeconds(
-    start: Int, end: Int, segments: [CoverageSegment], segmentIndex: inout Int
-  ) -> Int {
-    guard end > start else { return 0 }
-    while segmentIndex < segments.count, segments[segmentIndex].end <= start {
-      segmentIndex += 1
-    }
-    var covered = 0
-    var index = segmentIndex
-    while index < segments.count, segments[index].start < end {
-      let overlapStart = max(start, segments[index].start)
-      let overlapEnd = min(end, segments[index].end)
-      if overlapEnd > overlapStart {
-        covered += overlapEnd - overlapStart
-      }
-      if segments[index].end <= end {
-        index += 1
-      } else {
-        break
-      }
-    }
-    return covered
   }
 }
 
