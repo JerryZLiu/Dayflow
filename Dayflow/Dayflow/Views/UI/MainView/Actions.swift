@@ -139,8 +139,7 @@ extension MainView {
 
     reviewCountTask = Task.detached(priority: .userInitiated) {
       let fetchStart = CFAbsoluteTimeGetCurrent()
-      let count = StorageManager.shared.fetchUnreviewedTimelineCardCount(
-        forDay: dayString, coverageThreshold: 0.8)
+      let count = TimelineReviewQueue.load(for: timelineDate).pendingActivities.count
       let hasAnyReviewRating = StorageManager.shared.hasAnyTimelineReviewRating()
       let hasRecentReviewRating = StorageManager.shared.hasReviewRatingInRecentTimelineDays(days: 7)
       let fetchMs = Int((CFAbsoluteTimeGetCurrent() - fetchStart) * 1000)

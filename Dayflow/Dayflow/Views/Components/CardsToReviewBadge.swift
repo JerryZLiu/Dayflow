@@ -116,6 +116,8 @@ struct CardsToReviewButton: View {
           }
         }, perform: {}
       )
+      .accessibilityAddTraits(.isButton)
+      .accessibilityAction { action() }
       .pointingHandCursorOnHover(reassertOnPressEnd: true)
   }
 }

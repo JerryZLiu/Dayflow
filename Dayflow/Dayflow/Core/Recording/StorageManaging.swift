@@ -55,7 +55,6 @@ protocol StorageManaging: Sendable {
   func applyReviewRating(startTs: Int, endTs: Int, rating: String)
   func hasAnyTimelineReviewRating() -> Bool
   func hasReviewRatingInRecentTimelineDays(days: Int) -> Bool
-  func fetchUnreviewedTimelineCardCount(forDay day: String, coverageThreshold: Double) -> Int
 
   // Daily goals
   func fetchDayGoalPlan(forDay day: String) -> DayGoalPlan?
